@@ -6,13 +6,12 @@ authors = [{ name = "Janek Sendrowski", email = "sendrowski.janek@gmail.com" }]
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 keywords = ["ancestral allele", "population genetics", "phylogenetics", "coalescent", "site frequency spectrum", "vcf"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -128,8 +127,8 @@ module = [
 ]
 ignore_errors = true
 
-[tool.coverage.run]
-# The numba-JIT kernels compile to machine code, so coverage.py cannot trace
-# inside their @njit functions. Excluded rather than reported as a misleading
-# low number for code that is exercised but not traceable.
-omit = ["ancestree/_jit_kernel.py", "ancestree/_smc_kernel.py"]
+[tool.coverage.report]
+# numba compiles @njit functions to machine code, so coverage.py cannot trace
+# inside them. Excluding the decorated function keeps the untraceable lines
+# out of the denominator without dropping the module's Python code.
+exclude_also = ["^\\s*@njit"]
