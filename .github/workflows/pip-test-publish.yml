@@ -7,11 +7,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The name ancestree belongs to an unrelated project on Test PyPI, so
-      # the test upload goes out under a different distribution name. The
-      # import name and everything else stay as on PyPI.
-      - name: Rename the distribution for Test PyPI
-        run: sed -i 's/^name = "ancestree"$/name = "ancestree-popgen"/' pyproject.toml && grep -n '^name = ' pyproject.toml
       - name: Build and publish to TestPyPI
         uses: JRubics/poetry-publish@v2.1
         with:

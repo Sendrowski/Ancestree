@@ -1,5 +1,5 @@
 [project]
-name = "ancestree"
+name = "ancestree-popgen"
 version = "0.1.0"
 description = "Ancestral allele annotation via Felsenstein likelihood on ARGs and fixed trees, with or without outgroups."
 authors = [{ name = "Janek Sendrowski", email = "sendrowski.janek@gmail.com" }]
@@ -33,11 +33,11 @@ dependencies = [
 
 # Optional backends, kept out of the core install so users who only need
 # the tskit path do not pay for them:
-#   pip install ancestree[vcf]       # CyVCF2Source + VCFWriter
-#   pip install ancestree[zarr]      # VcfZarrSource + ZarrWriter + bio2zarr templating
-#   pip install ancestree[maps]      # local-tree --recombination-map / --mutation-map
-#   pip install ancestree[plotting]  # ancestree.plotting, which draws the focal node
-#   pip install ancestree[all]       # everything
+#   pip install ancestree-popgen[vcf]       # CyVCF2Source + VCFWriter
+#   pip install ancestree-popgen[zarr]      # VcfZarrSource + ZarrWriter + bio2zarr templating
+#   pip install ancestree-popgen[maps]      # local-tree --recombination-map / --mutation-map
+#   pip install ancestree-popgen[plotting]  # ancestree.plotting, which draws the focal node
+#   pip install ancestree-popgen[all]       # everything
 # bio2zarr builds the VCZ template for to_zarr when the input is not already a
 # store, so a template is never required. It pulls zarr>=3.1 / numpy>=2, so it
 # rides in the zarr extra rather than core. The reader/writer still support

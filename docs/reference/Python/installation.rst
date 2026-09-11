@@ -6,25 +6,26 @@ Installation
 PyPI
 ^^^^
 
-To install the ``ancestree`` package via pip:
+The package is distributed on PyPI as ``ancestree-popgen`` and imports as
+``ancestree``:
 
 .. code-block:: bash
 
-   pip install ancestree
+   pip install ancestree-popgen
 
-``ancestree`` is compatible with Python 3.10 through 3.13.
+``ancestree`` is compatible with Python 3.11 through 3.13.
 
 Optional backends are lazy-imported on first use, so only the backends
 actually used need be installed. Select the matching extra:
 
 .. code-block:: bash
 
-   pip install "ancestree[vcf]"       # + cyvcf2 (read/write VCF / BCF)
-   pip install "ancestree[zarr]"      # + zarr + bio2zarr (read/write VCF Zarr / VCZ stores)
-   pip install "ancestree[newick]"    # + newick (parse species-tree Newicks)
-   pip install "ancestree[maps]"      # + msprime (--recombination-map / --mutation-map)
-   pip install "ancestree[plotting]"  # + matplotlib (ancestree.plotting)
-   pip install "ancestree[all]"       # all of the above
+   pip install "ancestree-popgen[vcf]"       # + cyvcf2 (read/write VCF / BCF)
+   pip install "ancestree-popgen[zarr]"      # + zarr + bio2zarr (read/write VCF Zarr / VCZ stores)
+   pip install "ancestree-popgen[newick]"    # + newick (parse species-tree Newicks)
+   pip install "ancestree-popgen[maps]"      # + msprime (--recombination-map / --mutation-map)
+   pip install "ancestree-popgen[plotting]"  # + matplotlib (ancestree.plotting)
+   pip install "ancestree-popgen[all]"       # all of the above
 
 Conda
 ^^^^^
