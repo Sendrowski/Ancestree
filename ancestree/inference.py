@@ -3828,10 +3828,10 @@ class FixedTreeInference(Inference):
         import numpy as np
 
         bc = self.base_composition
-        if bc is None or bc.n_total <= 0:
+        if bc is None or (bc.n_total <= 0 and not bc._pi_is_ascertained):
             return "none"
-        counts = np.asarray(list(bc.counts.values()), dtype=float)
-        return "uniform" if np.allclose(counts, counts.mean()) else "empirical"
+        pi = np.asarray(bc.pi, dtype=float)
+        return "uniform" if np.allclose(pi, 1.0 / pi.size) else "empirical"
 
     def _provenance_parameters(self) -> dict[str, object]:
         """Fixed-tree run parameters: model, prior, outgroups,

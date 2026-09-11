@@ -1133,10 +1133,10 @@ class SegmentEnsemble:
         cap = max(int(MAX_PATH_BYTES // per), 1)
         if member_chunk <= cap:
             return member_chunk
-        for c in range(min(cap, member_chunk), 0, -1):
-            if n_members % c == 0:
-                return c
-        return 1
+        c = min(cap, member_chunk)
+        while n_members % c:
+            c -= 1
+        return c
 
     def _chunk_size(self, n_members: int, member_chunk: int) -> int:
         """Genealogies drawn at once.

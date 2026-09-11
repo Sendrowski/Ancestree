@@ -134,9 +134,7 @@ class FocalTreePlot:
         px, py = self._position[node]
         if tau <= 0.0:
             return px, py
-        parent = self._parent.get(node)
-        if parent is None:
-            return px, py + tau
+        parent = self._parent[node]
         qx, qy = self._position[parent]
         length = float(self.canvas.branch_length(node)) or 1.0
         step = min(tau / length, 1.0)

@@ -1828,20 +1828,21 @@ class LocalTreeInference(Inference):
 
         ``requested_bp`` is the pre-clamp window width (``None`` to skip the
         clamp check); ``n_sites`` / ``span_bp`` are the panel-wide SNP count and
-        genome span used for the per-block SNP density.
+        genome span used for the per-block SNP density, and ``0`` for either
+        skips the density check only.
         """
-        if span_bp <= 0 or n_sites <= 0:
-            return
         log = self._log
-        snps_per_block = self.block_size * n_sites / span_bp
         if requested_bp is not None and requested_bp < self.block_size:
             log.warning(
                 "Window %r resolved to ~%d bp but was floored to "
                 "block_size=%d bp: a window cannot be finer than one block, so "
-                "the effective window is %d bp (~%.0f SNPs per tree). Lower "
-                "block_size for finer local trees.",
+                "the effective window is %d bp. Lower block_size for finer "
+                "local trees.",
                 self.window, int(requested_bp), self.block_size,
-                self.block_size, snps_per_block)
+                self.block_size)
+        if span_bp <= 0 or n_sites <= 0:
+            return
+        snps_per_block = self.block_size * n_sites / span_bp
         if snps_per_block < _MIN_SNPS_PER_BLOCK:
             log.warning(
                 "A block size of %d bp averages only %.1f SNPs per block (< %.0f): "

@@ -312,7 +312,13 @@ class Reader(ReprMixin):
                 "silently grade none of them. Pass a predicate over a Site, "
                 "or filter through Inference.grade() on the run itself.")
 
-        params = self.provenance().get("parameters", {})
+        import tskit
+
+        # The sample lists resolve the focal node of a tree-sequence truth;
+        # a position-to-allele truth needs no provenance record.
+        params: dict[str, Any] = {}
+        if isinstance(truth, tskit.TreeSequence):
+            params = self.provenance().get("parameters", {})
 
         def pairs():
             for a in self.annotations():
