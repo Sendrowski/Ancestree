@@ -1,17 +1,16 @@
-[tool.poetry]
+[project]
 name = "ancestree"
 version = "0.1.0"
 description = "Ancestral allele annotation via Felsenstein likelihood on ARGs and fixed trees, with or without outgroups."
-authors = ["Janek Sendrowski <sendrowski.janek@gmail.com>"]
+authors = [{ name = "Janek Sendrowski", email = "sendrowski.janek@gmail.com" }]
 license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 readme = "README.md"
-packages = [{ include = "ancestree" }]
-include = ["ancestree/py.typed"]
+requires-python = ">=3.10,<3.14"
 keywords = ["ancestral allele", "population genetics", "phylogenetics", "coalescent", "site frequency spectrum", "vcf"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -19,55 +18,51 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "tskit>=1.0",
+    "tqdm>=4.60",
+    # numba JIT-compiles the per-tree Felsenstein kernel and the pairwise-HMM, and
+    # ancestree._ensemble imports it unguarded, so it is required rather than
+    # optional. There is no interpreted fallback.
+    "numba>=0.59",
+    # ancestree._ensemble declares the llvm.fma intrinsic through the
+    # llvmlite IR builder, which numba does not promise to keep stable.
+    "llvmlite>=0.42",
+]
 
-[tool.poetry.urls]
-Repository = "https://github.com/Sendrowski/Ancestree"
-Documentation = "https://ancestree.readthedocs.io"
-
-[tool.poetry.dependencies]
-python = ">=3.10,<3.14"
-numpy = ">=1.24"
-scipy = ">=1.10"
-tskit = ">=1.0"
-tqdm = ">=4.60"
-# numba JIT-compiles the per-tree Felsenstein kernel and the pairwise-HMM, and
-# ancestree._ensemble imports it unguarded, so it is required rather than
-# optional. There is no interpreted fallback.
-numba = ">=0.59"
-# ancestree._ensemble declares the llvm.fma intrinsic through the
-# llvmlite IR builder, which numba does not promise to keep stable.
-llvmlite = ">=0.42"
-# Optional: needed only by ancestree.plotting, which draws the focal node on a
-# tree and varies the reporting position. Every other module works without it.
-matplotlib = { version = ">=3.7", optional = true }
 # Optional backends, kept out of the core install so users who only need
-# the tskit path do not pay for them. Pulled in via extras:
-#   pip install ancestree[vcf]    # CyVCF2Source + VCFWriter
-#   pip install ancestree[zarr]   # VcfZarrSource + ZarrWriter + bio2zarr templating
-#   pip install ancestree[maps]   # local-tree --recombination-map / --mutation-map
-#   pip install ancestree[all]    # everything
-cyvcf2 = { version = ">=0.30", optional = true }
-zarr = { version = ">=2.16", optional = true }
-newick = { version = ">=1.9", optional = true }
-# msprime.RateMap parses the local-tree recombination / mutation maps.
-msprime = { version = ">=1.3", optional = true }
+# the tskit path do not pay for them:
+#   pip install ancestree[vcf]       # CyVCF2Source + VCFWriter
+#   pip install ancestree[zarr]      # VcfZarrSource + ZarrWriter + bio2zarr templating
+#   pip install ancestree[maps]      # local-tree --recombination-map / --mutation-map
+#   pip install ancestree[plotting]  # ancestree.plotting, which draws the focal node
+#   pip install ancestree[all]       # everything
 # bio2zarr builds the VCZ template for to_zarr when the input is not already a
 # store, so a template is never required. It pulls zarr>=3.1 / numpy>=2, so it
 # rides in the zarr extra rather than core. The reader/writer still support
 # zarr 2 for anyone installing that backend directly. The vcf extra brings
-# cyvcf2, which bio2zarr uses to read the VCF it converts.
-bio2zarr = { version = ">=0.2", optional = true, extras = ["vcf"] }
+# cyvcf2, which bio2zarr uses to read the VCF it converts. msprime.RateMap
+# parses the local-tree recombination / mutation maps.
+[project.optional-dependencies]
+vcf = ["cyvcf2>=0.30"]
+zarr = ["zarr>=2.16", "bio2zarr[vcf]>=0.2"]
+newick = ["newick>=1.9"]
+maps = ["msprime>=1.3"]
+plotting = ["matplotlib>=3.7"]
+all = ["cyvcf2>=0.30", "zarr>=2.16", "newick>=1.9", "bio2zarr[vcf]>=0.2", "msprime>=1.3", "matplotlib>=3.7"]
 
-[tool.poetry.extras]
-vcf = ["cyvcf2"]
-zarr = ["zarr", "bio2zarr"]
-newick = ["newick"]
-maps = ["msprime"]
-plotting = ["matplotlib"]
-all = ["cyvcf2", "zarr", "newick", "bio2zarr", "msprime", "matplotlib"]
+[project.urls]
+Repository = "https://github.com/Sendrowski/Ancestree"
+Documentation = "https://ancestree.readthedocs.io"
 
-[tool.poetry.scripts]
+[project.scripts]
 ancestree = "ancestree.cli:main"
+
+[tool.poetry]
+packages = [{ include = "ancestree" }]
+include = ["ancestree/py.typed"]
 
 [dependency-groups]
 # The test dependencies, in PEP 735 form so an installer can read them:
@@ -97,7 +92,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]

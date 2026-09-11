@@ -47,7 +47,9 @@ jobs:
         run: uv pip install --system -e ".[all]" --group dev
       - name: Run tests
         run: pytest --cov ancestree --cov-report=xml testing/ -m "not slow" -x
-      # Codecov upload is enabled once the CODECOV_TOKEN secret exists:
-      #   - uses: codecov/codecov-action@v4
-      #     with:
-      #       token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: true

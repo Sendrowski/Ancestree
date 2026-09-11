@@ -1,4 +1,4 @@
-# Ancestree  <img align="right" width="100" src="docs/logo_thumbnail.png">
+# Ancestree  <img align="right" width="100" src="https://raw.githubusercontent.com/Sendrowski/Ancestree/main/docs/logo_thumbnail.png">
 [![codecov](https://codecov.io/gh/Sendrowski/Ancestree/branch/main/graph/badge.svg)](https://codecov.io/gh/Sendrowski/Ancestree)
 [![Documentation Status](https://readthedocs.org/projects/ancestree/badge/?version=latest)](https://ancestree.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/ancestree.svg)](https://badge.fury.io/py/ancestree)
