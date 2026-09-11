@@ -14,7 +14,7 @@ if "NUMBA_THREADING_LAYER" not in _os.environ:
 # into a single stderr output frame in Jupyter, not one frame per write.
 from tqdm import tqdm as _tqdm
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 #: Canonical nucleotide alphabet. Every per-allele array column is indexed by
 #: position in this tuple.
