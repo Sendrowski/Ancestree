@@ -18,17 +18,17 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "numpy>=1.24",
-    "scipy>=1.10",
-    "tskit>=1.0",
-    "tqdm>=4.60",
+    "numpy>=1.24,<3",
+    "scipy>=1.10,<2",
+    "tskit>=1.0,<2",
+    "tqdm>=4.60,<5",
     # numba JIT-compiles the per-tree Felsenstein kernel and the pairwise-HMM, and
     # ancestree._ensemble imports it unguarded, so it is required rather than
     # optional. There is no interpreted fallback.
-    "numba>=0.59",
+    "numba>=0.59,<1",
     # ancestree._ensemble declares the llvm.fma intrinsic through the
     # llvmlite IR builder, which numba does not promise to keep stable.
-    "llvmlite>=0.42",
+    "llvmlite>=0.42,<1",
 ]
 
 # Optional backends, kept out of the core install so users who only need
