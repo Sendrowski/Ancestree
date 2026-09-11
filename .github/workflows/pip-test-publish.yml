@@ -13,8 +13,12 @@ jobs:
       - name: Rename the distribution for Test PyPI
         run: sed -i 's/^name = "ancestree"$/name = "ancestree-popgen"/' pyproject.toml && grep -n '^name = ' pyproject.toml
       - name: Build and publish to TestPyPI
-        uses: JRubics/poetry-publish@v2.0
+        uses: JRubics/poetry-publish@v2.1
         with:
           pypi_token: ${{ secrets.PYPI_TEST_TOKEN }}
           repository_name: "testpypi"
           repository_url: "https://test.pypi.org/legacy/"
+          # The dev group pins packages that need Python 3.11, which the
+          # package's own range does not require, so the action's install
+          # step resolves the runtime dependencies only.
+          poetry_install_options: "--without dev"
