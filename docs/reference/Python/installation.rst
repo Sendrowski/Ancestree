@@ -20,11 +20,11 @@ actually used need be installed. Select the matching extra:
 
 .. code-block:: bash
 
-   pip install "ancestree-popgen[vcf]"       # + cyvcf2 (read/write VCF / BCF)
-   pip install "ancestree-popgen[zarr]"      # + zarr + bio2zarr (read/write VCF Zarr / VCZ stores)
-   pip install "ancestree-popgen[newick]"    # + newick (parse species-tree Newicks)
-   pip install "ancestree-popgen[maps]"      # + msprime (--recombination-map / --mutation-map)
-   pip install "ancestree-popgen[plotting]"  # + matplotlib (ancestree.plotting)
+   pip install "ancestree-popgen[vcf]"       # + cyvcf2 (VCF / BCF I/O)
+   pip install "ancestree-popgen[zarr]"      # + zarr, bio2zarr (VCF Zarr I/O)
+   pip install "ancestree-popgen[newick]"    # + newick (Newick species trees)
+   pip install "ancestree-popgen[maps]"      # + msprime (rate maps)
+   pip install "ancestree-popgen[plotting]"  # + matplotlib (plotting)
    pip install "ancestree-popgen[all]"       # all of the above
 
 Conda
@@ -56,12 +56,10 @@ Or use an environment file for reproducibility:
      - ancestree
      - cyvcf2          # [vcf]: CyVCF2Source and VCFWriter
      - zarr            # [zarr]: VcfZarrSource and ZarrWriter
+     - bio2zarr        # [zarr]: VCZ template for ZarrWriter
      - newick          # [newick]: OutgroupLadderTree.from_newick
      - msprime         # [maps]: recombination and mutation maps
      - matplotlib      # [plotting]: ancestree.plotting
-     - pip
-     - pip:
-         - bio2zarr    # [zarr]: VCZ template for ZarrWriter, PyPI only
 
 .. code-block:: bash
 
