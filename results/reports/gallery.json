@@ -1,0 +1,98 @@
+[
+  {
+    "title": "(1) Polymorphic site, ARG mode",
+    "note": "2 ingroup + 1 outgroup; read at the ingroup MRCA.",
+    "posterior": {
+      "A": 0.9869943736668304,
+      "C": 0.012996958806074198,
+      "G": 4.3337635478338945e-06,
+      "T": 4.3337635478338945e-06
+    },
+    "map": "A",
+    "max_prob": 0.9869943736668304
+  },
+  {
+    "title": "(2) Polyallelic site (3 alleles)",
+    "note": "Three distinct alleles at the tips; same kernel, no special case.",
+    "posterior": {
+      "A": 0.4737128156910361,
+      "C": 0.4737128156910555,
+      "G": 0.05225834958202746,
+      "T": 0.0003160190358807276
+    },
+    "map": "C",
+    "max_prob": 0.4737128156910555
+  },
+  {
+    "title": "(3) Missing outgroup tip",
+    "note": "o1=None \u2192 all-ones partial; tip marginalises out.",
+    "posterior": {
+      "A": 0.9812383219651192,
+      "C": 0.0062538926782935945,
+      "G": 0.0062538926782935945,
+      "T": 0.0062538926782935945
+    },
+    "map": "A",
+    "max_prob": 0.9812383219651192
+  },
+  {
+    "title": "(4) Monoallelic ingroup, deep-rooted ladder tree",
+    "note": "Ingroup fixed for G; deep outgroups vote A. Focal node at the deepest ancestor.",
+    "posterior": {
+      "A": 0.9932099279703002,
+      "C": 6.231561112564231e-05,
+      "G": 0.006665440807448263,
+      "T": 6.231561112564164e-05
+    },
+    "map": "A",
+    "max_prob": 0.9932099279703002
+  },
+  {
+    "title": "(5) Recurrent / homoplastic site",
+    "note": "G at tips a and c \u2014 same allele on independent branches.",
+    "posterior": {
+      "A": 0.4987413783298557,
+      "C": 0.0012586216701448085,
+      "G": 0.4987413783298548,
+      "T": 0.0012586216701448085
+    },
+    "map": "A",
+    "max_prob": 0.4987413783298557
+  },
+  {
+    "title": "(6) Root polytomy",
+    "note": "4-way root polytomy; kernel runs over arbitrary degrees.",
+    "posterior": {
+      "A": 0.9998959475119059,
+      "C": 0.0001019923147484917,
+      "G": 1.0300866729874382e-06,
+      "T": 1.0300866729874382e-06
+    },
+    "map": "A",
+    "max_prob": 0.9998959475119059
+  },
+  {
+    "title": "(7) K2 with \u03ba = 10 (transition bias)",
+    "note": "A\u2194G transitions weighted 10\u00d7 over transversions.",
+    "posterior": {
+      "A": 0.9546657224227019,
+      "C": 1.1933813248923954e-07,
+      "G": 0.04533403890103355,
+      "T": 1.1933813248927176e-07
+    },
+    "map": "A",
+    "max_prob": 0.9546657224227019
+  },
+  {
+    "title": "(8) Polymorphic ingroup, OutgroupLadderTree",
+    "note": "Standard fixed-tree workflow; ingroup tips dashed (kernel uses outgroups only).",
+    "posterior": {
+      "A": 0.9900498157855554,
+      "C": 0.0033167280714815365,
+      "G": 0.0033167280714815365,
+      "T": 0.0033167280714815365
+    },
+    "map": "A",
+    "max_prob": 0.9900498157855554
+  }
+]

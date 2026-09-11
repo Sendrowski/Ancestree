@@ -1,0 +1,10 @@
+name: ancestree-singer
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - cmake
+  - make
+  - cxx-compiler          # clang on macOS, gcc on Linux
+  - tskit>=0.5.6          # convert_to_tskit + reading the inferred ARGs
+  - numpy>=1.24,<2.3

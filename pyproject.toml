@@ -1,0 +1,140 @@
+[tool.poetry]
+name = "ancestree"
+version = "0.1.0"
+description = "Ancestral allele annotation via Felsenstein likelihood on ARGs and fixed trees, with or without outgroups."
+authors = ["Janek Sendrowski <sendrowski.janek@gmail.com>"]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+packages = [{ include = "ancestree" }]
+include = ["ancestree/py.typed"]
+keywords = ["ancestral allele", "population genetics", "phylogenetics", "coalescent", "site frequency spectrum", "vcf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+[tool.poetry.urls]
+Repository = "https://github.com/Sendrowski/Ancestree"
+Documentation = "https://ancestree.readthedocs.io"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.14"
+numpy = ">=1.24"
+scipy = ">=1.10"
+tskit = ">=1.0"
+tqdm = ">=4.60"
+# numba JIT-compiles the per-tree Felsenstein kernel and the pairwise-HMM, and
+# ancestree._ensemble imports it unguarded, so it is required rather than
+# optional. There is no interpreted fallback.
+numba = ">=0.59"
+# ancestree._ensemble declares the llvm.fma intrinsic through the
+# llvmlite IR builder, which numba does not promise to keep stable.
+llvmlite = ">=0.42"
+# Optional: needed only by ancestree.plotting, which draws the focal node on a
+# tree and varies the reporting position. Every other module works without it.
+matplotlib = { version = ">=3.7", optional = true }
+# Optional backends, kept out of the core install so users who only need
+# the tskit path do not pay for them. Pulled in via extras:
+#   pip install ancestree[vcf]    # CyVCF2Source + VCFWriter
+#   pip install ancestree[zarr]   # VcfZarrSource + ZarrWriter + bio2zarr templating
+#   pip install ancestree[maps]   # local-tree --recombination-map / --mutation-map
+#   pip install ancestree[all]    # everything
+cyvcf2 = { version = ">=0.30", optional = true }
+zarr = { version = ">=2.16", optional = true }
+newick = { version = ">=1.9", optional = true }
+# msprime.RateMap parses the local-tree recombination / mutation maps.
+msprime = { version = ">=1.3", optional = true }
+# bio2zarr builds the VCZ template for to_zarr when the input is not already a
+# store, so a template is never required. It pulls zarr>=3.1 / numpy>=2, so it
+# rides in the zarr extra rather than core. The reader/writer still support
+# zarr 2 for anyone installing that backend directly. The vcf extra brings
+# cyvcf2, which bio2zarr uses to read the VCF it converts.
+bio2zarr = { version = ">=0.2", optional = true, extras = ["vcf"] }
+
+[tool.poetry.extras]
+vcf = ["cyvcf2"]
+zarr = ["zarr", "bio2zarr"]
+newick = ["newick"]
+maps = ["msprime"]
+plotting = ["matplotlib"]
+all = ["cyvcf2", "zarr", "newick", "bio2zarr", "msprime", "matplotlib"]
+
+[tool.poetry.scripts]
+ancestree = "ancestree.cli:main"
+
+[dependency-groups]
+# The test dependencies, in PEP 735 form so an installer can read them:
+# ``uv pip install -e ".[all]" --group dev`` is what CI runs, and
+# ``workflow/envs/dev.yaml`` is the conda mirror of the same list, and it
+# additionally carries the external SLiM binary, which pip cannot supply, and
+# mypy for ``make typecheck``.
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.5",
+    "pytest-timeout>=2.3",
+    "msprime>=1.3",
+    # The suite exercises the optional backends, so they are installed here too.
+    "cyvcf2>=0.30",
+    "zarr>=3.1",
+    "newick>=1.9",
+    "bio2zarr[vcf]>=0.2",
+    # Test-only VCZ->VCF decoder, used to read back the stores the writer produces.
+    "vcztools>=0.2",
+    # Test-only downstream consumer of the AA / AA_prob annotations.
+    "sfsutils-popgen>=1.0",
+    # ancestree.plotting, which the focal-node plotting tests exercise.
+    "matplotlib>=3.7",
+    # test_slim_outgroup_workflow imports it at module scope.
+    "pyslim>=1.0",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["testing"]
+markers = [
+    "slow: marks tests as slow (deselected by default; run with -m slow)",
+]
+addopts = "-ra -m 'not slow' --timeout=600"
+
+[tool.mypy]
+# The package is py.typed and the docs render its annotations through
+# sphinx_autodoc_typehints, so they are a published contract for both machines
+# and readers. Completeness is not enforced: untyped definitions are allowed,
+# so this reports annotations that are wrong rather than annotations that are
+# absent.
+python_version = "3.11"
+files = ["ancestree"]
+# msprime, tskit, cyvcf2, numba, zarr, matplotlib and newick provide no stubs.
+ignore_missing_imports = true
+
+# Modules excluded from the type gate. A new error in any other module fails
+# it.
+[[tool.mypy.overrides]]
+module = [
+    "ancestree.inference",
+    "ancestree.readers",
+    "ancestree.local_tree_inference",
+    # Stub gaps in numpy and numba rather than defects in this code:
+    # ndarray-versus-float operand complaints, and numba's THREADING_LAYER
+    # not being declared.
+    "ancestree.priors",
+    "ancestree",
+]
+ignore_errors = true
+
+[tool.coverage.run]
+# The numba-JIT kernels compile to machine code, so coverage.py cannot trace
+# inside their @njit functions. Excluded rather than reported as a misleading
+# low number for code that is exercised but not traceable.
+omit = ["ancestree/_jit_kernel.py", "ancestree/_smc_kernel.py"]

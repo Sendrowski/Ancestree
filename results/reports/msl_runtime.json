@@ -1,0 +1,29 @@
+{
+  "rows": [
+    {
+      "method": "ancestree_fixed_tree",
+      "sites": 1140085,
+      "seconds": 131.50121379178017
+    },
+    {
+      "method": "ancestree_arg",
+      "sites": 1140085,
+      "seconds": 810.0290568929631
+    },
+    {
+      "method": "ancestree_local_tree",
+      "sites": 1140085,
+      "seconds": 13935.652921089597
+    },
+    {
+      "method": "polarbear",
+      "sites": 1140077,
+      "seconds": 1356.368245310994
+    },
+    {
+      "method": "estsfs",
+      "sites": 985038,
+      "seconds": 2568.0
+    }
+  ]
+}

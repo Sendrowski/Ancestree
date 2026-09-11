@@ -1,0 +1,4240 @@
+"""Snakefile orchestrating Ancestree's benchmark suite.
+
+Lives at ``workflow/Snakefile`` following Snakemake's standard project
+layout. The companion ``workflow/scripts/`` directory holds one Python
+script per ``simulate``/``infer``/``report`` step. Each reads its I/O from
+the ``snakemake`` object and falls back to module-level defaults, so any
+single step can be invoked either via the workflow or as
+``python workflow/scripts/<step>.py``.
+
+Per-benchmark structure:
+
+- ``simulate_<name>`` writes one ``.trees`` (and any auxiliary inputs the
+  baselines need: VCF for PolarBEAR, VCF + FASTA + meta for fastDFE).
+- ``infer_<name>_<tool>`` consumes the simulation and runs one tool. Each
+  per-tool run is its own rule so snakemake caches the expensive
+  subprocess calls independently. Wildcards expand parameter grids, such
+  as ``{threshold}`` for the polytomy benchmark and ``{prior}`` for the
+  est-sfs comparison.
+- ``report_<name>`` aggregates the inference outputs against msprime
+  ground truth and writes the ``{json,md}`` pair under
+  ``results/reports/``.
+
+Usage (from the project root, with per-rule conda envs)::
+
+    snakemake -j 1 --use-conda           # build every report (rule all)
+    snakemake -j 1 report_polytomy       # build one report
+    snakemake -j 1 --forceall            # ignore output timestamps, rerun all
+    snakemake --dag | dot -Tsvg > dag.svg
+
+The PolarBEAR and fastDFE baseline rules run under their own conda envs
+(``envs/polarbear.yml``, ``envs/fastdfe.yml``).
+"""
+
+import functools
+import glob
+
+import numpy as np
+import os
+from pathlib import Path
+
+RESULTS = "results"
+DATA = f"{RESULTS}/data"
+
+#: Threads for a chunk job. The local-tree kernels are numba prange loops over
+#: pairs and windows and scale near-linearly to 8 (measured 7.62x, 95%
+#: efficient, whereas 16 gives 10.07x, 63%), so 8 is the throughput-optimal
+#: ask on a shared cluster.
+LOCAL_TREE_THREADS = 8
+REPORTS = f"{RESULTS}/reports"
+SCRIPTS = "workflow/scripts"
+LATEX = "reports/manuscripts/latex"
+#: The manuscript as it stood before the focal node and ensemble sampling
+#: entered it. Frozen, so the revision diff always measures against the same
+#: reference rather than against HEAD~.
+LATEX_BASE = "reports/manuscripts/latex_baseline"
+LATEX_DIFF = "reports/manuscripts/latex_diff"
+
+#: Every figure \includegraphics'd by the manuscript, by basename. Named rather
+#: than collected from the rules, because a figure is in the paper if the LaTeX
+#: includes it, not if some rule happens to build it.
+MANUSCRIPT_FIGURES = [
+    "bench_brier_per_bin_stack",
+    "bench_ingroup_size", "bench_local_tree_scans_outgroups",
+    "bench_outgroup_divergence_lines",
+    "bench_local_tree_genealogy", "bench_local_tree_genealogy_outgroups",
+    "bench_local_tree_grid", "bench_local_tree_samplecurve",
+    "bench_local_tree_window_accuracy", "bench_orientation_damage",
+    "bench_prior_demog", "bench_robustness_baselines", "ensemble_scaling",
+    "sample_scaling",
+    "bench_robustness_heatmap", "bench_scenario_nout_fracsfs",
+    "bench_scenario_sfs", "bench_site_scaling", "focal_cost",
+    "focal_interpolation", "gallery", "gallery_root_examples",
+    "msl_agreement_heatmap", "sfs_fractional_calls", "tmrca_distributions",
+]
+
+#: Generated LaTeX tables the manuscript \input's.
+MANUSCRIPT_TABLES = [
+    "bench_estsfs_div", "bench_estsfs_tool",
+    "bench_polarbear", "msl_agreement_summary",
+]
+
+
+# Modularized appendix benchmarks (own config + simulate/infer/report
+# rules, kept out of this monolith). See workflow/rules/.
+include: "rules/local_tree_window_bench.smk"
+
+# Window x block grid for the local-tree mode, reusing the simulation and
+# true-ARG ceiling of the benchmark above.
+include: "rules/local_tree_grid_bench.smk"
+
+# Per-benchmark configs. Scripts also carry these inline as standalone
+# defaults. The Snakefile is the source of truth for snakemake-driven runs.
+POLARBEAR_CONFIG = dict(
+    samples=20, length=2_000_000, mu=1e-8,
+    rec_rate=1e-8, pop_size=1e4, seed=42,
+)
+ESTSFS_CONFIG = dict(
+    # 2 Mb gives the fit ~10 k polymorphic sites, enough that the n_out=2
+    # MLE stays off the K_1 = 1e-9 boundary.
+    n_ingroup=40, length=2_000_000, mu=1e-8,
+    rec_rate=1e-8, pop_size=1e4, outgroup_pop_size=1e5,
+    outgroup_divergences=[5e4, 1e5, 1.5e5],  # closest first; len == n_outgroup
+    seed=42, model="JC",
+)
+ESTSFS_PRIORS = ["kingman", "adaptive"]
+ESTSFS_MODELS = ["JC", "K2", "R6"]
+# fastDFE's est-sfs wrapper only supports JC + K2 (no R6 implementation),
+# so the fastdfe-side report cells skip R6 and the comparison omits that
+# column for the R6 row.
+ESTSFS_FASTDFE_MODELS = ["JC", "K2"]
+ESTSFS_N_OUTS = [1, 2, 3]  # n_out=k subsets to the closest k outgroups
+# {sim} name → mutation-model spec passed to ``simulate_estsfs.py``.
+# - ``jc``    : HKY κ=1 (Kimura-symmetric, no Ts/Tv bias)
+# - ``hky2``  : HKY κ=2 (realistic per-site Ts/Tv ratio for vertebrate genomes)
+# - ``gtr``   : msprime GTR with transition-biased exchangeability rates
+#               (r_AG=r_CT=4, transversions=1) and skewed equilibrium
+#               frequencies π = (0.3, 0.2, 0.2, 0.3). This is the only
+#               sim that breaks BOTH the uniform-pi assumption (which JC
+#               and K2 share) AND treats every rate as a free parameter
+#               (which only the R6/GTR fit accommodates).
+ESTSFS_SIMS = {
+    "jc":    {"model": "HKY", "kappa": 1.0},
+    "hky2":  {"model": "HKY", "kappa": 2.0},
+    "gtr":   {
+        "model": "GTR",
+        "rates": [1.0, 4.0, 1.0, 1.0, 4.0, 1.0],
+        "pi":    [0.3, 0.2, 0.2, 0.3],
+    },
+}
+
+# Separate, larger dataset used only for the AdaptiveIngroupWeight
+# π_i sanity comparison: fewer ingroup haplotypes + much longer
+# sequence → ~400 sites per fittable bin (vs ~10-30 in the main est-sfs
+# comparison), enough for Adaptive's MLE to be stable and converge to
+# Kingman's closed form.
+ESTSFS_PI_CONFIG = dict(
+    n_ingroup=10, length=2_000_000, mu=1e-8,
+    rec_rate=1e-8, pop_size=1e4, outgroup_pop_size=1e5,
+    outgroup_divergences=[5e4, 1e5, 1.5e5],
+    seed=42, model="JC",
+)
+RECURRENT_CONFIG = dict(
+    samples=20, length=200_000,
+    rec_rate=1e-8, pop_size=1e4, seed=42,
+)
+RECURRENT_MU_SWEEP = [1e-8, 1e-7, 1e-6, 1e-5]
+RECURRENT_MU_LABELS = [f"{mu:g}" for mu in RECURRENT_MU_SWEEP]
+RECURRENT_MODES = ["full", "first_order"]
+POLYTOMY_CONFIG = dict(
+    samples=30, length=200_000, mu=1e-7,
+    rec_rate=1e-8, pop_size=1e4, seed=42,
+)
+POLYTOMY_THRESHOLDS = [0, 100, 500, 1000, 5000, 10000, 50000]
+
+# Outgroup-effect benchmark: ARGInference posterior certainty and
+# accuracy as a function of how many outgroups the local tree includes.
+# Same ARG, simplified down to ingroup + first ``n_out`` outgroups each run.
+OUTGROUP_EFFECT_CONFIG = dict(
+    # Mirrors PolarBEAR's published simulation parameters
+    # (constant_pop_size.py): same Ne across all populations, deep
+    # outgroup splits at ~human-chimp / -gorilla / -orangutan scale,
+    # PolarBEAR's mu = 1.25e-8. Filtering to ingroup-polymorphic sites
+    # (as PolarBEAR's accuracy script does too) affords the deeper splits
+    # without the metric being swamped by outgroup-private singletons.
+    # The sequence is shorter than PolarBEAR's 10 Mb to keep the run short.
+    n_ingroup=20, n_outgroup_pops=3,
+    length=5e6, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4,
+    outgroup_split_times=[3e5, 9e5, 1.5e6],
+    seed=42,
+)
+OUTGROUP_EFFECT_N_OUTS = [0, 1, 2, 3]
+# Robustness-heatmap baseline with a 10-rung outgroup ladder (first 3
+# depths match OUTGROUP_EFFECT_CONFIG, then 7 deeper) so the heatmap can
+# show an n_out=10 row for ARG mode. A separate simulation from the
+# 3-outgroup outgroup-effect benchmark.
+OUTGROUP_EFFECT10_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,  # unified with the other robustness scenarios
+    pop_size=3e4, ingroup_pop_size=3e4,
+    # Geometric ladder within a realistic depth window [3e5, 1.5e6]
+    # (~1.9% max divergence, human-ape/primate scale). 10 outgroups
+    # necessarily means narrow spacing. The ladder is not extended deeper:
+    # that would be unrealistically diverged and JC-saturated, and would
+    # inflate the n_out=10 fixed-class gain artificially.
+    outgroup_split_times=[3.0e5, 3.6e5, 4.3e5, 5.1e5, 6.1e5,
+                          7.3e5, 8.8e5, 1.05e6, 1.25e6, 1.5e6],
+    seed=42,
+)
+# CpG-hypermutability scenario: same realistic 10-outgroup ladder, but a
+# CpG-scale mutation rate (~10× the genome average), which produces many
+# recurrent / multiple-hit sites (homoplasy) and so stresses the ≥2-mut
+# column.
+CPG_HYPERMUT_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-7, rec_rate=1e-8,  # 10× sites for smoother Fig 4 spectra
+    pop_size=3e4, ingroup_pop_size=3e4,
+    outgroup_split_times=[3.0e5, 3.6e5, 4.3e5, 5.1e5, 6.1e5,
+                          7.3e5, 8.8e5, 1.05e6, 1.25e6, 1.5e6],
+    seed=42,
+)
+# Resimulation variant: 20 independent seeds of the same demographic.
+# Aggregate per (n_out, seed) since site sets differ between sims.
+OUTGROUP_EFFECT_RESIM_SEEDS = list(range(100, 120))
+
+# Strong-perturbation siblings of OUTGROUP_EFFECT used by the robustness
+# heatmap (workflow/scripts/make_robustness_heatmap.py). Both share the
+# outgroup-effect simulator script, differing only in the outgroup split
+# times and length. ``strong_ils``: shallow splits at the ingroup TMRCA
+# scale → heavy ILS.
+STRONG_ILS_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,  # 10× sites for smoother Fig 4 spectra
+    pop_size=3e4, ingroup_pop_size=3e4,
+    # Shallow, tightly-spaced ladder → heavy ILS. The deeper rungs feed the
+    # n_out=10 row.
+    outgroup_split_times=[3e4, 5e4, 7e4, 9e4, 1.1e5,
+                          1.3e5, 1.5e5, 1.7e5, 1.9e5, 2.1e5],
+    seed=42,
+)
+# Outgroup-clade scenario: the outgroups coalesce with each other before
+# the whole clade joins the ingroup (3e5 gen), a serious breach of
+# FixedTreeInference's outgroup-ladder assumption.
+OUTGROUP_CLADE_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,  # 10× sites for smoother Fig 4 spectra
+    pop_size=3e4, ingroup_pop_size=3e4,
+    # n-1 among-outgroup coalescences (caterpillar clade), all strictly
+    # shallower than the deep ingroup↔clade split.
+    among_outgroup_times=[5e4, 7e4, 9e4, 1.1e5, 1.3e5,
+                          1.5e5, 1.7e5, 1.9e5, 2.1e5],
+    ingroup_outgroup_split=3e5,
+    seed=42,
+)
+# Demographic-distortion scenarios: the baseline outgroup ladder with a recent
+# exponential ingroup size change over a 1.2e5-gen epoch, pinned to a constant
+# ancestral size before that (a bounded 10× ratio, so msprime never stalls).
+# growth_rate > 0 is forward growth (excess rare variants) and < 0 forward
+# decline (enriched high-frequency derived tail). g = ±ln(10)/1.2e5. Used by
+# the adaptive-vs-Kingman prior comparison and the decline row of the
+# fractional-SFS figure.
+# Matched constant-size baseline (ingroup_growth_rate=0 → byte-identical to a
+# neutral sim of this length/ladder), the reference column for the prior
+# comparison, built locally alongside growth/decline.
+POP_CONSTANT_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4,
+    ingroup_growth_rate=0.0,
+    outgroup_split_times=[3.0e5, 3.6e5, 4.3e5, 5.1e5, 6.1e5,
+                          7.3e5, 8.8e5, 1.05e6, 1.25e6, 1.5e6],
+    seed=42,
+)
+POP_GROWTH_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4,
+    ingroup_growth_rate=1.9188e-5, ingroup_growth_flat_time=1.2e5,
+    outgroup_split_times=[3.0e5, 3.6e5, 4.3e5, 5.1e5, 6.1e5,
+                          7.3e5, 8.8e5, 1.05e6, 1.25e6, 1.5e6],
+    seed=42,
+)
+POP_DECLINE_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=10,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4,
+    ingroup_growth_rate=-1.9188e-5, ingroup_growth_flat_time=1.2e5,
+    outgroup_split_times=[3.0e5, 3.6e5, 4.3e5, 5.1e5, 6.1e5,
+                          7.3e5, 8.8e5, 1.05e6, 1.25e6, 1.5e6],
+    seed=42,
+)
+# The 4 msprime robustness scenarios are simulated as N independent chunks
+# (1/N the length each, distinct seeds) so per-chunk inference runs as small
+# parallel jobs and the cell job is a cheap concat, the same idea as the SLiM
+# column. Logical scenario key → physical file stem (the baseline cell
+# "baseline" is simulated with the 10-outgroup OUTGROUP_EFFECT10 config
+# under the stem "baseline10").
+ROBUSTNESS_MSP_N_CHUNKS = 10
+ROBUSTNESS_MSP_CHUNKS = list(range(ROBUSTNESS_MSP_N_CHUNKS))
+CHUNKED_MSP_SCENARIOS = ["baseline", "cpg_hypermut", "strong_ils",
+                         "outgroup_clade", "pop_constant", "pop_growth",
+                         "pop_decline"]
+MSP_STEM = {
+    "baseline": "baseline10",
+    "cpg_hypermut": "cpg_hypermut",
+    "strong_ils": "strong_ils",
+    "outgroup_clade": "outgroup_clade",
+    "pop_constant": "pop_constant",
+    "pop_growth": "pop_growth",
+    "pop_decline": "pop_decline",
+}
+# Demographic-distortion scenarios share the chunked-msprime pipeline but stay
+# out of ROBUSTNESS_SCENARIOS so they do not appear in the main Figure-4
+# heatmap. They have their own comparison figures.
+DEMOG_SCENARIOS = ["pop_constant", "pop_growth", "pop_decline"]
+# Ingroup-size grid: per-bin SFS accuracy of ARGBasedInference in
+# ingroup-only mode (n_out=0) as a function of how many ingroup
+# haplotypes the local tree contains. Same simulated ARG, randomly
+# subsampled to ``n_ingroup`` with a per-cell seed. Not in ``rule all``.
+# Build via ``snakemake -j 1 report_ingroup_size`` on demand.
+INGROUP_SIZE_CONFIG = dict(
+    n_ingroup_max=1000, length=1e6, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, seed=42,
+)
+INGROUP_SIZE_N_INGROUPS = [20, 50, 100, 200, 500, 1000]
+INGROUP_SIZE_SEEDS = [100, 101, 102]
+
+
+
+
+# Outgroup-divergence grid: the same n_out=3 demography as the
+# outgroup-effect benchmark, varying the placement of the three outgroup
+# splits over a 2-D grid: (deepest-split depth) × (relative spacing of the
+# closer two). Each (depth, spacing) sim is run through the ARG, fixed-tree
+# (VCF) and local-tree inference modes. Standalone benchmark, not in
+# ``rule all``. Build via ``snakemake -j 1 report_outgroup_divergence``.
+# The spacing-strategy → split-times mapping lives in
+# workflow/scripts/_outgroup_divergence_common.py.
+OUTGROUP_DIVERGENCE_CONFIG = dict(
+    n_ingroup=20, length=1e6, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4, seed=42,
+)
+# Uniform in log space (a factor of 3 per step), reaching shallow enough
+# that the outgroups stop being informative and ARG mode degrades.
+OUTGROUP_DIVERGENCE_DEPTHS = [
+    "1e4", "1.6e4", "2.5e4", "4e4",
+    "6.3e4", "1e5", "1.6e5", "2.5e5",
+    "4e5", "6.3e5", "1e6", "1.6e6",
+    "2.5e6", "4e6", "6.3e6", "1e7",
+]
+OUTGROUP_DIVERGENCE_SPACINGS = ["linear", "geometric", "compact_near", "compact_far"]
+# Outgroup counts each simulated cell is subsetted to, without re-simulating:
+# 3 keeps all three populations, 2 the shallowest and the deepest, 1 the middle.
+OUTGROUP_DIVERGENCE_N_OUTS = [1, 2, 3]
+
+
+# Substitution-model comparison: per-bin SFS-accuracy penalty from
+# substitution-model misspecification when the data is generated under
+# HKY (κ ≠ 1, non-uniform π). The outgroup-effect demography (ingroup + 3
+# outgroups at 3e5/9e5/1.5e6 gens), but the mutator is
+# ``msprime.HKY(kappa=4, pi=AT-rich)`` so JC69 / K2 / F81 each miss at
+# least one axis the simulator cares about. Runs both ARG and fixed-tree
+# (VCF) inference modes per Ancestree model. Standalone target, not in
+# ``rule all``. Build via ``snakemake -j 1 report_model_comparison``.
+MODEL_COMPARISON_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=3,
+    length=1e7, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4,
+    outgroup_split_times=[3e5, 9e5, 1.5e6],
+    kappa=4.0,
+    equilibrium_frequencies=[0.30, 0.20, 0.20, 0.30],  # AT-rich (A,C,G,T)
+    seed=42,
+)
+MODEL_COMPARISON_MODELS = ["jc69", "k2", "f81", "hky", "gtr"]
+MODEL_COMPARISON_MODES = ["arg", "vcf"]
+# Monoallelic-ingroup caterpillar benchmark: reuses the outgroup-effect
+# demography (ingroup + 3 outgroups at 3e5/9e5/1.5e6 gens) and compares
+# OutgroupLadderTree (rooted at ingroup MRCA, wrong on monoallelic-ingroup
+# fixed-derived sites) vs the same ladder read at its deepest join (the
+# deep outgroup ancestor, recovers the ancestral state via full
+# Felsenstein over all outgroups). Standalone target, not in ``rule all``.
+# Build via ``snakemake -j 1 report_caterpillar``.
+CATERPILLAR_CONFIG = dict(OUTGROUP_EFFECT_CONFIG)
+CATERPILLAR_TREE_TYPES = ["ladder", "caterpillar"]
+
+
+
+
+# Missing-data robustness grid: reuses the outgroup-effect demography
+# (ingroup of 20 + 3 outgroups). One simulation, many cells: each cell
+# randomly nulls out ``missing_frac`` of the outgroup tip slots per site
+# (independent Bernoulli) with a per-cell RNG seed, then runs
+# FixedTreeInference (HKY + Kingman + full). 3 seeds per fraction for error
+# bars. Standalone target, not in ``rule all``. Build via
+# ``snakemake -j 1 report_missing_data``.
+MISSING_DATA_CONFIG = dict(OUTGROUP_EFFECT_CONFIG)
+MISSING_DATA_FRACTIONS = [0.0, 0.05, 0.1, 0.25, 0.5]
+MISSING_DATA_SEEDS = [100, 101, 102]
+
+
+# Site-scaling benchmark: how many polymorphic sites FixedTreeInference
+# needs to localise its (K_i, kappa) parameters (the fixed-tree axis) and
+# how many to localise the AdaptiveIngroupWeight's pi_i bins (the adaptive
+# axis). The inference scripts subsample a simulated ARG's polymorphic-site
+# catalog to ``n_sites`` per cell. Standalone targets, not in ``rule all``.
+# Build via ``snakemake -j N report_site_scaling``.
+SITE_SCALING_CONFIG = dict(
+    n_ingroup=20, n_outgroup_pops=3,
+    length=1.5e7, mu=1.25e-8, rec_rate=1e-8,
+    pop_size=3e4, ingroup_pop_size=3e4,
+    outgroup_split_times=[3e5, 9e5, 1.5e6],
+    seed=42,
+)
+SITE_SCALING_FIXED_MODELS = ["JC", "HKY"]
+SITE_SCALING_FIXED_N_OUTS = [1, 2, 3]
+SITE_SCALING_FIXED_N_SITES = [100, 300, 1000, 3000, 10000, 30000, 100000]
+SITE_SCALING_FIXED_SEEDS = [100, 101, 102, 103, 104]
+SITE_SCALING_ADAPTIVE_N_SUBS = [5, 10, 15, 20]
+SITE_SCALING_ADAPTIVE_N_SITES = [100, 300, 1000, 3000, 10000, 30000, 100000]
+# Adaptive cells only consume ingroup-polymorphic sites, and n_sub=5 caps
+# the per-sim pool at theta·H_4·L. Use a larger-L sim so all n_sub
+# cells reach the 100k grid point.
+SITE_SCALING_ADAPTIVE_CONFIG = dict(SITE_SCALING_CONFIG, length=3.5e7)
+SITE_SCALING_ADAPTIVE_SEEDS = [100, 101, 102, 103, 104]
+
+
+# ---------------------------------------------------------------- entry point
+
+rule manuscript:
+    """Build the manuscript PDF (tectonic) from its hand-edited LaTeX sources.
+
+    A thin DAG node: it depends on the human-edited sources (``main.tex``,
+    the ``sections/`` includes and ``refs.bib``) plus the figures and tables
+    the document includes, so it rebuilds the PDF when a figure, a table or
+    the text changes. It does not re-run the benchmarks behind them: the
+    figure rules depend on the cached per-cell summaries, not on the
+    inference.
+    """
+    input:
+        # Built by their own rules, named here so `manuscript` cannot
+        # succeed with them stale. Not in MANUSCRIPT_TABLES, which drives
+        # benchmark_tables' own outputs.
+        "reports/manuscripts/latex/tables/edge_cases_body.tex",
+        "reports/manuscripts/latex/tables/kernel_bench_body.tex",
+        "reports/manuscripts/latex/tables/msl_informative_prior.tex",
+        "reports/manuscripts/latex/tables/msl_runtime.tex",
+        f"{LATEX}/main.tex",
+        glob.glob(f"{LATEX}/sections/*.tex"),
+        f"{LATEX}/refs.bib",
+        # The figures and tables it includes, so a regenerated figure
+        # rebuilds the PDF.
+        expand(f"{LATEX}/figures/{{name}}.pdf", name=MANUSCRIPT_FIGURES),
+        expand(f"{LATEX}/tables/{{name}}.tex", name=MANUSCRIPT_TABLES),
+    output:
+        f"{LATEX}/main.pdf",
+    conda:
+        "envs/tex.yml"
+    shell:
+        f"cd {LATEX} && tectonic main.tex"
+
+
+# latexdiff of the current manuscript against the ensemble-sampling baseline in
+# LATEX_BASE, following the sister project's manuscript_submitted / _diff
+# layout. The script flattens the sections/ includes into one file, leaves
+# figures unmarked (a moved figure otherwise renders as a full-page
+# strikethrough), and holds the inline bibliography out of the markup.
+rule manuscript_diff_tex:
+    input:
+        old=f"{LATEX_BASE}/main.tex",
+        old_sections=glob.glob(f"{LATEX_BASE}/sections/*.tex"),
+        new=f"{LATEX}/main.tex",
+        new_sections=glob.glob(f"{LATEX}/sections/*.tex"),
+    output:
+        f"{LATEX_DIFF}/main.tex",
+    conda:
+        "envs/latexdiff.yml"
+    script:
+        "scripts/make_manuscript_diff.py"
+
+
+# Compile the marked-up document. The diff .tex is flattened but still points
+# at figures/, tables/, the bibliography and the style by relative path, so the
+# current ones are linked in beside it rather than copied.
+rule manuscript_diff:
+    input:
+        tex=f"{LATEX_DIFF}/main.tex",
+        pdf=f"{LATEX}/main.pdf",
+    output:
+        f"{LATEX_DIFF}/main.pdf",
+    conda:
+        "envs/tex.yml"
+    shell:
+        "cd " + LATEX_DIFF + " && "
+        "for d in figures tables sections; do "
+        "  [ -e $d ] || ln -s ../latex/$d $d; done && "
+        "for f in refs.bib genetics.bst; do "
+        "  [ -e $f ] || ln -s ../latex/$f $f; done && "
+        "tectonic main.tex"
+
+
+# Re-execute the docs Jupyter notebooks in place, refreshing their committed
+# outputs. The docs build itself does NOT re-execute them (conf.py sets
+# ``nb_execution_mode = "off"``), so run this on demand after code changes that
+# affect notebook output, then rebuild the docs and commit:
+#   snakemake -j1 --scheduler greedy execute_docs_notebooks
+DOCS_NOTEBOOKS = sorted(glob.glob("docs/reference/Python/*.ipynb"))
+
+
+rule cli_transcripts:
+    """Regenerate the CLI example output embedded in the docs."""
+    input:
+        "docs/run_cli_examples.py",
+        "docs/_static/demo.vcf.gz",
+        "docs/_static/demo.trees",
+        "docs/_static/demo_species_tree.nwk",
+    output:
+        # usage.rst embeds the .html via `.. raw:: html`, so they are outputs:
+        # undeclared, a failed run leaves tracebacks on three published pages.
+        expand("docs/reference/CLI/_output/{name}.{ext}",
+               name=["fixed_tree", "arg", "local_tree"], ext=["html"]),
+    conda:
+        "../docs/environment.yml"
+    shell:
+        # ancestree reaches the env through PYTHONPATH, as for the notebooks.
+        "PYTHONPATH=$PWD python docs/run_cli_examples.py"
+
+
+rule execute_docs_notebooks:
+    """Execute every docs notebook in place (``jupyter execute --inplace``).
+
+    Cells tagged ``remove-cell`` assert the claims the surrounding prose
+    makes, so a result that drifts fails this rule instead of publishing.
+    """
+    input:
+        DOCS_NOTEBOOKS,
+    output:
+        touch(f"{REPORTS}/.docs_notebooks_executed"),
+    conda:
+        "../docs/environment.yml"
+    shell:
+        # Coalesce afterwards: jupyter stores each tqdm carriage-return update
+        # as its own stderr stream, so a progress bar would otherwise render
+        # split across several output blocks.
+        # ancestree reaches the env through PYTHONPATH rather than a pip
+        # "-e ." in the yml: conda resolves that path against its own staging
+        # directory, where there is no project to install.
+        "PYTHONPATH=$PWD jupyter execute --inplace --timeout=900 {input} && "
+        "PYTHONPATH=$PWD python docs/coalesce_streams.py {input}"
+
+
+rule all:
+    """Build every benchmark report."""
+    default_target: True
+    input:
+        f"{REPORTS}/polarbear_agreement.md",
+        f"{REPORTS}/estsfs_agreement.md",
+        f"{REPORTS}/polytomy.md",
+        f"{REPORTS}/baseline.md",
+
+
+# ----------------------------------------------------- PolarBEAR comparison
+
+rule simulate_polarbear:
+    """msprime ARG + matching VCF for the PolarBEAR comparison."""
+    output:
+        trees = f"{DATA}/polarbear_sim.trees",
+        vcf = f"{DATA}/polarbear_sim.vcf",
+    params:
+        **POLARBEAR_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_polarbear.py"
+
+
+rule infer_polarbear_ancestree:
+    """Ancestree on the simulated ARG (JC69 + full + uniform)."""
+    input:
+        trees = rules.simulate_polarbear.output.trees,
+    output:
+        f"{DATA}/polarbear_ancestree.json",
+    params:
+        mu = POLARBEAR_CONFIG["mu"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_polarbear_ancestree.py"
+
+
+rule infer_polarbear_baseline:
+    """PolarBEAR baseline in its own ``envs/polarbear.yml`` conda env.
+
+    The script imports PolarBEAR directly. The dedicated env isolates its
+    strict ``tskit==0.6 + numba`` pin stack from the rest of the pipeline.
+    """
+    input:
+        trees = rules.simulate_polarbear.output.trees,
+        vcf = rules.simulate_polarbear.output.vcf,
+        # An input rather than a params path, so fetch_polarbear enters the
+        # DAG.
+        polarbear_script = "external/polarbear/code/polarize/site_polarize.py",
+    output:
+        f"{DATA}/polarbear_baseline.json",
+    params:
+        mu = POLARBEAR_CONFIG["mu"],
+        polarbear_src = "external/polarbear/code/polarize",
+    conda:
+        "envs/polarbear.yml"
+    script:
+        "scripts/infer_polarbear_baseline.py"
+
+
+rule report_polarbear:
+    """Aggregate Ancestree + PolarBEAR posteriors → polarbear_agreement.{json,md}."""
+    input:
+        ancestree = rules.infer_polarbear_ancestree.output[0],
+        polarbear = rules.infer_polarbear_baseline.output[0],
+        trees = rules.simulate_polarbear.output.trees,
+    output:
+        json = f"{REPORTS}/polarbear_agreement.json",
+        md = f"{REPORTS}/polarbear_agreement.md",
+    params:
+        sim_config = POLARBEAR_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_polarbear.py"
+
+
+# ----------------------------------------------------- est-sfs comparison
+
+rule simulate_estsfs:
+    """msprime ARG, one per {sim} mutation-model spec.
+
+    Wildcard ``{sim}`` ∈ ``ESTSFS_SIMS`` selects the mutation model
+    (HKY κ or GTR rates+π). Same demography across sims, only the
+    substitution model differs.
+    """
+    output:
+        trees = f"{DATA}/estsfs_sim_{{sim}}.trees",
+        vcf = f"{DATA}/estsfs_sim_{{sim}}.vcf",
+        fasta = f"{DATA}/estsfs_sim_{{sim}}.fasta",
+        meta = f"{DATA}/estsfs_sim_{{sim}}_meta.json",
+    params:
+        **ESTSFS_CONFIG,
+        sim_spec = lambda wc: ESTSFS_SIMS[wc.sim],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_estsfs.py"
+
+
+rule infer_estsfs_ancestree:
+    """Ancestree FixedTreeInference per (sim, model, prior, n_out)."""
+    input:
+        trees = f"{DATA}/estsfs_sim_{{sim}}.trees",
+        meta = f"{DATA}/estsfs_sim_{{sim}}_meta.json",
+    output:
+        f"{DATA}/estsfs_ancestree_{{sim}}_{{model}}_{{prior}}_n{{n_out}}.json",
+    params:
+        length = ESTSFS_CONFIG["length"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_estsfs_ancestree.py"
+
+
+rule infer_estsfs_fastdfe:
+    """fastDFE est-sfs per (sim, model, prior, n_out)."""
+    input:
+        vcf = f"{DATA}/estsfs_sim_{{sim}}.vcf",
+        fasta = f"{DATA}/estsfs_sim_{{sim}}.fasta",
+        meta = f"{DATA}/estsfs_sim_{{sim}}_meta.json",
+    output:
+        f"{DATA}/estsfs_fastdfe_{{sim}}_{{model}}_{{prior}}_n{{n_out}}.json",
+    params:
+        length = ESTSFS_CONFIG["length"],
+    conda:
+        "envs/fastdfe.yml"
+    script:
+        "scripts/infer_estsfs_fastdfe.py"
+
+
+rule infer_estsfs_baseline:
+    """Original est-sfs (Keightley & Jackson 2018) per (sim, model, n_out).
+
+    Independent C-tool baseline for the manuscript. The est-sfs binary
+    comes from ``envs/estsfs.yml``.
+    """
+    input:
+        vcf = f"{DATA}/estsfs_sim_{{sim}}.vcf",
+        meta = f"{DATA}/estsfs_sim_{{sim}}_meta.json",
+    output:
+        f"{DATA}/estsfs_baseline_{{sim}}_{{model}}_n{{n_out}}.json",
+    conda:
+        "envs/estsfs.yml"
+    script:
+        "scripts/infer_estsfs_baseline.py"
+
+
+rule simulate_estsfs_pi:
+    """Larger dataset (n=10 haps, L=2Mb) for Adaptive π_i stability check."""
+    output:
+        trees = f"{DATA}/estsfs_pi_sim.trees",
+        vcf = f"{DATA}/estsfs_pi_sim.vcf",
+        fasta = f"{DATA}/estsfs_pi_sim.fasta",
+        meta = f"{DATA}/estsfs_pi_sim_meta.json",
+    params:
+        **ESTSFS_PI_CONFIG,
+        sim_spec = {"model": "HKY", "kappa": 1.0},
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_estsfs.py"
+
+
+rule infer_estsfs_ancestree_pi:
+    """Ancestree FixedTreeInference + AdaptiveIngroupWeight on the
+    larger dataset, saving fitted π_i + per-bin sample counts.
+    """
+    input:
+        trees = rules.simulate_estsfs_pi.output.trees,
+        meta = rules.simulate_estsfs_pi.output.meta,
+    output:
+        # Filename carries wildcards matching the existing infer script's
+        # snakemake.wildcards.sim/model/prior/n_out reads.
+        f"{DATA}/estsfs_pi_ancestree_{{sim}}_{{model}}_{{prior}}_n{{n_out}}.json",
+    params:
+        length = ESTSFS_PI_CONFIG["length"],
+    wildcard_constraints:
+        # Only the pi-comparison cell.
+        sim="jc", model="JC", prior="adaptive", n_out="3",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_estsfs_ancestree.py"
+
+
+rule infer_estsfs_fastdfe_pi:
+    """fastDFE est-sfs + AdaptiveIngroupWeight on the larger dataset,
+    saving fastDFE's per-bin polarization probabilities.
+    """
+    input:
+        vcf = rules.simulate_estsfs_pi.output.vcf,
+        fasta = rules.simulate_estsfs_pi.output.fasta,
+        meta = rules.simulate_estsfs_pi.output.meta,
+    output:
+        f"{DATA}/estsfs_pi_fastdfe_{{sim}}_{{model}}_{{prior}}_n{{n_out}}.json",
+    params:
+        length = ESTSFS_PI_CONFIG["length"],
+    wildcard_constraints:
+        sim="jc", model="JC", prior="adaptive", n_out="3",
+    conda:
+        "envs/fastdfe.yml"
+    script:
+        "scripts/infer_estsfs_fastdfe.py"
+
+
+rule report_pi_comparison:
+    """Side-by-side π_i: Kingman closed form vs Ancestree Adaptive
+    vs fastDFE Adaptive on the larger pi-comparison dataset.
+    """
+    input:
+        ancestree = f"{DATA}/estsfs_pi_ancestree_jc_JC_adaptive_n3.json",
+        fastdfe = f"{DATA}/estsfs_pi_fastdfe_jc_JC_adaptive_n3.json",
+        meta = rules.simulate_estsfs_pi.output.meta,
+    output:
+        json = f"{REPORTS}/estsfs_pi_comparison.json",
+        md = f"{REPORTS}/estsfs_pi_comparison.md",
+    params:
+        sim_config = ESTSFS_PI_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_pi_comparison.py"
+
+
+rule report_estsfs:
+    """Aggregate all (sim, model, prior, n_out) cells → report.
+
+    The manuscript-grade baseline is the original C est-sfs (Keightley &
+    Jackson 2018). fastDFE's est-sfs is kept as a separate development
+    sanity check and consumed alongside.
+    """
+    input:
+        ancestree = expand(
+            f"{DATA}/estsfs_ancestree_{{sim}}_{{model}}_{{prior}}_n{{n_out}}.json",
+            sim=list(ESTSFS_SIMS), model=ESTSFS_MODELS,
+            prior=ESTSFS_PRIORS, n_out=ESTSFS_N_OUTS,
+        ),
+        baseline = expand(
+            f"{DATA}/estsfs_baseline_{{sim}}_{{model}}_n{{n_out}}.json",
+            sim=list(ESTSFS_SIMS), model=ESTSFS_MODELS, n_out=ESTSFS_N_OUTS,
+        ),
+        fastdfe = expand(
+            f"{DATA}/estsfs_fastdfe_{{sim}}_{{model}}_{{prior}}_n{{n_out}}.json",
+            sim=list(ESTSFS_SIMS), model=ESTSFS_FASTDFE_MODELS,
+            prior=ESTSFS_PRIORS, n_out=ESTSFS_N_OUTS,
+        ),
+        # The JC sim's .trees serve the per-site truth lookup (both sims
+        # share demography, so ancestral states are identical for matched
+        # positions). The kappa truth is reported from meta per sim.
+        trees = f"{DATA}/estsfs_sim_jc.trees",
+        meta = f"{DATA}/estsfs_sim_jc_meta.json",
+    output:
+        json = f"{REPORTS}/estsfs_agreement.json",
+        md = f"{REPORTS}/estsfs_agreement.md",
+    params:
+        sims = list(ESTSFS_SIMS),
+        sim_specs = ESTSFS_SIMS,
+        models = ESTSFS_MODELS,
+        priors = ESTSFS_PRIORS,
+        n_outs = ESTSFS_N_OUTS,
+        sim_config = ESTSFS_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_estsfs.py"
+
+
+
+# ----------------------------------------------------- polytomy
+
+rule simulate_polytomy:
+    """msprime ARG used by the polytomy stress test."""
+    output:
+        trees = f"{DATA}/polytomy_sim.trees",
+    params:
+        **POLYTOMY_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_polytomy.py"
+
+
+rule infer_polytomy:
+    """Polytomize the ARG at one threshold and run Ancestree on every variant.
+
+    Wildcard ``{threshold}`` is the branch-length cutoff below which internal
+    nodes get collapsed into polytomies.
+    """
+    input:
+        trees = rules.simulate_polytomy.output.trees,
+    output:
+        f"{DATA}/polytomy_thresh{{threshold}}.json",
+    params:
+        mu = POLYTOMY_CONFIG["mu"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_polytomy.py"
+
+
+rule report_polytomy:
+    """Aggregate per-threshold infer outputs → polytomy.{json,md}."""
+    input:
+        per_threshold = expand(
+            f"{DATA}/polytomy_thresh{{threshold}}.json",
+            threshold=POLYTOMY_THRESHOLDS,
+        ),
+    output:
+        json = f"{REPORTS}/polytomy.json",
+        md = f"{REPORTS}/polytomy.md",
+    params:
+        thresholds = POLYTOMY_THRESHOLDS,
+        sim_config = {**POLYTOMY_CONFIG, "thresholds": POLYTOMY_THRESHOLDS},
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_polytomy.py"
+
+
+# -------------------------- outgroup effect (ARGInference)
+
+rule simulate_baseline:
+    """msprime ARG with ingroup + N outgroups at known divergence times."""
+    output:
+        trees = f"{DATA}/baseline_sim.trees",
+        meta = f"{DATA}/baseline_sim_meta.json",
+    params:
+        **OUTGROUP_EFFECT_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule simulate_baseline10:
+    """Robustness baseline, 10-rung outgroup ladder, simulated as N independent
+    chunks (one per chunk_idx). A separate sim from the 3-outgroup
+    outgroup-effect baseline."""
+    output:
+        trees = f"{DATA}/baseline10_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/baseline10_chunk{{chunk_idx}}_meta.json",
+    params:
+        **OUTGROUP_EFFECT10_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule simulate_cpg_hypermut:
+    """Robustness scenario: CpG-rate (10×) hypermutability → recurrent muts.
+    Simulated as N independent chunks (one per chunk_idx)."""
+    output:
+        trees = f"{DATA}/cpg_hypermut_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/cpg_hypermut_chunk{{chunk_idx}}_meta.json",
+    params:
+        **CPG_HYPERMUT_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule infer_baseline:
+    """ARGInference on the ts simplified down to ingroup + n_out outgroups."""
+    input:
+        trees = rules.simulate_baseline.output.trees,
+        meta = rules.simulate_baseline.output.meta,
+    output:
+        f"{DATA}/baseline_n{{n_out}}.json",
+    params:
+        mu = OUTGROUP_EFFECT_CONFIG["mu"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_baseline.py"
+
+
+rule infer_baseline_resimulated:
+    """Re-simulate the same demographic with N seeds and aggregate per (n_out, seed)."""
+    output:
+        f"{DATA}/baseline_resimulated.json",
+    params:
+        **OUTGROUP_EFFECT_CONFIG,
+        seeds = OUTGROUP_EFFECT_RESIM_SEEDS,
+        n_outs = OUTGROUP_EFFECT_N_OUTS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_baseline_resimulated.py"
+
+
+# Fixed-tree mirror of infer_baseline across the same n_out range
+# (n=0 degenerates to "Kingman prior only", no outgroup-ladder fit).
+OUTGROUP_EFFECT_N_OUTS_VCF = OUTGROUP_EFFECT_N_OUTS
+
+rule infer_baseline_vcf:
+    """VCF-mode (FixedTreeInference) over the same sim, paired site-for-site
+    with infer_baseline's ARG cells. Demonstrates the ARG-vs-fixed-tree
+    trade-off as outgroups disappear.
+    """
+    input:
+        trees = rules.simulate_baseline.output.trees,
+        meta = rules.simulate_baseline.output.meta,
+    output:
+        f"{DATA}/baseline_vcf_n{{n_out}}.json",
+    params:
+        mu = OUTGROUP_EFFECT_CONFIG["mu"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_baseline_vcf.py"
+
+
+rule report_baseline:
+    """Aggregate per-n_out cells (ARG + VCF mirror) → baseline.{json,md}."""
+    input:
+        cells = expand(
+            f"{DATA}/baseline_n{{n_out}}.json",
+            n_out=OUTGROUP_EFFECT_N_OUTS,
+        ),
+        cells_vcf = expand(
+            f"{DATA}/baseline_vcf_n{{n_out}}.json",
+            n_out=OUTGROUP_EFFECT_N_OUTS_VCF,
+        ),
+        resimulated = rules.infer_baseline_resimulated.output[0],
+    output:
+        json = f"{REPORTS}/baseline.json",
+        md = f"{REPORTS}/baseline.md",
+    params:
+        sim_config = {**OUTGROUP_EFFECT_CONFIG, "n_outs": OUTGROUP_EFFECT_N_OUTS},
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_baseline.py"
+
+
+# -------------------------------------------------------------------- targets
+
+
+# -------------------------- ingroup-size grid (ARGBasedInference, n_out=0)
+
+rule simulate_ingroup_size:
+    """msprime ARG with ``n_ingroup_max`` haplotypes (ingroup-only, no outgroups)."""
+    output:
+        trees = f"{DATA}/ingroup_size_sim.trees",
+        meta = f"{DATA}/ingroup_size_sim_meta.json",
+    params:
+        **INGROUP_SIZE_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_ingroup_size.py"
+
+
+rule infer_ingroup_size:
+    """ARGBasedInference (n_out=0) on a random ingroup subsample.
+
+    Wildcards: ``{n_ingroup}`` (target sample count) and ``{seed}``
+    (subsampling RNG seed, with multiple seeds per n_ingroup giving noise bars).
+    """
+    input:
+        trees = rules.simulate_ingroup_size.output.trees,
+        meta = rules.simulate_ingroup_size.output.meta,
+    output:
+        f"{DATA}/ingroup_size_n{{n_ingroup}}_seed{{seed}}.json",
+    params:
+        mu = INGROUP_SIZE_CONFIG["mu"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_ingroup_size.py"
+
+
+rule report_ingroup_size:
+    """Aggregate the (n_ingroup × seed) cells → ingroup_size.{json,md}.
+
+    Standalone target, not part of ``rule all``. Build with::
+
+        snakemake -j 1 report_ingroup_size
+    """
+    input:
+        cells = expand(
+            f"{DATA}/ingroup_size_n{{n_ingroup}}_seed{{seed}}.json",
+            n_ingroup=INGROUP_SIZE_N_INGROUPS, seed=INGROUP_SIZE_SEEDS,
+        ),
+    output:
+        json = f"{REPORTS}/ingroup_size.json",
+        md = f"{REPORTS}/ingroup_size.md",
+    params:
+        sim_config = {
+            **INGROUP_SIZE_CONFIG,
+            "n_ingroups": INGROUP_SIZE_N_INGROUPS,
+            "seeds": INGROUP_SIZE_SEEDS,
+        },
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_ingroup_size.py"
+
+
+
+# -------- outgroup-divergence grid (ARG + fixed-tree + local-tree)
+
+# Wildcard ``{depth}`` is a free-form scientific-notation float string like
+# ``"1.5e6"``, constrained so snakemake does not parse the ``s{spacing}``
+# suffix as part of the depth pattern.
+rule simulate_outgroup_divergence:
+    """msprime ARG with ingroup + 3 outgroups at one ``(depth, spacing)`` cell."""
+    output:
+        trees = f"{DATA}/outgroup_divergence_sim_d{{depth}}_s{{spacing}}.trees",
+        meta = f"{DATA}/outgroup_divergence_sim_d{{depth}}_s{{spacing}}_meta.json",
+    params:
+        **OUTGROUP_DIVERGENCE_CONFIG,
+    wildcard_constraints:
+        depth=r"[0-9.eE+-]+",
+        spacing=r"|".join(OUTGROUP_DIVERGENCE_SPACINGS),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_outgroup_divergence.py"
+
+
+rule infer_outgroup_divergence_arg:
+    """ARGBasedInference on the (depth, spacing) sim, all 3 outgroups exposed."""
+    input:
+        trees = rules.simulate_outgroup_divergence.output.trees,
+        meta = rules.simulate_outgroup_divergence.output.meta,
+    output:
+        f"{DATA}/outgroup_divergence_arg_d{{depth}}_s{{spacing}}_n{{n_out}}.json",
+    params:
+        mu = OUTGROUP_DIVERGENCE_CONFIG["mu"],
+    wildcard_constraints:
+        depth=r"[0-9.eE+-]+",
+        spacing=r"|".join(OUTGROUP_DIVERGENCE_SPACINGS),
+        n_out=r"[123]",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_outgroup_divergence_arg.py"
+
+
+rule infer_outgroup_divergence_vcf:
+    """FixedTreeInference on the (depth, spacing) sim, all 3 outgroups in the ladder."""
+    input:
+        trees = rules.simulate_outgroup_divergence.output.trees,
+        meta = rules.simulate_outgroup_divergence.output.meta,
+    output:
+        f"{DATA}/outgroup_divergence_vcf_d{{depth}}_s{{spacing}}_n{{n_out}}.json",
+    params:
+        mu = OUTGROUP_DIVERGENCE_CONFIG["mu"],
+    wildcard_constraints:
+        depth=r"[0-9.eE+-]+",
+        spacing=r"|".join(OUTGROUP_DIVERGENCE_SPACINGS),
+        n_out=r"[123]",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_outgroup_divergence_vcf.py"
+
+
+rule infer_outgroup_divergence_local_tree:
+    """LocalTreeInference on the (depth, spacing) sim, trees inferred from genotypes."""
+    input:
+        trees = rules.simulate_outgroup_divergence.output.trees,
+        meta = rules.simulate_outgroup_divergence.output.meta,
+    output:
+        f"{DATA}/outgroup_divergence_local_tree_d{{depth}}_s{{spacing}}_n{{n_out}}.json",
+    params:
+        mu = OUTGROUP_DIVERGENCE_CONFIG["mu"],
+    wildcard_constraints:
+        depth=r"[0-9.eE+-]+",
+        spacing=r"|".join(OUTGROUP_DIVERGENCE_SPACINGS),
+        n_out=r"[123]",
+    threads: 8
+    resources:
+        # The pairwise HMM plus a 128-member ensemble over a 1 Mb region is far
+        # heavier than the ARG and fixed-tree cells, which run on the default
+        # resources, so this rule carries its own attempt-scaled budget.
+        mem_mb = lambda wildcards, attempt: 32000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(360, attempt),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_outgroup_divergence_local_tree.py"
+
+
+rule report_outgroup_divergence:
+    """Aggregate the {arg,vcf,local_tree} cells → outgroup_divergence.{json,md}.
+
+    Standalone target, not part of ``rule all``. Build with::
+
+        snakemake -j 1 report_outgroup_divergence
+    """
+    input:
+        arg_cells = expand(
+            f"{DATA}/outgroup_divergence_arg_d{{depth}}_s{{spacing}}_n{{n_out}}.json",
+            depth=OUTGROUP_DIVERGENCE_DEPTHS,
+            spacing=OUTGROUP_DIVERGENCE_SPACINGS,
+            n_out=OUTGROUP_DIVERGENCE_N_OUTS,
+        ),
+        vcf_cells = expand(
+            f"{DATA}/outgroup_divergence_vcf_d{{depth}}_s{{spacing}}_n{{n_out}}.json",
+            depth=OUTGROUP_DIVERGENCE_DEPTHS,
+            spacing=OUTGROUP_DIVERGENCE_SPACINGS,
+            n_out=OUTGROUP_DIVERGENCE_N_OUTS,
+        ),
+        local_tree_cells = expand(
+            f"{DATA}/outgroup_divergence_local_tree_d{{depth}}_s{{spacing}}_n{{n_out}}.json",
+            depth=OUTGROUP_DIVERGENCE_DEPTHS,
+            spacing=OUTGROUP_DIVERGENCE_SPACINGS,
+            n_out=OUTGROUP_DIVERGENCE_N_OUTS,
+        ),
+    output:
+        json = f"{REPORTS}/outgroup_divergence.json",
+        md = f"{REPORTS}/outgroup_divergence.md",
+    params:
+        sim_config = {
+            **OUTGROUP_DIVERGENCE_CONFIG,
+            "depths": OUTGROUP_DIVERGENCE_DEPTHS,
+            "spacings": OUTGROUP_DIVERGENCE_SPACINGS,
+            "n_outs": OUTGROUP_DIVERGENCE_N_OUTS,
+        },
+        depths = OUTGROUP_DIVERGENCE_DEPTHS,
+        spacings = OUTGROUP_DIVERGENCE_SPACINGS,
+        n_outs = OUTGROUP_DIVERGENCE_N_OUTS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_outgroup_divergence.py"
+
+
+
+# -------------------- substitution-model comparison (ARG + fixed-tree)
+
+rule simulate_model_comparison:
+    """msprime ARG mutated under HKY(kappa, AT-rich pi) for the model-misspecification grid."""
+    output:
+        trees = f"{DATA}/model_comparison_sim.trees",
+        meta = f"{DATA}/model_comparison_sim_meta.json",
+    params:
+        **MODEL_COMPARISON_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_model_comparison.py"
+
+
+rule infer_model_comparison:
+    """One (model, mode) inference cell against the model-comparison simulation.
+
+    Wildcards:
+
+    - ``{model}`` ∈ ``{jc69, k2, f81, hky, gtr}``: Ancestree substitution model.
+    - ``{mode}``  ∈ ``{arg, vcf}``: inference path.
+    """
+    input:
+        trees = rules.simulate_model_comparison.output.trees,
+        meta = rules.simulate_model_comparison.output.meta,
+    output:
+        f"{DATA}/model_comparison_{{model}}_{{mode}}.json",
+    params:
+        mu = MODEL_COMPARISON_CONFIG["mu"],
+    wildcard_constraints:
+        model=r"|".join(MODEL_COMPARISON_MODELS),
+        mode=r"|".join(MODEL_COMPARISON_MODES),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_model_comparison.py"
+
+
+rule report_model_comparison:
+    """Aggregate the (model × mode) cells → model_comparison.{json,md}.
+
+    Standalone target, not part of ``rule all``. Build with::
+
+        snakemake -j 1 report_model_comparison
+    """
+    input:
+        cells = expand(
+            f"{DATA}/model_comparison_{{model}}_{{mode}}.json",
+            model=MODEL_COMPARISON_MODELS, mode=MODEL_COMPARISON_MODES,
+        ),
+        meta = rules.simulate_model_comparison.output.meta,
+    output:
+        json = f"{REPORTS}/model_comparison.json",
+        md = f"{REPORTS}/model_comparison.md",
+    params:
+        sim_config = {
+            **MODEL_COMPARISON_CONFIG,
+            "models": MODEL_COMPARISON_MODELS,
+            "modes": MODEL_COMPARISON_MODES,
+        },
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_model_comparison.py"
+
+
+
+
+# -------------------- monoallelic-ingroup caterpillar benchmark
+
+rule simulate_caterpillar:
+    """msprime ARG with ingroup + 3 outgroups (outgroup-effect demography)."""
+    output:
+        trees = f"{DATA}/caterpillar_sim.trees",
+        meta = f"{DATA}/caterpillar_sim_meta.json",
+    params:
+        **CATERPILLAR_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_caterpillar.py"
+
+
+rule infer_caterpillar:
+    """Kernel-level Felsenstein on one (tree_type) cell.
+
+    Wildcard ``{tree_type}`` ∈ ``{ladder, caterpillar}`` selects which tree
+    the kernel sees on each monoallelic-ingroup site.
+    """
+    input:
+        trees = rules.simulate_caterpillar.output.trees,
+        meta = rules.simulate_caterpillar.output.meta,
+    output:
+        f"{DATA}/caterpillar_{{tree_type}}.json",
+    params:
+        mu = CATERPILLAR_CONFIG["mu"],
+    wildcard_constraints:
+        tree_type = r"|".join(CATERPILLAR_TREE_TYPES),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_caterpillar.py"
+
+
+rule report_caterpillar:
+    """Aggregate the 2 cells → caterpillar.{json,md}.
+
+    Standalone target, not part of ``rule all``. Build with::
+
+        snakemake -j 1 report_caterpillar
+    """
+    input:
+        ladder = f"{DATA}/caterpillar_ladder.json",
+        caterpillar = f"{DATA}/caterpillar_caterpillar.json",
+    output:
+        json = f"{REPORTS}/caterpillar.json",
+        md = f"{REPORTS}/caterpillar.md",
+    params:
+        sim_config = CATERPILLAR_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_caterpillar.py"
+
+
+
+# ----------------------------- real-data MSL chr1 benchmark
+# Against the published PolarBEAR and est-sfs outputs. Standalone target, not
+# in ``rule all``. Build via ``snakemake -j 8 report_msl_3way_chr1``. The
+# PolarBEAR Edmond archive (https://edmond.mpg.de/file.xhtml?fileId=330797)
+# is fetched and extracted under external/polarbear/data/real_data/ by
+# rule download_msl_realdata.
+
+MSL_REAL_DATA_ROOT = "external/polarbear/data/real_data"
+MSL_REAL_DATA_FILES = dict(
+    # Subset of prepare_msl_realdata's EXPECTED dict needed as snakemake
+    # rule inputs. The prepare rule still verifies the full set.
+    msl_vcf_population = (
+        f"{MSL_REAL_DATA_ROOT}/ancestral_state/PolarBEAR_gammaSMC/"
+        f"chr1.snp_only.collapsed.bed_filtered.MSL.cleaned.vcf.gz"
+    ),
+    msl_simplify_vcf = (
+        f"{MSL_REAL_DATA_ROOT}/ancestral_state/est_sfs/"
+        f"chr1.snp_only.collapsed.bed_filtered.MSL.cleaned.ponAbe2_macFas5.simplify.vcf.gz"
+    ),
+    gammaSMC_trees = (
+        f"{MSL_REAL_DATA_ROOT}/ancestral_state/PolarBEAR_gammaSMC/"
+        f"chr1.snp_only.collapsed.bed_filtered.MSL.cleaned_tskit.trees"
+    ),
+    polarbear_anc_state = (
+        f"{MSL_REAL_DATA_ROOT}/ancestral_state/PolarBEAR_gammaSMC/anc_state.txt"
+    ),
+    estsfs_anc_state = (
+        f"{MSL_REAL_DATA_ROOT}/ancestral_state/est_sfs/est-sfs_ancstate.txt"
+    ),
+    msl_panel = f"{MSL_REAL_DATA_ROOT}/ancestral_state/MSL.panel",
+    # An input of report_msl_agreement_matrix, so it must be declared here or
+    # that rule has no producer on a fresh checkout.
+    polarbear_prob_ancstate = (
+        f"{MSL_REAL_DATA_ROOT}/ancestral_state/PolarBEAR_gammaSMC/"
+        f"prob_ancstate.txt"
+    ),
+    snpeff_dir = f"{MSL_REAL_DATA_ROOT}/SnpEff_annotation",
+)
+# Human per-site per-generation mutation rate. Same scale as PolarBEAR
+# tutorial / real-data PSMC config.
+MSL_MU = 1.25e-8
+# The archived gamma-SMC ARG stores node times in coalescent units, not
+# generations (``time_units`` is "unknown" and the deepest node sits at 6.5).
+# One unit is 4*Ne generations, so the expected substitutions on a branch are
+# MSL_THETA times its stored length. This is the branch time_scale for that
+# ARG and the theta PolarBEAR is given for the same file.
+MSL_NE = 1e4
+MSL_THETA = 4 * MSL_NE * MSL_MU
+MSL_OUTGROUPS = ["ponAbe2", "macFas5"]
+
+
+rule download_msl_realdata:
+    """Download and extract the PolarBEAR Edmond/MPG real-data archive
+    (≈12 GB zip → ≈25 GB extracted). Idempotent: the sentinel file skips
+    the rule, ``curl -C -`` resumes a partial download and ``unzip -o`` is
+    safe to re-run. The zip is kept on disk after extraction. To force a
+    fresh download, delete the sentinel
+    ``external/polarbear/data/real_data/.extracted_v1``.
+    """
+    output:
+        # ``protected()`` chmods outputs read-only after creation so an
+        # accidental ``rm`` cannot remove the 12 GB zip or the extraction
+        # sentinel. To force a fresh download:
+        #   chmod u+w external/polarbear/data/real_data/{real_data.zip,.extracted_v1}
+        #   rm external/polarbear/data/real_data/.extracted_v1
+        sentinel = protected(f"{MSL_REAL_DATA_ROOT}/.extracted_v1"),
+        # The archive members the workflow consumes, declared so the DAG can
+        # produce them and so a truncated extraction fails here rather than
+        # leaving a plausible-looking tree for a later rule to trip over.
+        **{k: protected(v) for k, v in MSL_REAL_DATA_FILES.items()
+           if k != "snpeff_dir"},
+        # A file inside the tree rather than directory(): a directory output
+        # counts as produced the moment it exists, however little is in it.
+        snpeff_ok = protected(f'{MSL_REAL_DATA_FILES["snpeff_dir"]}/.extracted'),
+    params:
+        url = "https://edmond.mpg.de/api/access/datafile/330797",
+        root = MSL_REAL_DATA_ROOT,
+        # Not a declared output: snakemake deletes a failed job's outputs, and
+        # as a params path the zip survives a failed extraction so that
+        # ``curl -C -`` resumes it.
+        zip = f"{MSL_REAL_DATA_ROOT}/real_data.zip",
+        snpeff_dir = MSL_REAL_DATA_FILES["snpeff_dir"],
+    conda:
+        "envs/bench.yml"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p {params.root}
+        # Completeness is tested rather than inferred from the file existing,
+        # so a truncated zip resumes instead of being extracted as-is. curl
+        # -C - on an already-complete file asks for a range past EOF and the
+        # server answers 416, so its status is tolerated and the archive test
+        # below is what decides.
+        if [ ! -f "{params.zip}" ] || ! unzip -tqq "{params.zip}" >/dev/null 2>&1; then
+            echo "[download_msl_realdata] downloading/resuming {params.zip} (≈12 GB)..."
+            curl -L --retry 3 --retry-delay 5 -C - -o "{params.zip}" '{params.url}' || true
+            unzip -tqq "{params.zip}" >/dev/null
+        else
+            echo "[download_msl_realdata] zip already present and intact"
+        fi
+        echo "[download_msl_realdata] extracting into {params.root}/ ..."
+        # unzip exits 1 for warnings, which covers both a harmless caveat and
+        # "some members could not be extracted". Accept it only when the
+        # archive itself still tests clean, so a partial extraction cannot be
+        # recorded as complete and then frozen by protected().
+        set +e
+        unzip -q -o "{params.zip}" -d "{params.root}/"
+        rc=$?
+        set -e
+        if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+        if [ "$rc" -eq 1 ]; then unzip -tqq "{params.zip}" >/dev/null; fi
+        test -d "{params.snpeff_dir}"
+        touch "{params.snpeff_dir}/.extracted"
+        touch "{output.sentinel}"
+        echo "[download_msl_realdata] complete"
+        """
+
+
+rule prepare_msl_realdata:
+    """Verify the PolarBEAR real-data archive layout and emit a manifest.
+
+    Depends on :rule:`download_msl_realdata` to fetch and extract the
+    archive. That rule is itself idempotent and skips when its sentinel
+    is already present.
+    """
+    input:
+        sentinel = rules.download_msl_realdata.output.sentinel,
+        real_data_root = MSL_REAL_DATA_ROOT,
+    output:
+        manifest = f"{DATA}/msl_manifest.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/prepare_msl_realdata.py"
+
+
+# ----------------------------- chunked MSL chr1 pipeline (region + subsample wildcards)
+# A cached extraction stage, a subsample-driven fit+infer stage and a 3-way
+# comparison stage, so regions, subsample sizes and RNG seeds run in parallel.
+# Wildcards: {region} (chr<N>_<start>_<end>[KMG], parsed in
+# extract_msl_polymorphic.py), {n_subsample} (full / 25k / 100k / 1M, passed
+# verbatim to the fit script), {seed} (RNG seed of the random subsample) and
+# {infer_scope} (``subsample``: posteriors for the fitted subsample only, or
+# ``all``: posteriors for every polymorphic site after the fit, slower).
+
+rule extract_msl_polymorphic:
+    """Per-chunk filter: reads a single chunked .vcf.gz produced by
+    ``split_msl_pseudo_vcf``, applies the ingroup-polymorphic filter and
+    writes a compact .npz. Each chunk reads its own file, so this step
+    parallelises across chunks."""
+    input:
+        simplify_vcf = f"{DATA}/msl_pseudo_vcf_{{region}}.vcf.gz",
+        panel = MSL_REAL_DATA_FILES["msl_panel"],
+    output:
+        npz = f"{DATA}/msl_polymorphic_{{region}}.npz",
+        meta = f"{DATA}/msl_polymorphic_{{region}}_meta.json",
+    params:
+        outgroup_samples = MSL_OUTGROUPS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/extract_msl_polymorphic.py"
+
+
+rule fit_infer_msl_vcf:
+    """FixedTreeInference on a subsample of the cached .npz, emitting
+    per-site MAP estimates in the PolarBEAR-comparable schema."""
+    input:
+        npz = f"{DATA}/msl_polymorphic_{{region}}.npz",
+        meta = f"{DATA}/msl_polymorphic_{{region}}_meta.json",
+    output:
+        anc = f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.txt",
+        meta = f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_meta.json",
+        posteriors = f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_posteriors.npz",
+    wildcard_constraints:
+        # ``chr1full`` is reserved for the aggregate target. This rule
+        # only handles per-chunk regions.
+        region = "(?!chr1full$).+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/fit_infer_msl_vcf.py"
+
+
+rule report_msl_3way:
+    """3-way agreement Ancestree-VCF ↔ PolarBEAR ↔ est-sfs for a given
+    (region, n_subsample, seed, infer_scope) configuration."""
+    input:
+        vcf_anc = rules.fit_infer_msl_vcf.output.anc,
+        vcf_meta = rules.fit_infer_msl_vcf.output.meta,
+        polarbear_anc = MSL_REAL_DATA_FILES["polarbear_anc_state"],
+        estsfs_anc = MSL_REAL_DATA_FILES["estsfs_anc_state"],
+        msl_population_vcf = MSL_REAL_DATA_FILES["msl_vcf_population"],
+        snpeff_ok = rules.download_msl_realdata.output.snpeff_ok,
+    output:
+        json = f"{REPORTS}/msl_3way_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.json",
+        md = f"{REPORTS}/msl_3way_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.md",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_msl_3way.py"
+
+
+# Chunked-pipeline targets: split chr1 into 25 Mb chunks for parallel
+# fit + infer over disjoint position ranges. Each chunk is an independent
+# `(region, n_subsample, seed, infer_scope)` cell driven through the
+# rules above, and the aggregate rule concatenates per-chunk call files.
+MSL_CHR1_LENGTH_BP = 248_956_422  # GRCh38 chr1 length
+MSL_CHUNK_SIZE_BP = 6_250_000  # 40 chunks across chr1 (≈25 K sites each)
+MSL_CHR1_CHUNKS = [
+    (chunk_start, min(chunk_start + MSL_CHUNK_SIZE_BP, MSL_CHR1_LENGTH_BP))
+    for chunk_start in range(0, MSL_CHR1_LENGTH_BP, MSL_CHUNK_SIZE_BP)
+]
+
+
+def _chunk_region(start_bp: int, end_bp: int) -> str:
+    """Format chunk bounds as a region wildcard like ``chr1_0M_25M``."""
+    def _fmt(bp: int) -> str:
+        if bp == 0:
+            return "0"
+        if bp % 1_000_000 == 0:
+            return f"{bp // 1_000_000}M"
+        return str(bp)
+    return f"chr1_{_fmt(start_bp)}_{_fmt(end_bp)}"
+
+
+MSL_CHR1_CHUNK_REGIONS = [_chunk_region(s, e) for s, e in MSL_CHR1_CHUNKS]
+
+
+rule split_msl_pseudo_vcf:
+    """Split the pseudo-VCF into N positional chunks (one .vcf.gz per
+    chunk). No filtering at this stage: chunks contain every line in their
+    range, including ingroup-monomorphic ones. Filtering happens in
+    ``extract_msl_polymorphic`` per chunk."""
+    input:
+        simplify_vcf = MSL_REAL_DATA_FILES["msl_simplify_vcf"],
+    output:
+        chunks = expand(
+            f"{DATA}/msl_pseudo_vcf_{{region}}.vcf.gz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        manifest = f"{DATA}/msl_pseudo_vcf_chunks_manifest.json",
+    params:
+        chunks = [
+            (region, start, end)
+            for region, (start, end) in zip(MSL_CHR1_CHUNK_REGIONS, MSL_CHR1_CHUNKS)
+        ],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/split_msl_pseudo_vcf.py"
+
+
+# Prefer aggregate over fit_infer for the chr1full target.
+ruleorder: aggregate_msl_vcf_chr1 > fit_infer_msl_vcf
+ruleorder: report_msl_3way_chr1 > report_msl_3way
+
+
+rule aggregate_msl_vcf_chr1:
+    """Concatenate per-chunk Ancestree-VCF call files (and per-chunk
+    posteriors) into a single chr1-wide call set, posterior file, and
+    meta manifest. Runs the chunks in parallel by declaring all per-chunk
+    outputs as inputs.
+
+    Build via:
+        snakemake -j N aggregate_msl_vcf_chr1_n100k_seed0_all
+    where N is the number of chunks to run in parallel.
+    """
+    input:
+        chunks = lambda wc: expand(
+            f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.txt",
+            region=MSL_CHR1_CHUNK_REGIONS,
+            n_subsample=[wc.n_subsample],
+            seed=[wc.seed],
+            infer_scope=[wc.infer_scope],
+        ),
+        chunk_metas = lambda wc: expand(
+            f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_meta.json",
+            region=MSL_CHR1_CHUNK_REGIONS,
+            n_subsample=[wc.n_subsample],
+            seed=[wc.seed],
+            infer_scope=[wc.infer_scope],
+        ),
+        chunk_posteriors = lambda wc: expand(
+            f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_posteriors.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+            n_subsample=[wc.n_subsample],
+            seed=[wc.seed],
+            infer_scope=[wc.infer_scope],
+        ),
+    output:
+        anc = f"{DATA}/msl_vcf_chr1full_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.txt",
+        meta = f"{DATA}/msl_vcf_chr1full_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_meta.json",
+        posteriors = f"{DATA}/msl_vcf_chr1full_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_posteriors.npz",
+    run:
+        import json
+        from pathlib import Path
+        import numpy as np
+        # Concatenate per-chunk per-site call files (pos\tallele_idx).
+        with open(output.anc, "w") as fout:
+            for cf in input.chunks:
+                with open(cf) as fin:
+                    for line in fin:
+                        fout.write(line)
+        # Concatenate per-chunk posteriors into one .npz along axis 0.
+        # Empty chunks (e.g. the chr1 centromere span) save posterior as a
+        # 1-D zero-length array, so skip those when concatenating.
+        all_pos = []
+        all_post = []
+        alleles_arr = None
+        for p in input.chunk_posteriors:
+            d = np.load(p, allow_pickle=True)
+            pos = d["pos"]
+            post = d["posterior"]
+            if pos.shape[0] == 0:
+                continue
+            if post.ndim == 1:
+                post = post.reshape(-1, 4)
+            all_pos.append(pos)
+            all_post.append(post)
+            if alleles_arr is None:
+                alleles_arr = d["alleles"]
+        np.savez_compressed(
+            output.posteriors,
+            pos=np.concatenate(all_pos),
+            posterior=np.concatenate(all_post),
+            alleles=alleles_arr,
+        )
+        # Aggregate meta: keep per-chunk paths + counts.
+        metas = [json.load(open(p)) for p in input.chunk_metas]
+        n_per_chunk = [m.get('n_sites_in_infer', m.get('n_sites_in_fit', 0)) for m in metas]
+        out_meta = {
+            'aggregated_from': list(input.chunks),
+            'n_sites_total': sum(n_per_chunk),
+            'n_sites_per_chunk': dict(zip([m.get('region') for m in metas], n_per_chunk)),
+            'timings_per_chunk_seconds': {
+                m.get('region'): m.get('timings_seconds', {}).get('total') for m in metas
+            },
+            'chunks_meta_paths': list(input.chunk_metas),
+        }
+        with open(output.meta, "w") as f:
+            json.dump(out_meta, f, indent=2)
+
+
+rule stream_infer_msl_arg_all:
+    """ARG-mode streaming inference: load the gamma-SMC ARG once, then
+    iterate all 40 per-chunk ingroup .npz files in position order, building
+    Sites from haplotype states and running the Felsenstein kernel against
+    the live local tree.
+
+    Streaming pays the ARG load cost once. Projecting the ARG per chunk with
+    ``ts.keep_intervals(simplify=True)`` takes over 30 min per chunk on this
+    2.26M-tree ARG.
+
+    Wildcard-free: this rule produces all 40 chunks in one process, since
+    two processes would each need the whole ARG in memory."""
+    input:
+        trees = MSL_REAL_DATA_FILES["gammaSMC_trees"],
+        npz_files = expand(
+            f"{DATA}/msl_polymorphic_{{region}}.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+    output:
+        calls = expand(
+            f"{DATA}/msl_arg_{{region}}_calls.txt",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        metas = expand(
+            f"{DATA}/msl_arg_{{region}}_calls_meta.json",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        posteriors = expand(
+            f"{DATA}/msl_arg_{{region}}_posteriors.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        overall_meta = f"{DATA}/msl_arg_chr1full_streaming_meta.json",
+    params:
+        time_scale = MSL_THETA,
+    resources:
+        # Streams chr1's ARG chunks at n=174. The 8 GB profile default is not
+        # enough to hold even one chunk's trees and OOM-kills on load.
+        mem_mb = lambda wildcards, attempt: 96000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(720, attempt),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/stream_infer_msl_arg.py"
+
+
+rule aggregate_msl_arg_chr1:
+    """ARG-mode aggregate: concatenate per-chunk ARG-mode call files and
+    posteriors into a chr1-wide call set, posterior matrix, and meta
+    manifest."""
+    input:
+        chunks = expand(
+            f"{DATA}/msl_arg_{{region}}_calls.txt",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        chunk_metas = expand(
+            f"{DATA}/msl_arg_{{region}}_calls_meta.json",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        chunk_posteriors = expand(
+            f"{DATA}/msl_arg_{{region}}_posteriors.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+    output:
+        anc = f"{DATA}/msl_arg_chr1full_calls.txt",
+        meta = f"{DATA}/msl_arg_chr1full_calls_meta.json",
+        posteriors = f"{DATA}/msl_arg_chr1full_posteriors.npz",
+    run:
+        import json
+        import numpy as np
+        # Concatenate per-chunk per-site call files.
+        with open(output.anc, "w") as fout:
+            for cf in input.chunks:
+                with open(cf) as fin:
+                    for line in fin:
+                        fout.write(line)
+        # Concatenate posteriors (skip empty / 1-D zero-length chunks).
+        all_pos, all_post = [], []
+        alleles_arr = None
+        for p in input.chunk_posteriors:
+            d = np.load(p, allow_pickle=True)
+            pos = d["pos"]
+            post = d["posterior"]
+            if pos.shape[0] == 0:
+                continue
+            if post.ndim == 1:
+                post = post.reshape(-1, 4)
+            all_pos.append(pos)
+            all_post.append(post)
+            if alleles_arr is None:
+                alleles_arr = d["alleles"]
+        np.savez_compressed(
+            output.posteriors,
+            pos=np.concatenate(all_pos) if all_pos else np.zeros(0, dtype=np.int32),
+            posterior=np.concatenate(all_post) if all_post else np.zeros((0, 4), dtype=np.float32),
+            alleles=alleles_arr,
+        )
+        metas = [json.load(open(p)) for p in input.chunk_metas]
+        out_meta = {
+            "aggregated_from": list(input.chunks),
+            "n_sites_total": sum(m.get("n_sites_written", 0) for m in metas),
+            "n_sites_per_chunk": {m.get("region"): m.get("n_sites_written", 0) for m in metas},
+            "timings_per_chunk_seconds": {
+                m.get("region"): m.get("timings_seconds", {}).get("total") for m in metas
+            },
+        }
+        with open(output.meta, "w") as f:
+            json.dump(out_meta, f, indent=2)
+
+
+rule report_msl_3way_chr1:
+    """3-way agreement on the chr1-aggregated Ancestree-VCF call set."""
+    input:
+        vcf_anc = rules.aggregate_msl_vcf_chr1.output.anc,
+        vcf_meta = rules.aggregate_msl_vcf_chr1.output.meta,
+        polarbear_anc = MSL_REAL_DATA_FILES["polarbear_anc_state"],
+        estsfs_anc = MSL_REAL_DATA_FILES["estsfs_anc_state"],
+        msl_population_vcf = MSL_REAL_DATA_FILES["msl_vcf_population"],
+        snpeff_ok = rules.download_msl_realdata.output.snpeff_ok,
+    output:
+        json = f"{REPORTS}/msl_3way_chr1full_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.json",
+        md = f"{REPORTS}/msl_3way_chr1full_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.md",
+    params:
+        # Pass `region=chr1full` through the report-script wildcards so
+        # the soft-metrics posterior file is resolved correctly.
+        region = "chr1full",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_msl_3way.py"
+
+
+rule fit_infer_msl_vcf_streaming:
+    """Whole-chr1 fixed-tree fit in one streaming pass
+    (``FixedTreeInference(stream=True)`` over every polymorphic chunk at once),
+    with no positional chunking of the fit and no per-chunk site subsample."""
+    input:
+        npz = expand(
+            f"{DATA}/msl_polymorphic_{{region}}.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        meta = expand(
+            f"{DATA}/msl_polymorphic_{{region}}_meta.json",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+    output:
+        anc = f"{DATA}/msl_vcf_chr1_full_stream_calls.txt",
+        meta = f"{DATA}/msl_vcf_chr1_full_stream_meta.json",
+        posteriors = f"{DATA}/msl_vcf_chr1_full_stream_posteriors.npz",
+    threads: 8
+    resources:
+        mem_mb = lambda wildcards, attempt: 96000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(720, attempt),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/fit_infer_msl_vcf_streaming.py"
+
+
+rule infer_msl_local_tree_region:
+    """VCF-only local-tree inference of one chr1 region.
+
+    Sharded: the regions are independent (each is windowed inside itself and
+    written back in absolute coordinates), so they run concurrently."""
+    input:
+        npz = f"{DATA}/msl_polymorphic_{{region}}.npz",
+        meta = f"{DATA}/msl_polymorphic_{{region}}_meta.json",
+    output:
+        anc = f"{DATA}/msl_localtree_{{region}}_calls.txt",
+        meta = f"{DATA}/msl_localtree_{{region}}_meta.json",
+        posteriors = f"{DATA}/msl_localtree_{{region}}_posteriors.npz",
+    threads: LOCAL_TREE_THREADS
+    resources:
+        # One region of chr1 at n=174, so the HMM matrix is ~1/40 of the
+        # whole-chromosome footprint.
+        mem_mb = lambda wildcards, attempt: 32000 * attempt,
+        runtime = lambda wildcards, attempt: 360 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_msl_local_tree.py"
+
+
+rule infer_msl_local_tree:
+    """Join the per-region local-tree shards into the chr1 call set."""
+    input:
+        calls = expand(
+            f"{DATA}/msl_localtree_{{region}}_calls.txt",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        metas = expand(
+            f"{DATA}/msl_localtree_{{region}}_meta.json",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        posteriors = expand(
+            f"{DATA}/msl_localtree_{{region}}_posteriors.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+    output:
+        anc = f"{DATA}/msl_localtree_chr1_full_calls.txt",
+        meta = f"{DATA}/msl_localtree_chr1_full_meta.json",
+        posteriors = f"{DATA}/msl_localtree_chr1_full_posteriors.npz",
+    threads: LOCAL_TREE_THREADS
+    resources:
+        # Concatenation only. The inference happened in the shards.
+        mem_mb = 16000,
+        runtime = 60,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/aggregate_msl_local_tree.py"
+
+
+rule report_msl_agreement_matrix:
+    """5-method pairwise MAP-agreement matrix + heatmap (Ancestree
+    VCF / ARG / local-tree vs. PolarBEAR vs. EST-SFS) on the chr1 call sets.
+    The script reads the per-method call/posterior files by their canonical
+    paths. The inputs below sequence those producers in the DAG."""
+    input:
+        vcf_stream = rules.fit_infer_msl_vcf_streaming.output.anc,
+        localtree = rules.infer_msl_local_tree.output.anc,
+        arg_chunks = expand(
+            f"{DATA}/msl_arg_{{region}}_calls.txt",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        polarbear_anc = MSL_REAL_DATA_FILES["polarbear_anc_state"],
+        estsfs_anc = MSL_REAL_DATA_FILES["estsfs_anc_state"],
+        # The script reads PolarBEAR's per-site posteriors and the population
+        # VCF by their canonical archive paths. Declared so the dependency
+        # sits in the DAG rather than only in the script.
+        polarbear_probs = (f"{MSL_REAL_DATA_ROOT}/ancestral_state/"
+                           "PolarBEAR_gammaSMC/prob_ancstate.txt"),
+        polarbear_vcf = MSL_REAL_DATA_FILES["msl_vcf_population"],
+        # The per-state posterior columns the soft agreement reads. The archive
+        # file above carries the flags but only six columns. Named by path, not
+        # through ``rules``, since its producer is defined further down.
+        prob_full = f"{DATA}/rerun_polarbear_workdir/prob_ancstate_full.txt",
+    output:
+        json = f"{REPORTS}/msl_agreement_matrix.json",
+        pdf = f"{REPORTS}/msl_agreement_heatmap.pdf",
+    resources:
+        # Not covered by the input-size default: the rerun's wide posterior
+        # file (four per-state columns over 1.14M sites) is chosen at runtime
+        # by the script and so is not a declared input. Five methods' per-site
+        # calls and posteriors are held at once.
+        mem_mb = lambda wildcards, attempt: 64000 * attempt,
+        runtime = lambda wildcards, attempt: 120 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_msl_agreement_matrix.py"
+
+
+rule copy_msl_agreement_heatmap:
+    """Copy the agreement heatmap into the manuscript figures directory."""
+    input:
+        rules.report_msl_agreement_matrix.output.pdf,
+    output:
+        "reports/manuscripts/latex/figures/msl_agreement_heatmap.pdf",
+    conda:
+        "envs/bench.yml"
+    shell:
+        "cp {input} {output}"
+
+
+# ----------------------------- kernel benchmark (simulated data)
+
+rule bench_arg_kernel:
+    """Kernel runtime + peak-memory benchmark on a self-contained sim.
+
+    All three modes run on one shared dataset (17 ingroup + 3 outgroups,
+    100 Mb, JC69) and infer the same site set, reporting wall-clock seconds
+    and peak RSS per (mode, workers, threads) configuration. Each
+    configuration runs in its own subprocess, invoked via ``shell`` because
+    the harness re-execs itself per config."""
+    input:
+        maker = "workflow/scripts/bench_kernel.py",
+    output:
+        md = f"{REPORTS}/arg_kernel_bench.md",
+        json = f"{REPORTS}/arg_kernel_bench.json",
+    # The grid runs up to 8 fork-pool workers and the kernels are numba prange
+    # loops, so the worker-scaling rows need real cores to measure anything.
+    threads: 16
+    resources:
+        # Each configuration runs in its own subprocess, and the local-tree
+        # row marginalises over the manuscript ensemble. An OOM-killed child
+        # surfaces as a missing RESULT_JSON in the parent.
+        mem_mb = lambda wildcards, attempt: 64000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(480, attempt),
+    conda:
+        "envs/bench.yml"
+    shell:
+        "python workflow/scripts/bench_kernel.py"
+
+
+rule kernel_bench_table:
+    """The kernel-benchmark table body, from the benchmark report."""
+    input:
+        json = rules.bench_arg_kernel.output.json,
+        maker = "reports/scripts/make_kernel_bench_table.py",
+    output:
+        tex = "reports/manuscripts/latex/tables/kernel_bench_body.tex",
+    conda:
+        "envs/bench.yml"
+    shell:
+        "python reports/scripts/make_kernel_bench_table.py"
+
+
+rule edge_cases_posteriors:
+    """Kernel-level posteriors on four hand-built site classes, each without
+    and then with three outgroups. Runs Ancestree's sum-product and
+    PolarBEAR's max-product kernel on the same trees. No external data
+    dependency."""
+    output:
+        json = f"{REPORTS}/edge_cases.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/edge_cases_posteriors.py"
+
+
+rule edge_cases_table:
+    """Appendix Table A1, from the edge-case posteriors."""
+    input:
+        json = rules.edge_cases_posteriors.output.json,
+        maker = "reports/scripts/make_edge_cases_table.py",
+    output:
+        tex = "reports/manuscripts/latex/tables/edge_cases_body.tex",
+    conda:
+        "envs/bench.yml"
+    shell:
+        "python reports/scripts/make_edge_cases_table.py"
+
+
+# ----------------------------- reproducibility re-runs of reference tools
+
+#: Upstream PolarBEAR, pinned. The repo is the one named in the paper's data
+#: availability statement. external/ is gitignored, so the fetch rule is what
+#: lets a fresh checkout rebuild the baseline.
+POLARBEAR_REPO = "https://gitlab.gwdg.de/molsysevol/polarizing_without_outgroup"
+POLARBEAR_COMMIT = "078871d7690210caf1ca3a4481352cc1113ba670"
+
+
+rule fetch_polarbear:
+    """Clone PolarBEAR at a pinned commit and apply the posterior patch.
+
+    Upstream writes only the MAP state and its probability. The patch adds the
+    full normalised posterior over A/C/G/T, which the MSL agreement matrix
+    needs to compare PolarBEAR on anything but MAP estimates."""
+    output:
+        marker = "external/polarbear/.ancestree_patched",
+        script = "external/polarbear/code/polarize/site_polarize.py",
+    input:
+        patch = "workflow/patches/polarbear-full-posteriors.patch",
+    params:
+        repo = POLARBEAR_REPO,
+        commit = POLARBEAR_COMMIT,
+        root = "external/polarbear",
+    conda:
+        "envs/base.yml"
+    shell:
+        r"""
+        set -euo pipefail
+        # Clone aside and sync the code in, rather than rm -rf'ing the root:
+        # data/real_data is a multi-GB download that does NOT live in the repo
+        # (see fetch_polarbear_realdata), and wiping it on every re-clone would
+        # throw it away.
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        git clone -q {params.repo} "$tmp/pb"
+        git -C "$tmp/pb" checkout -q {params.commit}
+        git -C "$tmp/pb" apply --verbose $(realpath {input.patch})
+        mkdir -p {params.root}
+        rm -rf {params.root}/code
+        cp -a "$tmp/pb/code" {params.root}/code
+        cp -a "$tmp/pb/LICENSE" "$tmp/pb/README.md" {params.root}/ 2>/dev/null || true
+        echo "{params.commit}" > {output.marker}
+        """
+
+
+rule rerun_polarbear_msl_chr1:
+    """Re-run PolarBEAR's ancestral-state step on the archived gamma-SMC
+    tskit ARG (skipping the multi-day gamma-SMC re-inference) and record
+    wall-clock time. The output is byte-comparable to the archived
+    anc_state.txt."""
+    input:
+        trees = MSL_REAL_DATA_FILES["gammaSMC_trees"],
+        vcf = MSL_REAL_DATA_FILES["msl_vcf_population"],
+        polarbear = rules.fetch_polarbear.output.marker,
+    output:
+        anc = f"{DATA}/rerun_polarbear_anc_state.txt",
+        meta = f"{DATA}/rerun_polarbear_meta.json",
+        # Read by report_msl_informative_prior, so declared here rather than
+        # left as undeclared work-directory contents with no producer.
+        prob_full = f"{DATA}/rerun_polarbear_workdir/prob_ancstate_full.txt",
+    params:
+        polarbear_root = "external/polarbear",
+        theta = MSL_THETA,
+        work_dir = f"{DATA}/rerun_polarbear_workdir",
+    resources:
+        runtime = lambda wildcards, attempt: capped_runtime(720, attempt),
+    conda:
+        # PolarBEAR's own env: the script invokes PolarBear.py with the SAME
+        # interpreter it runs under (sys.executable), so there is one python
+        # here and no env var to keep in step with it.
+        "envs/polarbear.yml"
+    script:
+        "scripts/rerun_polarbear_msl.py"
+
+
+
+rule report_msl_informative_prior:
+    """Appendix table: what an informative ingroup prior buys on the MSL panel."""
+    input:
+        prob_full = rules.rerun_polarbear_msl_chr1.output.prob_full,
+        arg_posteriors = expand(
+            f"{DATA}/msl_arg_{{region}}_posteriors.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        localtree_posteriors = f"{DATA}/msl_localtree_chr1_full_posteriors.npz",
+    output:
+        json = f"{REPORTS}/msl_informative_prior.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_msl_informative_prior.py"
+
+
+rule msl_informative_prior_table:
+    """Appendix table: what an informative ingroup prior buys, from the
+    agreement report."""
+    input:
+        json = rules.report_msl_informative_prior.output.json,
+        maker = "reports/scripts/make_msl_informative_prior_table.py",
+    output:
+        tex = f"{LATEX}/tables/msl_informative_prior.tex",
+    conda:
+        "envs/bench.yml"
+    shell:
+        "python reports/scripts/make_msl_informative_prior_table.py"
+
+
+rule rerun_estsfs_msl_chr1:
+    """Re-run EST-SFS end-to-end on the archived MSL pseudo-VCF and record
+    per-stage wall-clock time. The config is generated at runtime so
+    `nrandom` (independent ML restart count) can be matched to the
+    comparator (Ancestree FixedTreeInference defaults to n_starts=4)."""
+    input:
+        pseudo_vcf = MSL_REAL_DATA_FILES["msl_simplify_vcf"],
+        # The checkout marker rather than the driver path, so the DAG has an
+        # edge to fetch_polarbear.
+        polarbear = rules.fetch_polarbear.output.marker,
+    output:
+        anc = f"{DATA}/rerun_estsfs_anc_state.txt",
+        meta = f"{DATA}/rerun_estsfs_meta.json",
+    params:
+        polarbear_root = "external/polarbear",
+        n_outgroup = 2,
+        model_code = 2,    # est-sfs R6 (six symmetrical rates)
+        nrandom = 4,  # fewer restarts than the archive's 10, keeping the rerun cheap
+        work_dir = f"{DATA}/rerun_estsfs_workdir",
+    resources:
+        runtime = lambda wildcards, attempt: capped_runtime(720, attempt),
+    conda:
+        "envs/estsfs.yml"
+    script:
+        "scripts/rerun_estsfs_msl.py"
+
+
+# ----------------------------- SLiM outgroup-bias validation
+# Forward-time SLiM simulation of the 4-population demography (ingroup p0 +
+# three nested outgroups), then FixedTreeInference under 1/2/3 outgroups, in
+# ``SLIM_OUTGROUP_BIAS_N_CHUNKS`` independent chunks seeded base_seed +
+# chunk_idx. Rescaled to N_e_slim by s = Ne_target / Ne_slim: T_slim = T / s,
+# mu_slim = mu * s, rho_slim = rho * s, leaving theta = 4·Ne·mu and K = mu·T
+# invariant. Build via ``snakemake -j 8 report_slim_outgroup_bias``.
+SLIM_OUTGROUP_BIAS_CONFIG = dict(
+    # Shallow regime (human-ape scale, K = 0.004 / 0.011 / 0.019) with the
+    # outgroup-effect spacing. Deep-regime swap: seq_len_total = 100_000,
+    # N_e_slim = 100, outgroup_split_times_target = [4e6, 8e6, 12e6] for
+    # the EST-SFS K = 0.05/0.10/0.15 cell.
+    seq_len_total=1_000_000,
+    mu_target=1.25e-8,
+    rec_rate_target=1e-8,
+    Ne_target=10_000,
+    N_e_slim=1_000,
+    N_e_outgroup_slim=5,
+    outgroup_split_times_target=[3e5, 9e5, 1.5e6],
+    n_ingroup_haps=20,
+    seed=42,
+)
+SLIM_OUTGROUP_BIAS_N_CHUNKS = 10
+SLIM_OUTGROUP_BIAS_CHUNK_IDXS = list(range(SLIM_OUTGROUP_BIAS_N_CHUNKS))
+SLIM_OUTGROUP_BIAS_F_DELS = ["0.0", "0.5", "1.0"]
+SLIM_OUTGROUP_BIAS_N_OUTS = [1, 2, 3]
+
+# Derived constants (kept here so both Snakefile + scripts read the same
+# scaling). s = Ne_target / Ne_slim.
+SLIM_OUTGROUP_BIAS_TIME_SCALING = (
+    SLIM_OUTGROUP_BIAS_CONFIG["Ne_target"] / SLIM_OUTGROUP_BIAS_CONFIG["N_e_slim"]
+)
+SLIM_OUTGROUP_BIAS_MU_SLIM = (
+    SLIM_OUTGROUP_BIAS_CONFIG["mu_target"] * SLIM_OUTGROUP_BIAS_TIME_SCALING
+)
+SLIM_OUTGROUP_BIAS_RHO_SLIM = (
+    SLIM_OUTGROUP_BIAS_CONFIG["rec_rate_target"] * SLIM_OUTGROUP_BIAS_TIME_SCALING
+)
+SLIM_OUTGROUP_BIAS_T_SLIM = [
+    int(t / SLIM_OUTGROUP_BIAS_TIME_SCALING)
+    for t in SLIM_OUTGROUP_BIAS_CONFIG["outgroup_split_times_target"]
+]
+SLIM_OUTGROUP_BIAS_SEQ_LEN_PER_CHUNK = (
+    SLIM_OUTGROUP_BIAS_CONFIG["seq_len_total"] // SLIM_OUTGROUP_BIAS_N_CHUNKS
+)
+
+# ----- Separate 10-outgroup SLiM sim for the robustness heatmap only.
+# Same scaling as the 3-outgroup sim, with a geometric 10-rung ladder within
+# a realistic depth window [3e5, 1.5e6] (~1.9% max divergence, no JC
+# saturation). 10× the total sequence over SLIM10_N_CHUNKS=100 chunks of
+# 100 kb each, so 10× more jobs at the same per-job runtime.
+SLIM_OUTGROUP_BIAS10_CONFIG = dict(
+    seq_len_total=10_000_000,
+    mu_target=1.25e-8,
+    rec_rate_target=1e-8,
+    Ne_target=10_000,
+    N_e_slim=1_000,
+    N_e_outgroup_slim=5,
+    outgroup_split_times_target=[3.0e5, 3.6e5, 4.3e5, 5.1e5, 6.1e5,
+                                 7.3e5, 8.8e5, 1.05e6, 1.25e6, 1.5e6],
+    n_ingroup_haps=20,
+    seed=42,
+)
+SLIM10_TIME_SCALING = (
+    SLIM_OUTGROUP_BIAS10_CONFIG["Ne_target"]
+    / SLIM_OUTGROUP_BIAS10_CONFIG["N_e_slim"]
+)
+SLIM10_MU_SLIM = SLIM_OUTGROUP_BIAS10_CONFIG["mu_target"] * SLIM10_TIME_SCALING
+SLIM10_RHO_SLIM = (
+    SLIM_OUTGROUP_BIAS10_CONFIG["rec_rate_target"] * SLIM10_TIME_SCALING
+)
+SLIM10_T_SLIM = [
+    int(t / SLIM10_TIME_SCALING)
+    for t in SLIM_OUTGROUP_BIAS10_CONFIG["outgroup_split_times_target"]
+]
+SLIM10_SPLITS_STR = "c(" + ",".join(str(t) for t in SLIM10_T_SLIM) + ")"
+SLIM10_SPLITS_TARGET_STR = " ".join(
+    str(t) for t in SLIM_OUTGROUP_BIAS10_CONFIG["outgroup_split_times_target"]
+)
+SLIM10_N_OUT = len(SLIM_OUTGROUP_BIAS10_CONFIG["outgroup_split_times_target"])
+# Robustness SLiM chunk count, decoupled from the est-sfs cell's
+# SLIM_OUTGROUP_BIAS_N_CHUNKS: 10× sites over 100 chunks, so each chunk is
+# 100 kb, the est-sfs cell's per-chunk size. Drives both the per-chunk
+# seq_len here and ROBUSTNESS_SLIM_CHUNKS.
+SLIM10_N_CHUNKS = 100
+SLIM10_SEQ_LEN_PER_CHUNK = (
+    SLIM_OUTGROUP_BIAS10_CONFIG["seq_len_total"] // SLIM10_N_CHUNKS
+)
+
+
+rule simulate_slim_outgroup_bias:
+    """SLiM forward sim of the 4-population demography for one chunk.
+
+    Wildcards:
+
+    - ``{chunk_idx}`` ∈ ``0..N_CHUNKS-1``: chunk seed offset (per-chunk
+      seed = base_seed + chunk_idx), each chunk is an independent
+      ``seq_len_per_chunk``-bp sim.
+    - ``{f_del}`` ∈ ``{0.0, 0.5, 1.0}``: fraction of sites under the
+      gamma DFE in the mosaic layout (rest strictly neutral).
+
+    Output: a 4-population tree sequence with ingroup p0 + outgroups
+    p1/p2/p3 already split at the configured (rescaled) times. The
+    recap+mutate stage handles the deep coalescent above T3 and overlays
+    JC69 mutations.
+
+    Runs under ``workflow/envs/slim.yml`` (SLiM binary + pyslim).
+    """
+    output:
+        trees = f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_slim.trees",
+    params:
+        base_seed = SLIM_OUTGROUP_BIAS_CONFIG["seed"],
+        seq_len = SLIM_OUTGROUP_BIAS_SEQ_LEN_PER_CHUNK,
+        mu_slim = SLIM_OUTGROUP_BIAS_MU_SLIM,
+        rho_slim = SLIM_OUTGROUP_BIAS_RHO_SLIM,
+        N_e_slim = SLIM_OUTGROUP_BIAS_CONFIG["N_e_slim"],
+        N_e_out = SLIM_OUTGROUP_BIAS_CONFIG["N_e_outgroup_slim"],
+        T1_slim = SLIM_OUTGROUP_BIAS_T_SLIM[0],
+        T2_slim = SLIM_OUTGROUP_BIAS_T_SLIM[1],
+        T3_slim = SLIM_OUTGROUP_BIAS_T_SLIM[2],
+        script = f"{SCRIPTS}/simulate_slim_outgroup_bias.slim",
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: 16000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(480, attempt),
+    conda:
+        "envs/slim.yml"
+    shell:
+        "slim "
+        '-d "SEED=$(({params.base_seed} + {wildcards.chunk_idx}))" '
+        '-d "F_DEL={wildcards.f_del}" '
+        '-d "SEQ_LEN={params.seq_len}" '
+        '-d "MU_SLIM={params.mu_slim}" '
+        '-d "RHO_SLIM={params.rho_slim}" '
+        '-d "N_E_SLIM={params.N_e_slim}" '
+        '-d "N_E_OUT={params.N_e_out}" '
+        '-d "T1_SLIM={params.T1_slim}" '
+        '-d "T2_SLIM={params.T2_slim}" '
+        '-d "T3_SLIM={params.T3_slim}" '
+        "-d \"OUT_TREES='{output.trees}'\" "
+        "{params.script}"
+
+
+rule recap_and_mutate_slim_outgroup_bias:
+    """Recapitate the 4-pop SLiM ts, overlay JC69 mutations, write
+    VCF + meta. One cell per ``(chunk_idx, f_del)``.
+
+    The SLiM stage produces the full demography with nested outgroup
+    splits, so this step is purely the deep-coalescent extension + JC69
+    overlay + sample selection.
+
+    Runs under ``workflow/envs/slim.yml`` (pyslim + msprime).
+    """
+    input:
+        slim_trees = rules.simulate_slim_outgroup_bias.output.trees,
+    output:
+        trees = f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}.trees",
+        vcf = f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}.vcf",
+        meta = f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_meta.json",
+    params:
+        seed = SLIM_OUTGROUP_BIAS_CONFIG["seed"],
+        mu_slim = SLIM_OUTGROUP_BIAS_MU_SLIM,
+        rec_rate_slim = SLIM_OUTGROUP_BIAS_RHO_SLIM,
+        N_e_slim = SLIM_OUTGROUP_BIAS_CONFIG["N_e_slim"],
+        mu_target = SLIM_OUTGROUP_BIAS_CONFIG["mu_target"],
+        time_scaling = SLIM_OUTGROUP_BIAS_TIME_SCALING,
+        outgroup_split_times_target = SLIM_OUTGROUP_BIAS_CONFIG["outgroup_split_times_target"],
+        n_ingroup_haps = SLIM_OUTGROUP_BIAS_CONFIG["n_ingroup_haps"],
+        seq_len = SLIM_OUTGROUP_BIAS_SEQ_LEN_PER_CHUNK,
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/slim.yml"
+    script:
+        "scripts/recap_and_mutate_slim_outgroup_bias.py"
+
+
+rule fit_slim_outgroup_bias:
+    """Joint FixedTreeInference fit pooling all chunk VCFs for one
+    ``(f_del, n_out)`` cell.
+
+    Per-chunk MLEs at ~5 k polymorphic sites overfit per-chunk sampling
+    noise (collapsing to the K_1 = 1e-9 boundary), so one ``.fit()`` per
+    ``(f_del, n_out)`` consumes the polymorphic-site streams of all 10
+    chunks. The downstream ``infer_slim_outgroup_bias`` rule then reads
+    the joint fit JSON and runs the per-chunk per-site posterior pass with
+    the rates locked.
+
+    Runs under ``workflow/envs/bench.yml``.
+    """
+    input:
+        vcfs = expand(
+            f"{DATA}/slim_outgroup_bias_fdel{{{{f_del}}}}_chunk{{chunk_idx}}.vcf",
+            chunk_idx=SLIM_OUTGROUP_BIAS_CHUNK_IDXS,
+        ),
+        metas = expand(
+            f"{DATA}/slim_outgroup_bias_fdel{{{{f_del}}}}_chunk{{chunk_idx}}_meta.json",
+            chunk_idx=SLIM_OUTGROUP_BIAS_CHUNK_IDXS,
+        ),
+    output:
+        fit = f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_n{{n_out}}_fit.json",
+    params:
+        # Cumulative target sequence length across chunks. Used by the
+        # joint-fit's monomorphic-site calibration: n_target_sites = sum
+        # of per-chunk seq_len_per_chunk = the full sim sequence length.
+        length = (
+            SLIM_OUTGROUP_BIAS_SEQ_LEN_PER_CHUNK
+            * SLIM_OUTGROUP_BIAS_N_CHUNKS
+        ),
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        n_out = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/fit_slim_outgroup_bias.py"
+
+
+rule infer_slim_outgroup_bias:
+    """Per-chunk posterior pass using the joint fit's parameters.
+
+    Reads one chunk's VCF + meta plus the joint-fit JSON for the matching
+    ``(f_del, n_out)`` cell, locks ``FixedTreeInference``'s branch rates
+    to the joint MLE (``fit_required=False`` + manual
+    ``tree.set_params``), and streams per-site posteriors. ``fit_seconds``
+    is 0 in the output (the fit happens upstream once per cell), and the
+    joint fit's wall-time + kappa / K MLE are passed through under
+    ``joint_fit_seconds`` / ``joint_fit_kappa_mle`` / ``joint_fit_K_mle``.
+    """
+    input:
+        vcf = rules.recap_and_mutate_slim_outgroup_bias.output.vcf,
+        meta = rules.recap_and_mutate_slim_outgroup_bias.output.meta,
+        fit = rules.fit_slim_outgroup_bias.output.fit,
+    output:
+        f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_n{{n_out}}.json",
+    params:
+        length = SLIM_OUTGROUP_BIAS_SEQ_LEN_PER_CHUNK,
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+        n_out = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_slim_outgroup_bias.py"
+
+
+rule infer_slim_outgroup_bias_arg:
+    """ARG-mode (true-ARG) inference on one ``(chunk_idx, f_del, n_out)`` cell.
+
+    Loads the simulator-truth recap+mutate ts, simplifies to ingroup +
+    first ``n_out`` outgroups (closest first), and runs
+    :class:`ARGBasedInference` with JC69 + full recurrence. The
+    branch-length scale is SLiM generations, so ``mu = mu_slim``
+    matches K = mu * branch_length to the target scale.
+    """
+    input:
+        trees = rules.recap_and_mutate_slim_outgroup_bias.output.trees,
+        meta = rules.recap_and_mutate_slim_outgroup_bias.output.meta,
+    output:
+        f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_arg_n{{n_out}}.json",
+    params:
+        mu_slim = SLIM_OUTGROUP_BIAS_MU_SLIM,
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+        n_out = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_slim_outgroup_bias_arg.py"
+
+
+
+
+
+
+# ============================================================ 10-outgroup SLiM
+# Parallel set of rules writing ``slim_outgroup_bias10_*`` files for the
+# robustness heatmap's n_out=10 SLiM column. Uses the N-agnostic recipe and
+# the shared recap / infer scripts.
+
+rule simulate_slim_outgroup_bias10:
+    """10-outgroup SLiM forward sim for one chunk (robustness heatmap)."""
+    output:
+        trees = f"{DATA}/slim_outgroup_bias10_fdel{{f_del}}_chunk{{chunk_idx}}_slim.trees",
+    params:
+        base_seed = SLIM_OUTGROUP_BIAS10_CONFIG["seed"],
+        seq_len = SLIM10_SEQ_LEN_PER_CHUNK,
+        mu_slim = SLIM10_MU_SLIM,
+        rho_slim = SLIM10_RHO_SLIM,
+        N_e_slim = SLIM_OUTGROUP_BIAS10_CONFIG["N_e_slim"],
+        N_e_out = SLIM_OUTGROUP_BIAS10_CONFIG["N_e_outgroup_slim"],
+        n_out = SLIM10_N_OUT,
+        splits_str = SLIM10_SPLITS_STR,
+        script = f"{SCRIPTS}/simulate_slim_outgroup_bias_n.slim",
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: 16000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(480, attempt),
+    conda:
+        "envs/slim.yml"
+    shell:
+        "slim "
+        '-d "SEED=$(({params.base_seed} + {wildcards.chunk_idx}))" '
+        '-d "F_DEL={wildcards.f_del}" '
+        '-d "SEQ_LEN={params.seq_len}" '
+        '-d "MU_SLIM={params.mu_slim}" '
+        '-d "RHO_SLIM={params.rho_slim}" '
+        '-d "N_E_SLIM={params.N_e_slim}" '
+        '-d "N_E_OUT={params.N_e_out}" '
+        '-d "N_OUT={params.n_out}" '
+        '-d "SPLITS_SLIM={params.splits_str}" '
+        "-d \"OUT_TREES='{output.trees}'\" "
+        "{params.script}"
+
+
+rule recap_and_mutate_slim_outgroup_bias10:
+    """Recapitate + JC69-overlay the 10-outgroup SLiM ts → trees + VCF + meta."""
+    input:
+        slim_trees = rules.simulate_slim_outgroup_bias10.output.trees,
+    output:
+        trees = f"{DATA}/slim_outgroup_bias10_fdel{{f_del}}_chunk{{chunk_idx}}.trees",
+        vcf = f"{DATA}/slim_outgroup_bias10_fdel{{f_del}}_chunk{{chunk_idx}}.vcf",
+        meta = f"{DATA}/slim_outgroup_bias10_fdel{{f_del}}_chunk{{chunk_idx}}_meta.json",
+    params:
+        seed = SLIM_OUTGROUP_BIAS10_CONFIG["seed"],
+        mu_slim = SLIM10_MU_SLIM,
+        rec_rate_slim = SLIM10_RHO_SLIM,
+        N_e_slim = SLIM_OUTGROUP_BIAS10_CONFIG["N_e_slim"],
+        mu_target = SLIM_OUTGROUP_BIAS10_CONFIG["mu_target"],
+        time_scaling = SLIM10_TIME_SCALING,
+        outgroup_split_times_target = SLIM_OUTGROUP_BIAS10_CONFIG["outgroup_split_times_target"],
+        n_ingroup_haps = SLIM_OUTGROUP_BIAS10_CONFIG["n_ingroup_haps"],
+        seq_len = SLIM10_SEQ_LEN_PER_CHUNK,
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/slim.yml"
+    script:
+        "scripts/recap_and_mutate_slim_outgroup_bias.py"
+
+
+
+
+rule build_tsinfer_arg:
+    """Build a tsinfer-inferred ARG from the ingroup VCF for one
+    ``(chunk_idx, f_del)`` cell. Outgroups are dropped before tsinfer
+    runs: the tsinfer-ARG inference path is ingroup-only by design.
+    """
+    input:
+        vcf = rules.recap_and_mutate_slim_outgroup_bias.output.vcf,
+        meta = rules.recap_and_mutate_slim_outgroup_bias.output.meta,
+    output:
+        f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_tsinfer_ingroup.trees",
+    params:
+        rec_rate_slim = SLIM_OUTGROUP_BIAS_RHO_SLIM,
+        mu_slim = SLIM_OUTGROUP_BIAS_MU_SLIM,
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/tsinfer.yml"
+    script:
+        "scripts/build_tsinfer_arg.py"
+
+
+rule infer_slim_outgroup_bias_tsinfer_arg:
+    """ARG-mode inference on a tsinfer-inferred ingroup-only ARG.
+
+    Truth ancestral states are read from the simulator-truth ts keyed by
+    site position. Only sites tsinfer kept and that have a known truth
+    are scored. Single output file per ``(chunk_idx, f_del)``, with no n_out
+    wildcard because tsinfer-ARG inference does not consume outgroups.
+    """
+    input:
+        inferred = rules.build_tsinfer_arg.output[0],
+        truth_trees = rules.recap_and_mutate_slim_outgroup_bias.output.trees,
+        meta = rules.recap_and_mutate_slim_outgroup_bias.output.meta,
+    output:
+        f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_tsinfer_arg.json",
+    params:
+        mu_slim = SLIM_OUTGROUP_BIAS_MU_SLIM,
+    wildcard_constraints:
+        f_del = r"[0-9.]+",
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/tsinfer.yml"
+    script:
+        "scripts/infer_slim_outgroup_bias_tsinfer_arg.py"
+
+
+rule report_slim_outgroup_bias:
+    """Aggregate the (chunk × f_del × n_out) grid for all three
+    modes (vcf / arg_true / arg_tsinfer) → slim_outgroup_bias.{json,md}.
+
+    Per-bin uSFS counts and simulator-truth histograms are summed across
+    chunks for each (f_del, n_out, mode) cell before computing the L1 bias.
+    """
+    input:
+        cells = expand(
+            f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_n{{n_out}}.json",
+            f_del=SLIM_OUTGROUP_BIAS_F_DELS,
+            chunk_idx=SLIM_OUTGROUP_BIAS_CHUNK_IDXS,
+            n_out=SLIM_OUTGROUP_BIAS_N_OUTS,
+        ),
+        cells_arg = expand(
+            f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_arg_n{{n_out}}.json",
+            f_del=SLIM_OUTGROUP_BIAS_F_DELS,
+            chunk_idx=SLIM_OUTGROUP_BIAS_CHUNK_IDXS,
+            n_out=SLIM_OUTGROUP_BIAS_N_OUTS,
+        ),
+        cells_tsinfer = expand(
+            f"{DATA}/slim_outgroup_bias_fdel{{f_del}}_chunk{{chunk_idx}}_tsinfer_arg.json",
+            f_del=SLIM_OUTGROUP_BIAS_F_DELS,
+            chunk_idx=SLIM_OUTGROUP_BIAS_CHUNK_IDXS,
+        ),
+    output:
+        json = f"{REPORTS}/slim_outgroup_bias.json",
+        md = f"{REPORTS}/slim_outgroup_bias.md",
+    params:
+        f_dels = [float(x) for x in SLIM_OUTGROUP_BIAS_F_DELS],
+        n_outs = SLIM_OUTGROUP_BIAS_N_OUTS,
+        chunk_idxs = SLIM_OUTGROUP_BIAS_CHUNK_IDXS,
+        sim_config = {
+            **SLIM_OUTGROUP_BIAS_CONFIG,
+            "n_chunks": SLIM_OUTGROUP_BIAS_N_CHUNKS,
+            "seq_len_per_chunk": SLIM_OUTGROUP_BIAS_SEQ_LEN_PER_CHUNK,
+            "time_scaling": SLIM_OUTGROUP_BIAS_TIME_SCALING,
+            "mu_slim": SLIM_OUTGROUP_BIAS_MU_SLIM,
+            "rho_slim": SLIM_OUTGROUP_BIAS_RHO_SLIM,
+            "outgroup_split_times_slim": SLIM_OUTGROUP_BIAS_T_SLIM,
+        },
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_slim_outgroup_bias.py"
+
+
+# ----------------------------- missing-data robustness grid
+
+rule simulate_missing_data:
+    """msprime ARG with ingroup + 3 outgroups (outgroup-effect demography)."""
+    output:
+        trees = f"{DATA}/missing_data_sim.trees",
+        meta = f"{DATA}/missing_data_sim_meta.json",
+    params:
+        **MISSING_DATA_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_missing_data.py"
+
+
+rule infer_missing_data:
+    """FixedTreeInference (HKY + Kingman) on one (missing_frac, seed) cell.
+
+    Wildcards:
+
+    - ``{missing_frac}``: fraction of outgroup tips to randomly mask
+      per site (independent Bernoulli per outgroup).
+    - ``{seed}``: per-cell masking RNG seed.
+    """
+    input:
+        trees = rules.simulate_missing_data.output.trees,
+        meta = rules.simulate_missing_data.output.meta,
+    output:
+        f"{DATA}/missing_data_f{{missing_frac}}_seed{{seed}}.json",
+    params:
+        mu = MISSING_DATA_CONFIG["mu"],
+    wildcard_constraints:
+        missing_frac = r"[0-9.]+",
+        seed = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_missing_data.py"
+
+
+rule report_missing_data:
+    """Aggregate the (missing_frac × seed) cells → missing_data.{json,md}.
+
+    Standalone target, not part of ``rule all``. Build with::
+
+        snakemake -j 1 report_missing_data
+    """
+    input:
+        cells = expand(
+            f"{DATA}/missing_data_f{{missing_frac}}_seed{{seed}}.json",
+            missing_frac=MISSING_DATA_FRACTIONS, seed=MISSING_DATA_SEEDS,
+        ),
+    output:
+        json = f"{REPORTS}/missing_data.json",
+        md = f"{REPORTS}/missing_data.md",
+    params:
+        sim_config = {
+            **MISSING_DATA_CONFIG,
+            "missing_fractions": MISSING_DATA_FRACTIONS,
+            "seeds": MISSING_DATA_SEEDS,
+        },
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_missing_data.py"
+
+
+# ----------------- site-scaling benchmark (fixed-tree + adaptive)
+
+rule simulate_site_scaling:
+    """msprime ARG used by the fixed-tree site-scaling grid: 20 ingroup + 3
+    outgroups under JC69. L=1.5e7 gives ~864k polymorphic sites for the
+    inference scripts to subsample from."""
+    output:
+        trees = f"{DATA}/site_scaling_sim.trees",
+        meta = f"{DATA}/site_scaling_sim_meta.json",
+    params:
+        **SITE_SCALING_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_site_scaling.py"
+
+
+rule simulate_site_scaling_adaptive:
+    """Larger-L sim used by the adaptive-prior axis. The adaptive MLE only
+    consumes ingroup-polymorphic sites, and at n_sub=5 those cap at ~47k
+    under SITE_SCALING_CONFIG. L=3.5e7 lifts that ceiling above the 100k
+    grid point for all n_sub cells."""
+    output:
+        trees = f"{DATA}/site_scaling_adaptive_sim.trees",
+        meta = f"{DATA}/site_scaling_adaptive_sim_meta.json",
+    params:
+        **SITE_SCALING_ADAPTIVE_CONFIG,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_site_scaling.py"
+
+
+rule infer_site_scaling_fixed:
+    """FixedTreeInference on a sub-sample of ``n_sites`` polymorphic
+    sites with seed ``{seed}``. Records fitted (K_i, kappa) for the
+    report to compare against the reference cell."""
+    input:
+        trees = rules.simulate_site_scaling.output.trees,
+        meta = rules.simulate_site_scaling.output.meta,
+    output:
+        f"{DATA}/site_scaling_fixed_{{model}}_n{{n_out}}_s{{n_sites}}_seed{{seed}}.json",
+    wildcard_constraints:
+        model = r"|".join(SITE_SCALING_FIXED_MODELS),
+        n_out = r"[0-9]+",
+        n_sites = r"[0-9]+",
+        seed = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_site_scaling_fixed.py"
+
+
+rule infer_site_scaling_fixed_ref:
+    """Reference / full-data fit per (model, n_out) used by the report as
+    the asymptotic truth for parameter recovery. ``n_sites`` is the
+    sentinel ``all`` and the seed is irrelevant (the cell sees every
+    polymorphic site)."""
+    input:
+        trees = rules.simulate_site_scaling.output.trees,
+        meta = rules.simulate_site_scaling.output.meta,
+    output:
+        f"{DATA}/site_scaling_fixed_ref_{{model}}_n{{n_out}}.json",
+    params:
+        n_sites = "all",
+        seed = 0,
+    wildcard_constraints:
+        model = r"|".join(SITE_SCALING_FIXED_MODELS),
+        n_out = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_site_scaling_fixed.py"
+
+
+rule infer_site_scaling_adaptive:
+    """AdaptiveIngroupWeight fit on a sub-sample of ``n_sites``
+    polymorphic sites at a given ``subsample_size = n_sub``. Records
+    fitted pi_i for the report to compare against Kingman closed form."""
+    input:
+        trees = rules.simulate_site_scaling_adaptive.output.trees,
+        meta = rules.simulate_site_scaling_adaptive.output.meta,
+    output:
+        f"{DATA}/site_scaling_adaptive_sub{{n_sub}}_s{{n_sites}}_seed{{seed}}.json",
+    wildcard_constraints:
+        n_sub = r"[0-9]+",
+        n_sites = r"[0-9]+",
+        seed = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_site_scaling_adaptive.py"
+
+
+rule report_site_scaling_fixed:
+    """Aggregate the (model, n_out, n_sites, seed) cells →
+    site_scaling_fixed.{json,md}."""
+    input:
+        cells = expand(
+            f"{DATA}/site_scaling_fixed_{{model}}_n{{n_out}}_s{{n_sites}}_seed{{seed}}.json",
+            model=SITE_SCALING_FIXED_MODELS,
+            n_out=SITE_SCALING_FIXED_N_OUTS,
+            n_sites=SITE_SCALING_FIXED_N_SITES,
+            seed=SITE_SCALING_FIXED_SEEDS,
+        ),
+        reference = expand(
+            f"{DATA}/site_scaling_fixed_ref_{{model}}_n{{n_out}}.json",
+            model=SITE_SCALING_FIXED_MODELS,
+            n_out=SITE_SCALING_FIXED_N_OUTS,
+        ),
+    output:
+        json = f"{REPORTS}/site_scaling_fixed.json",
+        md = f"{REPORTS}/site_scaling_fixed.md",
+    params:
+        sim_config = {
+            **SITE_SCALING_CONFIG,
+            "models": SITE_SCALING_FIXED_MODELS,
+            "n_outs": SITE_SCALING_FIXED_N_OUTS,
+            "n_sites": SITE_SCALING_FIXED_N_SITES,
+            "seeds": SITE_SCALING_FIXED_SEEDS,
+        },
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_site_scaling_fixed.py"
+
+
+rule report_site_scaling_adaptive:
+    """Aggregate the (n_sub, n_sites, seed) cells →
+    site_scaling_adaptive.{json,md}."""
+    input:
+        cells = expand(
+            f"{DATA}/site_scaling_adaptive_sub{{n_sub}}_s{{n_sites}}_seed{{seed}}.json",
+            n_sub=SITE_SCALING_ADAPTIVE_N_SUBS,
+            n_sites=SITE_SCALING_ADAPTIVE_N_SITES,
+            seed=SITE_SCALING_ADAPTIVE_SEEDS,
+        ),
+    output:
+        json = f"{REPORTS}/site_scaling_adaptive.json",
+        md = f"{REPORTS}/site_scaling_adaptive.md",
+    params:
+        sim_config = {
+            **SITE_SCALING_CONFIG,
+            "n_subs": SITE_SCALING_ADAPTIVE_N_SUBS,
+            "n_sites": SITE_SCALING_ADAPTIVE_N_SITES,
+            "seeds": SITE_SCALING_ADAPTIVE_SEEDS,
+        },
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_site_scaling_adaptive.py"
+
+
+rule report_site_scaling:
+    """Convenience target: build both site-scaling reports."""
+    input:
+        f"{REPORTS}/site_scaling_fixed.md",
+        f"{REPORTS}/site_scaling_adaptive.md",
+
+
+# ------------------- Robustness heatmap (methods × n_out × scenarios)
+#
+# Each (scenario, method, n_out) is its own job (score_robustness_cell),
+# so `snakemake -jN report_robustness_heatmap` fans the per-cell
+# inference out across cores. The report stage aggregates the per-cell
+# JSONs into the two heatmap PDFs + the runtime side-table.
+
+ROBUSTNESS_SCENARIOS = [
+    "baseline", "cpg_hypermut", "strong_ils", "outgroup_clade", "slim",
+]
+# Dense scenarios (millions of segregating sites: baseline ~5.9M,
+# cpg_hypermut ~7.2M) drive per-cell memory/time. The rest are ~300K sites.
+# Used to size resources below.
+ROBUSTNESS_DENSE_SCENARIOS = {"baseline", "cpg_hypermut"}
+# Appendix-only baseline methods. Share the score_robustness_cell rule +
+# scoring engine, computed live per cell (no extra per-chunk SLiM dep beyond
+# the metas).
+ROBUSTNESS_BASELINE_METHODS = [
+    "anc_ft_adaptive", "anc_ft_uniform", "parsimony_mu0",
+    "majority_outgroup",
+]
+# Methods the all-sites per-cell rule builds. These cells feed the appendix
+# figures that read scores over every site (the prior comparison, the SFS
+# reconstructions). Local-tree mode is deliberately absent: it is scored only
+# on the common covered set, through rule robustness_intersect_cell.
+ROBUSTNESS_ALL_METHODS = ["anc_arg", "anc_ft"] + ROBUSTNESS_BASELINE_METHODS
+ROBUSTNESS_N_OUTS = [0, 1, 3, 10]
+# SLiM aggregation reads the pre-computed forward-sim chunks (SLIM10_N_CHUNKS).
+ROBUSTNESS_SLIM_CHUNKS = list(range(SLIM10_N_CHUNKS))
+
+# ---- SINGER baseline rows (sharded: budget window x MCMC chain) ------------
+# SINGER is a full Bayesian ARG MCMC, so each chunk is subsampled to one window
+# of ~SINGER_PANEL_SITE_BUDGET ingroup-segregating sites, fanned out over
+# SINGER_N_CHAINS chains (seeds) and merged into a per-chunk summary. Both
+# methods feed the outgroups into SINGER's sample panel, and the _ft variant
+# additionally orients SINGER with the fixed-tree MAP estimate. Kept out of
+# ROBUSTNESS_ALL_METHODS so the general chunk/cell wildcards do not match them.
+SINGER_METHODS = ["singer_arg_panel", "singer_arg_panel_ft"]
+SINGER_SCENARIOS = CHUNKED_MSP_SCENARIOS + ["slim"]
+SINGER_DIR = os.environ.get("SINGER_DIR", str(Path.home() / "opt" / "singer"))
+SINGER_N_CHAINS = int(os.environ.get("SINGER_N_CHAINS", "13"))
+# MCMC length per chain, passed as rule params so jobs are reproducible and do
+# not depend on the SLURM env forwarding these.
+SINGER_N_ITERS = int(os.environ.get("SINGER_N_ITERS", "300"))
+SINGER_THIN = int(os.environ.get("SINGER_THIN", "20"))
+#: Wall-clock ceiling of the partition every rule is pinned to
+#: (``slurm_partition="short"`` in workflow/profiles/slurm/config.yaml, where sinfo
+#: reports 12:00:00). A retry that escalates past this is rejected at SUBMIT,
+#: so the --restart-times path silently stops working for exactly the rules
+#: that are slow enough to need it.
+SHORT_PARTITION_MINUTES = 720
+
+
+def capped_runtime(base_minutes, attempt):
+    """``base_minutes * attempt``, held at the partition ceiling."""
+    return min(int(base_minutes) * int(attempt), SHORT_PARTITION_MINUTES)
+
+
+# Warm-up iterations discarded before the posterior draws (the enlarged panel
+# ARG needs a short burn-in, unlike the ingroup-only ARG).
+SINGER_BURN_IN = int(os.environ.get("SINGER_BURN_IN", "5"))
+#: Genealogies the local-tree rows marginalise each window over. Passed to
+#: the rules as a param so a job that does not inherit the environment
+#: cannot score at a different size without it showing in the output.
+LOCAL_TREE_ENSEMBLE_MEMBERS = int(
+    os.environ.get("ANCESTREE_ENSEMBLE_MEMBERS", "128"))
+# Highest seed a chunk may reach for while searching for SINGER_N_CHAINS
+# runnable chains (see _singer_shard_inputs). Some chunks abort on every seed
+# below the high thirties, and a ceiling that cannot find SINGER_N_CHAINS
+# runnable chains makes _singer_runnable_seeds raise during DAG construction,
+# which aborts every figure target.
+SINGER_MAX_SEED = int(os.environ.get("SINGER_MAX_SEED", "96"))
+
+
+def _persisted_arg_seeds(tool, wc, w):
+    """MCMC chain seeds whose persisted ARG draws are on disk for one shard,
+    in ascending order. Globbed rather than taken as ``range(n_chains)``: a
+    chain re-run after a failure carries the seed it was re-run under, and the
+    scoring merge (``_robustness_common.arg_shard_seeds``) reads the same set,
+    so requesting ``range`` here would ask for a re-inference of chains that
+    already exist under another seed.
+
+    A seed counts only when its directory holds ``meta.json``, the marker the
+    writer emits after the last draw, which is the same test arg_shard_seeds
+    applies. A chain killed at the tail has draws present but no marker."""
+    prefix = (f"{DATA}/robustness_arg_{tool}_{wc.scenario}_{wc.method}"
+              f"_n{wc.n_out}_chunk{wc.chunk_idx}_w{w}_s")
+    seeds = []
+    for path in glob.glob(prefix + "*"):
+        tail = path[len(prefix):]
+        if tail.isdigit() and os.path.exists(os.path.join(path, "meta.json")):
+            seeds.append(int(tail))
+    return sorted(seeds)
+
+
+@functools.cache
+def _singer_seeds_module():
+    """The shared seed chooser, imported lazily so DAG construction stays cheap."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_singer_seeds", Path(workflow.basedir) / "scripts" / "_singer_seeds.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _singer_runnable_seeds(scenario, method, n_out, chunk_idx, n_seeds):
+    """The seeds SINGER can actually run for one chunk.
+
+    Delegates to ``workflow/scripts/_singer_seeds.py``, which the scoring merge
+    also uses: the DAG and the merge must choose identically, or the merge asks
+    for chains the DAG never built.
+    """
+    return _singer_seeds_module().runnable_seeds(
+        scenario, method, n_out, chunk_idx, n_seeds)
+
+
+def _singer_shard_inputs(wc):
+    """Shards for one SINGER chunk-merge job, ``SINGER_N_CHAINS`` of them, on
+    the seeds SINGER can run, so the scoring merge still gets the full chain
+    count it refuses to go without."""
+    shards = []
+    for w in range(1):
+        for s in _singer_runnable_seeds(wc.scenario, wc.method, wc.n_out,
+                                        wc.chunk_idx, SINGER_N_CHAINS):
+            shards.append(
+                f"{DATA}/robustness_singer_shard_{wc.scenario}_{wc.method}"
+                f"_n{wc.n_out}_chunk{wc.chunk_idx}_w{w}_s{s}.json")
+    return shards
+
+
+# ---- Relate baseline rows (sharded: same budget window, single Relate run) --
+# Relate infers one genealogy per panel (deterministic given a seed), so there
+# is no MCMC average: one "chain" per chunk, on SINGER's budget-subsample
+# window. Both methods feed the outgroups into Relate's sample panel, and the
+# _ft variant additionally orients Relate with the fixed-tree MAP estimate.
+# Kept out of ROBUSTNESS_ALL_METHODS so the general wildcards do not match
+# them. Relate provides native arm64 binaries, so these cells run on Apple Silicon.
+RELATE_METHODS = ["relate_arg_panel", "relate_arg_panel_ft"]
+RELATE_SCENARIOS = CHUNKED_MSP_SCENARIOS + ["slim"]
+RELATE_DIR = os.environ.get("RELATE_DIR", str(Path.home() / "opt" / "relate"))
+
+
+rule install_singer:
+    """Build SINGER and install its binaries under ``SINGER_DIR``.
+
+    The benchmark's SINGER rows depend on the binary, which lives outside the
+    repo. Declared as an output so a fresh checkout builds it.
+    """
+    output:
+        binary = f"{SINGER_DIR}/singer",
+        master = f"{SINGER_DIR}/singer_master",
+        convert = f"{SINGER_DIR}/convert_to_tskit",
+    params:
+        install_dir = SINGER_DIR,
+    conda:
+        "envs/singer.yml"
+    shell:
+        "bash workflow/scripts/install_singer.sh {params.install_dir}"
+
+
+rule install_relate:
+    """Build Relate and install its binaries under ``RELATE_DIR``."""
+    output:
+        binary = f"{RELATE_DIR}/bin/Relate",
+    params:
+        install_dir = RELATE_DIR,
+    conda:
+        "envs/bench.yml"
+    shell:
+        "bash workflow/scripts/install_relate.sh {params.install_dir}"
+RELATE_N_CHAINS = int(os.environ.get("RELATE_N_CHAINS", "1"))
+
+
+def _relate_shard_inputs(wc):
+    """Shards for one Relate chunk-merge job, restricted to the (window, seed)
+    combinations whose persisted ARG dir exists (mirrors _singer_shard_inputs;
+    Relate is reliable so this is normally the full single-run set, but the
+    filter keeps a rare missing ARG from blocking the cell)."""
+    avail = []
+    for w in range(1):
+        for s in _persisted_arg_seeds("relate", wc, w):
+            shard = (f"{DATA}/robustness_relate_shard_{wc.scenario}_{wc.method}"
+                     f"_n{wc.n_out}_chunk{wc.chunk_idx}_w{w}_s{s}.json")
+            avail.append(shard)
+    return avail or expand(
+        f"{DATA}/robustness_relate_shard_{wc.scenario}_{wc.method}"
+        f"_n{wc.n_out}_chunk{wc.chunk_idx}_w{{w}}_s{{s}}.json",
+        w=range(1), s=range(RELATE_N_CHAINS),
+    )
+
+
+rule simulate_strong_ils:
+    """Robustness scenario: shallow outgroup splits → heavy ILS. Simulated as
+    N independent chunks (one per chunk_idx)."""
+    output:
+        trees = f"{DATA}/strong_ils_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/strong_ils_chunk{{chunk_idx}}_meta.json",
+    params:
+        **STRONG_ILS_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule simulate_outgroup_clade:
+    """Robustness scenario: outgroups coalesce with each other before the
+    ingroup, breaching the fixed-tree outgroup-ladder assumption. Simulated as
+    N independent chunks (one per chunk_idx)."""
+    output:
+        trees = f"{DATA}/outgroup_clade_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/outgroup_clade_chunk{{chunk_idx}}_meta.json",
+    params:
+        **OUTGROUP_CLADE_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_outgroup_clade.py"
+
+
+rule simulate_pop_constant:
+    """Matched constant-size baseline for the prior comparison (no ingroup size
+    change). Chunked like the other msprime scenarios."""
+    output:
+        trees = f"{DATA}/pop_constant_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/pop_constant_chunk{{chunk_idx}}_meta.json",
+    params:
+        **POP_CONSTANT_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule simulate_pop_growth:
+    """Demographic-distortion scenario: recent ingroup growth (excess rare
+    variants). Chunked like the other msprime scenarios."""
+    output:
+        trees = f"{DATA}/pop_growth_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/pop_growth_chunk{{chunk_idx}}_meta.json",
+    params:
+        **POP_GROWTH_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule simulate_pop_decline:
+    """Demographic-distortion scenario: recent ingroup decline (enriched
+    high-frequency derived tail). Chunked like the other msprime scenarios."""
+    output:
+        trees = f"{DATA}/pop_decline_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/pop_decline_chunk{{chunk_idx}}_meta.json",
+    params:
+        **POP_DECLINE_CONFIG,
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = ROBUSTNESS_MSP_N_CHUNKS,
+    wildcard_constraints:
+        chunk_idx = r"[0-9]+",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+def _robustness_intersect_chunk_inputs(wc):
+    """Inputs for ONE chunk of an intersection cell.
+
+    The same set :func:`_robustness_intersect_inputs` names, restricted to this
+    chunk, so the ten chunks fan out instead of one job re-scoring all of them
+    serially.
+    """
+    chunks = [int(wc.chunk_idx)]
+    s, method, n = wc.scenario, wc.method, int(wc.n_out)
+    if s == "slim":
+        sims = expand(f"{DATA}/slim_outgroup_bias10_fdel1.0_chunk{{c}}_meta.json",
+                      c=chunks)
+    else:
+        sims = expand(f"{DATA}/{MSP_STEM[s]}_chunk{{c}}_meta.json", c=chunks)
+    # Every method, not only the ARG-based ones. The common covered set is the
+    # intersection over tsinfer, Relate and the averaged SINGER chains, so
+    # ``intersect_mask_for_chunk`` reads all three whatever is being scored:
+    # re-inferring any one of them narrows the mask, and a cell that did not
+    # depend on it would stay graded on a wider site set than its comparators.
+    deps = list(sims)
+    deps += expand(
+        f"{DATA}/robustness_arg_tsinfer_{s}_n{n}_chunk{{c}}/meta.json",
+        c=chunks)
+    deps += [
+        f"{DATA}/robustness_arg_relate_{s}_relate_arg_panel_ft_n{n}"
+        f"_chunk{c}_w0_s0/meta.json"
+        for c in chunks]
+    # The mask reads where each method's ARG reaches, so a chunk SINGER cannot
+    # infer at any seed contributes nothing and must not be demanded.
+    singer_chunks = [c for c in chunks if c in set(
+        _singer_seeds_module().scored_chunks(
+            s, "singer_arg_panel", n, n_chunks=max(chunks) + 1))]
+    deps += [
+        f"{DATA}/robustness_arg_singer_{s}_singer_arg_panel_n{n}_chunk{c}"
+        f"_w0_s{seed}/meta.json"
+        for c in singer_chunks
+        for seed in _singer_runnable_seeds(s, "singer_arg_panel", n, c,
+                                           SINGER_N_CHAINS)]
+    if method in SINGER_METHODS:
+        own = set(_singer_seeds_module().scored_chunks(
+            s, method, n, n_chunks=max(chunks) + 1))
+        deps += [
+            f"{DATA}/robustness_arg_singer_{s}_{method}_n{n}_chunk{c}"
+            f"_w0_s{seed}/meta.json"
+            for c in chunks if c in own
+            for seed in _singer_runnable_seeds(s, method, n, c,
+                                               SINGER_N_CHAINS)]
+    return sorted(set(deps))
+
+
+def _robustness_intersect_inputs(wc):
+    """Inputs for one intersection cell: the chunk simulations, plus only the
+    persisted ARGs that this method's re-scoring actually reads.
+
+    Deliberately not the ordinary per-chunk summaries. Those are a different
+    figure's outputs, and requiring them would make an intersection cell wait on
+    work it never consumes. For ``anc_ft`` that is a per-chunk L-BFGS ladder
+    fit costing hours, to produce a cell that rescores from the chunk trees in
+    seconds. The genealogy-carrying methods (true-ARG, local-tree, fixed-tree)
+    need only the simulations. The panel-ARG methods need their own ARGs."""
+    s = wc.scenario
+    method = wc.method
+    n = int(wc.n_out)
+    if s == "slim":
+        chunks = ROBUSTNESS_SLIM_CHUNKS
+        sims = expand(f"{DATA}/slim_outgroup_bias10_fdel1.0_chunk{{c}}_meta.json",
+                      c=chunks)
+    else:
+        chunks = ROBUSTNESS_MSP_CHUNKS
+        stem = MSP_STEM[s]
+        sims = expand(f"{DATA}/{stem}_chunk{{c}}_meta.json", c=chunks)
+    if method == "tsinfer_arg":
+        return sims + expand(
+            f"{DATA}/robustness_arg_tsinfer_{s}_n{n}_chunk{{c}}/meta.json",
+            c=chunks)
+    if method in SINGER_METHODS:
+        # The re-scoring merges SINGER_N_CHAINS chains per chunk and refuses to
+        # score short, so depend on all of them, on the seeds SINGER does not
+        # abort on. Naming only the first seed leaves the rest unbuilt and the
+        # cell fails at merge time on a chunk whose low seeds abort.
+        return sims + [
+            f"{DATA}/robustness_arg_singer_{s}_{method}_n{n}_chunk{c}"
+            f"_w0_s{seed}/meta.json"
+            for c in chunks
+            for seed in _singer_runnable_seeds(s, method, n, c,
+                                               SINGER_N_CHAINS)]
+    if method == "relate_arg_panel_ft":
+        # Relate is deterministic: one run per chunk, and it never aborts.
+        return sims + [
+            f"{DATA}/robustness_arg_relate_{s}_{method}_n{n}_chunk{c}"
+            f"_w0_s0/meta.json"
+            for c in chunks]
+    return sims
+
+
+def _robustness_cell_inputs(wc):
+    """Scenario-dependent inputs for one heatmap cell (DAG ordering only;
+    the script reads data via repo-relative paths). Shared by the general
+    score_robustness_cell rule and the tsinfer-specific rule, whose output
+    fixes the method, so fall back to ``tsinfer_arg`` when no method
+    wildcard is present."""
+    s = wc.scenario
+    method = getattr(wc, "method", "tsinfer_arg")
+    if s in CHUNKED_MSP_SCENARIOS:
+        # Chunked msprime: the cell concatenates per-chunk inference JSONs
+        # (one parallel job per chunk, every method), so depend on those plus
+        # the chunk metas (chunk0 meta gives n_ingroup / n_outgroups).
+        stem = MSP_STEM[s]
+        n = int(wc.n_out)
+        metas = expand(f"{DATA}/{stem}_chunk{{c}}_meta.json",
+                       c=ROBUSTNESS_MSP_CHUNKS)
+        return metas + expand(
+            f"{DATA}/robustness_chunk_{s}_{method}_n{n}_chunk{{c}}_summary.json",
+            c=ROBUSTNESS_MSP_CHUNKS,
+        )
+    if s == "slim":
+        # 10-outgroup SLiM sim (separate from the 3-outgroup one).
+        metas = expand(
+            f"{DATA}/slim_outgroup_bias10_fdel1.0_chunk{{c}}_meta.json",
+            c=ROBUSTNESS_SLIM_CHUNKS,
+        )
+        n = int(wc.n_out)
+        # ARG mode and the parsimony / majority baselines are computed live from
+        # the chunk trees (which co-build with the metas), so they need no
+        # per-chunk dependency. Local-tree mode is not built on this all-sites
+        # path at all. Every figure row for it comes from the intersection
+        # cells (rule robustness_intersect_cell).
+        if method in SINGER_METHODS:
+            # SINGER cell = concat of the per-chunk SINGER summaries (built by
+            # score_robustness_singer_chunk from the budget-window shards).
+            return metas + expand(
+                f"{DATA}/robustness_chunk_slim_{method}_n{n}_chunk{{c}}_summary.json",
+                c=ROBUSTNESS_SLIM_CHUNKS,
+            )
+        if method in RELATE_METHODS:
+            # Relate cell = concat of the per-chunk Relate summaries (built by
+            # score_robustness_relate_chunk from the budget-window shards).
+            return metas + expand(
+                f"{DATA}/robustness_chunk_slim_{method}_n{n}_chunk{{c}}_summary.json",
+                c=ROBUSTNESS_SLIM_CHUNKS,
+            )
+        if method == "tsinfer_arg":
+            # tsinfer cell = concat of the per-chunk tsinfer summaries (built by
+            # score_robustness_tsinfer_chunk from the persisted per-chunk ARGs).
+            return metas + expand(
+                f"{DATA}/robustness_chunk_slim_tsinfer_arg_n{n}_chunk{{c}}_summary.json",
+                c=ROBUSTNESS_SLIM_CHUNKS,
+            )
+        return metas
+    return []
+
+
+def _robustness_cell_mem(wildcards, attempt):
+    """Per-cell memory (MB). Chunked-msprime cells are pure concats of the
+    per-chunk JSONs (cheap). The SLiM anc_ft / anc_ft_adaptive cell still runs
+    a live pooled fixed-tree fit, so it gets headroom. Everything else fits the
+    default."""
+    method = getattr(wildcards, "method", "")
+    if wildcards.scenario == "slim" and method.startswith("anc_ft"):
+        return 16000 * attempt
+    return 8000 * attempt
+
+
+def _robustness_cell_runtime(wildcards, attempt):
+    """Per-cell wall time (minutes). Concats are quick. The SLiM pooled
+    fixed-tree fit gets a wider budget."""
+    method = getattr(wildcards, "method", "")
+    if wildcards.scenario == "slim" and method.startswith("anc_ft"):
+        return 480 * attempt
+    return 240 * attempt
+
+
+# ---- per-chunk inference (chunked msprime scenarios) -----------------------
+def _robustness_chunk_inputs(wc):
+    """Inputs for one per-chunk inference job: the chunk's sim trees + meta.
+    Falls back to ``tsinfer_arg`` for the tsinfer rule (no method wildcard).
+    Handles SLiM (loaded via SlimScenario) as well as the msprime scenarios."""
+    if wc.scenario == "slim":
+        base = f"{DATA}/slim_outgroup_bias10_fdel1.0_chunk{wc.chunk_idx}"
+        return [f"{base}.trees", f"{base}_meta.json"]
+    stem = MSP_STEM[wc.scenario]
+    return [f"{DATA}/{stem}_chunk{wc.chunk_idx}.trees",
+            f"{DATA}/{stem}_chunk{wc.chunk_idx}_meta.json"]
+
+
+def _robustness_chunk_mem(wildcards, attempt):
+    """Per-chunk memory (MB). Each chunk is ~1/10 the sites (dense ~0.6–0.7M,
+    sparse ~30K). anc_ft forks its restarts (parallelize=True), and
+    majority/Fitch materialise per-site Python."""
+    method = getattr(wildcards, "method", "")
+    dense = wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS
+    if method.startswith("anc_ft"):
+        return (24000 if dense else 12000) * attempt
+    if method == "majority_outgroup":
+        return (16000 if dense else 8000) * attempt
+    return 8000 * attempt
+
+
+def _robustness_chunk_runtime(wildcards, attempt):
+    """Per-chunk wall time (minutes). The anc_ft L-BFGS fit cost is set by the
+    outgroup-pattern config table (n_out), not the site count, so n_out=10 is
+    still ~hours per chunk even at 1/10 the sites."""
+    method = getattr(wildcards, "method", "")
+    if method.startswith("anc_ft"):
+        return 480 * attempt
+    return 240 * attempt
+
+
+def _robustness_chunk_threads(wildcards):
+    method = getattr(wildcards, "method", "")
+    if method.startswith("anc_ft"):
+        return 10
+    if "local_tree" in method:
+        return LOCAL_TREE_THREADS
+    return 1
+
+
+rule score_robustness_chunk:
+    """One (scenario, method, n_out) result for a single msprime chunk → JSON
+    (the cell job concatenates these). Excludes tsinfer_arg (separate env)."""
+    input:
+        _robustness_chunk_inputs,
+    output:
+        f"{DATA}/robustness_chunk_{{scenario}}_{{method}}_n{{n_out}}_chunk{{chunk_idx}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(CHUNKED_MSP_SCENARIOS),
+        method = r"|".join(m for m in ROBUSTNESS_ALL_METHODS if m != "tsinfer_arg"),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    threads: _robustness_chunk_threads
+    resources:
+        mem_mb = _robustness_chunk_mem,
+        runtime = _robustness_chunk_runtime,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_robustness_chunk.py"
+
+
+rule infer_robustness_tsinfer_arg_chunk:
+    """Infer + persist one tsinfer ARG for a single msprime chunk (inference
+    only): (scenario, n_out, chunk) -> a directory with the dated tsinfer ARG
+    (draw_0.tsz) + meta.json. Builds the ARG in the dedicated tsinfer env
+    (tsinfer.yml). Split from scoring (score_robustness_tsinfer_chunk) so the
+    ARG persists for re-scoring."""
+    input:
+        _robustness_chunk_inputs,
+    output:
+        f"{DATA}/robustness_arg_tsinfer_{{scenario}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}/meta.json",
+    wildcard_constraints:
+        scenario = r"|".join(CHUNKED_MSP_SCENARIOS + ["slim"]),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        # tsinfer builds an ARG from a single chunk (~1/10 the sites), so ~32 GB
+        # on the dense scenarios is ample, all well inside the short cap.
+        mem_mb = lambda wildcards, attempt: (32000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 12000) * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(480 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 240, attempt),
+    conda:
+        "envs/tsinfer.yml"
+    script:
+        "scripts/infer_tsinfer_arg_chunk.py"
+
+
+rule score_robustness_tsinfer_chunk:
+    """Score one persisted tsinfer ARG chunk -> per-chunk summary. Lays the
+    panel's full site set onto tsinfer's dated local trees (the Felsenstein
+    kernel). Scoring only (no tsinfer import), so it runs in the ancestree
+    stack (bench.yml) and is arm64-portable. The output fixes the method to
+    tsinfer_arg."""
+    input:
+        f"{DATA}/robustness_arg_tsinfer_{{scenario}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}/meta.json",
+        _robustness_chunk_inputs,
+    output:
+        f"{DATA}/robustness_chunk_{{scenario}}_tsinfer_arg_n{{n_out}}_chunk{{chunk_idx}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(CHUNKED_MSP_SCENARIOS + ["slim"]),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: (12000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 6000) * attempt,
+        runtime = lambda wildcards, attempt: (120 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 60) * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_tsinfer_chunk.py"
+
+
+rule score_robustness_cell:
+    """One (scenario, method, n_out) heatmap cell → summary JSON. For chunked
+    msprime scenarios this is a cheap concat of the per-chunk JSONs. For SLiM
+    it aggregates the SLiM chunks (with a live pooled fixed-tree fit)."""
+    input:
+        _robustness_cell_inputs,
+    output:
+        f"{DATA}/robustness_cell_{{scenario}}_{{method}}_n{{n_out}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(ROBUSTNESS_SCENARIOS + DEMOG_SCENARIOS),
+        method = r"|".join(ROBUSTNESS_ALL_METHODS),
+        n_out = r"[0-9]+",
+    resources:
+        mem_mb = _robustness_cell_mem,
+        runtime = _robustness_cell_runtime,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_robustness_cell.py"
+
+
+# Method rows per heatmap figure. Mirrors _robustness_common.HEATMAP_FIGURES,
+# which carries the same rows with their plot labels. The renderer's coverage
+# guard fails loudly if the two ever drift. Keys are the {figure} wildcard of
+# rule report_robustness_heatmap.
+ROBUSTNESS_FIGURE_METHODS = {
+    # The main comparison: the three inference modes against the three external
+    # ARG pipelines.
+    "robustness_heatmap": [
+        "anc_arg", "local_tree_unphased", "anc_ft", "singer_arg_panel",
+        "tsinfer_arg", "relate_arg_panel_ft",
+    ],
+    # Appendix replica: adds the parsimony limits, the adaptive fixed-tree
+    # prior, the majority-outgroup baseline and SINGER's fixed-tree variant.
+    "robustness_baselines": [
+        "anc_arg", "parsimony_mu0", "local_tree_unphased",
+        "singer_arg_panel", "singer_arg_panel_ft", "tsinfer_arg",
+        "relate_arg_panel_ft", "anc_ft", "anc_ft_adaptive", "majority_outgroup",
+    ],
+}
+# Every figure is graded on the common covered site set, so an intersection cell
+# exists for every method any figure plots.
+INTERSECT_METHODS = sorted(
+    {m for methods in ROBUSTNESS_FIGURE_METHODS.values() for m in methods})
+
+
+#: Ensemble sizes the sample curve covers, and the chunks each point averages
+#: over. Powers of two so the x axis reads as doublings. Three chunks keeps the
+#: grid affordable across five scenarios (5 x 3 x 8 = 120 inference jobs).
+SAMPLECURVE_KS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+SAMPLECURVE_CHUNKS = [0, 1, 2]
+#: SLiM has 100 chunks against the msprime scenarios' 10 and its per-chunk
+#: spread is correspondingly wider, so three of them is a much noisier estimate
+#: than three of the others. It gets more, so the bands are comparable.
+SAMPLECURVE_CHUNKS_SLIM = list(range(10))
+SAMPLECURVE_N_OUT = 3
+
+
+def samplecurve_chunks(scenario: str) -> list:
+    """Chunks the sample curve averages over, per scenario."""
+    return (SAMPLECURVE_CHUNKS_SLIM if scenario == "slim"
+            else SAMPLECURVE_CHUNKS)
+
+
+def _samplecurve_inputs(wc):
+    """The chunk simulation one sample-curve point is computed from.
+
+    The script reaches its data through ``rc._chunk_scenario``, so without this
+    the point sits in the DAG with no edge to the simulation it scores.
+    """
+    if wc.scenario == "slim":
+        base = f"{DATA}/slim_outgroup_bias10_fdel1.0_chunk{wc.chunk}"
+        return [f"{base}.trees", f"{base}_meta.json"]
+    stem = MSP_STEM[wc.scenario]
+    return [f"{DATA}/{stem}_chunk{wc.chunk}.trees",
+            f"{DATA}/{stem}_chunk{wc.chunk}_meta.json"]
+
+
+rule local_tree_samplecurve_point:
+    """One (scenario, chunk, ensemble size) point of the sample curve.
+
+    Sharded one job per point so the pairwise-HMM forward pass each needs runs
+    concurrently rather than serially in one process."""
+    input:
+        _samplecurve_inputs,
+    output:
+        f"{DATA}/samplecurve_local_tree_{{scenario}}_n{{n_out}}_chunk{{chunk}}_k{{k}}.json",
+    wildcard_constraints:
+        scenario=r"[a-z_0-9]+", n_out=r"[0-9]+", chunk=r"[0-9]+", k=r"[0-9]+",
+    threads: LOCAL_TREE_THREADS
+    # The grid launches ~100 jobs at once and they all JIT the same kernels
+    # into one on-disk numba cache, so a few lose the race in save_overload.
+    # The cache is populated by then, so a retry compiles nothing and succeeds.
+    retries: 2
+    resources:
+        # The pairwise HMM holds an n_pairs x n_blocks matrix. The ensemble
+        # size only multiplies the cheap scoring pass, so memory is flat in k.
+        mem_mb = lambda wildcards, attempt: 16000 * attempt,
+        runtime = lambda wildcards, attempt: 120 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/local_tree_samplecurve_point.py"
+
+
+rule local_tree_samplecurve_figure:
+    """Fig: ground-truth recovery (Brier) against ensemble size, per scenario."""
+    input:
+        cells = [f"{DATA}/samplecurve_local_tree_{s}_n{SAMPLECURVE_N_OUT}"
+                 f"_chunk{c}_k{k}.json"
+                 for s in ROBUSTNESS_SCENARIOS
+                 for c in samplecurve_chunks(s)
+                 for k in SAMPLECURVE_KS],
+    output:
+        pdf = f"{REPORTS}/bench_local_tree_samplecurve.pdf",
+        fig_copy = "reports/manuscripts/latex/figures/bench_local_tree_samplecurve.pdf",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/plot_local_tree_samplecurve.py"
+
+
+rule robustness_intersect_chunk:
+    """One chunk of an intersection cell, scored on the common covered set.
+
+    The shard the cell sums. Chunks are independent, so they fan out.
+    """
+    input:
+        _robustness_intersect_chunk_inputs,
+    output:
+        f"{DATA}/robustness_chunk_intersect_{{scenario}}_{{method}}"
+        f"_n{{n_out}}_chunk{{chunk_idx}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(ROBUSTNESS_SCENARIOS),
+        method = r"|".join(INTERSECT_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    params:
+        # As a rule param, not an environment read inside the job: a SLURM job
+        # does not necessarily inherit SINGER_BURN_IN.
+        burn_in = SINGER_BURN_IN,
+        # Same reason: an unpassed env var lets two runs score at different
+        # ensemble sizes with nothing in the output to tell them apart.
+        ensemble_members = LOCAL_TREE_ENSEMBLE_MEMBERS,
+    # local_tree_unphased is not a persisted-ARG method, so this rule runs its
+    # full pairwise HMM and ensemble rather than re-reading draws.
+    threads: LOCAL_TREE_THREADS
+    resources:
+        mem_mb = lambda wildcards, attempt: (24000 if wildcards.scenario == "slim" else 8000) * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(
+            (240 if wildcards.scenario == "slim" else 120), attempt),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/compute_intersect_chunk.py"
+
+
+rule robustness_intersect_cell:
+    """One ARG-comparison cell scored on the cross-method common covered site set
+    (SINGER's budget prefix per chunk), so every method in the ARG-inference
+    heatmap is graded on one identical site set. Re-scores the persisted per-chunk
+    ARGs / shard posteriors under the coverage mask, with no re-inference and no
+    tsinfer import (the dated ARG is scored with the kernel), so it runs in
+    bench.yml. Depends only on what the re-scoring reads (see
+    _robustness_intersect_inputs)."""
+    input:
+        lambda wc: expand(
+            f"{DATA}/robustness_chunk_intersect_{wc.scenario}_{wc.method}"
+            f"_n{wc.n_out}_chunk{{c}}_summary.json",
+            c=_singer_seeds_module().scored_chunks(
+                wc.scenario, wc.method, int(wc.n_out),
+                n_chunks=(SLIM10_N_CHUNKS if wc.scenario == "slim"
+                          else ROBUSTNESS_MSP_N_CHUNKS))),
+    output:
+        f"{DATA}/robustness_cell_intersect_{{scenario}}_{{method}}_n{{n_out}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(ROBUSTNESS_SCENARIOS),
+        method = r"|".join(INTERSECT_METHODS),
+        n_out = r"[0-9]+",
+    resources:
+        # Sums the shards, so seconds rather than hours.
+        mem_mb = lambda wildcards, attempt: 4000 * attempt,
+        runtime = lambda wildcards, attempt: 30 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/compute_intersect_cell.py"
+
+
+rule robustness_intersect_cells:
+    """Aggregate: build every intersection-scored cell the heatmap figures read.
+    Run on the cluster after the ordinary ARG cells/ARGs exist::
+
+        snakemake --scheduler greedy robustness_intersect_cells
+    """
+    input:
+        expand(
+            f"{DATA}/robustness_cell_intersect_{{scenario}}_{{method}}_n{{n_out}}_summary.json",
+            scenario=ROBUSTNESS_SCENARIOS,
+            method=INTERSECT_METHODS,
+            n_out=ROBUSTNESS_N_OUTS,
+        ),
+
+
+rule score_robustness_tsinfer_cell:
+    """tsinfer-ARG (fixed-tree-MAP AA) heatmap cell. tsinfer lives in its own
+    dedicated ``envs/tsinfer.yml`` conda env (kept out of base / bench), so
+    this rule sets that env via the conda directive, separate from
+    score_robustness_cell (whose method wildcard deliberately excludes
+    ``tsinfer_arg``)."""
+    input:
+        _robustness_cell_inputs,
+    output:
+        f"{DATA}/robustness_cell_{{scenario}}_tsinfer_arg_n{{n_out}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(ROBUSTNESS_SCENARIOS),
+        n_out = r"[0-9]+",
+    resources:
+        # Chunked msprime: a cheap concat of the per-chunk tsinfer JSONs (the
+        # heavy tsinfer build lives in score_robustness_tsinfer_chunk). SLiM:
+        # still aggregates 100 live per-chunk tsinfer builds, so a bit wider.
+        mem_mb = lambda wildcards, attempt: (24000 if wildcards.scenario == "slim" else 8000) * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(480 if wildcards.scenario == "slim" else 240, attempt),
+    conda:
+        "envs/tsinfer.yml"
+    script:
+        "scripts/score_robustness_tsinfer_cell.py"
+
+
+rule materialize_robustness_ftmap:
+    """Whole-chunk fixed-tree MAP orientation per (scenario, chunk, n_out),
+    cached as JSON {pos: map_allele}. The ``_ft`` ARG shards read this sidecar
+    via ``Scenario._fixed_tree_map_by_pos`` (computing and caching it inline on
+    a miss). Not a rule input of the shards: a hard dependency on this shared
+    artifact would cascade a regeneration into re-inferring every ``_ft`` ARG,
+    so run these targets explicitly to pre-warm the cache."""
+    input:
+        _robustness_chunk_inputs,
+    output:
+        f"{DATA}/ftmap_{{scenario}}_chunk{{chunk_idx}}_n{{n_out}}.json",
+    wildcard_constraints:
+        scenario = r"|".join(CHUNKED_MSP_SCENARIOS + ["slim"]),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: (16000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 8000) * attempt,
+        runtime = lambda wildcards, attempt: (360 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 120) * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/materialize_ftmap.py"
+
+
+rule infer_robustness_singer_arg_shard:
+    """Infer + persist one SINGER ARG shard (inference only): (scenario, method,
+    n_out, chunk, window, seed) -> a directory of thinned draw_{k}.trees +
+    meta.json. Runs SINGER (one MCMC chain) on the chunk's budget-subsample
+    window (ingroup + n_out outgroups). The SINGER binary (SINGER_DIR, built by
+    workflow/scripts/install_singer.sh) is a standalone ELF called via
+    subprocess in the ancestree stack (bench.yml). SINGER is arm64-blocked, so
+    this step runs on Linux. Persisting the draws lets scoring
+    (score_robustness_singer_shard) re-run anywhere without the MCMC.
+    Depends on the chunk's sim trees so regenerating a scenario invalidates the
+    persisted ARG (mtime trigger) instead of silently reusing a stale draw."""
+    input:
+        _robustness_chunk_inputs,
+        singer = f"{SINGER_DIR}/singer",
+    output:
+        # protected(): a SINGER shard is hours of MCMC and the draws are the
+        # expensive artifact of the whole benchmark. Write-protecting them
+        # makes an accidental re-inference fail loudly instead of silently
+        # spending the budget. Removing a draw deliberately needs chmod +w.
+        protected(
+            f"{DATA}/robustness_arg_singer_{{scenario}}_{{method}}_n{{n_out}}"
+            f"_chunk{{chunk_idx}}_w{{window_idx}}_s{{seed}}/meta.json"),
+    wildcard_constraints:
+        scenario = r"|".join(SINGER_SCENARIOS),
+        method = r"|".join(SINGER_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+        window_idx = r"[0-9]+",
+        seed = r"[0-9]+",
+    params:
+        singer_dir = SINGER_DIR,
+        n_iters = SINGER_N_ITERS,
+        thin = SINGER_THIN,
+    resources:
+        # One budget window (~SINGER_PANEL_SITE_BUDGET SNPs) of one MCMC chain.
+        # Dense scenarios pack more local trees per window, so a bit more room.
+        mem_mb = lambda wildcards, attempt: (16000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 8000) * attempt,
+        runtime = lambda wildcards, attempt: 300 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_singer_arg_shard.py"
+
+
+rule score_robustness_singer_shard:
+    """Score one persisted SINGER ARG shard -> per-site posterior JSON. Lays the
+    panel's full in-window site set onto each thinned draw's local trees and
+    averages (dropping SINGER_BURN_IN warm-up draws). Scoring only (no SINGER
+    binary), so it runs on arm64 regardless of where the ARG was inferred."""
+    input:
+        f"{DATA}/robustness_arg_singer_{{scenario}}_{{method}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}_w{{window_idx}}_s{{seed}}/meta.json",
+    output:
+        f"{DATA}/robustness_singer_shard_{{scenario}}_{{method}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}_w{{window_idx}}_s{{seed}}.json",
+    wildcard_constraints:
+        scenario = r"|".join(SINGER_SCENARIOS),
+        method = r"|".join(SINGER_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+        window_idx = r"[0-9]+",
+        seed = r"[0-9]+",
+    params:
+        burn_in = SINGER_BURN_IN,
+    resources:
+        mem_mb = lambda wildcards, attempt: (12000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 6000) * attempt,
+        runtime = lambda wildcards, attempt: 60 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_arg_shard.py"
+
+
+rule score_robustness_singer_chunk:
+    """Merge the SINGER shards for one chunk (average MCMC chains, score) into a
+    per-chunk summary in the SAME format as every other per-chunk summary, so
+    the existing cell concat picks it up. Scoring only (no SINGER binary), so it
+    runs in the bench env."""
+    input:
+        _singer_shard_inputs,
+    output:
+        f"{DATA}/robustness_chunk_{{scenario}}_{{method}}_n{{n_out}}_chunk{{chunk_idx}}_summary.json",
+    params:
+        # Passed explicitly for the same reason robustness_intersect_chunk
+        # passes it: a SLURM job does not necessarily inherit SINGER_BURN_IN,
+        # and these summaries are compared against the shard and intersection
+        # paths, which both average over the same draws.
+        burn_in = SINGER_BURN_IN,
+    wildcard_constraints:
+        scenario = r"|".join(SINGER_SCENARIOS),
+        method = r"|".join(SINGER_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: 8000 * attempt,
+        runtime = lambda wildcards, attempt: 60 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_robustness_singer_chunk.py"
+
+
+rule score_robustness_singer_cell:
+    """SINGER heatmap cell = concat of the per-chunk SINGER summaries (reuses
+    score_robustness_cell.py, as SINGER methods are kept out of the general cell
+    rule's wildcard, like tsinfer_arg)."""
+    input:
+        _robustness_cell_inputs,
+    output:
+        f"{DATA}/robustness_cell_{{scenario}}_{{method}}_n{{n_out}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(SINGER_SCENARIOS),
+        method = r"|".join(SINGER_METHODS),
+        n_out = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: 8000 * attempt,
+        runtime = lambda wildcards, attempt: 240 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_robustness_cell.py"
+
+
+rule infer_robustness_relate_arg_shard:
+    """Infer + persist one Relate ARG shard (inference only): (scenario, method,
+    n_out, chunk, window, seed) -> a directory of draw_{k}.trees + meta.json.
+    Runs Relate (one deterministic genealogy) on the chunk's budget-subsample
+    window (ingroup + n_out outgroups). The Relate binary (RELATE_DIR, installed
+    by workflow/scripts/install_relate.sh) is called via subprocess, so the rule
+    runs in the ancestree stack (bench.yml) with RELATE_DIR passed as a param.
+    Relate is native arm64, so this runs locally. Split from scoring
+    (score_robustness_relate_shard) so the ARG persists for re-scoring.
+    Depends on the chunk's sim trees so regenerating a scenario invalidates the
+    persisted ARG (mtime trigger) instead of silently reusing a stale draw."""
+    input:
+        _robustness_chunk_inputs,
+        relate = f"{RELATE_DIR}/bin/Relate",
+    output:
+        f"{DATA}/robustness_arg_relate_{{scenario}}_{{method}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}_w{{window_idx}}_s{{seed}}/meta.json",
+    wildcard_constraints:
+        scenario = r"|".join(RELATE_SCENARIOS),
+        method = r"|".join(RELATE_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+        window_idx = r"[0-9]+",
+        seed = r"[0-9]+",
+    params:
+        relate_dir = RELATE_DIR,
+    resources:
+        mem_mb = lambda wildcards, attempt: (16000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 8000) * attempt,
+        # Dense _ft shards recompute the whole-chunk fixed-tree MAP orientation
+        # (FixedTreeInference.fit over ~700k sites), and Relate then adds its
+        # own subprocess.
+        runtime = lambda wildcards, attempt: (360 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 120) * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_relate_arg_shard.py"
+
+
+rule score_robustness_relate_shard:
+    """Score one persisted Relate ARG shard -> per-site posterior JSON. Lays the
+    panel's full in-window site set onto Relate's local trees (the Felsenstein
+    kernel). Scoring only (no Relate binary), so it is cheap and arm64-portable.
+    Fanned out / merged by score_robustness_relate_chunk."""
+    input:
+        f"{DATA}/robustness_arg_relate_{{scenario}}_{{method}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}_w{{window_idx}}_s{{seed}}/meta.json",
+    output:
+        f"{DATA}/robustness_relate_shard_{{scenario}}_{{method}}_n{{n_out}}"
+        f"_chunk{{chunk_idx}}_w{{window_idx}}_s{{seed}}.json",
+    wildcard_constraints:
+        scenario = r"|".join(RELATE_SCENARIOS),
+        method = r"|".join(RELATE_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+        window_idx = r"[0-9]+",
+        seed = r"[0-9]+",
+    params:
+        burn_in = 0,  # Relate is a single genealogy, with no MCMC warm-up
+    resources:
+        mem_mb = lambda wildcards, attempt: (12000 if wildcards.scenario in ROBUSTNESS_DENSE_SCENARIOS else 6000) * attempt,
+        runtime = lambda wildcards, attempt: 60 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_arg_shard.py"
+
+
+rule score_robustness_relate_chunk:
+    """Merge the Relate shards for one chunk (concat windows, score) into a
+    per-chunk summary in the SAME format as every other per-chunk summary, so
+    the existing cell concat picks it up. Scoring only (no Relate binary)."""
+    input:
+        _relate_shard_inputs,
+    output:
+        f"{DATA}/robustness_chunk_{{scenario}}_{{method}}_n{{n_out}}_chunk{{chunk_idx}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(RELATE_SCENARIOS),
+        method = r"|".join(RELATE_METHODS),
+        n_out = r"[0-9]+",
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: 8000 * attempt,
+        runtime = lambda wildcards, attempt: 60 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_robustness_relate_chunk.py"
+
+
+rule score_robustness_relate_cell:
+    """Relate heatmap cell = concat of the per-chunk Relate summaries (reuses
+    score_robustness_cell.py, as Relate methods are kept out of the general cell
+    rule's wildcard, like SINGER)."""
+    input:
+        _robustness_cell_inputs,
+    output:
+        f"{DATA}/robustness_cell_{{scenario}}_{{method}}_n{{n_out}}_summary.json",
+    wildcard_constraints:
+        scenario = r"|".join(RELATE_SCENARIOS),
+        method = r"|".join(RELATE_METHODS),
+        n_out = r"[0-9]+",
+    resources:
+        mem_mb = lambda wildcards, attempt: 8000 * attempt,
+        runtime = lambda wildcards, attempt: 240 * attempt,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/score_robustness_cell.py"
+
+
+# ------------------------------------------------------- focal interpolation
+# Where the ancestral state is read: vary the reporting point from the ingroup
+# MRCA to the panel root, grading each position against the truth at that same
+# position. Standalone target, built with::
+#
+#     snakemake -j 1 --use-conda plot_focal_interpolation
+FOCAL_FRACTIONS = [round(k / 40, 3) for k in range(41)]
+FOCAL_N_OUTS = [1, 3, 10]
+FOCAL_MODES = ["fixed_tree", "arg", "local_tree"]
+
+
+rule report_focal_interpolation_shard:
+    """One (mode, outgroup count) panel. The fraction grid runs inside it."""
+    input:
+        trees = f"{DATA}/baseline10_chunk0.trees",
+    output:
+        json = f"{REPORTS}/focal_interpolation_{{mode}}_n{{n_out}}.json",
+    params:
+        fractions = FOCAL_FRACTIONS,
+        n_outs = lambda w: [int(w.n_out)],
+        modes = lambda w: [w.mode],
+        mu = 1.25e-8,
+    wildcard_constraints:
+        mode = r"[a-z_]+",
+        n_out = r"[0-9]+",
+    resources:
+        mem_mb = 16000,
+        runtime = 240,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_focal_interpolation.py"
+
+
+# Pairwise TMRCA three ways, across demographies. Its own simulations rather
+# than the robustness ones: those carry unequal per-chunk lengths and are the
+# input to the focal-interpolation and orientation-damage benchmarks, so
+# resizing them to give the rows equal sequence would strand both.
+TMRCA_N_CHUNKS = 10
+TMRCA_LENGTH = 5e7          # 50 Mb over the chunks, so 5 Mb each
+TMRCA_SCENARIOS = {
+    "baseline": OUTGROUP_EFFECT10_CONFIG,
+    "pop_growth": POP_GROWTH_CONFIG,
+    "pop_decline": POP_DECLINE_CONFIG,
+}
+TMRCA_CHUNKS = list(range(TMRCA_N_CHUNKS))
+
+
+rule simulate_tmrca_scenario:
+    """One chunk of one demography for the TMRCA-distribution figure."""
+    output:
+        trees = f"{DATA}/tmrca_sim_{{scenario}}_chunk{{chunk_idx}}.trees",
+        meta = f"{DATA}/tmrca_sim_{{scenario}}_chunk{{chunk_idx}}_meta.json",
+    params:
+        cfg = lambda wc: dict(TMRCA_SCENARIOS[wc.scenario], length=TMRCA_LENGTH),
+        n_ingroup = lambda wc: TMRCA_SCENARIOS[wc.scenario]["n_ingroup"],
+        n_outgroup_pops = lambda wc: TMRCA_SCENARIOS[wc.scenario]["n_outgroup_pops"],
+        length = TMRCA_LENGTH,
+        mu = lambda wc: TMRCA_SCENARIOS[wc.scenario]["mu"],
+        rec_rate = lambda wc: TMRCA_SCENARIOS[wc.scenario]["rec_rate"],
+        pop_size = lambda wc: TMRCA_SCENARIOS[wc.scenario]["pop_size"],
+        ingroup_pop_size = lambda wc: TMRCA_SCENARIOS[wc.scenario]["ingroup_pop_size"],
+        ingroup_growth_rate = lambda wc: TMRCA_SCENARIOS[wc.scenario].get(
+            "ingroup_growth_rate", 0.0),
+        ingroup_growth_flat_time = lambda wc: TMRCA_SCENARIOS[wc.scenario].get(
+            "ingroup_growth_flat_time", 0.0),
+        outgroup_split_times = lambda wc: TMRCA_SCENARIOS[wc.scenario][
+            "outgroup_split_times"],
+        seed = lambda wc: TMRCA_SCENARIOS[wc.scenario]["seed"],
+        chunk_idx = lambda wc: int(wc.chunk_idx),
+        n_chunks = TMRCA_N_CHUNKS,
+    wildcard_constraints:
+        scenario = r"|".join(TMRCA_SCENARIOS),
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = 16000,
+        runtime = 240,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_baseline.py"
+
+
+rule report_tmrca_distributions_shard:
+    """One chunk's pairwise TMRCA three ways: the simulated truth, the pairwise
+    HMM's posterior mean (what the plug-in local tree is built from) and the
+    FFBS draws (what ensemble mode marginalises over). Ingroup panel only, so
+    the distribution is the ingroup coalescent rather than a mixture with the
+    outgroup split depths. Only histograms are retained, on axes fixed in the
+    script, so the shards pool by summation."""
+    input:
+        trees = (f"{DATA}/tmrca_sim_{{scenario}}_chunk{{chunk_idx}}.trees"),
+    output:
+        npz = (f"{DATA}/tmrca_distributions_{{scenario}}"
+               "_chunk{chunk_idx}.npz"),
+    params:
+        mu = 1.25e-8,
+        rec_rate = 1e-8,
+        window = "8snp",
+        segment = "2mb",
+        n_members = 128,
+        member_chunk = 8,
+        seed = 1000,
+        # Calibration per segment as usual, with the floor put a decade
+        # deeper: the prior folds its whole lower tail into the lowest bin,
+        # and at the calibrated floor that pile-up is 4x the truth there.
+        floor_scale = 1.0,
+    wildcard_constraints:
+        scenario = r"|".join(TMRCA_SCENARIOS),
+        chunk_idx = r"[0-9]+",
+    resources:
+        mem_mb = 16000,
+        runtime = 240,
+    conda:
+        "envs/tmrca.yml"
+    script:
+        "scripts/report_tmrca_distributions.py"
+
+
+rule report_tmrca_distributions:
+    input:
+        shards = lambda wc: expand(
+            f"{DATA}/tmrca_distributions_{wc.scenario}_chunk{{c}}.npz",
+            c=TMRCA_CHUNKS),
+    output:
+        npz = f"{DATA}/tmrca_distributions_{{scenario}}.npz",
+        meta = f"{REPORTS}/tmrca_distributions_{{scenario}}_meta.json",
+    wildcard_constraints:
+        scenario = r"|".join(TMRCA_SCENARIOS),
+    conda:
+        "envs/tmrca.yml"
+    script:
+        "scripts/aggregate_tmrca_distributions.py"
+
+
+rule tmrca_distributions_figure:
+    input:
+        npz = expand(f"{DATA}/tmrca_distributions_{{s}}.npz",
+                     s=list(TMRCA_SCENARIOS)),
+        meta = expand(f"{REPORTS}/tmrca_distributions_{{s}}_meta.json",
+                      s=list(TMRCA_SCENARIOS)),
+    output:
+        pdf = f"{REPORTS}/tmrca_distributions.pdf",
+    params:
+        scenarios = list(TMRCA_SCENARIOS),
+    conda:
+        "envs/tmrca.yml"
+    script:
+        "scripts/plot_tmrca_distributions.py"
+
+
+rule copy_tmrca_distributions_figure:
+    """Copy the TMRCA-distribution figure into the manuscript figures dir."""
+    input:
+        pdf = rules.tmrca_distributions_figure.output.pdf,
+    output:
+        pdf = "reports/manuscripts/latex/figures/tmrca_distributions.pdf",
+    conda:
+        "envs/bench.yml"
+    shell:
+        "cp {input.pdf} {output.pdf}"
+
+
+rule report_focal_interpolation_ensemble_shard:
+    """The local-tree mode again, with the likelihood marginalised over B
+    genealogies drawn from the pairwise HMM's posterior. One job per outgroup
+    count: the draws do not depend on the focal position, so each panel's
+    ensemble is built once and re-rooted across the whole grid."""
+    input:
+        trees = f"{DATA}/baseline10_chunk0.trees",
+    output:
+        json = f"{REPORTS}/focal_ens_shard_n{{n_out}}.json",
+        diagnostics = f"{REPORTS}/focal_ens_shard_n{{n_out}}_diagnostics.json",
+    wildcard_constraints:
+        n_out = r"|".join(str(n) for n in FOCAL_N_OUTS),
+    params:
+        fractions = FOCAL_FRACTIONS,
+        mu = 1.25e-8,
+        rec_rate = 1e-8,
+        window = "8snp",
+        n_members = 128,
+        n_subsets = 4,
+        member_chunk = 8,
+        seed = 1000,
+    resources:
+        mem_mb = 32000,
+        runtime = 240,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_focal_interpolation_ensemble.py"
+
+
+rule report_focal_interpolation_ensemble:
+    """Concatenate the per-outgroup ensemble shards."""
+    input:
+        json = expand(f"{REPORTS}/focal_ens_shard_n{{n_out}}.json",
+                      n_out=FOCAL_N_OUTS),
+        diagnostics = expand(
+            f"{REPORTS}/focal_ens_shard_n{{n_out}}_diagnostics.json",
+            n_out=FOCAL_N_OUTS),
+    output:
+        json = f"{REPORTS}/focal_interpolation_local_tree_ens.json",
+        diagnostics = (f"{REPORTS}/"
+                       "focal_interpolation_local_tree_ens_diagnostics.json"),
+    resources:
+        mem_mb = 4000,
+        runtime = 20,
+    run:
+        import json as _json
+        for shards, target in ((input.json, output.json),
+                               (input.diagnostics, output.diagnostics)):
+            rows, meta = [], {}
+            for path in shards:
+                with open(path) as handle:
+                    payload = _json.load(handle)
+                rows.extend(payload["rows"])
+                meta = {k: v for k, v in payload.items()
+                        if k not in ("rows", "n_out")}
+            with open(target, "w") as handle:
+                _json.dump({**meta, "rows": rows}, handle, indent=1)
+
+
+rule report_focal_interpolation:
+    input:
+        shards = expand(
+            f"{REPORTS}/focal_interpolation_{{mode}}_n{{n_out}}.json",
+            mode=FOCAL_MODES, n_out=FOCAL_N_OUTS,
+        ),
+        ensemble = f"{REPORTS}/focal_interpolation_local_tree_ens.json",
+    output:
+        json = f"{REPORTS}/focal_interpolation.json",
+    run:
+        import json as _json
+        rows, meta = [], {}
+        for path in input.shards:
+            with open(path) as handle:
+                payload = _json.load(handle)
+            rows.extend(payload["rows"])
+            meta = {k: v for k, v in payload.items() if k != "rows"}
+        with open(input.ensemble) as handle:
+            rows.extend(_json.load(handle)["rows"])
+        with open(output.json, "w") as handle:
+            _json.dump({**meta, "rows": rows}, handle, indent=1)
+
+
+rule plot_focal_cost:
+    """The reporting node's cost with the question held fixed."""
+    input:
+        json = f"{REPORTS}/focal_interpolation.json",
+    output:
+        pdf = f"{REPORTS}/focal_cost.pdf",
+        fig_copy = "reports/manuscripts/latex/figures/focal_cost.pdf",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/plot_focal_cost.py"
+
+
+rule plot_focal_interpolation:
+    input:
+        json = f"{REPORTS}/focal_interpolation.json",
+    output:
+        pdf = f"{REPORTS}/focal_interpolation.pdf",
+        fig_copy = "reports/manuscripts/latex/figures/focal_interpolation.pdf",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/plot_focal_interpolation.py"
+
+
+rule report_robustness_heatmap:
+    """Render one heatmap figure + runtime side-table from the per-cell JSONs.
+
+    One rule for all three heatmap figures (Figure 4, the ARG-inference
+    comparison, the appendix baselines replica): they differ only in which
+    method rows they show, so the row set is the ``{figure}`` wildcard. Every
+    figure reads the intersection-scored cells, so all rows of all figures are
+    graded on one identical site set (SINGER's budget prefix per chunk).
+
+    Build with parallel cells, e.g.::
+
+        snakemake -j 8 results/reports/robustness_heatmap.pdf
+    """
+    input:
+        cells = lambda wc: expand(
+            f"{DATA}/robustness_cell_intersect_{{scenario}}_{{method}}"
+            f"_n{{n_out}}_summary.json",
+            scenario=ROBUSTNESS_SCENARIOS,
+            method=ROBUSTNESS_FIGURE_METHODS[wc.figure],
+            n_out=ROBUSTNESS_N_OUTS,
+        ),
+    output:
+        heatmap = f"{REPORTS}/{{figure}}.pdf",
+        heatmap_map = f"{REPORTS}/{{figure}}_map.pdf",
+        runtimes_json = f"{REPORTS}/{{figure}}_runtimes.json",
+        runtimes_md = f"{REPORTS}/{{figure}}_runtimes.md",
+        fig_copy = "reports/manuscripts/latex/figures/bench_{figure}.pdf",
+    wildcard_constraints:
+        figure = r"|".join(ROBUSTNESS_FIGURE_METHODS),
+    resources:
+        # Loads only the light per-cell summaries (a few KB each), so the
+        # report fits in well under a GB.
+        mem_mb = 6000,
+        runtime = 240,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/make_robustness_heatmap.py"
+
+
+
+# ---- Ensemble-mode cost: runtime and peak memory against the draw count ----
+
+#: Grid of the ensemble scaling benchmark. Sharded one job per cell so the
+#: measurements do not contend: each cell parallelises internally, so running
+#: several at once would inflate every timing.
+ENSEMBLE_SCALING_DRAWS = [1, 8, 32, 128, 512]
+ENSEMBLE_SCALING_WORKERS = [1, 2, 4, 8]
+ENSEMBLE_SCALING_INDIVIDUALS = 50
+ENSEMBLE_SCALING_LENGTH = 2_000_000
+#: Small enough that the panel splits into several segments, which is what
+#: n_workers fans out. On the single-region path workers parallelise only the
+#: Felsenstein pass, not the tree construction that dominates this mode.
+ENSEMBLE_SCALING_CHUNK = "250kb"
+
+
+rule bench_ensemble_scaling_cell:
+    """One (draws, workers) cell of the ensemble cost grid."""
+    output:
+        f"{DATA}/ensemble_scaling_m{{n_ensemble}}_w{{n_workers}}.json",
+    params:
+        n_ensemble = lambda wc: int(wc.n_ensemble),
+        n_workers = lambda wc: int(wc.n_workers),
+        n_individuals = ENSEMBLE_SCALING_INDIVIDUALS,
+        sequence_length = ENSEMBLE_SCALING_LENGTH,
+        chunk_size = ENSEMBLE_SCALING_CHUNK,
+        mu = 1.25e-8,
+        rec_rate = 1e-8,
+        seed = 3,
+    wildcard_constraints:
+        n_ensemble = r"[0-9]+",
+        n_workers = r"[0-9]+",
+    threads: lambda wc: int(wc.n_workers)
+    resources:
+        # Peak tracks the segment span and member_chunk, not the draw count,
+        # but the pairwise stage grows with the square of the panel.
+        mem_mb = 16000,
+        runtime = 120,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/bench_ensemble_scaling.py"
+
+
+rule ensemble_scaling_figure:
+    """Runtime and peak memory against the number of ensemble draws."""
+    input:
+        expand(
+            f"{DATA}/ensemble_scaling_m{{n_ensemble}}_w{{n_workers}}.json",
+            n_ensemble=ENSEMBLE_SCALING_DRAWS,
+            n_workers=ENSEMBLE_SCALING_WORKERS,
+        ),
+    output:
+        pdf = f"{REPORTS}/ensemble_scaling.pdf",
+        summary = f"{REPORTS}/ensemble_scaling.json",
+    resources:
+        mem_mb = 4000,
+        runtime = 30,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/plot_ensemble_scaling.py"
+
+rule ensemble_scaling_figure_copy:
+    """The ensemble-scaling figure, in the manuscript's figure tree."""
+    input:
+        pdf = rules.ensemble_scaling_figure.output.pdf,
+    output:
+        fig_copy = "reports/manuscripts/latex/figures/ensemble_scaling.pdf",
+    shell:
+        "cp {input.pdf} {output.fig_copy}"
+
+
+# Standalone-script manuscript figures (gallery, ingroup-size, site-scaling,
+# per-bin Brier, stacked Brier, SFS confidence-filter) wired into the DAG.
+# Defined last so the report rules they depend on already exist.
+include: "rules/manuscript_figures.smk"
+
+# Appendix orientation-damage benchmark (own site set, orientation maps,
+# per-(tool, scheme) ARG and scoring shards). Defined last, after the
+# simulation rule it reuses and the RELATE_DIR path it declares as an input.
+include: "rules/orientation_damage.smk"
+
+
+include: "rules/single_outgroup_depth_bench.smk"

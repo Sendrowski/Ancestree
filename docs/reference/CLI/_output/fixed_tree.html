@@ -1,0 +1,15 @@
+<pre class="cli-output"><span style="color: #2a9d3f">INFO:ancestree.CyVCF2Source: Reading variants from demo.vcf.gz (14 haplotype samples)</span>
+<span style="color: #2a9d3f">INFO:ancestree.cli: fixed-tree: --ingroup not given; using the 8 haplotype(s) whose individual is not an outgroup: i0_h0,i0_h1,i1_h0,i1_h1,i2_h0,i2_h1,i3_h0,i3_h1</span>
+<span style="color: #2a9d3f">INFO:ancestree.CyVCF2Source: Reading variants from demo.vcf.gz (14 haplotype samples)</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: Streaming fit: pass 1 (config histogram) complete; fitting 5 branch rate(s) by ML, then a second streaming pass emits posteriors.</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: 10/10 L-BFGS-B starts converged; best is start 1 (log L -343707.8480, range 0.0000); winning fit took 48 iterations</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: MLE branch rates: K0=3.8812e-03, K1=4.3294e-03, K2=7.3369e-03, K3=1.1211e-02, K4=2.5940e-02</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: MLE model params: kappa=9.7831e-01</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: Ingroup MRCA → outgroup divergences: o1_h0=8.2106e-03, o2_h0=2.2430e-02, o3_h0=3.7158e-02</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: Inferring the ancestral allele on the fitted outgroup ladder, streaming the sites</span>
+FixedTreeInference: 10592 sites [00:00, 11265.34 sites/s]
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.790 on 10592 polymorphic sites; largest disagreement at SFS bin 0 (0.785); SFS bin 3 (0.974)</span>
+<span style="color: #b8860b">WARNING:ancestree.FixedTreeInference: 10357 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup&#x27;s own allele is the answer.</span>
+<span style="color: #2a9d3f">INFO:ancestree.FixedTreeInference: Focal node: reported at the ingroup_mrca</span>
+<span style="color: #2a9d3f">INFO:ancestree.VCFWriter: Wrote 10,592 annotated sites to annotated.vcf.gz</span>
+<span style="color: #2a9d3f">INFO:ancestree.cli: Wrote 10592 annotated records to annotated.vcf.gz</span></pre>

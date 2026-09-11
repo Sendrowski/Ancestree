@@ -1,0 +1,20 @@
+# Snakemake SLURM profile for GenomeDK (login.genome.au.dk).
+#
+# Usage on the cluster (snakemake >= 8, needs snakemake-executor-plugin-slurm):
+#   snakemake --profile workflow/profiles/slurm <target>
+#
+# slurm_account is the group allocation, not a user name.
+executor: slurm
+jobs: 1000
+# The SLURM executor reads wall time from the `runtime` resource, in minutes.
+# `mem_mb` is an expression: it scales with the declared inputs and grows with
+# `attempt` on retry. Rules whose footprint is not set by their inputs (an
+# msprime sim of a given length, a 128-member ensemble) declare their own.
+default-resources: [ cpus=1, runtime=240, "mem_mb=max(6*input.size_mb, 8000)*attempt", disk_mb=100000, slurm_account="primates_fast_dfe", slurm_partition="short" ]
+nolock: true
+printshellcmds: true
+latency-wait: 60
+use-conda: true
+slurm-keep-successful-logs: false
+show-failed-logs: true
+rerun-triggers: mtime

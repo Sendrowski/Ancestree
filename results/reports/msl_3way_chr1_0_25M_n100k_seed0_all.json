@@ -1,0 +1,373 @@
+{
+  "n_msl_snps": 1140085,
+  "n_per_method_full": {
+    "ancestree_vcf": 133172,
+    "polarbear": 687338,
+    "estsfs": 985038
+  },
+  "n_per_method_restricted": {
+    "ancestree_vcf": 133172,
+    "polarbear": 75744,
+    "estsfs": 112930
+  },
+  "restricted_to_positions_in": "ancestree_vcf",
+  "pairwise": {
+    "ancestree_vcf__polarbear": {
+      "n_a": 133172,
+      "n_b": 75744,
+      "n_overlap": 75744,
+      "n_agree": 72238,
+      "agreement_rate": 0.9537125052809463,
+      "a_name": "ancestree_vcf",
+      "b_name": "polarbear",
+      "keep_prop_a": 0.11680883442901187,
+      "keep_prop_b": 0.06643715161588828,
+      "overlap_prop": 0.06643715161588828
+    },
+    "ancestree_vcf__estsfs": {
+      "n_a": 133172,
+      "n_b": 112930,
+      "n_overlap": 112930,
+      "n_agree": 112235,
+      "agreement_rate": 0.993845745151864,
+      "a_name": "ancestree_vcf",
+      "b_name": "estsfs",
+      "keep_prop_a": 0.11680883442901187,
+      "keep_prop_b": 0.09905401790217395,
+      "overlap_prop": 0.09905401790217395
+    },
+    "polarbear__estsfs": {
+      "n_a": 75744,
+      "n_b": 112930,
+      "n_overlap": 64686,
+      "n_agree": 61631,
+      "agreement_rate": 0.9527718517144359,
+      "a_name": "polarbear",
+      "b_name": "estsfs",
+      "keep_prop_a": 0.06643715161588828,
+      "keep_prop_b": 0.09905401790217395,
+      "overlap_prop": 0.056737874807580135
+    }
+  },
+  "soft_metrics": {
+    "ancestree_vcf__polarbear": {
+      "n_shared": 75744,
+      "mean_ancestree_p_on_reference_map": 0.9432746767997742
+    },
+    "ancestree_vcf__estsfs": {
+      "n_shared": 112930,
+      "mean_ancestree_p_on_reference_map": 0.9869659543037415
+    }
+  },
+  "coverage_extras": {
+    "n_ancestree_only": 9184,
+    "n_ancestree_total_restricted": 133172
+  },
+  "three_overlap": {
+    "n_overlap": 64686,
+    "n_agree": 61461,
+    "agreement_rate": 0.9501437714497728
+  },
+  "per_region": {
+    "exon": {
+      "n_snps_in_region": 49367,
+      "n_per_method": {
+        "ancestree_vcf": 8705,
+        "polarbear": 5153,
+        "estsfs": 7764
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 8705,
+          "n_b": 5153,
+          "n_overlap": 5153,
+          "n_agree": 4949,
+          "agreement_rate": 0.9604114108286436,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 8705,
+          "n_b": 7764,
+          "n_overlap": 7764,
+          "n_agree": 7727,
+          "agreement_rate": 0.9952344152498712,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 5153,
+          "n_b": 7764,
+          "n_overlap": 4611,
+          "n_agree": 4428,
+          "agreement_rate": 0.9603122966818478,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "UTR_3": {
+      "n_snps_in_region": 14389,
+      "n_per_method": {
+        "ancestree_vcf": 2198,
+        "polarbear": 1311,
+        "estsfs": 2019
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 2198,
+          "n_b": 1311,
+          "n_overlap": 1311,
+          "n_agree": 1241,
+          "agreement_rate": 0.9466056445461479,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 2198,
+          "n_b": 2019,
+          "n_overlap": 2019,
+          "n_agree": 2013,
+          "agreement_rate": 0.9970282317979198,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 1311,
+          "n_b": 2019,
+          "n_overlap": 1215,
+          "n_agree": 1153,
+          "agreement_rate": 0.9489711934156378,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "UTR_5": {
+      "n_snps_in_region": 2231,
+      "n_per_method": {
+        "ancestree_vcf": 401,
+        "polarbear": 256,
+        "estsfs": 361
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 401,
+          "n_b": 256,
+          "n_overlap": 256,
+          "n_agree": 248,
+          "agreement_rate": 0.96875,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 401,
+          "n_b": 361,
+          "n_overlap": 361,
+          "n_agree": 356,
+          "agreement_rate": 0.9861495844875346,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 256,
+          "n_b": 361,
+          "n_overlap": 235,
+          "n_agree": 227,
+          "agreement_rate": 0.9659574468085106,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "intron": {
+      "n_snps_in_region": 641329,
+      "n_per_method": {
+        "ancestree_vcf": 76306,
+        "polarbear": 43582,
+        "estsfs": 66524
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 76306,
+          "n_b": 43582,
+          "n_overlap": 43582,
+          "n_agree": 41667,
+          "agreement_rate": 0.9560598412188518,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 76306,
+          "n_b": 66524,
+          "n_overlap": 66524,
+          "n_agree": 66127,
+          "agreement_rate": 0.9940322289699958,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 43582,
+          "n_b": 66524,
+          "n_overlap": 38181,
+          "n_agree": 36488,
+          "agreement_rate": 0.9556585736361017,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "intergenic": {
+      "n_snps_in_region": 432769,
+      "n_per_method": {
+        "ancestree_vcf": 45562,
+        "polarbear": 25442,
+        "estsfs": 36262
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 45562,
+          "n_b": 25442,
+          "n_overlap": 25442,
+          "n_agree": 24133,
+          "agreement_rate": 0.9485496423237166,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 45562,
+          "n_b": 36262,
+          "n_overlap": 36262,
+          "n_agree": 36012,
+          "agreement_rate": 0.9931057305167944,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 25442,
+          "n_b": 36262,
+          "n_overlap": 20444,
+          "n_agree": 19335,
+          "agreement_rate": 0.9457542555272941,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "synonymous": {
+      "n_snps_in_region": 3002,
+      "n_per_method": {
+        "ancestree_vcf": 645,
+        "polarbear": 381,
+        "estsfs": 615
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 645,
+          "n_b": 381,
+          "n_overlap": 381,
+          "n_agree": 371,
+          "agreement_rate": 0.973753280839895,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 645,
+          "n_b": 615,
+          "n_overlap": 615,
+          "n_agree": 608,
+          "agreement_rate": 0.9886178861788618,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 381,
+          "n_b": 615,
+          "n_overlap": 365,
+          "n_agree": 355,
+          "agreement_rate": 0.9726027397260274,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "non_synonymous": {
+      "n_snps_in_region": 6833,
+      "n_per_method": {
+        "ancestree_vcf": 1337,
+        "polarbear": 841,
+        "estsfs": 1243
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 1337,
+          "n_b": 841,
+          "n_overlap": 841,
+          "n_agree": 827,
+          "agreement_rate": 0.9833531510107015,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 1337,
+          "n_b": 1243,
+          "n_overlap": 1243,
+          "n_agree": 1243,
+          "agreement_rate": 1.0,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 841,
+          "n_b": 1243,
+          "n_overlap": 785,
+          "n_agree": 773,
+          "agreement_rate": 0.9847133757961783,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    }
+  },
+  "ancestree_vcf_meta": {
+    "region": "chr1_0_25M",
+    "n_subsample": "100k",
+    "n_subsample_resolved": 100000,
+    "seed": 0,
+    "infer_scope": "all",
+    "n_sites_polymorphic_total": 133172,
+    "n_sites_in_fit": 100000,
+    "n_sites_in_infer": 133172,
+    "n_sites_written": 133172,
+    "n_sites_skipped_unknown_allele": 0,
+    "n_target_sites": 25000000,
+    "model": "HKY",
+    "kappa_initial": 5.461939683909173,
+    "kappa_fitted": 4.817175762671264,
+    "params_mle": {
+      "Kdeep": 0.0006787262196017779,
+      "kappa": 4.817175762671264
+    },
+    "empirical_pi": [
+      0.18005574456939505,
+      0.32181185559001174,
+      0.3216659831206828,
+      0.1764664167199104
+    ],
+    "n_ts": 69637,
+    "n_tv": 25499,
+    "outgroup_divergence_mle": [
+      0.00033936310980088895,
+      0.00033936310980088895
+    ],
+    "timings_seconds": {
+      "load_npz": 0.0265905000269413,
+      "build_sites": 1.3819190409849398,
+      "base_composition": null,
+      "fit": 95.82669070799602,
+      "infer": 0.8680531659629196,
+      "total": 103.15588245802792
+    },
+    "in_npz": "results/data/msl_polymorphic_chr1_0_25M.npz"
+  }
+}

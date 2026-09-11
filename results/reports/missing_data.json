@@ -1,0 +1,1541 @@
+{
+  "summary": {
+    "0.0": {
+      "missing_frac": 0.0,
+      "n_seeds": 3,
+      "n_sites_mean": 288304.0,
+      "empirical_mask_rate_mean": 0.0,
+      "accuracy_mean": 0.689796187357789,
+      "accuracy_std": 0.0,
+      "mean_max_prob_mean": 0.9997715751318254,
+      "mean_max_prob_std": 0.0,
+      "mean_entropy_bits_mean": 0.001361812744929352,
+      "mean_entropy_bits_std": 0.0,
+      "per_bin": {
+        "1": {
+          "accuracy_mean": 0.9826283987915407,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9985497730911308,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 7944
+        },
+        "2": {
+          "accuracy_mean": 0.977767265846736,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9983607282097976,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 4228
+        },
+        "3": {
+          "accuracy_mean": 0.9804181878526386,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9977609207669779,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 3013
+        },
+        "4": {
+          "accuracy_mean": 0.9761904761904762,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9968080871050367,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 2310
+        },
+        "5": {
+          "accuracy_mean": 0.9790709545686574,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9968121522984791,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 1959
+        },
+        "6": {
+          "accuracy_mean": 0.9803370786516854,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9960129353447841,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 1780
+        },
+        "7": {
+          "accuracy_mean": 0.9863091842555619,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9959067184947938,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 1753
+        },
+        "8": {
+          "accuracy_mean": 0.9829005699810006,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9963056239082915,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 1579
+        },
+        "9": {
+          "accuracy_mean": 0.9800266311584553,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9964673396894612,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 1502
+        },
+        "10": {
+          "accuracy_mean": 0.9834938101788171,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.997761034173426,
+          "mean_max_prob_std": 0.0,
+          "n_sites_mean": 727
+        }
+      }
+    },
+    "0.05": {
+      "missing_frac": 0.05,
+      "n_seeds": 3,
+      "n_sites_mean": 288304.0,
+      "empirical_mask_rate_mean": 0.049971557800099896,
+      "accuracy_mean": 0.6897880940488743,
+      "accuracy_std": 1.2181185777128103e-05,
+      "mean_max_prob_mean": 0.9997473420269468,
+      "mean_max_prob_std": 1.812105419315655e-05,
+      "mean_entropy_bits_mean": 0.0015003401256289037,
+      "mean_entropy_bits_std": 4.794922523096873e-05,
+      "per_bin": {
+        "1": {
+          "accuracy_mean": 0.9825864384021483,
+          "accuracy_std": 7.267752633303653e-05,
+          "mean_max_prob_mean": 0.9983259179897214,
+          "mean_max_prob_std": 6.655387276885702e-05,
+          "n_sites_mean": 7944
+        },
+        "2": {
+          "accuracy_mean": 0.978240302743614,
+          "accuracy_std": 0.00023651844843897152,
+          "mean_max_prob_mean": 0.9980540286665147,
+          "mean_max_prob_std": 8.594971171807652e-05,
+          "n_sites_mean": 4228
+        },
+        "3": {
+          "accuracy_mean": 0.9798650293174024,
+          "accuracy_std": 0.0007664789501356148,
+          "mean_max_prob_mean": 0.9971694687779955,
+          "mean_max_prob_std": 0.00032749900507649855,
+          "n_sites_mean": 3013
+        },
+        "4": {
+          "accuracy_mean": 0.9759018759018758,
+          "accuracy_std": 0.0002499351814673812,
+          "mean_max_prob_mean": 0.9965371781533446,
+          "mean_max_prob_std": 4.160632920096974e-05,
+          "n_sites_mean": 2310
+        },
+        "5": {
+          "accuracy_mean": 0.978730644886847,
+          "accuracy_std": 0.00029471682960162675,
+          "mean_max_prob_mean": 0.9964970646448573,
+          "mean_max_prob_std": 0.0006157956413903027,
+          "n_sites_mean": 1959
+        },
+        "6": {
+          "accuracy_mean": 0.9803370786516854,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9959158341650152,
+          "mean_max_prob_std": 0.0002928040760341701,
+          "n_sites_mean": 1780
+        },
+        "7": {
+          "accuracy_mean": 0.9853584331621982,
+          "accuracy_std": 0.0008713777704803152,
+          "mean_max_prob_mean": 0.9956339679095678,
+          "mean_max_prob_std": 0.0005825280328978451,
+          "n_sites_mean": 1753
+        },
+        "8": {
+          "accuracy_mean": 0.9831116740553093,
+          "accuracy_std": 0.0009674004000328658,
+          "mean_max_prob_mean": 0.9961969088851654,
+          "mean_max_prob_std": 0.00043626588760542826,
+          "n_sites_mean": 1579
+        },
+        "9": {
+          "accuracy_mean": 0.9802485574789169,
+          "accuracy_std": 0.0003843876625763421,
+          "mean_max_prob_mean": 0.9965609352378663,
+          "mean_max_prob_std": 0.0002988701098978342,
+          "n_sites_mean": 1502
+        },
+        "10": {
+          "accuracy_mean": 0.9834938101788171,
+          "accuracy_std": 0.0,
+          "mean_max_prob_mean": 0.9974799931338565,
+          "mean_max_prob_std": 0.00041312059751617494,
+          "n_sites_mean": 727
+        }
+      }
+    },
+    "0.1": {
+      "missing_frac": 0.1,
+      "n_seeds": 3,
+      "n_sites_mean": 288304.0,
+      "empirical_mask_rate_mean": 0.0998695050286426,
+      "accuracy_mean": 0.6897580331871913,
+      "accuracy_std": 6.007723817843429e-06,
+      "mean_max_prob_mean": 0.9996997856936004,
+      "mean_max_prob_std": 2.256972967182924e-05,
+      "mean_entropy_bits_mean": 0.0017130823422877603,
+      "mean_entropy_bits_std": 6.297613261366762e-05,
+      "per_bin": {
+        "1": {
+          "accuracy_mean": 0.9825025176233636,
+          "accuracy_std": 0.0002180325789990455,
+          "mean_max_prob_mean": 0.9980044811624105,
+          "mean_max_prob_std": 0.00014066732882624466,
+          "n_sites_mean": 7944
+        },
+        "2": {
+          "accuracy_mean": 0.978161463260801,
+          "accuracy_std": 0.00036128789774169897,
+          "mean_max_prob_mean": 0.997730376375258,
+          "mean_max_prob_std": 0.00015859589169889504,
+          "n_sites_mean": 4228
+        },
+        "3": {
+          "accuracy_mean": 0.9795331341962606,
+          "accuracy_std": 0.0008352510714980226,
+          "mean_max_prob_mean": 0.9966748819254722,
+          "mean_max_prob_std": 0.00012439978590113678,
+          "n_sites_mean": 3013
+        },
+        "4": {
+          "accuracy_mean": 0.9761904761904762,
+          "accuracy_std": 0.0008658008658008476,
+          "mean_max_prob_mean": 0.9960207766838001,
+          "mean_max_prob_std": 0.00022710144210262348,
+          "n_sites_mean": 2310
+        },
+        "5": {
+          "accuracy_mean": 0.9783903352050366,
+          "accuracy_std": 0.0005894336592032535,
+          "mean_max_prob_mean": 0.9959718648814978,
+          "mean_max_prob_std": 0.0004324761730756102,
+          "n_sites_mean": 1959
+        },
+        "6": {
+          "accuracy_mean": 0.9807116104868914,
+          "accuracy_std": 0.0017163204850021987,
+          "mean_max_prob_mean": 0.9952458866390926,
+          "mean_max_prob_std": 0.0007801007443175832,
+          "n_sites_mean": 1780
+        },
+        "7": {
+          "accuracy_mean": 0.9825061798821069,
+          "accuracy_std": 0.0003293498398115294,
+          "mean_max_prob_mean": 0.9950736342428774,
+          "mean_max_prob_std": 0.0006086069862801752,
+          "n_sites_mean": 1753
+        },
+        "8": {
+          "accuracy_mean": 0.9824783618323834,
+          "accuracy_std": 0.0009674004000329142,
+          "mean_max_prob_mean": 0.995138851042839,
+          "mean_max_prob_std": 0.0006686115206402245,
+          "n_sites_mean": 1579
+        },
+        "9": {
+          "accuracy_mean": 0.9795827785175322,
+          "accuracy_std": 0.0010169941622183499,
+          "mean_max_prob_mean": 0.9957155927688923,
+          "mean_max_prob_std": 0.0005060891257293138,
+          "n_sites_mean": 1502
+        },
+        "10": {
+          "accuracy_mean": 0.9830353049060064,
+          "accuracy_std": 0.0007941544280462935,
+          "mean_max_prob_mean": 0.9961571706646695,
+          "mean_max_prob_std": 0.001234719806335969,
+          "n_sites_mean": 727
+        }
+      }
+    },
+    "0.25": {
+      "missing_frac": 0.25,
+      "n_seeds": 3,
+      "n_sites_mean": 288304.0,
+      "empirical_mask_rate_mean": 0.249998073021687,
+      "accuracy_mean": 0.6894666740662634,
+      "accuracy_std": 4.0893730654239825e-05,
+      "mean_max_prob_mean": 0.9993360809025903,
+      "mean_max_prob_std": 3.850769071271565e-05,
+      "mean_entropy_bits_mean": 0.0031019036309884404,
+      "mean_entropy_bits_std": 9.606165763592411e-05,
+      "per_bin": {
+        "1": {
+          "accuracy_mean": 0.9814115474991608,
+          "accuracy_std": 0.0007587756512263191,
+          "mean_max_prob_mean": 0.9963413289824127,
+          "mean_max_prob_std": 6.0680858278044435e-05,
+          "n_sites_mean": 7944
+        },
+        "2": {
+          "accuracy_mean": 0.9766635130873541,
+          "accuracy_std": 0.0004923524123618907,
+          "mean_max_prob_mean": 0.9950903458901779,
+          "mean_max_prob_std": 0.0002763253228094195,
+          "n_sites_mean": 4228
+        },
+        "3": {
+          "accuracy_mean": 0.9761035512777962,
+          "accuracy_std": 0.0011966648773527936,
+          "mean_max_prob_mean": 0.992782800631807,
+          "mean_max_prob_std": 0.0005642595296069008,
+          "n_sites_mean": 3013
+        },
+        "4": {
+          "accuracy_mean": 0.9717171717171718,
+          "accuracy_std": 0.0018023082246459733,
+          "mean_max_prob_mean": 0.9922420166354258,
+          "mean_max_prob_std": 0.0006629807897625156,
+          "n_sites_mean": 2310
+        },
+        "5": {
+          "accuracy_mean": 0.9748170835460268,
+          "accuracy_std": 0.0010626166408709108,
+          "mean_max_prob_mean": 0.9905596718100483,
+          "mean_max_prob_std": 0.0010960963190575317,
+          "n_sites_mean": 1959
+        },
+        "6": {
+          "accuracy_mean": 0.9758426966292135,
+          "accuracy_std": 0.0005617977528090123,
+          "mean_max_prob_mean": 0.9897278111088841,
+          "mean_max_prob_std": 0.0010114263850811412,
+          "n_sites_mean": 1780
+        },
+        "7": {
+          "accuracy_mean": 0.975470621791215,
+          "accuracy_std": 0.0026141333114408608,
+          "mean_max_prob_mean": 0.98813940386861,
+          "mean_max_prob_std": 0.0017364714917476002,
+          "n_sites_mean": 1753
+        },
+        "8": {
+          "accuracy_mean": 0.9778340721975934,
+          "accuracy_std": 0.0016755866441194012,
+          "mean_max_prob_mean": 0.9887377101314044,
+          "mean_max_prob_std": 0.0024125573148177358,
+          "n_sites_mean": 1579
+        },
+        "9": {
+          "accuracy_mean": 0.9742565468264536,
+          "accuracy_std": 0.0003843876625763421,
+          "mean_max_prob_mean": 0.9884827258397226,
+          "mean_max_prob_std": 0.0007115947012590126,
+          "n_sites_mean": 1502
+        },
+        "10": {
+          "accuracy_mean": 0.9761577258138469,
+          "accuracy_std": 0.002863364510957582,
+          "mean_max_prob_mean": 0.987249185163266,
+          "mean_max_prob_std": 0.0024476787004269365,
+          "n_sites_mean": 727
+        }
+      }
+    },
+    "0.5": {
+      "missing_frac": 0.5,
+      "n_seeds": 3,
+      "n_sites_mean": 288304.0,
+      "empirical_mask_rate_mean": 0.5004381948683797,
+      "accuracy_mean": 0.6874768762602438,
+      "accuracy_std": 4.734723354385788e-05,
+      "mean_max_prob_mean": 0.9973569904056959,
+      "mean_max_prob_std": 2.9107096950746562e-05,
+      "mean_entropy_bits_mean": 0.009701031305001152,
+      "mean_entropy_bits_std": 3.3340899576400136e-05,
+      "per_bin": {
+        "1": {
+          "accuracy_mean": 0.9755370929842229,
+          "accuracy_std": 0.0012609079558003112,
+          "mean_max_prob_mean": 0.990089283491342,
+          "mean_max_prob_std": 0.0001411299666866787,
+          "n_sites_mean": 7944
+        },
+        "2": {
+          "accuracy_mean": 0.9662567013560391,
+          "accuracy_std": 0.00214611441009401,
+          "mean_max_prob_mean": 0.9827821481812573,
+          "mean_max_prob_std": 0.0005526030995099116,
+          "n_sites_mean": 4228
+        },
+        "3": {
+          "accuracy_mean": 0.9584024781502378,
+          "accuracy_std": 0.0022098666174840335,
+          "mean_max_prob_mean": 0.9763223661579769,
+          "mean_max_prob_std": 0.0009796615054656135,
+          "n_sites_mean": 3013
+        },
+        "4": {
+          "accuracy_mean": 0.9492063492063492,
+          "accuracy_std": 0.0032491573590757907,
+          "mean_max_prob_mean": 0.9701289821789757,
+          "mean_max_prob_std": 0.0019090373595760416,
+          "n_sites_mean": 2310
+        },
+        "5": {
+          "accuracy_mean": 0.9441892121830866,
+          "accuracy_std": 0.0012846408771942978,
+          "mean_max_prob_mean": 0.9622165229503454,
+          "mean_max_prob_std": 0.0032120310349514902,
+          "n_sites_mean": 1959
+        },
+        "6": {
+          "accuracy_mean": 0.9417602996254681,
+          "accuracy_std": 0.005738409530353799,
+          "mean_max_prob_mean": 0.9567675368252829,
+          "mean_max_prob_std": 0.0011876531364016713,
+          "n_sites_mean": 1780
+        },
+        "7": {
+          "accuracy_mean": 0.9368701274006466,
+          "accuracy_std": 0.007993097378582914,
+          "mean_max_prob_mean": 0.9513127084381175,
+          "mean_max_prob_std": 0.0022181528975387596,
+          "n_sites_mean": 1753
+        },
+        "8": {
+          "accuracy_mean": 0.9326578002955457,
+          "accuracy_std": 0.007502366748539962,
+          "mean_max_prob_mean": 0.9432905780268744,
+          "mean_max_prob_std": 0.0051326139736322975,
+          "n_sites_mean": 1579
+        },
+        "9": {
+          "accuracy_mean": 0.9238792720816689,
+          "accuracy_std": 0.002690713638034266,
+          "mean_max_prob_mean": 0.9383163519265663,
+          "mean_max_prob_std": 0.003259884408047906,
+          "n_sites_mean": 1502
+        },
+        "10": {
+          "accuracy_mean": 0.9179275561668959,
+          "accuracy_std": 0.004421664723059622,
+          "mean_max_prob_mean": 0.9290148391894969,
+          "mean_max_prob_std": 0.008468150743374977,
+          "n_sites_mean": 727
+        }
+      }
+    }
+  },
+  "per_cell": {
+    "f0.0_seed100": {
+      "missing_frac": 0.0,
+      "seed": 100,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997715751318254,
+      "mean_entropy_bits": 0.001361812744929352,
+      "accuracy": 0.689796187357789,
+      "empirical_mask_rate": 0.0,
+      "fitted_outgroup_divergence": [
+        0.00752581268862912,
+        0.02267245300998167,
+        0.037684553651846565
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9826283987915407,
+          "mean_max_prob": 0.9985497730911308
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.977767265846736,
+          "mean_max_prob": 0.9983607282097976
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9804181878526386,
+          "mean_max_prob": 0.9977609207669779
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9761904761904762,
+          "mean_max_prob": 0.9968080871050367
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9790709545686574,
+          "mean_max_prob": 0.9968121522984791
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9960129353447841
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9863091842555619,
+          "mean_max_prob": 0.9959067184947938
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9829005699810006,
+          "mean_max_prob": 0.9963056239082915
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9800266311584553,
+          "mean_max_prob": 0.9964673396894612
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.997761034173426
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 288304
+      }
+    },
+    "f0.0_seed101": {
+      "missing_frac": 0.0,
+      "seed": 101,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997715751318254,
+      "mean_entropy_bits": 0.001361812744929352,
+      "accuracy": 0.689796187357789,
+      "empirical_mask_rate": 0.0,
+      "fitted_outgroup_divergence": [
+        0.00752581268862912,
+        0.02267245300998167,
+        0.037684553651846565
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9826283987915407,
+          "mean_max_prob": 0.9985497730911308
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.977767265846736,
+          "mean_max_prob": 0.9983607282097976
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9804181878526386,
+          "mean_max_prob": 0.9977609207669779
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9761904761904762,
+          "mean_max_prob": 0.9968080871050367
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9790709545686574,
+          "mean_max_prob": 0.9968121522984791
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9960129353447841
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9863091842555619,
+          "mean_max_prob": 0.9959067184947938
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9829005699810006,
+          "mean_max_prob": 0.9963056239082915
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9800266311584553,
+          "mean_max_prob": 0.9964673396894612
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.997761034173426
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 288304
+      }
+    },
+    "f0.0_seed102": {
+      "missing_frac": 0.0,
+      "seed": 102,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997715751318254,
+      "mean_entropy_bits": 0.001361812744929352,
+      "accuracy": 0.689796187357789,
+      "empirical_mask_rate": 0.0,
+      "fitted_outgroup_divergence": [
+        0.00752581268862912,
+        0.02267245300998167,
+        0.037684553651846565
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9826283987915407,
+          "mean_max_prob": 0.9985497730911308
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.977767265846736,
+          "mean_max_prob": 0.9983607282097976
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9804181878526386,
+          "mean_max_prob": 0.9977609207669779
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9761904761904762,
+          "mean_max_prob": 0.9968080871050367
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9790709545686574,
+          "mean_max_prob": 0.9968121522984791
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9960129353447841
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9863091842555619,
+          "mean_max_prob": 0.9959067184947938
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9829005699810006,
+          "mean_max_prob": 0.9963056239082915
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9800266311584553,
+          "mean_max_prob": 0.9964673396894612
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.997761034173426
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 288304
+      }
+    },
+    "f0.05_seed100": {
+      "missing_frac": 0.05,
+      "seed": 100,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997438864096254,
+      "mean_entropy_bits": 0.0015057641010855533,
+      "accuracy": 0.6897753759920084,
+      "empirical_mask_rate": 0.049758819394343005,
+      "fitted_outgroup_divergence": [
+        0.007304960277065299,
+        0.022110478977449076,
+        0.03637993431606513
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9826283987915407,
+          "mean_max_prob": 0.9983106071309863
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.978003784295175,
+          "mean_max_prob": 0.997957936549227
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9794225024892134,
+          "mean_max_prob": 0.9971609164207629
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9757575757575757,
+          "mean_max_prob": 0.9964972187366361
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9785604900459418,
+          "mean_max_prob": 0.9968827020272863
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9957292408429255
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9851682829435254,
+          "mean_max_prob": 0.9955614594046628
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9822672577580748,
+          "mean_max_prob": 0.9958622025297269
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9806924101198402,
+          "mean_max_prob": 0.996429413517159
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.9975894016569261
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 247306,
+        "2": 38995,
+        "1": 1967,
+        "0": 36
+      }
+    },
+    "f0.05_seed101": {
+      "missing_frac": 0.05,
+      "seed": 101,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997311976047236,
+      "mean_entropy_bits": 0.0015453467251379902,
+      "accuracy": 0.6897892502358621,
+      "empirical_mask_rate": 0.05014729822224689,
+      "fitted_outgroup_divergence": [
+        0.007308746024999684,
+        0.022080578563201194,
+        0.03635865586163993
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9825025176233635,
+          "mean_max_prob": 0.9982683537810637
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9784768211920529,
+          "mean_max_prob": 0.9981235708106347
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9794225024892134,
+          "mean_max_prob": 0.9968463297138155
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9757575757575757,
+          "mean_max_prob": 0.9965340598013513
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9790709545686574,
+          "mean_max_prob": 0.995786880387616
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9957649558354164
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9863091842555619,
+          "mean_max_prob": 0.9950910885015851
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9829005699810006,
+          "mean_max_prob": 0.996038215031906
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9800266311584553,
+          "mean_max_prob": 0.9963503812952741
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.9970231807284078
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 247093,
+        "2": 39085,
+        "1": 2090,
+        "0": 36
+      }
+    },
+    "f0.05_seed102": {
+      "missing_frac": 0.05,
+      "seed": 102,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997669420664914,
+      "mean_entropy_bits": 0.001449909550663168,
+      "accuracy": 0.6897996559187525,
+      "empirical_mask_rate": 0.05000855578370979,
+      "fitted_outgroup_divergence": [
+        0.007304394584244856,
+        0.02211128923587499,
+        0.03636831499152305
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9826283987915407,
+          "mean_max_prob": 0.998398793057114
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.978240302743614,
+          "mean_max_prob": 0.9980805786396824
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9807500829737803,
+          "mean_max_prob": 0.9975011601994083
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9761904761904762,
+          "mean_max_prob": 0.9965802559220464
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9785604900459418,
+          "mean_max_prob": 0.9968216115196696
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9962533058167038
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9845978322875071,
+          "mean_max_prob": 0.9962493558224557
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9841671944268524,
+          "mean_max_prob": 0.9966903090938632
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9800266311584553,
+          "mean_max_prob": 0.9969030109011657
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.9978273970162357
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 247193,
+        "2": 39003,
+        "1": 2074,
+        "0": 34
+      }
+    },
+    "f0.1_seed100": {
+      "missing_frac": 0.1,
+      "seed": 100,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9996909464171496,
+      "mean_entropy_bits": 0.0017291396658717607,
+      "accuracy": 0.6897545646262279,
+      "empirical_mask_rate": 0.09975696949516251,
+      "fitted_outgroup_divergence": [
+        0.007085555944454719,
+        0.021532401602482557,
+        0.03506797482680923
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9823766364551864,
+          "mean_max_prob": 0.9980201581407538
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9784768211920529,
+          "mean_max_prob": 0.9975822457576926
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9794225024892134,
+          "mean_max_prob": 0.996657235358335
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9761904761904762,
+          "mean_max_prob": 0.9958432986186203
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9780500255232262,
+          "mean_max_prob": 0.9960489838067572
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9825842696629213,
+          "mean_max_prob": 0.9958358311727626
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9823160296634341,
+          "mean_max_prob": 0.9947873691433012
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9816339455351488,
+          "mean_max_prob": 0.9944736378846775
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9786950732356857,
+          "mean_max_prob": 0.9954274999217132
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9821182943603851,
+          "mean_max_prob": 0.995057081973005
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 210318,
+        "2": 69988,
+        "1": 7701,
+        "0": 297
+      }
+    },
+    "f0.1_seed101": {
+      "missing_frac": 0.1,
+      "seed": 101,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9996829734432774,
+      "mean_entropy_bits": 0.0017664752976062146,
+      "accuracy": 0.6897545646262279,
+      "empirical_mask_rate": 0.09993849085224855,
+      "fitted_outgroup_divergence": [
+        0.0071078038111401735,
+        0.02150997452728802,
+        0.03503085980463329
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.982754279959718,
+          "mean_max_prob": 0.9978566320605637
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.978240302743614,
+          "mean_max_prob": 0.9977111912311273
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.97875871224693,
+          "mean_max_prob": 0.9965602477032607
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9753246753246754,
+          "mean_max_prob": 0.9962767018919253
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9790709545686574,
+          "mean_max_prob": 0.9955060172914841
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9803370786516854,
+          "mean_max_prob": 0.9943613965551567
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9828864803194524,
+          "mean_max_prob": 0.9946609415653481
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9822672577580748,
+          "mean_max_prob": 0.9951321053621814
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9793608521970706,
+          "mean_max_prob": 0.9954193232982257
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.9959217936885272
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 210371,
+        "2": 69721,
+        "1": 7919,
+        "0": 293
+      }
+    },
+    "f0.1_seed102": {
+      "missing_frac": 0.1,
+      "seed": 102,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9997254372203741,
+      "mean_entropy_bits": 0.0016436320633853056,
+      "accuracy": 0.6897649703091182,
+      "empirical_mask_rate": 0.09991305473851675,
+      "fitted_outgroup_divergence": [
+        0.007087523908990085,
+        0.021530329689500388,
+        0.03506592664387403
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9823766364551864,
+          "mean_max_prob": 0.9981366532859137
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.977767265846736,
+          "mean_max_prob": 0.997897692136954
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9804181878526386,
+          "mean_max_prob": 0.996807162714821
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9770562770562771,
+          "mean_max_prob": 0.9959423295408547
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9780500255232262,
+          "mean_max_prob": 0.996360593546252
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9792134831460674,
+          "mean_max_prob": 0.9955404321893586
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9823160296634341,
+          "mean_max_prob": 0.995772592019983
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9835338822039266,
+          "mean_max_prob": 0.9958108098816579
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9806924101198402,
+          "mean_max_prob": 0.9962999550867381
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9834938101788171,
+          "mean_max_prob": 0.9974926363324763
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 210197,
+        "2": 70088,
+        "1": 7729,
+        "0": 290
+      }
+    },
+    "f0.25_seed100": {
+      "missing_frac": 0.25,
+      "seed": 100,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9993333788644326,
+      "mean_entropy_bits": 0.003093925896834503,
+      "accuracy": 0.6895013596758977,
+      "empirical_mask_rate": 0.2499479715855486,
+      "fitted_outgroup_divergence": [
+        0.0064350111142400124,
+        0.01977871087191542,
+        0.031025050545454118
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9821248741188319,
+          "mean_max_prob": 0.9963219805739609
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9768211920529801,
+          "mean_max_prob": 0.9947712811691765
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9774311317623631,
+          "mean_max_prob": 0.993147838179577
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9722943722943723,
+          "mean_max_prob": 0.9920667784805248
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9760081674323634,
+          "mean_max_prob": 0.9915233163208562
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9764044943820225,
+          "mean_max_prob": 0.9904425523595717
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9749001711351968,
+          "mean_max_prob": 0.9888604229983274
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9765674477517416,
+          "mean_max_prob": 0.9866164966194974
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.974034620505992,
+          "mean_max_prob": 0.9885234891121246
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9738651994497937,
+          "mean_max_prob": 0.9857262788856368
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 121706,
+        "2": 121539,
+        "1": 40533,
+        "0": 4526
+      }
+    },
+    "f0.25_seed101": {
+      "missing_frac": 0.25,
+      "seed": 101,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.999298995396249,
+      "mean_entropy_bits": 0.0032017053828256974,
+      "accuracy": 0.6894215827737389,
+      "empirical_mask_rate": 0.24963926965980354,
+      "fitted_outgroup_divergence": [
+        0.0064501459831314304,
+        0.019765474681599147,
+        0.030984224864110746
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9814954682779456,
+          "mean_max_prob": 0.9962926816993534
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9770577105014191,
+          "mean_max_prob": 0.9952478878022488
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.975107865914371,
+          "mean_max_prob": 0.9921328960341204
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9696969696969697,
+          "mean_max_prob": 0.992975013291813
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9739663093415007,
+          "mean_max_prob": 0.9893672377877535
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9758426966292135,
+          "mean_max_prob": 0.9885705392140935
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9731888191671421,
+          "mean_max_prob": 0.9861585758774571
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9772007599746675,
+          "mean_max_prob": 0.9882344202395715
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.974034620505992,
+          "mean_max_prob": 0.9877516257039894
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9752407152682255,
+          "mean_max_prob": 0.9859486736145333
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "3": 121768,
+        "2": 121679,
+        "1": 40334,
+        "0": 4523
+      }
+    },
+    "f0.25_seed102": {
+      "missing_frac": 0.25,
+      "seed": 102,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9993758684470893,
+      "mean_entropy_bits": 0.0030100796133051204,
+      "accuracy": 0.6894770797491536,
+      "empirical_mask_rate": 0.25040697781970883,
+      "fitted_outgroup_divergence": [
+        0.006451211355900249,
+        0.0197505099804031,
+        0.030947669960472282
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9806143001007049,
+          "mean_max_prob": 0.9964093246739236
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9761116367076632,
+          "mean_max_prob": 0.9952518686991083
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9757716561566545,
+          "mean_max_prob": 0.9930676676817237
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9731601731601731,
+          "mean_max_prob": 0.9916842581339395
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9744767738642164,
+          "mean_max_prob": 0.9907884613215354
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9752808988764045,
+          "mean_max_prob": 0.9901703417529869
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9783228750713063,
+          "mean_max_prob": 0.9893992127300454
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9797340088663711,
+          "mean_max_prob": 0.9913622135351444
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9747003994673769,
+          "mean_max_prob": 0.9891730627030537
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9793672627235214,
+          "mean_max_prob": 0.9900726029896278
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "2": 121808,
+        "3": 121338,
+        "1": 40702,
+        "0": 4456
+      }
+    },
+    "f0.5_seed100": {
+      "missing_frac": 0.5,
+      "seed": 100,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9973243197009221,
+      "mean_entropy_bits": 0.009738117619809614,
+      "accuracy": 0.6875312170486708,
+      "empirical_mask_rate": 0.5010856595815528,
+      "fitted_outgroup_divergence": [
+        0.005415157838759227,
+        0.01674145645545152,
+        0.02368555866937681
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.9768378650553877,
+          "mean_max_prob": 0.9902064523332351
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.967833491012299,
+          "mean_max_prob": 0.9825666586551453
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9598406903418519,
+          "mean_max_prob": 0.9774130712639613
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9523809523809523,
+          "mean_max_prob": 0.9680874124019734
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9443593670239918,
+          "mean_max_prob": 0.9658784419665889
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9483146067415731,
+          "mean_max_prob": 0.9571294362941316
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9343981745579008,
+          "mean_max_prob": 0.951355076812132
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9240025332488917,
+          "mean_max_prob": 0.9373656504101892
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9207723035952063,
+          "mean_max_prob": 0.9386790028573379
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9147180192572214,
+          "mean_max_prob": 0.9192618049474804
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "2": 107980,
+        "3": 35771,
+        "1": 108244,
+        "0": 36309
+      }
+    },
+    "f0.5_seed101": {
+      "missing_frac": 0.5,
+      "seed": 101,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9973664926123882,
+      "mean_entropy_bits": 0.0096735399899648,
+      "accuracy": 0.6874445030245852,
+      "empirical_mask_rate": 0.49954099376583977,
+      "fitted_outgroup_divergence": [
+        0.005474346010958048,
+        0.016784201855190466,
+        0.023730075629137065
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.974320241691843,
+          "mean_max_prob": 0.989932611026455
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9638126773888364,
+          "mean_max_prob": 0.983410030794974
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9558579488881513,
+          "mean_max_prob": 0.9755171897336298
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9493506493506494,
+          "mean_max_prob": 0.9718697797579762
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9453802960694232,
+          "mean_max_prob": 0.9598757544502008
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9376404494382022,
+          "mean_max_prob": 0.9554410341443563
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.9458071876782659,
+          "mean_max_prob": 0.9535093736525626
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9366687777074097,
+          "mean_max_prob": 0.9463761302388377
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9254327563249002,
+          "mean_max_prob": 0.934890306198871
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.9160935350756534,
+          "mean_max_prob": 0.9332844631419306
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "2": 108566,
+        "1": 107916,
+        "0": 35887,
+        "3": 35935
+      }
+    },
+    "f0.5_seed102": {
+      "missing_frac": 0.5,
+      "seed": 102,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9973801589037775,
+      "mean_entropy_bits": 0.00969143630522904,
+      "accuracy": 0.6874549087074754,
+      "empirical_mask_rate": 0.5006879312577465,
+      "fitted_outgroup_divergence": [
+        0.005502080553758502,
+        0.016739027123360027,
+        0.023654719856588204
+      ],
+      "per_bin": {
+        "1": {
+          "n_sites": 7944,
+          "accuracy": 0.975453172205438,
+          "mean_max_prob": 0.9901287871143357
+        },
+        "2": {
+          "n_sites": 4228,
+          "accuracy": 0.9671239356669821,
+          "mean_max_prob": 0.9823697550936525
+        },
+        "3": {
+          "n_sites": 3013,
+          "accuracy": 0.9595087952207103,
+          "mean_max_prob": 0.9760368374763396
+        },
+        "4": {
+          "n_sites": 2310,
+          "accuracy": 0.9458874458874459,
+          "mean_max_prob": 0.9704297543769776
+        },
+        "5": {
+          "n_sites": 1959,
+          "accuracy": 0.9428279734558448,
+          "mean_max_prob": 0.9608953724342466
+        },
+        "6": {
+          "n_sites": 1780,
+          "accuracy": 0.9393258426966292,
+          "mean_max_prob": 0.9577321400373608
+        },
+        "7": {
+          "n_sites": 1753,
+          "accuracy": 0.930405019965773,
+          "mean_max_prob": 0.9490736748496581
+        },
+        "8": {
+          "n_sites": 1579,
+          "accuracy": 0.9373020899303357,
+          "mean_max_prob": 0.9461299534315963
+        },
+        "9": {
+          "n_sites": 1502,
+          "accuracy": 0.9254327563249002,
+          "mean_max_prob": 0.94137974672349
+        },
+        "10": {
+          "n_sites": 727,
+          "accuracy": 0.922971114167813,
+          "mean_max_prob": 0.9344982494790798
+        }
+      },
+      "n_outgroup_observed_dist": {
+        "2": 107642,
+        "1": 108571,
+        "3": 36002,
+        "0": 36089
+      }
+    }
+  },
+  "sim_config": {
+    "n_ingroup": 20,
+    "n_outgroup_pops": 3,
+    "length": 5000000.0,
+    "mu": 1.25e-08,
+    "rec_rate": 1e-08,
+    "pop_size": 30000.0,
+    "ingroup_pop_size": 30000.0,
+    "outgroup_split_times": [
+      300000.0,
+      900000.0,
+      1500000.0
+    ],
+    "seed": 42,
+    "missing_fractions": [
+      0.0,
+      0.05,
+      0.1,
+      0.25,
+      0.5
+    ],
+    "seeds": [
+      100,
+      101,
+      102
+    ]
+  },
+  "tolerance": 0.01,
+  "inflection_missing_frac": 0.5
+}

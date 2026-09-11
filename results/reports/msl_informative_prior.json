@@ -1,0 +1,24 @@
+{
+  "n_informative_sites": 792598,
+  "reference": "PolarBEAR",
+  "rows": [
+    {
+      "method": "fixed-tree mode (Kingman prior, no outgroups)",
+      "brier": 0.05747882661671693,
+      "map_agreement": 0.9662275201300029,
+      "n": 792598
+    },
+    {
+      "method": "ARG mode",
+      "brier": 1.0751897469364833e-07,
+      "map_agreement": 1.0,
+      "n": 792598
+    },
+    {
+      "method": "local-tree mode",
+      "brier": 0.011474125365808156,
+      "map_agreement": 0.9925813590243731,
+      "n": 792598
+    }
+  ]
+}

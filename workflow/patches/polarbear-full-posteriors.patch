@@ -1,0 +1,32 @@
+diff --git a/code/polarize/site_polarize.py b/code/polarize/site_polarize.py
+index eb5e0fc..64674e9 100644
+--- a/code/polarize/site_polarize.py
++++ b/code/polarize/site_polarize.py
+@@ -44,7 +44,9 @@ def site_polarize_ts_ML(ts, vcf_file, theta, result_file):
+ 
+                 lik_matrix = normalize_likelihood_matrix(root_info)
+                 max_prob = np.max(lik_matrix)
+-                filter_params = np.full(3, np.NaN)
++                # np.NaN was removed in NumPy 2.0; np.nan is the
++                # spelling that works on both.
++                filter_params = np.full(3, np.nan)
+ 
+                 # Determine inferred state
+                 if np.count_nonzero(lik_matrix == max_prob) == 1:
+@@ -60,8 +62,15 @@ def site_polarize_ts_ML(ts, vcf_file, theta, result_file):
+                 filter_params_str = [str(int(param)) if not np.isnan(param) else 'NaN' for param in filter_params]
+                 filter_params_str = '\t'.join(filter_params_str)
+ 
++                # Ancestree patch: emit the full normalised posterior over
++                # A, C, G, T as four extra columns. Upstream writes only the
++                # MAP state and its probability, which is enough to compare
++                # hard calls but not to compare posteriors against methods
++                # that report them -- the agreement matrix's soft column is
++                # undefined without it.
++                post_str = '\t'.join(repr(float(p)) for p in lik_matrix)
+                 result.write(
+-                    f"{position_vcf}\t{max_prob}\t{inferred_state}\t{filter_params_str}\n"
++                    f"{position_vcf}\t{max_prob}\t{inferred_state}\t{filter_params_str}\t{post_str}\n"
+                 )
+ 
+                 variant = next(vcf, None)

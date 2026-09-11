@@ -1,0 +1,22 @@
+# TMRCA-distribution rules: the pairwise HMM, the FFBS draws and the figure.
+# A cut-down bench.yml (no est-sfs, no SLiM, no msprime) so it resolves on
+# osx-arm64, where bioconda has no est-sfs build. Created by snakemake
+# --use-conda.
+name: ancestree-tmrca
+channels:
+  - conda-forge
+  - bioconda   # cyvcf2
+dependencies:
+  - python=3.11
+  - numpy>=1.24
+  - scipy>=1.10
+  - tskit>=1.0
+  - tqdm>=4.60
+  - cyvcf2
+  - numba>=0.59
+  - llvmlite>=0.42
+  - matplotlib-base>=3.7
+  - snakemake-minimal=9.23.0   # pin: must match the orchestrator (script: pickles the snakemake obj into this env)
+  - pip
+  - pip:
+      - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)

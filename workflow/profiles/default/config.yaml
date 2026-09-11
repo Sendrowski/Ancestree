@@ -1,0 +1,15 @@
+# Workflow profile applied to every run. Snakemake searches `profiles/default/`
+# relative to the Snakefile when `--workflow-profile` is unset, so these settings
+# reach ad-hoc `snakemake` invocations as well as the Makefile front-doors.
+#
+# mtime is the documented run mode: the provenance triggers (code, params,
+# input, software-env) pull the rsync'd ground-truth simulations and the SLiM
+# recap jobs into the DAG, which mtime alone leaves alone.
+#
+# Workflow-profile keys override general-profile (`--profile`) keys per key.
+# Both values here match workflow/profiles/slurm/config.yaml, so a cluster run
+# that passes `--profile workflow/profiles/slurm` is unaffected. Keep them in
+# step, and do not add `default-resources` here: that key would silently
+# replace the slurm profile's resource expression.
+use-conda: true
+rerun-triggers: mtime

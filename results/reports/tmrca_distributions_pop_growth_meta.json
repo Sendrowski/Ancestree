@@ -1,0 +1,27 @@
+{
+ "mu": 1.25e-08,
+ "rec_rate": 1e-08,
+ "window": "8snp",
+ "n_members": 128,
+ "seed": 1000,
+ "n_hap": 20,
+ "n_shards": 10,
+ "chunks": [
+  "results/data/tmrca_sim_pop_growth_chunk0.trees",
+  "results/data/tmrca_sim_pop_growth_chunk1.trees",
+  "results/data/tmrca_sim_pop_growth_chunk2.trees",
+  "results/data/tmrca_sim_pop_growth_chunk3.trees",
+  "results/data/tmrca_sim_pop_growth_chunk4.trees",
+  "results/data/tmrca_sim_pop_growth_chunk5.trees",
+  "results/data/tmrca_sim_pop_growth_chunk6.trees",
+  "results/data/tmrca_sim_pop_growth_chunk7.trees",
+  "results/data/tmrca_sim_pop_growth_chunk8.trees",
+  "results/data/tmrca_sim_pop_growth_chunk9.trees"
+ ],
+ "sequence_length_total": 50000000.0,
+ "n_windows": 735151,
+ "n_pairs": 190,
+ "n_window_pair_values": 139678690,
+ "n_time_grids": 30,
+ "grid_step_log10": 0.1386012261420957
+}

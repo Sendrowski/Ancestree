@@ -1,0 +1,373 @@
+{
+  "n_msl_snps": 1140085,
+  "n_per_method_full": {
+    "ancestree_vcf": 100000,
+    "polarbear": 687338,
+    "estsfs": 985038
+  },
+  "n_per_method_restricted": {
+    "ancestree_vcf": 100000,
+    "polarbear": 6786,
+    "estsfs": 10169
+  },
+  "restricted_to_positions_in": "ancestree_vcf",
+  "pairwise": {
+    "ancestree_vcf__polarbear": {
+      "n_a": 100000,
+      "n_b": 6786,
+      "n_overlap": 6786,
+      "n_agree": 6474,
+      "agreement_rate": 0.9540229885057471,
+      "a_name": "ancestree_vcf",
+      "b_name": "polarbear",
+      "keep_prop_a": 0.0877127582592526,
+      "keep_prop_b": 0.0059521877754728815,
+      "overlap_prop": 0.0059521877754728815
+    },
+    "ancestree_vcf__estsfs": {
+      "n_a": 100000,
+      "n_b": 10169,
+      "n_overlap": 10169,
+      "n_agree": 10121,
+      "agreement_rate": 0.9952797718556397,
+      "a_name": "ancestree_vcf",
+      "b_name": "estsfs",
+      "keep_prop_a": 0.0877127582592526,
+      "keep_prop_b": 0.008919510387383396,
+      "overlap_prop": 0.008919510387383396
+    },
+    "polarbear__estsfs": {
+      "n_a": 6786,
+      "n_b": 10169,
+      "n_overlap": 5790,
+      "n_agree": 5526,
+      "agreement_rate": 0.9544041450777202,
+      "a_name": "polarbear",
+      "b_name": "estsfs",
+      "keep_prop_a": 0.0059521877754728815,
+      "keep_prop_b": 0.008919510387383396,
+      "overlap_prop": 0.005078568703210725
+    }
+  },
+  "soft_metrics": {
+    "ancestree_vcf__polarbear": {
+      "n_shared": 6786,
+      "mean_ancestree_p_on_reference_map": 0.944329559803009
+    },
+    "ancestree_vcf__estsfs": {
+      "n_shared": 10169,
+      "mean_ancestree_p_on_reference_map": 0.988142192363739
+    }
+  },
+  "coverage_extras": {
+    "n_ancestree_only": 88835,
+    "n_ancestree_total_restricted": 100000
+  },
+  "three_overlap": {
+    "n_overlap": 5790,
+    "n_agree": 5511,
+    "agreement_rate": 0.9518134715025907
+  },
+  "per_region": {
+    "exon": {
+      "n_snps_in_region": 49367,
+      "n_per_method": {
+        "ancestree_vcf": 753,
+        "polarbear": 438,
+        "estsfs": 660
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 753,
+          "n_b": 438,
+          "n_overlap": 438,
+          "n_agree": 420,
+          "agreement_rate": 0.958904109589041,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 753,
+          "n_b": 660,
+          "n_overlap": 660,
+          "n_agree": 658,
+          "agreement_rate": 0.996969696969697,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 438,
+          "n_b": 660,
+          "n_overlap": 382,
+          "n_agree": 368,
+          "agreement_rate": 0.9633507853403142,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "UTR_3": {
+      "n_snps_in_region": 14389,
+      "n_per_method": {
+        "ancestree_vcf": 201,
+        "polarbear": 119,
+        "estsfs": 188
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 201,
+          "n_b": 119,
+          "n_overlap": 119,
+          "n_agree": 112,
+          "agreement_rate": 0.9411764705882353,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 201,
+          "n_b": 188,
+          "n_overlap": 188,
+          "n_agree": 187,
+          "agreement_rate": 0.9946808510638298,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 119,
+          "n_b": 188,
+          "n_overlap": 113,
+          "n_agree": 107,
+          "agreement_rate": 0.9469026548672567,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "UTR_5": {
+      "n_snps_in_region": 2231,
+      "n_per_method": {
+        "ancestree_vcf": 40,
+        "polarbear": 25,
+        "estsfs": 32
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 40,
+          "n_b": 25,
+          "n_overlap": 25,
+          "n_agree": 24,
+          "agreement_rate": 0.96,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 40,
+          "n_b": 32,
+          "n_overlap": 32,
+          "n_agree": 32,
+          "agreement_rate": 1.0,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 25,
+          "n_b": 32,
+          "n_overlap": 21,
+          "n_agree": 20,
+          "agreement_rate": 0.9523809523809523,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "intron": {
+      "n_snps_in_region": 641329,
+      "n_per_method": {
+        "ancestree_vcf": 6875,
+        "polarbear": 3941,
+        "estsfs": 6012
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 6875,
+          "n_b": 3941,
+          "n_overlap": 3941,
+          "n_agree": 3772,
+          "agreement_rate": 0.9571174828723674,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 6875,
+          "n_b": 6012,
+          "n_overlap": 6012,
+          "n_agree": 5980,
+          "agreement_rate": 0.9946773120425815,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 3941,
+          "n_b": 6012,
+          "n_overlap": 3440,
+          "n_agree": 3299,
+          "agreement_rate": 0.9590116279069767,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "intergenic": {
+      "n_snps_in_region": 432769,
+      "n_per_method": {
+        "ancestree_vcf": 4108,
+        "polarbear": 2263,
+        "estsfs": 3277
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 4108,
+          "n_b": 2263,
+          "n_overlap": 2263,
+          "n_agree": 2146,
+          "agreement_rate": 0.9482987185152453,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 4108,
+          "n_b": 3277,
+          "n_overlap": 3277,
+          "n_agree": 3264,
+          "agreement_rate": 0.996032956972841,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 2263,
+          "n_b": 3277,
+          "n_overlap": 1834,
+          "n_agree": 1732,
+          "agreement_rate": 0.9443838604143948,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "synonymous": {
+      "n_snps_in_region": 3002,
+      "n_per_method": {
+        "ancestree_vcf": 67,
+        "polarbear": 41,
+        "estsfs": 62
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 67,
+          "n_b": 41,
+          "n_overlap": 41,
+          "n_agree": 40,
+          "agreement_rate": 0.975609756097561,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 67,
+          "n_b": 62,
+          "n_overlap": 62,
+          "n_agree": 62,
+          "agreement_rate": 1.0,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 41,
+          "n_b": 62,
+          "n_overlap": 38,
+          "n_agree": 37,
+          "agreement_rate": 0.9736842105263158,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "non_synonymous": {
+      "n_snps_in_region": 6833,
+      "n_per_method": {
+        "ancestree_vcf": 112,
+        "polarbear": 69,
+        "estsfs": 98
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 112,
+          "n_b": 69,
+          "n_overlap": 69,
+          "n_agree": 69,
+          "agreement_rate": 1.0,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 112,
+          "n_b": 98,
+          "n_overlap": 98,
+          "n_agree": 98,
+          "agreement_rate": 1.0,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 69,
+          "n_b": 98,
+          "n_overlap": 59,
+          "n_agree": 59,
+          "agreement_rate": 1.0,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    }
+  },
+  "ancestree_vcf_meta": {
+    "region": "chr1_0_25M",
+    "n_subsample": "100k",
+    "n_subsample_resolved": 100000,
+    "seed": 0,
+    "infer_scope": "subsample",
+    "n_sites_polymorphic_total": 1125308,
+    "n_sites_in_fit": 100000,
+    "n_sites_in_infer": 100000,
+    "n_sites_written": 100000,
+    "n_sites_skipped_unknown_allele": 0,
+    "n_target_sites": 25000000,
+    "model": "HKY",
+    "kappa_initial": 4.683318765548309,
+    "kappa_fitted": 4.927277431130031,
+    "params_mle": {
+      "Kdeep": 0.0045034466349750425,
+      "kappa": 4.927277431130031
+    },
+    "empirical_pi": [
+      0.18639912368403513,
+      0.3101178010012033,
+      0.31970798822691604,
+      0.1837750870878456
+    ],
+    "n_ts": 69655,
+    "n_tv": 29746,
+    "outgroup_divergence_mle": [
+      0.0022517233174875213,
+      0.0022517233174875213
+    ],
+    "timings_seconds": {
+      "load_npz": 0.2753202500171028,
+      "build_sites": 1.512962292006705,
+      "base_composition": null,
+      "fit": 110.43892262497684,
+      "infer": 0.7142493330175057,
+      "total": 113.48147987498669
+    },
+    "in_npz": "results/data/msl_polymorphic_chr1_0_25M.npz"
+  }
+}

@@ -1,0 +1,853 @@
+"""Tests for :class:`VCFWriter` and :class:`TskitWriter`.
+
+Round-trip pattern: build a small site stream, manufacture matching
+posteriors, write, and re-read the output (cyvcf2 / tskit) to confirm
+``AA`` / ``AA_prob`` and ``site.ancestral_state`` / metadata land
+where expected.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import msprime
+import numpy as np
+import pytest
+import tskit
+
+from ancestree.posterior import Posterior
+from ancestree.readers import Reader
+from ancestree.sites import Site
+from ancestree.sources import TskitSource
+from ancestree.writers import TskitWriter, VCFWriter
+
+import cyvcf2
+
+
+@pytest.fixture(scope="module")
+def hap_ts():
+    """Small haploid ARG used as the round-trip substrate."""
+    ts = msprime.sim_ancestry(
+        samples=6, ploidy=1,
+        sequence_length=2e4, recombination_rate=1e-8,
+        population_size=1e4, random_seed=7,
+    )
+    return msprime.sim_mutations(ts, rate=5e-8, random_seed=7)
+
+
+def _fake_posteriors(sites: list[Site]) -> list[tuple[Site, Posterior]]:
+    """Manufacture per-site posteriors over the site's own allele tuple.
+
+    Sets a strong bias for the first allele of each site (0.85) so
+    ``map_allele`` is unambiguous and easy to check.
+    """
+    pairs: list[tuple[Site, Posterior]] = []
+    for site in sites:
+        n = len(site.alleles)
+        values = np.full(n, (1 - 0.85) / max(1, n - 1))
+        values[0] = 0.85
+        pairs.append((site, Posterior(alleles=tuple(site.alleles), values=values)))
+    return pairs
+
+
+def _post(map_allele: str, p: float) -> Posterior:
+    """A 4-state posterior peaked at ``map_allele`` with mass ``p``."""
+    alleles = ("A", "C", "G", "T")
+    rest = (1.0 - p) / 3.0
+    return Posterior(
+        alleles=alleles,
+        values=np.array([p if a == map_allele else rest for a in alleles]),
+    )
+
+
+class TestVCFWriter:
+    """:class:`VCFWriter` should add AA + AA_prob to every matching record."""
+
+    @pytest.fixture
+    def in_vcf(self, hap_ts, tmp_path_factory):
+        p = tmp_path_factory.mktemp("inv") / "in.vcf"
+        with open(p, "w") as f:
+            hap_ts.write_vcf(f, contig_id="1")
+        return p
+
+    def test_writes_aa_and_aa_prob(self, in_vcf, hap_ts, tmp_path):
+        out_vcf = tmp_path / "out.vcf"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        n = VCFWriter(in_vcf, out_vcf).write(pairs)
+        assert n == len(sites)
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        assert len(recovered) == len(sites)
+        # The fixture puts 0.85 on each site's FIRST allele, so both the call
+        # and its probability are known: a writer emitting REF everywhere, or
+        # any allele in the alphabet, must fail here.
+        for variant, site in zip(recovered, sites):
+            assert variant.INFO.get("AA") == site.alleles[0], (
+                variant.POS, variant.INFO.get("AA"), site.alleles)
+            assert float(variant.INFO.get("AA_prob")) == pytest.approx(0.85)
+
+    def test_unannotated_records_pass_through(self, in_vcf, hap_ts, tmp_path):
+        """Sites missing from the posterior stream emit a record but no AA."""
+        out_vcf = tmp_path / "partial.vcf"
+        sites = list(TskitSource(hap_ts))
+        partial = _fake_posteriors(sites[:1])  # only first site
+        n = VCFWriter(in_vcf, out_vcf).write(partial)
+        assert n == 1
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        assert len(recovered) == len(sites)
+        first_aa = recovered[0].INFO.get("AA")
+        assert first_aa is not None
+        rest_aa = [v.INFO.get("AA") for v in recovered[1:]]
+        assert all(a is None for a in rest_aa)
+
+    def test_header_declares_aa_info_fields(self, in_vcf, tmp_path):
+        out_vcf = tmp_path / "hdr.vcf"
+        VCFWriter(in_vcf, out_vcf).write([])
+        header_text = Path(out_vcf).read_text()
+        assert "ID=AA," in header_text
+        assert "ID=AA_prob," in header_text
+
+    def test_info_kwarg_adds_per_record_and_header(self, in_vcf, hap_ts, tmp_path):
+        """info={'prior':'adaptive', 'model':'K2', 'kappa': 2.1} should land in header + each record."""
+        out_vcf = tmp_path / "with_info.vcf"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        VCFWriter(in_vcf, out_vcf).write(
+            pairs,
+            info={"prior": "adaptive", "model": "K2", "kappa": 2.13},
+        )
+
+        header_text = Path(out_vcf).read_text()
+        assert "ID=AA_prior," in header_text
+        assert "ID=AA_model," in header_text
+        assert "ID=AA_kappa," in header_text
+        # Float gets Type=Float. String gets Type=String.
+        assert 'ID=AA_kappa,Number=1,Type=Float' in header_text
+        assert 'ID=AA_prior,Number=1,Type=String' in header_text
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        for v in recovered:
+            assert v.INFO.get("AA_prior") == "adaptive"
+            assert v.INFO.get("AA_model") == "K2"
+            assert pytest.approx(v.INFO.get("AA_kappa"), rel=1e-4) == 2.13
+
+    @pytest.mark.parametrize("value,expected", [
+        (True, "Integer"),  # bool before int
+        (5, "Integer"),
+        (1.5, "Float"),
+        ("x", "String"),
+        ([1, 2], "String"),  # anything else stringifies
+    ])
+    def test_vcf_type_token(self, value, expected):
+        assert VCFWriter._vcf_type_of(value) == expected
+
+    def test_coerce_info_integer(self):
+        assert VCFWriter._coerce_info_value("5", "Integer") == 5
+
+    def test_coerce_info_float(self):
+        assert VCFWriter._coerce_info_value("1.5", "Float") == 1.5
+
+    def test_coerce_info_string(self):
+        assert VCFWriter._coerce_info_value(5, "String") == "5"
+
+
+class TestReservedInfoKeys:
+    """``info`` keys must not collide with the writer's own INFO fields."""
+
+    @pytest.mark.parametrize("key", ["prob", "post"])
+    def test_reserved_key_raises(self, tmp_path, key):
+        template = tmp_path / "in.vcf"
+        template.write_text(
+            "##fileformat=VCFv4.2\n"
+            "##contig=<ID=1,length=1000>\n"
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+            "1\t5\t.\tA\tT\t.\t.\t.\n"
+        )
+        out = str(tmp_path / "out.vcf")
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        with pytest.raises(ValueError, match="reserved INFO field"):
+            VCFWriter(str(template), out).write(
+                iter([(site, _post("A", 0.9))]), info={key: 3.5},
+            )
+
+
+class TestTskitWriter:
+    """:class:`TskitWriter` should set ``site.ancestral_state`` from MAP."""
+
+    def test_ancestral_state_is_map_allele(self, hap_ts, tmp_path):
+        out_ts = tmp_path / "annot.trees"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        n = TskitWriter(hap_ts, out_ts).write(pairs)
+        assert n == len(sites)
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        expected_map = {int(site.pos): post.map_allele for site, post in pairs}
+        for site in new_ts.sites():
+            assert site.ancestral_state == expected_map[int(site.position)]
+
+    def test_posterior_stored_in_metadata(self, hap_ts, tmp_path):
+        out_ts = tmp_path / "with_meta.trees"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        TskitWriter(hap_ts, out_ts).write(pairs, store_posterior=True)
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        first = next(iter(new_ts.sites()))
+        assert "ancestree" in first.metadata
+        block = first.metadata["ancestree"]
+        assert "map_allele" in block
+        assert "max_prob" in block
+        assert "posterior" in block
+        assert pytest.approx(sum(block["posterior"].values()), rel=1e-6) == 1.0
+
+    def test_store_posterior_false_omits_full_posterior(self, hap_ts, tmp_path):
+        out_ts = tmp_path / "no_post.trees"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        TskitWriter(hap_ts, out_ts).write(pairs, store_posterior=False)
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        first = next(iter(new_ts.sites()))
+        block = first.metadata["ancestree"]
+        assert "posterior" not in block
+        assert "map_allele" in block
+
+    def test_unannotated_sites_keep_original(self, hap_ts, tmp_path):
+        """Sites with no matching posterior keep their original ancestral_state."""
+        out_ts = tmp_path / "partial.trees"
+        sites = list(TskitSource(hap_ts))
+        partial = _fake_posteriors(sites[:1])
+        TskitWriter(hap_ts, out_ts).write(partial)
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        original_states = {int(s.position): s.ancestral_state for s in hap_ts.sites()}
+        first_pos = sites[0].pos
+        for site in new_ts.sites():
+            if int(site.position) == first_pos:
+                # annotated → MAP allele (first allele in our fake construction)
+                assert site.ancestral_state == sites[0].alleles[0]
+            else:
+                assert site.ancestral_state == original_states[int(site.position)]
+
+    def test_accepts_path_input(self, hap_ts, tmp_path):
+        """``input_ts`` may also be a path to a ``.trees`` file."""
+        src_path = tmp_path / "src.trees"
+        hap_ts.dump(str(src_path))
+        out_path = tmp_path / "from_path.trees"
+        pairs = _fake_posteriors(list(TskitSource(hap_ts)))
+        n = TskitWriter(src_path, out_path).write(pairs)
+        assert n == len(pairs)
+
+    def test_info_kwarg_lands_in_metadata(self, hap_ts, tmp_path):
+        """``info={...}`` should appear under ``metadata['ancestree']['inference']``."""
+        out_ts = tmp_path / "with_info.trees"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        TskitWriter(hap_ts, out_ts).write(
+            pairs, info={"prior": "kingman", "model": "JC"},
+        )
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        first = next(iter(new_ts.sites()))
+        assert first.metadata["ancestree"]["inference"] == {
+            "prior": "kingman", "model": "JC",
+        }
+
+
+# -------------------------------------------------- min_confidence threshold
+
+
+def _uniform_posteriors(sites: list[Site]) -> list[tuple[Site, Posterior]]:
+    """Manufacture per-site posteriors that are exactly uniform.
+
+    For any site with ``n`` alleles, every entry is ``1/n`` so
+    ``max_prob = 1/n``, easy to position above or below an arbitrary
+    confidence threshold.
+    """
+    pairs: list[tuple[Site, Posterior]] = []
+    for site in sites:
+        n = len(site.alleles)
+        values = np.full(n, 1.0 / n)
+        pairs.append((site, Posterior(alleles=tuple(site.alleles), values=values)))
+    return pairs
+
+
+def _two_site_continuous_ts():
+    """Tiny 2-sample tree sequence with two sites whose float positions
+    (``100.2``, ``100.8``) truncate to the *same* integer (``100``)."""
+    import tskit
+
+    tables = tskit.TableCollection(sequence_length=200.0)
+    tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    root = tables.nodes.add_row(flags=0, time=1.0)
+    tables.edges.add_row(left=0, right=200.0, parent=root, child=0)
+    tables.edges.add_row(left=0, right=200.0, parent=root, child=1)
+    s0 = tables.sites.add_row(position=100.2, ancestral_state="A")
+    s1 = tables.sites.add_row(position=100.8, ancestral_state="A")
+    tables.mutations.add_row(site=s0, node=0, derived_state="T")
+    tables.mutations.add_row(site=s1, node=1, derived_state="G")
+    tables.sort()
+    return tables.tree_sequence()
+
+
+def _one_site_tree_sequence(*, with_edges: bool) -> tskit.TreeSequence:
+    """A two-sample tree sequence carrying one site at position 5."""
+    tables = tskit.TableCollection(sequence_length=10.0)
+    a = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    b = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    if with_edges:
+        root = tables.nodes.add_row(flags=0, time=1.0)
+        for child in (a, b):
+            tables.edges.add_row(left=0, right=10.0, parent=root, child=child)
+    site = tables.sites.add_row(position=5.0, ancestral_state="A")
+    if with_edges:
+        tables.mutations.add_row(site=site, node=a, derived_state="T")
+    tables.sort()
+    return tables.tree_sequence()
+
+
+class TestTskitWriterAllMissingSite:
+    """An isolated site has no non-missing genotype for ``map_mutations``."""
+
+    def test_all_missing_site_does_not_abort_the_write(self, tmp_path):
+        out = str(tmp_path / "out.trees")
+        # No edges, so every sample is isolated and decodes to missing.
+        input_ts = _one_site_tree_sequence(with_edges=False)
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        TskitWriter(input_ts, out).write(iter([(site, _post("T", 0.95))]))
+        written = tskit.load(out)
+        assert written.site(0).ancestral_state == "T"
+        assert written.num_mutations == 0
+
+
+class TestBlankedTreesSiteReadsBackUncalled:
+    """A sub-threshold ``.trees`` call must read back as uncalled, like VCF."""
+
+    def test_sub_threshold_site_reads_back_as_none(self, tmp_path):
+        out = str(tmp_path / "out.trees")
+        input_ts = _one_site_tree_sequence(with_edges=True)
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        TskitWriter(input_ts, out, min_confidence=0.9).write(
+            iter([(site, _post("A", 0.4))])
+        )
+        annotation = Reader(out).head(1)[0]
+        assert annotation.aa is None
+        assert annotation.aa_prob == pytest.approx(0.4)
+
+    def test_confident_site_still_reads_back_called(self, tmp_path):
+        out = str(tmp_path / "out.trees")
+        input_ts = _one_site_tree_sequence(with_edges=True)
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        TskitWriter(input_ts, out, min_confidence=0.5).write(
+            iter([(site, _post("A", 0.95))])
+        )
+        assert Reader(out).head(1)[0].aa == "A"
+
+
+class TestTskitWriterPositionCollision:
+    """Two sites sharing an integer position must not collapse to a
+    single posterior (the writer keys on the exact float position)."""
+
+    def test_distinct_float_positions_get_distinct_posteriors(self, tmp_path):
+        import tskit
+
+        ts = _two_site_continuous_ts()
+        sites = list(TskitSource(ts))
+        assert sites[0].pos == sites[1].pos == 100  # both truncate to 100
+        assert sites[0].local_tree_handle != sites[1].local_tree_handle
+
+        # Distinct MAP calls per site: 100.2 → T, 100.8 → G.
+        p0 = Posterior(alleles=("A", "T"), values=np.array([0.1, 0.9]))
+        p1 = Posterior(alleles=("A", "G"), values=np.array([0.1, 0.9]))
+        out_ts = tmp_path / "collision.trees"
+        n = TskitWriter(ts, out_ts).write([(sites[0], p0), (sites[1], p1)])
+        assert n == 2
+
+        new_ts = tskit.load(str(out_ts))
+        by_pos = {s.position: s.ancestral_state for s in new_ts.sites()}
+        assert by_pos[100.2] == "T"
+        assert by_pos[100.8] == "G"
+
+
+class TestVCFWriterStreamingParity:
+    """The streaming two-pass writer must match the buffered path byte-for-byte.
+
+    ``VCFWriter.write`` streams posteriors into template rows (bounded memory)
+    for a re-openable file template, falling back to buffering only for a
+    non-seekable stdin/pipe template. The two paths must produce identical
+    output, including for multiallelic-split records that share ``(CHROM, POS)``.
+    """
+
+    def _write_multiallelic_vcf(self, path):
+        # Two records at the same CHROM/POS (a multiallelic site split across
+        # lines), plus two ordinary biallelic sites.
+        lines = [
+            "##fileformat=VCFv4.2",
+            "##contig=<ID=1>",
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts0\ts1",
+            "1\t10\t.\tA\tC\t.\tPASS\t.\tGT\t0\t1",
+            "1\t20\t.\tG\tT\t.\tPASS\t.\tGT\t0\t1",
+            "1\t20\t.\tG\tC\t.\tPASS\t.\tGT\t1\t0",
+            "1\t30\t.\tT\tA\t.\tPASS\t.\tGT\t0\t1",
+        ]
+        path.write_text("\n".join(lines) + "\n")
+
+    def _posteriors(self):
+        return [
+            (Site(chrom="1", pos=10, alleles=("A", "C"),
+                  tip_alleles={"s0": "A", "s1": "C"}),
+             Posterior(alleles=("A", "C"), values=np.array([0.9, 0.1]))),
+            (Site(chrom="1", pos=20, alleles=("G", "T"),
+                  tip_alleles={"s0": "G", "s1": "T"}),
+             Posterior(alleles=("G", "T"), values=np.array([0.2, 0.8]))),
+            (Site(chrom="1", pos=30, alleles=("T", "A"),
+                  tip_alleles={"s0": "T", "s1": "A"}),
+             Posterior(alleles=("T", "A"), values=np.array([0.7, 0.3]))),
+        ]
+
+    def test_a_split_record_takes_one_call_per_row(self, tmp_path):
+        """One posterior claims one row of a split-multiallelic run.
+
+        Broadcasting it across the run made the first site at a position stamp
+        its allele onto every row there and discarded the sites behind it,
+        which is what a VCF source yields for a split multiallelic: one Site
+        per line. Downstream that flipped the derived count from k to n-k.
+        """
+        in_vcf = tmp_path / "in.vcf"
+        self._write_multiallelic_vcf(in_vcf)
+        out_vcf = tmp_path / "out.vcf"
+        # write() picks the streaming path for a file template.
+        n = VCFWriter(in_vcf, out_vcf).write(self._posteriors())
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        at_20 = [v for v in recovered if v.POS == 20]
+        assert len(at_20) == 2, "expected both split records at POS 20"
+        called = [v for v in at_20 if v.INFO.get("AA") is not None]
+        assert len(called) == 1
+        assert called[0].INFO.get("AA") == "T"
+        # VCF stores AA_prob as a 4-byte Float, so compare at float32 tolerance.
+        assert abs(float(called[0].INFO.get("AA_prob")) - 0.8) < 1e-6
+        assert n == len(recovered) - 1
+
+    def test_two_sites_at_one_position_keep_their_own_calls(self, tmp_path):
+        in_vcf = tmp_path / "in.vcf"
+        self._write_multiallelic_vcf(in_vcf)
+        out_vcf = tmp_path / "out.vcf"
+        pairs = list(self._posteriors())
+        pairs.insert(2, (
+            Site(chrom="1", pos=20, alleles=("G", "C"),
+                 tip_alleles={"s0": "C", "s1": "G"}),
+            Posterior(alleles=("G", "C"), values=np.array([0.35, 0.65])),
+        ))
+        n = VCFWriter(in_vcf, out_vcf).write(pairs)
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        at_20 = [v for v in recovered if v.POS == 20]
+        assert [v.INFO.get("AA") for v in at_20] == ["T", "C"]
+        assert n == len(recovered)
+
+
+class TestVCFWriterContigAndWarning:
+    """``ARGBasedInference.to_vcf`` defaults the template contig
+    to the inference's own ``chrom`` (not the literal ``"1"``), and the writer
+    refuses a run in which nothing matched."""
+
+    def test_to_vcf_auto_template_uses_inference_chrom(self, hap_ts, tmp_path):
+        from ancestree import ARGBasedInference, JC69
+
+        inf = ARGBasedInference(hap_ts, JC69(), mu=5e-8, chrom="chr20", progress=False)
+        out_vcf = tmp_path / "auto.vcf"
+        n = inf.to_vcf(out_vcf)  # input_vcf=None, so the template is automatic
+        # The template contig follows the posteriors' "chr20", so rows match.
+        assert n > 0
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        assert recovered, "expected records in the auto-written VCF"
+        assert all(v.CHROM == "chr20" for v in recovered)
+        annotated = [v for v in recovered if v.INFO.get("AA") is not None]
+        assert len(annotated) == n
+
+    def test_writer_refuses_when_nothing_matches(self, hap_ts, tmp_path):
+        """A wholly unannotated output must fail, not exit 0.
+
+        A contig-label mismatch otherwise yields a complete, correctly-headed
+        VCF carrying no AA at all, which is indistinguishable from success to
+        a Snakemake DAG or any ``set -e`` pipeline.
+        """
+        # Template on contig "1". Posteriors carry a non-matching chrom.
+        template = tmp_path / "tmpl.vcf"
+        with open(template, "w") as f:
+            hap_ts.write_vcf(f, contig_id="1")
+        sites = [
+            Site(chrom="nomatch", pos=s.pos, alleles=s.alleles,
+                 tip_alleles=s.tip_alleles)
+            for s in TskitSource(hap_ts)
+        ]
+        pairs = _fake_posteriors(sites)
+        out_vcf = tmp_path / "out.vcf"
+        with pytest.raises(ValueError, match="matched 0 of"):
+            VCFWriter(template, out_vcf).write(pairs)
+        # The destination must not be left holding the unannotated output.
+        assert not out_vcf.exists()
+
+
+class TestMinConfidence:
+    """``min_confidence=`` blanks the MAP call when ``max_prob`` is below the threshold."""
+
+    @pytest.fixture
+    def in_vcf(self, hap_ts, tmp_path_factory):
+        p = tmp_path_factory.mktemp("inv_thresh") / "in.vcf"
+        with open(p, "w") as f:
+            hap_ts.write_vcf(f, contig_id="1")
+        return p
+
+    def test_vcf_writes_dot_when_below_threshold(self, in_vcf, hap_ts, tmp_path):
+        """Uniform posterior over ≥2 alleles → ``max_prob ≤ 0.5`` → ``AA=.``."""
+        out_vcf = tmp_path / "low_conf.vcf"
+        sites = list(TskitSource(hap_ts))
+        pairs = _uniform_posteriors(sites)
+        n = VCFWriter(in_vcf, out_vcf, min_confidence=0.95).write(pairs)
+        assert n == len(sites)
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        # Every annotated record should carry the unknown sentinel.
+        for variant in recovered:
+            assert variant.INFO.get("AA") == "."
+            # AA_prob still reflects the (sub-threshold) max probability.
+            assert 0.0 <= float(variant.INFO.get("AA_prob")) <= 1.0
+
+    def test_vcf_writes_map_when_above_threshold(self, in_vcf, hap_ts, tmp_path):
+        """Strongly biased posterior (0.85) → above threshold → MAP allele emitted."""
+        out_vcf = tmp_path / "high_conf.vcf"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)  # 0.85 mass on first allele
+        VCFWriter(in_vcf, out_vcf, min_confidence=0.5).write(pairs)
+
+        recovered = list(cyvcf2.VCF(str(out_vcf)))
+        for variant in recovered:
+            aa = variant.INFO.get("AA")
+            assert aa in {"A", "C", "G", "T"}
+            assert aa != "."
+
+    def test_tskit_writes_empty_string_when_below_threshold(self, hap_ts, tmp_path):
+        """Uniform posterior → ``ancestral_state == ""`` (tskit "not annotated")."""
+        out_ts = tmp_path / "low_conf.trees"
+        sites = list(TskitSource(hap_ts))
+        pairs = _uniform_posteriors(sites)
+        n = TskitWriter(hap_ts, out_ts, min_confidence=0.95).write(pairs)
+        assert n == len(sites)
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        for site in new_ts.sites():
+            assert site.ancestral_state == ""
+            # Posterior block is still written.
+            assert "ancestree" in site.metadata
+
+    def test_tskit_writes_map_when_above_threshold(self, hap_ts, tmp_path):
+        """Strongly biased posterior → MAP allele lands in ``ancestral_state``."""
+        out_ts = tmp_path / "high_conf.trees"
+        sites = list(TskitSource(hap_ts))
+        pairs = _fake_posteriors(sites)
+        TskitWriter(hap_ts, out_ts, min_confidence=0.5).write(pairs)
+
+        import tskit
+        new_ts = tskit.load(str(out_ts))
+        expected_map = {int(site.pos): post.map_allele for site, post in pairs}
+        for site in new_ts.sites():
+            assert site.ancestral_state == expected_map[int(site.position)]
+            assert site.ancestral_state != ""
+
+
+class TestTskitRepolarisation:
+    """Re-polarising a site must not change what its samples carry."""
+
+    @staticmethod
+    def _alleles(ts):
+        """Per-site tuples of the allele each sample carries."""
+        return [tuple(v.alleles[g] for g in v.genotypes) for v in ts.variants()]
+
+    def test_genotypes_survive(self, hap_ts, tmp_path):
+        """Every sample decodes to the same allele after annotation."""
+        import tskit
+        from ancestree.posterior import Posterior
+
+        sites = list(TskitSource(hap_ts))
+        # Call the allele no sample carries at the root, forcing every site to flip.
+        pairs = [
+            (site, Posterior(alleles=("A", "C", "G", "T"),
+                             values=_flipped_values(site)))
+            for site in sites
+        ]
+        out = tmp_path / "flipped.trees"
+        TskitWriter(hap_ts, out).write(pairs)
+        annotated = tskit.load(str(out))
+        assert self._alleles(annotated) == self._alleles(hap_ts)
+
+    def test_polymorphism_is_not_lost(self, hap_ts, tmp_path):
+        """A flip must not collapse a segregating site to a single allele."""
+        import tskit
+        from ancestree.posterior import Posterior
+
+        sites = list(TskitSource(hap_ts))
+        pairs = [
+            (site, Posterior(alleles=("A", "C", "G", "T"),
+                             values=_flipped_values(site)))
+            for site in sites
+        ]
+        out = tmp_path / "flipped.trees"
+        TskitWriter(hap_ts, out).write(pairs)
+        annotated = tskit.load(str(out))
+        for before, after in zip(self._alleles(hap_ts), self._alleles(annotated)):
+            assert len(set(after)) == len(set(before))
+
+    def test_ancestral_state_is_the_map_allele(self, hap_ts, tmp_path):
+        """The flip still lands in ``ancestral_state``."""
+        import tskit
+        from ancestree.posterior import Posterior
+
+        sites = list(TskitSource(hap_ts))
+        pairs = [
+            (site, Posterior(alleles=("A", "C", "G", "T"),
+                             values=_flipped_values(site)))
+            for site in sites
+        ]
+        out = tmp_path / "flipped.trees"
+        TskitWriter(hap_ts, out).write(pairs)
+        annotated = tskit.load(str(out))
+        for site in annotated.sites():
+            assert site.ancestral_state == site.metadata["ancestree"]["map_allele"]
+
+
+def _flipped_values(site):
+    """A posterior peaked on an allele other than the site's first."""
+    import numpy as np
+
+    observed = [a for a in site.alleles if a in ("A", "C", "G", "T")]
+    target = next(a for a in ("A", "C", "G", "T") if a in observed[1:]) \
+        if len(observed) > 1 else observed[0]
+    values = np.full(4, 0.01)
+    values["ACGT".index(target)] = 0.97
+    return values / values.sum()
+
+
+class TestFullPosteriorInEveryFormat:
+    """Every output format carries the whole posterior, not just the MAP."""
+
+    @staticmethod
+    def _written(inference, path):
+        """Annotate ``path`` in the format its suffix implies."""
+        {".gz": inference.to_vcf, ".vcz": inference.to_zarr,
+         ".trees": inference.to_arg}[path.suffix](path)
+        return path
+
+    def test_formats_agree_on_the_posterior(self, small_ts, tmp_path):
+        """The per-state probabilities round-trip identically from all three."""
+        import ancestree as anc
+
+        inference = anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)
+        heads = [
+            anc.Reader(self._written(inference, tmp_path / f"a{suffix}")).head(3)
+            for suffix in (".vcf.gz", ".vcz", ".trees")
+        ]
+        for records in zip(*heads):
+            assert all(r.posterior is not None for r in records)
+            for state in anc.STATES:
+                probs = [r.posterior[state] for r in records]
+                assert max(probs) - min(probs) < 1e-6
+
+    def test_vcf_declares_the_field(self, small_ts, tmp_path):
+        """``AA_post`` is declared in the header with one value per state."""
+        import cyvcf2
+        import ancestree as anc
+
+        inference = anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)
+        out = self._written(inference, tmp_path / "a.vcf.gz")
+        field = cyvcf2.VCF(str(out)).get_header_type("AA_post")
+        assert field["Number"] == str(len(anc.STATES))
+        assert field["Type"] == "Float"
+
+    def test_posterior_sums_to_one(self, small_ts, tmp_path):
+        """What a VCF stores is a distribution, not just the MAP mass."""
+        import ancestree as anc
+
+        inference = anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)
+        out = self._written(inference, tmp_path / "a.vcf.gz")
+        for record in anc.Reader(out).head(5):
+            assert abs(sum(record.posterior.values()) - 1.0) < 1e-4
+            assert record.posterior[record.aa] == max(record.posterior.values())
+
+
+class TestStorePosteriorSymmetry:
+    """``store_posterior`` behaves the same across all three output formats."""
+
+    @staticmethod
+    def _write(inference, path, store_posterior):
+        """Annotate ``path`` in the format its suffix implies."""
+        {".gz": inference.to_vcf, ".vcz": inference.to_zarr,
+         ".trees": inference.to_arg}[path.suffix](
+            path, store_posterior=store_posterior)
+        return path
+
+    @pytest.mark.parametrize("suffix", [".vcf.gz", ".vcz", ".trees"])
+    @pytest.mark.parametrize("store", [True, False])
+    def test_flag_is_honoured(self, small_ts, tmp_path, suffix, store):
+        """The posterior is present exactly when the flag asks for it."""
+        import ancestree as anc
+
+        inference = anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)
+        out = self._write(inference, tmp_path / f"a{suffix}", store)
+        first = anc.Reader(out).head(1)[0]
+        assert (first.posterior is not None) is store
+        # The call itself survives either way.
+        assert first.aa is not None and first.aa_prob is not None
+
+    @pytest.mark.parametrize("suffix", [".vcf.gz", ".vcz", ".trees"])
+    def test_the_call_does_not_depend_on_the_flag(self, small_ts, tmp_path,
+                                                  suffix):
+        """Every call and its probability match across the two flag settings.
+
+        Protects against a writer that fabricates ``AA_prob`` when the
+        posterior matrix is absent: presence assertions alone pass while the
+        stored value is a constant.
+        """
+        import ancestree as anc
+
+        def calls(store):
+            inference = anc.Inference.from_arg(
+                small_ts, anc.JC69(), mu=5e-8, progress=False)
+            out = self._write(
+                inference, tmp_path / f"{'on' if store else 'off'}{suffix}",
+                store)
+            return [(a.pos, a.aa, a.aa_prob)
+                    for a in anc.Reader(out).annotations()]
+
+        on, off = calls(True), calls(False)
+        assert len(on) == len(off) and on
+        assert [(p, a) for p, a, _ in on] == [(p, a) for p, a, _ in off]
+        for (_, _, p_on), (_, _, p_off) in zip(on, off):
+            assert p_on == pytest.approx(p_off, rel=1e-6)
+
+    def test_vcf_header_follows_the_flag(self, small_ts, tmp_path):
+        """``AA_post`` is declared only when it is written."""
+        import gzip
+
+        import ancestree as anc
+
+        inference = anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)
+        for store in (True, False):
+            out = self._write(inference, tmp_path / f"h{store}.vcf.gz", store)
+            declared = any(
+                line.startswith("##INFO=<ID=AA_post")
+                for line in gzip.open(out, "rt")
+            )
+            assert declared is store
+
+
+class TestSubThresholdSitesKeepTheirGenotypes:
+    """Blanking a site's ancestral state must not change what its samples carry."""
+
+    @staticmethod
+    def _alleles(ts):
+        """Per-site tuples of the allele each sample carries."""
+        return [tuple(v.alleles[g] for g in v.genotypes) for v in ts.variants()]
+
+    def test_genotypes_survive_blanking(self, hap_ts, tmp_path):
+        """Every sample decodes as before, though the site is marked uncalled.
+
+        ``ancestral_state`` is allele 0, so blanking it without re-deriving the
+        mutations left every sample that carried the ancestral allele decoding
+        as the empty allele instead.
+        """
+        import tskit
+        import ancestree as anc
+
+        out = tmp_path / "blank.trees"
+        anc.Inference.from_arg(hap_ts, anc.JC69(), mu=5e-8, progress=False).to_arg(
+            out, min_confidence=1.1,  # above 1, so every site falls short
+        )
+        annotated = tskit.load(str(out))
+        assert self._alleles(annotated) == self._alleles(hap_ts)
+
+    def test_the_blank_marker_is_still_written(self, hap_ts, tmp_path):
+        """The uncalled marker stays in the ancestral state, where readers expect it."""
+        import tskit
+        import ancestree as anc
+
+        out = tmp_path / "blank.trees"
+        anc.Inference.from_arg(hap_ts, anc.JC69(), mu=5e-8, progress=False).to_arg(
+            out, min_confidence=1.1,
+        )
+        annotated = tskit.load(str(out))
+        assert all(site.ancestral_state == "" for site in annotated.sites())
+        assert all("ancestree" in site.metadata for site in annotated.sites())
+
+
+def _unrepresentable_site_ts() -> tskit.TreeSequence:
+    """Two-sample tree sequence with a readable site and an all-indel one.
+
+    Position 2 carries ``A`` / ``T``. Position 6 carries ``AT`` / ``ATT``, so
+    no allele there maps to a model state.
+    """
+    tables = tskit.TableCollection(sequence_length=10.0)
+    a = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    b = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    root = tables.nodes.add_row(flags=0, time=1.0)
+    for child in (a, b):
+        tables.edges.add_row(left=0, right=10.0, parent=root, child=child)
+    readable = tables.sites.add_row(position=2.0, ancestral_state="A")
+    tables.mutations.add_row(site=readable, node=a, derived_state="T")
+    opaque = tables.sites.add_row(position=6.0, ancestral_state="AT")
+    tables.mutations.add_row(site=opaque, node=a, derived_state="ATT")
+    tables.sort()
+    return tables.tree_sequence()
+
+
+class TestSiteWithNoReadableAlleleIsNotCalled:
+    """A site whose every allele is outside A/C/G/T must read back uncalled.
+
+    Every tip there is marginalised, so the posterior is the prior, the
+    four-way tie broke to ``"A"`` on ``argmax``, and each writer committed
+    that ``"A"`` at 0.25 confidence at a site no sample carried ``A`` at.
+    """
+
+    @pytest.fixture
+    def annotations(self, tmp_path, request):
+        import ancestree as anc
+
+        inference = anc.Inference.from_arg(
+            _unrepresentable_site_ts(), anc.JC69(), mu=1e-8, progress=False)
+        out = tmp_path / f"a{request.param}"
+        {".gz": inference.to_vcf, ".vcz": inference.to_zarr,
+         ".trees": inference.to_arg}[out.suffix](out)
+        return {r.pos: r for r in Reader(out).head(5)}
+
+    @pytest.mark.parametrize(
+        "annotations", [".vcf.gz", ".vcz", ".trees"], indirect=True)
+    def test_the_opaque_site_carries_no_allele_call(self, annotations):
+        assert annotations[6].aa is None
+
+    @pytest.mark.parametrize(
+        "annotations", [".vcf.gz", ".vcz", ".trees"], indirect=True)
+    def test_the_readable_site_is_still_called(self, annotations):
+        assert annotations[2].aa == "T"
+
+    def test_the_trees_output_keeps_no_fabricated_ancestral_state(self, tmp_path):
+        """tskit's own ``ancestral_state`` field, not just what the reader shows."""
+        import ancestree as anc
+
+        out = tmp_path / "a.trees"
+        anc.Inference.from_arg(
+            _unrepresentable_site_ts(), anc.JC69(), mu=1e-8, progress=False,
+        ).to_arg(out)
+        states = [s.ancestral_state for s in tskit.load(str(out)).sites()]
+        assert states[0] == "T"
+        assert states[1] == ""

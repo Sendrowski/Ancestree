@@ -1,0 +1,461 @@
+{
+  "n_msl_snps": 1140085,
+  "n_per_method_full": {
+    "ancestree_vcf": 1140085,
+    "polarbear": 687338,
+    "estsfs": 985038
+  },
+  "n_per_method_restricted": {
+    "ancestree_vcf": 1140085,
+    "polarbear": 687338,
+    "estsfs": 985038
+  },
+  "restricted_to_positions_in": "ancestree_vcf",
+  "pairwise": {
+    "ancestree_vcf__polarbear": {
+      "n_a": 1140085,
+      "n_b": 687338,
+      "n_overlap": 687338,
+      "n_agree": 660467,
+      "agreement_rate": 0.9609056970515234,
+      "a_name": "ancestree_vcf",
+      "b_name": "polarbear",
+      "keep_prop_a": 1.0,
+      "keep_prop_b": 0.6028831183639817,
+      "overlap_prop": 0.6028831183639817
+    },
+    "ancestree_vcf__estsfs": {
+      "n_a": 1140085,
+      "n_b": 985038,
+      "n_overlap": 985038,
+      "n_agree": 980713,
+      "agreement_rate": 0.9956093064430002,
+      "a_name": "ancestree_vcf",
+      "b_name": "estsfs",
+      "keep_prop_a": 1.0,
+      "keep_prop_b": 0.8640039997017767,
+      "overlap_prop": 0.8640039997017767
+    },
+    "polarbear__estsfs": {
+      "n_a": 687338,
+      "n_b": 985038,
+      "n_overlap": 595402,
+      "n_agree": 571551,
+      "agreement_rate": 0.9599413505497126,
+      "a_name": "polarbear",
+      "b_name": "estsfs",
+      "keep_prop_a": 0.6028831183639817,
+      "keep_prop_b": 0.8640039997017767,
+      "overlap_prop": 0.5222435169307552
+    }
+  },
+  "soft_metrics": {
+    "ancestree_vcf__polarbear": {
+      "n_shared": 687338,
+      "mean_ancestree_p_on_reference_map": 0.9514459371566772
+    },
+    "ancestree_vcf__estsfs": {
+      "n_shared": 985038,
+      "mean_ancestree_p_on_reference_map": 0.9905011653900146
+    }
+  },
+  "coverage_extras": {
+    "n_ancestree_only": 63111,
+    "n_ancestree_total_restricted": 1140085
+  },
+  "three_overlap": {
+    "n_overlap": 595402,
+    "n_agree": 570663,
+    "agreement_rate": 0.9584499212296902
+  },
+  "per_region": {
+    "exon": {
+      "n_snps_in_region": 49367,
+      "n_per_method": {
+        "ancestree_vcf": 49367,
+        "polarbear": 30103,
+        "estsfs": 44523
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 49367,
+          "n_b": 30103,
+          "n_overlap": 30103,
+          "n_agree": 29045,
+          "agreement_rate": 0.9648540012623327,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 49367,
+          "n_b": 44523,
+          "n_overlap": 44523,
+          "n_agree": 44330,
+          "agreement_rate": 0.9956651618264717,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 30103,
+          "n_b": 44523,
+          "n_overlap": 27253,
+          "n_agree": 26293,
+          "agreement_rate": 0.9647745202363043,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "UTR_3": {
+      "n_snps_in_region": 14389,
+      "n_per_method": {
+        "ancestree_vcf": 14389,
+        "polarbear": 8659,
+        "estsfs": 13233
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 14389,
+          "n_b": 8659,
+          "n_overlap": 8659,
+          "n_agree": 8345,
+          "agreement_rate": 0.963737152096085,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 14389,
+          "n_b": 13233,
+          "n_overlap": 13233,
+          "n_agree": 13178,
+          "agreement_rate": 0.9958437240232751,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 8659,
+          "n_b": 13233,
+          "n_overlap": 8006,
+          "n_agree": 7725,
+          "agreement_rate": 0.9649013240069948,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "UTR_5": {
+      "n_snps_in_region": 2231,
+      "n_per_method": {
+        "ancestree_vcf": 2231,
+        "polarbear": 1309,
+        "estsfs": 2048
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 2231,
+          "n_b": 1309,
+          "n_overlap": 1309,
+          "n_agree": 1277,
+          "agreement_rate": 0.975553857906799,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 2231,
+          "n_b": 2048,
+          "n_overlap": 2048,
+          "n_agree": 2037,
+          "agreement_rate": 0.99462890625,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 1309,
+          "n_b": 2048,
+          "n_overlap": 1213,
+          "n_agree": 1182,
+          "agreement_rate": 0.9744435284418796,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "intron": {
+      "n_snps_in_region": 641329,
+      "n_per_method": {
+        "ancestree_vcf": 641329,
+        "polarbear": 388777,
+        "estsfs": 566583
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 641329,
+          "n_b": 388777,
+          "n_overlap": 388777,
+          "n_agree": 373854,
+          "agreement_rate": 0.9616155276675318,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 641329,
+          "n_b": 566583,
+          "n_overlap": 566583,
+          "n_agree": 564205,
+          "agreement_rate": 0.9958029097237298,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 388777,
+          "n_b": 566583,
+          "n_overlap": 344022,
+          "n_agree": 330515,
+          "agreement_rate": 0.9607379760596706,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "intergenic": {
+      "n_snps_in_region": 432769,
+      "n_per_method": {
+        "ancestree_vcf": 432769,
+        "polarbear": 258490,
+        "estsfs": 358651
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 432769,
+          "n_b": 258490,
+          "n_overlap": 258490,
+          "n_agree": 247946,
+          "agreement_rate": 0.9592092537428915,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 432769,
+          "n_b": 358651,
+          "n_overlap": 358651,
+          "n_agree": 356963,
+          "agreement_rate": 0.9952934747149736,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 258490,
+          "n_b": 358651,
+          "n_overlap": 214908,
+          "n_agree": 205836,
+          "agreement_rate": 0.9577865877491764,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "synonymous": {
+      "n_snps_in_region": 3002,
+      "n_per_method": {
+        "ancestree_vcf": 3002,
+        "polarbear": 1787,
+        "estsfs": 2870
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 3002,
+          "n_b": 1787,
+          "n_overlap": 1787,
+          "n_agree": 1709,
+          "agreement_rate": 0.9563514269725797,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 3002,
+          "n_b": 2870,
+          "n_overlap": 2870,
+          "n_agree": 2849,
+          "agreement_rate": 0.9926829268292683,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 1787,
+          "n_b": 2870,
+          "n_overlap": 1714,
+          "n_agree": 1640,
+          "agreement_rate": 0.9568261376896149,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    },
+    "non_synonymous": {
+      "n_snps_in_region": 6833,
+      "n_per_method": {
+        "ancestree_vcf": 6833,
+        "polarbear": 4547,
+        "estsfs": 6430
+      },
+      "pairwise": {
+        "ancestree_vcf__polarbear": {
+          "n_a": 6833,
+          "n_b": 4547,
+          "n_overlap": 4547,
+          "n_agree": 4462,
+          "agreement_rate": 0.9813063558390147,
+          "a_name": "ancestree_vcf",
+          "b_name": "polarbear"
+        },
+        "ancestree_vcf__estsfs": {
+          "n_a": 6833,
+          "n_b": 6430,
+          "n_overlap": 6430,
+          "n_agree": 6420,
+          "agreement_rate": 0.9984447900466563,
+          "a_name": "ancestree_vcf",
+          "b_name": "estsfs"
+        },
+        "polarbear__estsfs": {
+          "n_a": 4547,
+          "n_b": 6430,
+          "n_overlap": 4288,
+          "n_agree": 4210,
+          "agreement_rate": 0.9818097014925373,
+          "a_name": "polarbear",
+          "b_name": "estsfs"
+        }
+      }
+    }
+  },
+  "ancestree_vcf_meta": {
+    "aggregated_from": [
+      "results/data/msl_vcf_chr1_0_6250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_6250000_12500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_12500000_18750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_18750000_25M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_25M_31250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_31250000_37500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_37500000_43750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_43750000_50M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_50M_56250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_56250000_62500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_62500000_68750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_68750000_75M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_75M_81250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_81250000_87500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_87500000_93750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_93750000_100M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_100M_106250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_106250000_112500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_112500000_118750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_118750000_125M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_125M_131250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_131250000_137500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_137500000_143750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_143750000_150M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_150M_156250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_156250000_162500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_162500000_168750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_168750000_175M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_175M_181250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_181250000_187500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_187500000_193750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_193750000_200M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_200M_206250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_206250000_212500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_212500000_218750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_218750000_225M_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_225M_231250000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_231250000_237500000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_237500000_243750000_n100k_seed0_all.txt",
+      "results/data/msl_vcf_chr1_243750000_248956422_n100k_seed0_all.txt"
+    ],
+    "n_sites_total": 1140085,
+    "n_sites_per_chunk": {
+      "chr1_0_6250000": 38516,
+      "chr1_6250000_12500000": 31330,
+      "chr1_12500000_18750000": 32197,
+      "chr1_18750000_25M": 31129,
+      "chr1_25M_31250000": 28528,
+      "chr1_31250000_37500000": 28801,
+      "chr1_37500000_43750000": 28375,
+      "chr1_43750000_50M": 25278,
+      "chr1_50M_56250000": 29774,
+      "chr1_56250000_62500000": 35093,
+      "chr1_62500000_68750000": 32994,
+      "chr1_68750000_75M": 32739,
+      "chr1_75M_81250000": 35808,
+      "chr1_81250000_87500000": 31857,
+      "chr1_87500000_93750000": 28376,
+      "chr1_93750000_100M": 31427,
+      "chr1_100M_106250000": 38467,
+      "chr1_106250000_112500000": 34064,
+      "chr1_112500000_118750000": 31066,
+      "chr1_118750000_125M": 6936,
+      "chr1_125M_131250000": 85,
+      "chr1_131250000_137500000": 0,
+      "chr1_137500000_143750000": 895,
+      "chr1_143750000_150M": 7467,
+      "chr1_150M_156250000": 23180,
+      "chr1_156250000_162500000": 32357,
+      "chr1_162500000_168750000": 35960,
+      "chr1_168750000_175M": 29820,
+      "chr1_175M_181250000": 32373,
+      "chr1_181250000_187500000": 31829,
+      "chr1_187500000_193750000": 36133,
+      "chr1_193750000_200M": 32753,
+      "chr1_200M_206250000": 31469,
+      "chr1_206250000_212500000": 31883,
+      "chr1_212500000_218750000": 35225,
+      "chr1_218750000_225M": 31689,
+      "chr1_225M_231250000": 32397,
+      "chr1_231250000_237500000": 35933,
+      "chr1_237500000_243750000": 34886,
+      "chr1_243750000_248956422": 30996
+    },
+    "timings_per_chunk_seconds": {
+      "chr1_0_6250000": 83.98707216698676,
+      "chr1_6250000_12500000": 78.63863450003555,
+      "chr1_12500000_18750000": 85.27578408294357,
+      "chr1_18750000_25M": 76.49000004201662,
+      "chr1_25M_31250000": 62.12474891601596,
+      "chr1_31250000_37500000": 66.87812208401738,
+      "chr1_37500000_43750000": 68.77317391702672,
+      "chr1_43750000_50M": 56.959305291995406,
+      "chr1_50M_56250000": 89.52698454196798,
+      "chr1_56250000_62500000": 82.31613904098049,
+      "chr1_62500000_68750000": 86.68182966700988,
+      "chr1_68750000_75M": 94.28609862498706,
+      "chr1_75M_81250000": 76.61077979102265,
+      "chr1_81250000_87500000": 87.87770387495402,
+      "chr1_87500000_93750000": 63.267234749975614,
+      "chr1_93750000_100M": 91.07104683300713,
+      "chr1_100M_106250000": 83.55038733396214,
+      "chr1_106250000_112500000": 75.69684404198779,
+      "chr1_112500000_118750000": 77.83964470803039,
+      "chr1_118750000_125M": 18.667447625019122,
+      "chr1_125M_131250000": 0.05334083299385384,
+      "chr1_131250000_137500000": 0.02317116700578481,
+      "chr1_137500000_143750000": 3.087778792018071,
+      "chr1_143750000_150M": 18.751795542018954,
+      "chr1_150M_156250000": 51.75994958396768,
+      "chr1_156250000_162500000": 92.51934737496777,
+      "chr1_162500000_168750000": 82.8781032920233,
+      "chr1_168750000_175M": 71.37030791700818,
+      "chr1_175M_181250000": 85.32137137500104,
+      "chr1_181250000_187500000": 91.98982954100939,
+      "chr1_187500000_193750000": 95.74837983300677,
+      "chr1_193750000_200M": 90.49682058300823,
+      "chr1_200M_206250000": 75.11750595801277,
+      "chr1_206250000_212500000": 73.01211712497752,
+      "chr1_212500000_218750000": 76.5352288329741,
+      "chr1_218750000_225M": 75.60102233302314,
+      "chr1_225M_231250000": 80.11572087503737,
+      "chr1_231250000_237500000": 67.76745812495938,
+      "chr1_237500000_243750000": 60.847101958002895,
+      "chr1_243750000_248956422": 70.9471168750315
+    }
+  }
+}

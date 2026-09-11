@@ -1,0 +1,20 @@
+# Driver environment for running the workflow.
+#   mamba env create -f workflow/envs/snakemake.yml
+#   conda run -n snakemake-ancestree snakemake --profile workflow/profiles/slurm <target>
+#
+# Only the driver lives here. Every rule brings its own environment through
+# its `conda:` directive, so this carries no scientific dependency and its
+# snakemake pin matches the one in base.yml. The SLURM executor plugin is
+# required by workflow/profiles/slurm, which sets `executor: slurm`.
+name: snakemake-ancestree
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - snakemake-minimal=9.23.0
+  - snakemake-executor-plugin-slurm
+  - snakemake-storage-plugin-fs
+  # The aggregate_msl_* rules use `run:`, which executes in this env rather
+  # than one of its own, and they load the shard posteriors with numpy.
+  - numpy

@@ -1,0 +1,202 @@
+{
+  "cells": {
+    "0": {
+      "n_out": 0,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9865614707051307,
+      "median_max_prob": 0.9999998030588658,
+      "mean_entropy_bits": 0.03224710613348342,
+      "accuracy": 0.6766780897941063,
+      "mean_brier": 0.6352819571450856,
+      "by_n_segregating": {
+        "1": {
+          "n_sites": 172322,
+          "accuracy": 1.0,
+          "mean_brier": 1.592651327636314e-12,
+          "mean_max_prob": 0.9999994920199287
+        },
+        "2": {
+          "n_sites": 115073,
+          "accuracy": 0.19744857612124478,
+          "mean_brier": 1.5772933972899847,
+          "mean_max_prob": 0.9669405482928171
+        },
+        "3": {
+          "n_sites": 908,
+          "accuracy": 0.05066079295154185,
+          "mean_brier": 1.8159402317395643,
+          "mean_max_prob": 0.9231994518321117
+        },
+        "4": {
+          "n_sites": 1,
+          "accuracy": 0.0,
+          "mean_brier": 1.572535769094671,
+          "mean_max_prob": 0.6909704188242708
+        }
+      },
+      "outgroup_pops_used": [],
+      "n_baseline_compared": 0,
+      "baseline_agreement": NaN,
+      "baseline_agreement_by_n_alleles": {}
+    },
+    "1": {
+      "n_out": 1,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.9477411810406329,
+      "median_max_prob": 0.9999953488457003,
+      "mean_entropy_bits": 0.12565877596320837,
+      "accuracy": 0.6896678506021422,
+      "mean_brier": 0.5772804726915913,
+      "by_n_segregating": {
+        "1": {
+          "n_sites": 150597,
+          "accuracy": 1.0,
+          "mean_brier": 3.7939632531603784e-11,
+          "mean_max_prob": 0.9999952780792637
+        },
+        "2": {
+          "n_sites": 136419,
+          "accuracy": 0.3523556102888894,
+          "mean_brier": 1.2053911841770522,
+          "mean_max_prob": 0.8913358535198328
+        },
+        "3": {
+          "n_sites": 1285,
+          "accuracy": 0.13073929961089495,
+          "mean_brier": 1.5490193510285362,
+          "mean_max_prob": 0.8128691218146554
+        },
+        "4": {
+          "n_sites": 3,
+          "accuracy": 0.3333333333333333,
+          "mean_brier": 1.173190949869274,
+          "mean_max_prob": 0.5339810007157765
+        }
+      },
+      "outgroup_pops_used": [
+        "outgroup_1"
+      ],
+      "n_baseline_compared": 288304,
+      "baseline_agreement": 0.8716771185970364,
+      "baseline_agreement_by_n_alleles": {
+        "1": 1.0,
+        "2": 0.7327058547563022,
+        "3": 0.5875486381322957,
+        "4": 0.3333333333333333
+      }
+    },
+    "2": {
+      "n_out": 2,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.8695870898496578,
+      "median_max_prob": 0.9999599635096824,
+      "mean_entropy_bits": 0.33744083969673266,
+      "accuracy": 0.7399168932793163,
+      "mean_brier": 0.41778745285768876,
+      "by_n_segregating": {
+        "1": {
+          "n_sites": 92727,
+          "accuracy": 1.0,
+          "mean_brier": 1.2934928450482869e-09,
+          "mean_max_prob": 0.9999694544339114
+        },
+        "2": {
+          "n_sites": 192918,
+          "accuracy": 0.6203620190961963,
+          "mean_brier": 0.61034596542931,
+          "mean_max_prob": 0.8096460925098352
+        },
+        "3": {
+          "n_sites": 2649,
+          "accuracy": 0.34503586258965646,
+          "mean_brier": 1.0155018559321578,
+          "mean_max_prob": 0.6718022825001546
+        },
+        "4": {
+          "n_sites": 10,
+          "accuracy": 0.1,
+          "mean_brier": 1.300631368733067,
+          "mean_max_prob": 0.6359629560844595
+        }
+      },
+      "outgroup_pops_used": [
+        "outgroup_1",
+        "outgroup_2"
+      ],
+      "n_baseline_compared": 288304,
+      "baseline_agreement": 0.9223146401021144,
+      "baseline_agreement_by_n_alleles": {
+        "1": 1.0,
+        "2": 0.887739868752527,
+        "3": 0.7221593053982635,
+        "4": 0.6
+      }
+    },
+    "3": {
+      "n_out": 3,
+      "n_sites": 288304,
+      "n_sites_with_truth": 288304,
+      "mean_max_prob": 0.8665559715563149,
+      "median_max_prob": 0.9893856053852097,
+      "mean_entropy_bits": 0.430502625267681,
+      "accuracy": 0.8654788001553916,
+      "mean_brier": 0.19364888778988343,
+      "by_n_segregating": {
+        "2": {
+          "n_sites": 282547,
+          "accuracy": 0.870517117506114,
+          "mean_brier": 0.18756621664762857,
+          "mean_max_prob": 0.870573862431872
+        },
+        "3": {
+          "n_sites": 5718,
+          "accuracy": 0.6206715634837355,
+          "mean_brier": 0.4901974687896844,
+          "mean_max_prob": 0.6705917951371003
+        },
+        "4": {
+          "n_sites": 39,
+          "accuracy": 0.2564102564102564,
+          "mean_brier": 0.7827693255778869,
+          "mean_max_prob": 0.4891238574343201
+        }
+      },
+      "outgroup_pops_used": [
+        "outgroup_1",
+        "outgroup_2",
+        "outgroup_3"
+      ],
+      "n_baseline_compared": 288304,
+      "baseline_agreement": 0.9919633442477385,
+      "baseline_agreement_by_n_alleles": {
+        "2": 0.9983896484478688,
+        "3": 0.6783840503672612,
+        "4": 0.41025641025641024
+      }
+    }
+  },
+  "sim_config": {
+    "n_ingroup": 20,
+    "n_outgroup_pops": 3,
+    "length": 5000000.0,
+    "mu": 1.25e-08,
+    "rec_rate": 1e-08,
+    "pop_size": 30000.0,
+    "ingroup_pop_size": 30000.0,
+    "outgroup_split_times": [
+      300000.0,
+      900000.0,
+      1500000.0
+    ],
+    "seed": 42,
+    "n_outs": [
+      0,
+      1,
+      2,
+      3
+    ]
+  }
+}

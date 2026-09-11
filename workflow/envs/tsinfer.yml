@@ -1,0 +1,29 @@
+# tsinfer-comparison environment (tsinfer ARG rows + local-tree genealogy figure).
+# Kept separate from base/bench because tsinfer pulls in zarr/numcodecs/lmdb.
+#   mamba env create -f tsinfer.yml && mamba activate tsinfer-ancestree && pip install -e .
+name: tsinfer-ancestree
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - tsinfer=0.5.1
+  - tskit=1.0.3
+  # Lossless compressed persistence of inferred ARGs (draw_*.tsz). Capped below
+  # 0.3, which calls zarr's ``nbytes_stored`` as a method: that form exists only
+  # in zarr 3, while tsinfer requires zarr<3, so 0.3 cannot compress in this env.
+  - tszip>=0.2,<0.3
+  - msprime=1.4.2
+  - numpy>=1.24
+  - scipy>=1.10
+  - numba
+  - tqdm>=4.60
+  - cyvcf2
+  - snakemake-minimal=9.23.0   # pin: must match the orchestrator (script: pickles the snakemake obj into this env)
+  - pytest>=8
+  - pip
+  - llvmlite>=0.42
+  - pytest-timeout>=2.3
+  - pip:
+      - tsdate==0.2.7   # pip-only, dates the tsinfer ARGs
+      - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)

@@ -1,0 +1,23 @@
+# The est-sfs C tool (Keightley & Jackson 2018) and what the rules invoking it
+# need. Held apart from bench.yml because bioconda builds est-sfs for linux-64
+# and osx-64 only, which would make bench.yml unbuildable on Apple silicon.
+# The binary links libgsl from its own env, so it sits with its callers.
+name: ancestree-estsfs
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - numpy>=1.24
+  - scipy>=1.10
+  - tskit>=1.0
+  - tqdm>=4.60
+  - cyvcf2
+  - msprime>=1.3
+  - snakemake-minimal=9.23.0   # pin: must match the orchestrator (script: pickles the snakemake obj into this env)
+  - est-sfs=2.04
+  - pip
+  - numba>=0.59
+  - llvmlite>=0.42
+  - pip:
+      - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)

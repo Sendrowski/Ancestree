@@ -1,0 +1,8 @@
+# latexdiff for the revision-diff manuscript. Kept out of tex.yml so the
+# tectonic env stays a pure TeX engine: the diff rule needs perl, which the
+# compile rule does not.
+name: ancestree-latexdiff
+channels:
+  - conda-forge
+dependencies:
+  - latexdiff

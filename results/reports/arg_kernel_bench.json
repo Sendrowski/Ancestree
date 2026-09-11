@@ -1,0 +1,139 @@
+{
+  "simulation": {
+    "samples": 17,
+    "length": 100000000,
+    "rec_rate": 1e-08,
+    "pop_size": 10000,
+    "mu": 1.25e-08,
+    "seed": 42,
+    "outgroup_split_times": [
+      50000,
+      100000,
+      150000
+    ],
+    "n_sites": 778783,
+    "n_trees": 250657
+  },
+  "worker_grid": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "configs": [
+    {
+      "mode": "arg",
+      "label": "ARG numba=on  / 1w",
+      "use_numba": true,
+      "n_workers": 1,
+      "total_sites": 778783,
+      "total_wall_seconds": 34.83451462513767,
+      "sites_per_second": 22356.64852462178,
+      "n_threads": "max",
+      "peak_rss_mb": 1432.03125
+    },
+    {
+      "mode": "arg",
+      "label": "ARG numba=on  / 2w",
+      "use_numba": true,
+      "n_workers": 2,
+      "total_sites": 778783,
+      "total_wall_seconds": 18.24093108298257,
+      "sites_per_second": 42694.257023236416,
+      "n_threads": "max",
+      "peak_rss_mb": 2224.453125
+    },
+    {
+      "mode": "arg",
+      "label": "ARG numba=on  / 4w",
+      "use_numba": true,
+      "n_workers": 4,
+      "total_sites": 778783,
+      "total_wall_seconds": 10.748138250084594,
+      "sites_per_second": 72457.47885629127,
+      "n_threads": "max",
+      "peak_rss_mb": 2802.53125
+    },
+    {
+      "mode": "arg",
+      "label": "ARG numba=on  / 8w",
+      "use_numba": true,
+      "n_workers": 8,
+      "total_sites": 778783,
+      "total_wall_seconds": 8.263183916220441,
+      "sites_per_second": 94247.32740987003,
+      "n_threads": "max",
+      "peak_rss_mb": 3983.453125
+    },
+    {
+      "mode": "vcf",
+      "label": "VCF numba=on  / 1w",
+      "use_numba": true,
+      "n_workers": 1,
+      "total_sites": 778783,
+      "total_wall_seconds": 12.526808958034962,
+      "sites_per_second": 62169.30445805769,
+      "n_threads": "max",
+      "peak_rss_mb": 1480.5625
+    },
+    {
+      "mode": "vcf",
+      "label": "VCF numba=on  / 2w",
+      "use_numba": true,
+      "n_workers": 2,
+      "total_sites": 778783,
+      "total_wall_seconds": 13.245102042099461,
+      "sites_per_second": 58797.81050569817,
+      "n_threads": "max",
+      "peak_rss_mb": 2797.046875
+    },
+    {
+      "mode": "local_tree",
+      "label": "LocalTree numba=on  / 1w / chunk=1mb",
+      "use_numba": true,
+      "n_workers": 1,
+      "chunk_size": "1mb",
+      "total_sites": 778783,
+      "total_wall_seconds": 116.46367525006644,
+      "sites_per_second": 6686.9176018001,
+      "n_threads": "1",
+      "peak_rss_mb": 2316.078125
+    },
+    {
+      "mode": "local_tree",
+      "label": "LocalTree numba=on  / 1w / chunk=1mb",
+      "use_numba": true,
+      "n_workers": 1,
+      "chunk_size": "1mb",
+      "total_sites": 778783,
+      "total_wall_seconds": 64.43472587503493,
+      "sites_per_second": 12086.386485299498,
+      "n_threads": "2",
+      "peak_rss_mb": 2285.015625
+    },
+    {
+      "mode": "local_tree",
+      "label": "LocalTree numba=on  / 1w / chunk=1mb",
+      "use_numba": true,
+      "n_workers": 1,
+      "chunk_size": "1mb",
+      "total_sites": 778783,
+      "total_wall_seconds": 39.255869708023965,
+      "sites_per_second": 19838.638292627496,
+      "n_threads": "4",
+      "peak_rss_mb": 2274.234375
+    },
+    {
+      "mode": "local_tree",
+      "label": "LocalTree numba=on  / 1w / chunk=1mb",
+      "use_numba": true,
+      "n_workers": 1,
+      "chunk_size": "1mb",
+      "total_sites": 778783,
+      "total_wall_seconds": 31.976294417167082,
+      "sites_per_second": 24355.01092903046,
+      "n_threads": "8",
+      "peak_rss_mb": 2281.484375
+    }
+  ]
+}

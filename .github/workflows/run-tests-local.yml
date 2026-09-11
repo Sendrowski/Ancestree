@@ -1,0 +1,30 @@
+# Manually-triggered variant of run-tests.yml: install the local package with
+# uv and run the full (parallel) test suite, slow tier included. The -m
+# override is what makes "full" true: pytest's own addopts in pyproject.toml
+# prepend -m 'not slow', so without it this runs the same tier as the push
+# workflow. Matches `make test-full`.
+
+name: Run tests on local package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: run tests for local package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install ancestree + test deps
+        run: uv pip install --system -e ".[all]" --group dev
+      - name: Run tests
+        run: pytest testing/ -n auto -m "slow or not slow"

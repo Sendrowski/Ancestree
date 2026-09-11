@@ -1,0 +1,42 @@
+[
+  {
+    "n_ingroup": 5,
+    "n_outgroup": 3,
+    "n_sites": 1012887,
+    "arg_s": 41.42961712507531,
+    "fixed_tree_s": 8.763134624809027,
+    "local_tree_s": 8.041173459030688
+  },
+  {
+    "n_ingroup": 10,
+    "n_outgroup": 3,
+    "n_sites": 1102241,
+    "arg_s": 49.07278120913543,
+    "fixed_tree_s": 12.231207249918953,
+    "local_tree_s": 11.950264875078574
+  },
+  {
+    "n_ingroup": 20,
+    "n_outgroup": 3,
+    "n_sites": 1198119,
+    "arg_s": 61.581574666080996,
+    "fixed_tree_s": 19.958545750007033,
+    "local_tree_s": 22.816382041899487
+  },
+  {
+    "n_ingroup": 40,
+    "n_outgroup": 3,
+    "n_sites": 1296566,
+    "arg_s": 79.77598220808432,
+    "fixed_tree_s": 28.404088999843225,
+    "local_tree_s": 58.53670333395712
+  },
+  {
+    "n_ingroup": 80,
+    "n_outgroup": 3,
+    "n_sites": 1396406,
+    "arg_s": 115.40815266687423,
+    "fixed_tree_s": 41.74315229104832,
+    "local_tree_s": 248.571564582875
+  }
+]

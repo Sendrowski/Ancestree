@@ -1,0 +1,92 @@
+{
+  "config": {
+    "samples": 30,
+    "length": 200000,
+    "mu": 1e-07,
+    "rec_rate": 1e-08,
+    "pop_size": 10000.0,
+    "seed": 42,
+    "thresholds": [
+      0,
+      100,
+      500,
+      1000,
+      5000,
+      10000,
+      50000
+    ]
+  },
+  "n_truth_sites": 3442,
+  "sweep": [
+    {
+      "threshold": 0.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.9064497385241139,
+      "map_agree_with_baseline": 1.0,
+      "mean_max_prob": 0.9121004664018167,
+      "mean_collapsed_per_site": 0.0,
+      "mean_polytomic_internals_per_site": 0.0,
+      "max_polytomy_arity": 2
+    },
+    {
+      "threshold": 100.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.9064497385241139,
+      "map_agree_with_baseline": 1.0,
+      "mean_max_prob": 0.912113724567998,
+      "mean_collapsed_per_site": 7.311446833236491,
+      "mean_polytomic_internals_per_site": 4.285880302149913,
+      "max_polytomy_arity": 6
+    },
+    {
+      "threshold": 500.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.9064497385241139,
+      "map_agree_with_baseline": 1.0,
+      "mean_max_prob": 0.9121135100960511,
+      "mean_collapsed_per_site": 24.582219639744334,
+      "mean_polytomic_internals_per_site": 10.547356188262638,
+      "max_polytomy_arity": 12
+    },
+    {
+      "threshold": 1000.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.9064497385241139,
+      "map_agree_with_baseline": 1.0,
+      "mean_max_prob": 0.9121551523707618,
+      "mean_collapsed_per_site": 34.45148169668797,
+      "mean_polytomic_internals_per_site": 10.087739686228936,
+      "max_polytomy_arity": 18
+    },
+    {
+      "threshold": 5000.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.899186519465427,
+      "map_agree_with_baseline": 0.9927367809413132,
+      "mean_max_prob": 0.9077905655106889,
+      "mean_collapsed_per_site": 51.3390470656595,
+      "mean_polytomic_internals_per_site": 4.568274259151656,
+      "max_polytomy_arity": 50
+    },
+    {
+      "threshold": 10000.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.8675188843695526,
+      "map_agree_with_baseline": 0.9593259732713538,
+      "mean_max_prob": 0.9084527282636088,
+      "mean_collapsed_per_site": 54.51045903544451,
+      "mean_polytomic_internals_per_site": 3.278617083091226,
+      "max_polytomy_arity": 55
+    },
+    {
+      "threshold": 50000.0,
+      "n_eval": 3442,
+      "truth_recovery": 0.8776873910517141,
+      "map_agree_with_baseline": 0.9195235328297502,
+      "mean_max_prob": 0.9753604171374081,
+      "mean_collapsed_per_site": 57.77948866937827,
+      "mean_polytomic_internals_per_site": 1.1228936664729807,
+      "max_polytomy_arity": 60
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# fastDFE est-sfs comparison environment. fastDFE 1.2.2 supports numpy>=2,
+# so this env shares the same numpy major as the rest of the pipeline. It is
+# kept separate only to isolate fastDFE's own dependency closure. The script
+# only needs cyvcf2 + fastdfe.
+name: ancestree-fastdfe
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - numpy>=2
+  - scipy>=1.10
+  - cyvcf2
+  - snakemake-minimal=9.23.0   # required by the script: directive (unpickles the snakemake obj); pin must match the orchestrator
+  - pip
+  - pip:
+      - fastdfe==1.2.2

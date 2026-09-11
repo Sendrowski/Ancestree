@@ -1,0 +1,25 @@
+# SLiM forward-simulation environment for the purifying-selection / outgroup-bias
+# benchmark (SLiM via bioconda + pyslim recapitation).
+#   mamba env create -f slim.yml && mamba activate slim-ancestree && pip install -e .
+name: slim-ancestree
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - slim>=4.3
+  - pyslim>=1.0
+  - msprime>=1.3
+  - tskit>=1.0
+  - numpy>=1.24
+  - scipy>=1.10
+  - tqdm>=4.60
+  - cyvcf2
+  - snakemake-minimal=9.23.0   # pin: must match the orchestrator (script: pickles the snakemake obj into this env)
+  - pytest>=8
+  - pip
+  - numba>=0.59
+  - llvmlite>=0.42
+  - pytest-timeout>=2.3
+  - pip:
+      - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)

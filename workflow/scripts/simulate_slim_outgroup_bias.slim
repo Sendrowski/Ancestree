@@ -1,0 +1,112 @@
+// SLiM forward simulation: ingroup p0 + three outgroup lineages p1/p2/p3
+// with nested splits, all in a single forward-time run. Replaces the
+// earlier ingroup-only forward sim + msprime grafting / tskit.union
+// hack; the OutgroupLadderTree fit needs the outgroup tips attached to
+// the ingroup via proper nested splits (closest-first ladder), which
+// only a 4-population SLiM era can deliver.
+//
+// Demographic scaling: the manuscript outgroup divergences are
+// (T1, T2, T3) = (3e5, 6e5, 9e5) generations at the human-ape Ne = 1e4
+// scale. To keep the SLiM run tractable we rescale by
+// s = Ne_target / Ne_slim = 1e4 / 1e3 = 10:
+//
+//   T_k_slim   = T_k_target / s   (forward gens at SLiM scale)
+//   mu_slim    = mu_target  * s   (per-site per-gen, keeps θ = 4·N·μ invariant)
+//   rho_slim   = rho_target * s
+//
+// Per-branch K = μ·T = μ_target · T_target = μ_slim · T_slim is unchanged.
+//
+// Forward-time schedule (with SLiM total run length T3_SLIM = T3_target / s):
+//
+//   gen 1                     : addSubpop p0 (N_E_SLIM diploids)
+//   gen 1                     : addSubpopSplit p3 from p0   (deepest split, earliest in fwd time)
+//   gen T3_SLIM - T2_SLIM     : addSubpopSplit p2 from p0
+//   gen T3_SLIM - T1_SLIM     : addSubpopSplit p1 from p0
+//   gen T3_SLIM    late()     : treeSeqOutput; downstream recap+mutate
+//                               picks 1 haploid sample per outgroup pop.
+//
+// Outgroup populations are kept small (N_E_OUT diploids) and selection
+// is silenced inside them via fitnessEffect callbacks: only p0 sees the
+// gamma DFE, so the three outgroup branches drift neutrally — exactly
+// the OutgroupLadderTree's assumption.
+//
+// Parameters injected from snakemake via -d on the SLiM command line:
+//   SEED       — random seed (integer)
+//   F_DEL      — fraction of sites under selection (mosaic interleaving)
+//   SEQ_LEN    — sequence length in bp (per-chunk; e.g. 100_000)
+//   MU_SLIM    — per-site per-gen mutation rate at SLiM scale
+//   RHO_SLIM   — per-site per-gen recombination rate at SLiM scale
+//   N_E_SLIM   — SLiM-era ingroup effective size (diploids)
+//   N_E_OUT    — outgroup-population size (diploids); small (e.g. 5)
+//   T1_SLIM    — closest outgroup split (forward gens, at SLiM scale)
+//   T2_SLIM    — middle  outgroup split (forward gens, at SLiM scale)
+//   T3_SLIM    — deepest outgroup split (forward gens, at SLiM scale)
+//                — this is also the total simulation length.
+//   OUT_TREES  — output tree-sequence path (string)
+initialize() {
+    setSeed(asInteger(SEED));
+    defineConstant("L", asInteger(SEQ_LEN));
+    defineConstant("T_END",       asInteger(T3_SLIM));
+    defineConstant("TICK_SPLIT2", asInteger(T3_SLIM) - asInteger(T2_SLIM));
+    defineConstant("TICK_SPLIT1", asInteger(T3_SLIM) - asInteger(T1_SLIM));
+    initializeMutationRate(MU_SLIM);
+    // m1: deleterious, semi-dominant, gamma DFE. mean s = -0.01, shape 0.2.
+    initializeMutationType("m1", 0.5, "g", -0.01, 0.2);
+    // m2: strictly neutral (kept so monomorphic neutral sites can still
+    // host msprime-overlaid JC69 mutations downstream).
+    initializeMutationType("m2", 0.5, "f", 0.0);
+    initializeGenomicElementType("g1", m1, 1.0);
+    initializeGenomicElementType("g2", m2, 1.0);
+    initializeRecombinationRate(RHO_SLIM);
+    initializeTreeSeq();
+
+    // Mosaic layout: stride by integer period to interleave selected /
+    // neutral sites. F_DEL = 0 → all neutral; F_DEL = 1 → all selected;
+    // F_DEL ∈ (0, 1) → period = round(1 / F_DEL), every period-th site is selected.
+    if (F_DEL == 0.0) {
+        initializeGenomicElement(g2, 0, L - 1);
+    } else if (F_DEL == 1.0) {
+        initializeGenomicElement(g1, 0, L - 1);
+    } else {
+        period = asInteger(round(1.0 / F_DEL));
+        for (i in 0:(L - 1)) {
+            if (i % period == 0)
+                initializeGenomicElement(g1, i, i);
+            else
+                initializeGenomicElement(g2, i, i);
+        }
+    }
+}
+
+// ---- Founding event: ingroup + deepest outgroup split (T3) at gen 1.
+1 early() {
+    sim.addSubpop("p0", asInteger(N_E_SLIM));
+    sim.addSubpopSplit("p3", asInteger(N_E_OUT), p0);
+}
+
+// ---- Middle (T2) and closest (T1) outgroup splits at their scheduled ticks.
+// SLiM 5 requires explicit end ticks on the range (open-ended ``2:`` is
+// no longer accepted), so we cap at T_END.
+2:T_END early() {
+    if (community.tick == TICK_SPLIT2)
+        sim.addSubpopSplit("p2", asInteger(N_E_OUT), p0);
+    else if (community.tick == TICK_SPLIT1)
+        sim.addSubpopSplit("p1", asInteger(N_E_OUT), p0);
+}
+
+// ---- Neutral evolution in all three outgroup lineages. Selection only
+// applies to p0 (the ingroup). Forward-referencing p1/p2 in the
+// fitnessEffect filter is OK — SLiM parses the callback at script load
+// and only fires it once the named subpop exists.
+fitnessEffect(p1) { return 1.0; }
+fitnessEffect(p2) { return 1.0; }
+fitnessEffect(p3) { return 1.0; }
+
+// ---- Sample at the end of the run (gen T_END). All living individuals
+// are samples in the tree sequence; the downstream recap+mutate script
+// picks 1 haploid per outgroup pop and subsamples p0 to the configured
+// ingroup hap count.
+T_END late() {
+    sim.treeSeqOutput(OUT_TREES);
+    sim.simulationFinished();
+}

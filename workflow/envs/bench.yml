@@ -1,0 +1,29 @@
+# Benchmark environment: base deps + numba/llvmlite for the JIT kernel path.
+# Created by snakemake --use-conda.
+name: ancestree-bench
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - numpy>=1.24
+  - scipy>=1.10
+  - tskit>=1.0
+  - tszip>=0.3   # lossless compressed persistence of inferred ARGs (draw_*.tsz)
+  - tqdm>=4.60
+  - cyvcf2
+  - numba>=0.59
+  - llvmlite>=0.42
+  - msprime>=1.3
+  - matplotlib-base>=3.7
+  - seaborn>=0.12   # render_heatmap (report step) imports seaborn
+  - snakemake-minimal=9.23.0   # pin: must match the orchestrator (script: pickles the snakemake obj into this env)
+  - pip
+  - newick>=1.9
+  - pip:
+      - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)
+  # Called by the fetch / install shell rules, which otherwise rely on
+  # whatever the host PATH happens to carry.
+  - git
+  - curl
+  - cmake

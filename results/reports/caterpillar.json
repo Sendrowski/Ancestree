@@ -1,0 +1,147 @@
+{
+  "sim_config": {},
+  "ladder": {
+    "summary": {
+      "n_sites": 52536,
+      "accuracy": 0.6339081772498858,
+      "mean_max_prob": 0.9246277947334812,
+      "mean_p_true": 0.7044333347650805
+    },
+    "by_truth": {
+      "A": {
+        "n_sites": 13159,
+        "accuracy": 0.6321149023482028,
+        "mean_max_prob": 0.9250648200045909,
+        "mean_p_true": 0.7021724893038352
+      },
+      "C": {
+        "n_sites": 13224,
+        "accuracy": 0.6234875983061101,
+        "mean_max_prob": 0.92300213178135,
+        "mean_p_true": 0.6957393371776596
+      },
+      "G": {
+        "n_sites": 13218,
+        "accuracy": 0.6411711302768951,
+        "mean_max_prob": 0.9253721298871166,
+        "mean_p_true": 0.7109310806865213
+      },
+      "T": {
+        "n_sites": 12935,
+        "accuracy": 0.6389640510243525,
+        "mean_max_prob": 0.9250845654544473,
+        "mean_p_true": 0.7089816675003705
+      }
+    },
+    "by_ingroup_fixed_state": {
+      "ingroup_fixed_ancestral": {
+        "n_sites": 34797,
+        "accuracy": 0.8713682213983964,
+        "mean_max_prob": 0.9553433933178451,
+        "mean_p_true": 0.9099989881491551
+      },
+      "ingroup_fixed_derived": {
+        "n_sites": 17739,
+        "accuracy": 0.16810417723659732,
+        "mean_max_prob": 0.8643757690307856,
+        "mean_p_true": 0.3011936909967934
+      }
+    },
+    "inference_meta": {
+      "tree_type": "ladder",
+      "mu": 1.25e-08,
+      "n_ingroup": 20,
+      "n_outgroups": 3,
+      "outgroup_names": [
+        "tsk_20",
+        "tsk_21",
+        "tsk_22"
+      ],
+      "outgroup_split_times": [
+        300000.0,
+        900000.0,
+        1500000.0
+      ],
+      "outgroup_divergences": [
+        0.00375,
+        0.01125,
+        0.01875
+      ],
+      "n_monoallelic_ingroup_sites": 52536
+    }
+  },
+  "caterpillar": {
+    "summary": {
+      "n_sites": 52536,
+      "accuracy": 0.8521014161717679,
+      "mean_max_prob": 0.8502032984737872,
+      "mean_p_true": 0.7861350783544481
+    },
+    "by_truth": {
+      "A": {
+        "n_sites": 13159,
+        "accuracy": 0.8491526711756212,
+        "mean_max_prob": 0.8492881838238088,
+        "mean_p_true": 0.7835626601678792
+      },
+      "C": {
+        "n_sites": 13224,
+        "accuracy": 0.846113127646703,
+        "mean_max_prob": 0.8498107752529465,
+        "mean_p_true": 0.7835634282654536
+      },
+      "G": {
+        "n_sites": 13218,
+        "accuracy": 0.8579966712059313,
+        "mean_max_prob": 0.8514421380462152,
+        "mean_p_true": 0.7894610649267029
+      },
+      "T": {
+        "n_sites": 12935,
+        "accuracy": 0.8551990722844994,
+        "mean_max_prob": 0.8502696099761535,
+        "mean_p_true": 0.787982396574924
+      }
+    },
+    "by_ingroup_fixed_state": {
+      "ingroup_fixed_ancestral": {
+        "n_sites": 34797,
+        "accuracy": 0.9934189728999626,
+        "mean_max_prob": 0.8417127032109502,
+        "mean_p_true": 0.8393436638511518
+      },
+      "ingroup_fixed_derived": {
+        "n_sites": 17739,
+        "accuracy": 0.5748914820452111,
+        "mean_max_prob": 0.8668585351478352,
+        "mean_p_true": 0.6817605843283585
+      }
+    },
+    "inference_meta": {
+      "tree_type": "caterpillar",
+      "mu": 1.25e-08,
+      "n_ingroup": 20,
+      "n_outgroups": 3,
+      "outgroup_names": [
+        "tsk_20",
+        "tsk_21",
+        "tsk_22"
+      ],
+      "outgroup_split_times": [
+        300000.0,
+        900000.0,
+        1500000.0
+      ],
+      "outgroup_divergences": [
+        0.00375,
+        0.01125,
+        0.01875
+      ],
+      "n_monoallelic_ingroup_sites": 52536
+    }
+  },
+  "cross_cell": {
+    "n_shared_sites": 52536,
+    "map_agreement_rate": 0.7702147099132024
+  }
+}

@@ -1,0 +1,16 @@
+# Text extraction from a built PDF, for verifying that a manuscript edit
+# reached the rendered page rather than only the source.
+#
+# Usage:
+#   mamba env create -f workflow/envs/pdftext.yml
+#   conda run -n pdftext-ancestree pdftotext main.pdf - | grep "..."
+#
+# poppler supplies pdftotext, and pypdf covers the cases where a page's text is
+# laid out so that pdftotext's column heuristics split a sentence.
+name: pdftext-ancestree
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - poppler
+  - pypdf

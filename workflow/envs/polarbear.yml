@@ -1,0 +1,18 @@
+# PolarBEAR baseline environment. PolarBEAR is a vendored script repo
+# (external/polarbear/code) whose tskit==0.6 pin conflicts with bench.yml, so
+# it gets its own env holding only what site_polarize imports. numpy is left
+# to the solver: requirements.txt's numpy==2.2.1 is unsatisfiable with numba 0.60.
+name: ancestree-polarbear
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - tskit=0.6.0
+  - numba=0.60.0
+  - cyvcf2=0.31.1
+  - numpy
+  - snakemake-minimal=9.23.0   # required by the script: directive (unpickles the snakemake obj); pin must match the orchestrator
+  - pip
+  - pip:
+      - vcfpy==0.13.8

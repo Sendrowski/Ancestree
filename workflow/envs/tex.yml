@@ -1,0 +1,9 @@
+# LaTeX build environment for the `manuscript` rule. Tectonic is a
+# self-contained TeX engine (fetches the packages main.tex needs on first
+# run), kept in its own env so the LaTeX toolchain does not bloat the
+# benchmark/plotting env (bench.yml) that every cell + report job builds.
+name: ancestree-tex
+channels:
+  - conda-forge
+dependencies:
+  - tectonic
