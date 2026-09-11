@@ -14,7 +14,9 @@ import tskit
 import pytest
 import ancestree as anc
 
-from ancestree import JC69, LocalTreeInference
+import ancestree._ensemble as ensemble_module
+from ancestree import JC69, LocalTreeBuilder, LocalTreeInference
+from ancestree._ensemble import SegmentEnsemble, _pair_stream_keys
 from ancestree.sites import Site
 
 
@@ -501,3 +503,52 @@ def test_halving_the_exposure_doubles_the_inferred_tmrca():
         f"halving the called fraction changed the inferred TMRCA by "
         f"{ratio:.3f}x, expected about 2; the per-block exposure scale is "
         f"not reaching the emission")
+
+
+class TestSegmentEnsemble:
+    @staticmethod
+    def _builder():
+        sites, names, L = _sites()
+        return LocalTreeBuilder(sites, mu=2.5e-8, rec_rate=1e-8,
+                                sample_names=names, sequence_length=L), names
+
+    def test_an_unnamed_panel_keys_its_streams_by_pair_index(self):
+        pairs = [(0, 1), (0, 2), (1, 2)]
+        keys = _pair_stream_keys(None, pairs)
+        assert keys.dtype == np.uint64
+        assert keys.tolist() == [0, 1, 2]
+        named = _pair_stream_keys(["s0", "s1", "s2"], pairs)
+        assert len(set(named.tolist())) == 3 and named.tolist() != [0, 1, 2]
+
+    def test_a_named_ingroup_marks_only_those_haplotypes(self):
+        builder, names = self._builder()
+        ens = SegmentEnsemble(builder, JC69(), len(names), [0, 2])
+        assert ens.is_ingroup.tolist() == [i in (0, 2) for i in range(len(names))]
+
+    def test_an_empty_ingroup_is_refused(self):
+        builder, names = self._builder()
+        with pytest.raises(ValueError, match="the ingroup is empty"):
+            SegmentEnsemble(builder, JC69(), len(names), [])
+
+    def test_a_model_without_a_real_eigendecomposition_is_refused(self):
+        class _NoEig(JC69):
+            def real_eig(self, *, pi=None):
+                return None
+
+        builder, names = self._builder()
+        ens = SegmentEnsemble(builder, _NoEig(), len(names), None)
+        with pytest.raises(ValueError, match="no real eigendecomposition"):
+            ens.posterior(0.0, 2)
+
+    def test_the_path_budget_shrinks_the_chunk_to_a_divisor(self, monkeypatch):
+        builder, names = self._builder()
+        ens = SegmentEnsemble(builder, JC69(), len(names), None)
+        unbounded = ens.posterior(0.0, 4, member_chunk=4, seed=1)
+        assert ens._path_chunk(4, 4) == 4
+
+        per_member = ens.alpha_ck.shape[0] * ens.n_blocks
+        monkeypatch.setattr(ensemble_module, "MAX_PATH_BYTES", 3 * per_member)
+        assert ens._path_chunk(4, 4) == 2
+        assert ens._path_chunk(4, 9) == 3
+        bounded = ens.posterior(0.0, 4, member_chunk=4, seed=1)
+        np.testing.assert_allclose(bounded, unbounded, rtol=1e-12, atol=1e-15)

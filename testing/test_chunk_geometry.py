@@ -11,6 +11,7 @@ import pytest
 
 from ancestree import JC69, LocalTreeInference
 from ancestree.sites import Site
+from testing._helpers import toy_chunked_inference, toy_sites
 
 #: Not a multiple of BLOCK_BP, so the window must be snapped up to one.
 WINDOW_BP = 2500
@@ -268,3 +269,65 @@ def test_one_duplicated_sample_does_not_set_the_grid_floor():
     assert shift < 0.05, (
         f"one near-clone pair moved the grid floor by {100 * shift:.1f}% "
         f"({before:.1f} -> {after:.1f} generations)")
+
+
+def test_auto_halo_without_diversity_is_ten_windows_clamped():
+    """With no pairwise differences the halo falls back to ten windows."""
+    names = [f"h{i}" for i in range(4)]
+    sites = [Site(chrom="1", pos=p, alleles=("A", "C"),
+                  tip_alleles={n: "A" for n in names})
+             for p in range(0, 2000, 20)]
+    inf = toy_chunked_inference(sites, names, window=200, block_size=50,
+                                chunk_size=10_000, halo="auto")
+    inf._resolve_segmentation_params()
+    assert inf._halo_value == min(10 * 200, max(50, 10_000 // 2))
+    diverse, _ = toy_sites(range(0, 2000, 20))
+    inf2 = toy_chunked_inference(diverse, names, window=200, block_size=50,
+                                 chunk_size=10_000, halo="auto")
+    inf2._resolve_segmentation_params()
+    assert inf2._halo_value != inf._halo_value
+
+
+def test_slice_map_outside_the_map_is_none():
+    """A segment starting beyond the map's end gets no sub-map."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    inf = toy_chunked_inference(sites, names)
+    rate_map = msprime.RateMap(position=[0.0, 1000.0], rate=[1e-8])
+    assert inf._slice_map(rate_map, 2000, 500) is None
+    assert inf._slice_map(None, 0, 500) is None
+    inside = inf._slice_map(rate_map, 500, 500)
+    assert inside is not None
+    assert inside.sequence_length == pytest.approx(500.0)
+
+
+def test_chunked_segment_whose_core_holds_no_site_is_skipped():
+    """A work unit filled only by halo sites adds nothing to the outputs.
+
+    Sites at 0 to 900 and 3100 to 3400 with a 1000 bp chunk and a 500 bp halo
+    give the core ``[1000, 2000)`` a segment made of halo sites only. The
+    stitched tree sequence, the pairwise-TMRCA record and the posterior stream
+    all still cover every site exactly once.
+    """
+    head, names = toy_sites(range(0, 1000, 100), seed=1)
+    tail, _ = toy_sites(range(3100, 3500, 100), seed=2)
+    sites = head + tail
+    inf = toy_chunked_inference(sites, names, n_ensemble=None)
+    ts = inf.point_tree_sequence()
+    assert ts.num_sites == len(sites)
+    assert sorted(ts.sites_position) == [float(s.pos) for s in sites]
+    assert ts.num_samples == len(names)
+    rec = inf.pairwise_tmrcas()
+    assert np.all(np.diff(rec.block_midpoints) > 0)
+    assert rec.tmrca.shape == (6, rec.block_midpoints.size)
+    out = list(inf.infer())
+    assert [s.pos for s, _ in out] == [s.pos for s in sites]
+
+
+def test_chunked_empty_source_has_no_trees_and_no_tmrcas():
+    """A chunked source without sites raises on both genome-wide outputs."""
+    names = [f"h{i}" for i in range(4)]
+    inf = toy_chunked_inference([], names)
+    with pytest.raises(ValueError, match="no segments to build"):
+        inf.point_tree_sequence()
+    with pytest.raises(ValueError, match="no segments to report"):
+        inf.pairwise_tmrcas()

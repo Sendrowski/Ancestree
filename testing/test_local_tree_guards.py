@@ -1,10 +1,14 @@
 """Constructor guards and I/O suffix checks in :mod:`ancestree.local_tree_inference`."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 
+import ancestree.local_tree_inference as lti
 from ancestree import (
+    FocalNode,
     JC69,
     LocalTreeBuilder,
     LocalTreeInference,
@@ -12,6 +16,14 @@ from ancestree import (
     PairwiseTmrcas,
 )
 from ancestree.sites import Site
+from testing._helpers import (
+    MU,
+    REC,
+    toy_builder,
+    toy_chunked_inference,
+    toy_inference,
+    toy_sites,
+)
 
 
 # ------------------------------------------------ PairwiseCoalescentHMM
@@ -59,6 +71,41 @@ def test_a_malformed_window_lists_the_snp_form(spec):
         _raw_window_bp(spec, 60, 1e5)
     with pytest.raises(ValueError, match=r"block_size must be.*'<N>snp'"):
         _resolve_block_spec(spec, 60, 1e5)
+
+
+def test_parse_bp_accepts_a_bp_suffix():
+    """A ``"<N>bp"`` spec is its integer width."""
+    assert lti._parse_bp("250bp") == 250
+    assert lti._parse_bp("2kb") == 2000
+
+
+@pytest.mark.parametrize("spec", ["xsnp", "0snp", "-3snp"])
+def test_raw_window_bp_rejects_a_malformed_snp_spec(spec):
+    """A non-numeric or non-positive ``"<N>snp"`` window is refused."""
+    with pytest.raises(ValueError, match="window must be"):
+        lti._raw_window_bp(spec, 100, 10_000.0)
+
+
+def test_resolve_block_spec_snp_form_scales_with_density():
+    """A ``"<N>snp"`` block is N sites' worth of span at the mean density."""
+    assert lti._resolve_block_spec("4snp", 100, 10_000.0) == 400
+    assert lti._resolve_block_spec("1snp", 0, 0.0) == 1
+    assert lti._resolve_block_spec("300bp", 100, 10_000.0) == 300
+
+
+@pytest.mark.parametrize("spec", ["xsnp", "0snp"])
+def test_resolve_block_spec_rejects_a_malformed_snp_spec(spec):
+    """A non-numeric or non-positive ``"<N>snp"`` block is refused."""
+    with pytest.raises(ValueError, match="block_size must be"):
+        lti._resolve_block_spec(spec, 100, 10_000.0)
+
+
+def test_builder_resolves_a_snp_block_spec():
+    """A builder given ``block_size="2snp"`` sizes its blocks from the density."""
+    sites, names = toy_sites(range(0, 2000, 20))
+    b = toy_builder(sites, names, 2000.0, block_size="2snp", window="8snp")
+    assert b.block_size == 40
+    assert b.window_bp == 160
 
 
 def test_a_malformed_width_is_rejected_before_the_source_is_streamed():
@@ -174,6 +221,46 @@ def test_inference_unchunked_requires_sequence_length():
         )
 
 
+def test_inference_rejects_non_positive_rates_and_counts():
+    """``mu``, ``rec_rate``, ``n_workers`` and ``member_chunk`` must be positive."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    with pytest.raises(ValueError, match="mu must be positive"):
+        LocalTreeInference(sites, JC69(), mu=0.0, rec_rate=REC,
+                           sample_names=names, sequence_length=1000.0)
+    with pytest.raises(ValueError, match="n_workers must be >= 1"):
+        toy_inference(sites, names, n_workers=0)
+    with pytest.raises(ValueError, match="member_chunk must be"):
+        toy_inference(sites, names, member_chunk=0)
+    with pytest.raises(ValueError, match="rec_rate must be positive"):
+        LocalTreeInference(sites, JC69(), mu=MU, rec_rate=-1e-8,
+                           sample_names=names, sequence_length=1000.0)
+
+
+def test_inference_refuses_an_ingroup_emptied_by_the_outgroup_list():
+    """Naming the whole panel as outgroups leaves no ingroup MRCA to report at."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    with pytest.raises(ValueError, match="ingroup is empty"):
+        toy_inference(sites, names, outgroup_samples=list(names))
+
+
+def test_ensemble_refuses_a_focal_depth():
+    """The ensemble kernel cannot place the focal node by absolute depth."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    with pytest.raises(NotImplementedError, match="absolute depth"):
+        toy_inference(sites, names, n_ensemble=4,
+                      focal=FocalNode("ingroup_mrca", depth=100.0))
+
+
+def test_ensemble_placement_passes_a_coalescence_count_through():
+    """A ``coalescences`` placement reads at fraction zero plus that count."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    inf = toy_inference(sites, names, n_ensemble=4, outgroup_samples=["h3"],
+                        focal=FocalNode("ingroup_mrca", coalescences=1))
+    assert inf._ensemble_placement() == (0.0, 1)
+    plain = toy_inference(sites, names, n_ensemble=4, outgroup_samples=["h3"])
+    assert plain._ensemble_placement() == (0.0, -1)
+
+
 class TestAChunkNarrowerThanTheBlockIsFlooredAtTheBlockWidth:
     """A chunk narrower than the resolved block must not shred the run.
 
@@ -219,6 +306,30 @@ class TestAChunkNarrowerThanTheBlockIsFlooredAtTheBlockWidth:
         )
         inf._resolve_segmentation_params()
         assert inf._chunk_size == 4000
+
+
+def test_chunked_window_floored_to_the_block_warns(caplog):
+    """A window narrower than one block is raised to the block width."""
+    sites, names = toy_sites(range(0, 2000, 20))
+    inf = toy_chunked_inference(sites, names, window=100, block_size=500,
+                                chunk_size=5000, halo="auto")
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        inf._resolve_segmentation_params()
+    assert inf._wbp == 500
+    assert any("floored to block_size=500" in r.getMessage()
+               for r in caplog.records)
+
+
+def test_window_floor_warns_with_explicit_widths(caplog):
+    """Integer window, block and halo need no site count for the warning."""
+    sites, names = toy_sites(range(0, 5000, 50))
+    inf = toy_chunked_inference(sites, names, window=100, block_size=500,
+                                chunk_size=5000, halo=1000)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        inf._resolve_segmentation_params()
+    assert inf._wbp == 500
+    assert any("floored to block_size=500" in r.getMessage()
+               for r in caplog.records)
 
 
 # ------------------------------------------------ PairwiseTmrcas.write

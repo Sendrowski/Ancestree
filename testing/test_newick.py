@@ -1,6 +1,8 @@
 """Tests for OutgroupLadderTree.from_newick + FixedTreeInference(fit_required=False)."""
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 import ancestree as anc
@@ -10,6 +12,7 @@ from ancestree import (
     JC69,
     OutgroupLadderTree,
     Site,
+    TskitLocalTree,
 )
 
 from testing._helpers import no_counts as _no_counts
@@ -163,6 +166,38 @@ class TestFromNewickErrors:
     def test_samples_missing_from_newick(self):
         with pytest.raises(ValueError, match="not found as"):
             OutgroupLadderTree.from_newick("(a:1,b:1):0;", ["x"], ["y"])
+
+
+class TestFromNewickLadderViolations:
+    """Topologies that are not an outgroup ladder are refused by name."""
+
+    def test_two_siblings_at_one_step(self):
+        nwk = "((i0:0.1,i1:0.1):0.2,o1:0.3,o2:0.4);"
+        with pytest.raises(ValueError, match="expected exactly 1 sibling"):
+            OutgroupLadderTree.from_newick(nwk, ["i0", "i1"], ["o1", "o2"])
+
+    def test_outgroups_grouped_as_a_clade(self):
+        nwk = "((i0:0.1,i1:0.1):0.2,(o1:0.1,o2:0.1):0.2);"
+        with pytest.raises(ValueError, match="must be a leaf"):
+            OutgroupLadderTree.from_newick(nwk, ["i0", "i1"], ["o1", "o2"])
+
+
+class TestNewickImportGuard:
+    """Both Newick constructors name the missing package in their error."""
+
+    @pytest.fixture
+    def without_newick(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "newick", None)
+
+    def test_local_tree(self, without_newick):
+        with pytest.raises(ImportError, match="pip install newick"):
+            TskitLocalTree.from_newick("(a:1,b:1);")
+
+    def test_ladder(self, without_newick):
+        with pytest.raises(ImportError, match="pip install newick"):
+            OutgroupLadderTree.from_newick(
+                "((i0:1,i1:1):1,o1:1);", ["i0", "i1"], ["o1"],
+            )
 
 
 class TestNonMonophyleticIngroupRejected:

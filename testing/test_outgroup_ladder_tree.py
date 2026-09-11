@@ -18,12 +18,26 @@ import numpy as np
 import pytest
 
 from ancestree import JC69, OutgroupLadderTree, Likelihood, Posterior, STATES, Site
+from ancestree.focal import FocalNode
+from ancestree.trees import RerootedTree
 
 
 def _three_outgroup_tree(n_ingroup: int = 4) -> OutgroupLadderTree:
     return OutgroupLadderTree(
         ingroup_samples=[f"i{k}" for k in range(n_ingroup)],
         outgroup_samples=["O1", "O2", "O3"],
+    )
+
+
+def _two_outgroup_tree() -> OutgroupLadderTree:
+    """A two-outgroup ladder with divergences 0.2 and 0.6.
+
+    The backbone runs ``I -> n_1 -> O_2`` with branch lengths ``0.1`` and
+    ``0.5``, the branch above ``O_1`` is ``0.1``, and the readout may be
+    placed up to ``0.3`` above the ingroup MRCA.
+    """
+    return OutgroupLadderTree.from_divergences(
+        ["i0", "i1"], ["o1", "o2"], [0.2, 0.6],
     )
 
 
@@ -278,3 +292,85 @@ class TestDrawText:
         text = t.draw_text(show_branch_lengths=False)
         assert "[bl=" not in text
         assert "O1" in text and "O2" in text
+
+
+class TestRerootedView:
+    """Placement, delegation and validation of a re-rooted ladder view."""
+
+    def test_placement_on_the_deepest_branch(self):
+        ladder = _two_outgroup_tree()
+        view = ladder.at_focal(FocalNode("ingroup_mrca", depth=0.2))
+        assert isinstance(view, RerootedTree)
+        o2 = ladder.tip_for_sample("o2")
+        anchor, tau = view.placement
+        assert anchor == o2
+        assert tau == pytest.approx(0.4)
+        assert repr(view) == f"RerootedTree(anchor={o2}, tau=0.4)"
+
+    def test_placement_stacks_through_a_view_of_a_view(self):
+        """A depth past the panel root adds its remainder to the deep end."""
+        ladder = _two_outgroup_tree()
+        deep = ladder.as_deep_rooted()
+        anchor, tau = deep.placement
+        assert anchor == ladder.tip_for_sample("o2")
+        assert tau == pytest.approx(0.3)
+        beyond = ladder.at_focal(FocalNode("ingroup_mrca", depth=0.5))
+        assert isinstance(beyond, RerootedTree)
+        assert beyond.placement[0] == anchor
+        assert beyond.placement[1] == pytest.approx(0.5)
+
+    def test_rejects_a_focal_node_outside_the_tree(self):
+        with pytest.raises(ValueError, match="not in this tree"):
+            RerootedTree(_two_outgroup_tree(), 99)
+
+    def test_rejects_tau_past_the_branch_above_focal(self):
+        ladder = _two_outgroup_tree()
+        o1 = ladder.tip_for_sample("o1")
+        with pytest.raises(ValueError, match="exceeds the branch above"):
+            RerootedTree(ladder, o1, 10.0)
+
+    def test_time_scale_writes_through_to_the_source(self):
+        ladder = _two_outgroup_tree()
+        view = RerootedTree(ladder, ladder.tip_for_sample("o1"), 0.05)
+        view.time_scale = 2.5
+        assert ladder.time_scale == 2.5
+        assert view.time_scale == 2.5
+
+    def test_delegates_panel_and_deep_rooting_to_the_source(self):
+        ladder = _two_outgroup_tree()
+        view = RerootedTree(ladder, ladder.tip_for_sample("o1"), 0.05)
+        assert view.ingroup_samples == ("i0", "i1")
+        assert view.outgroup_samples == ("o1", "o2")
+        assert view.ingroup_mrca == ladder.ingroup_mrca
+        assert view.n_tips() == ladder.n_tips() == 2
+        assert view.as_deep_rooted().placement == ladder.as_deep_rooted().placement
+
+
+class TestLadderShape:
+    """Repr, placement and divergence ordering of the ladder itself."""
+
+    def test_repr_counts_both_panels(self):
+        assert repr(_two_outgroup_tree()) == "OutgroupLadderTree(n_ingroup=2, n_outgroups=2)"
+
+    def test_placement_is_the_ingroup_mrca(self):
+        ladder = _two_outgroup_tree()
+        assert ladder.placement == (ladder.ingroup_mrca, 0.0)
+
+    def test_ordering_skips_sites_without_an_ingroup_allele(self):
+        """A site no ingroup tip is called at counts for no outgroup.
+
+        Without the skip the uncalled site would score as a disagreement for
+        ``o1`` alone and put ``o2`` first.
+        """
+        sites = [
+            Site(chrom="1", pos=1, alleles=("A", "C"),
+                 tip_alleles={"i0": "A", "i1": "A", "o1": "A", "o2": "C"}),
+            Site(chrom="1", pos=2, alleles=("C",),
+                 tip_alleles={"i0": None, "i1": None, "o1": "C", "o2": None}),
+            Site(chrom="1", pos=3, alleles=("C", "T"),
+                 tip_alleles={"i0": "C", "i1": "C", "o1": "T", "o2": "C"}),
+        ]
+        order = OutgroupLadderTree.order_outgroups_by_divergence(
+            sites, ["i0", "i1"], ["o1", "o2"],
+        )
+        assert order == ["o1", "o2"]

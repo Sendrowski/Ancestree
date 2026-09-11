@@ -11,8 +11,11 @@ is 1, propagating the pairwise state across the gap as perfect linkage.
 """
 import msprime
 import numpy as np
+import pytest
 
 import ancestree as anc
+from ancestree import LocalTreeInference
+from testing._helpers import toy_inference, toy_sites
 
 L = 40_000.0
 BLOCK = 2000
@@ -83,3 +86,38 @@ def test_a_masked_recombination_interval_is_not_perfect_linkage():
     assert np.all(masked > 0.5), (
         f"steps across the masked interval are {masked}; a near-zero step is "
         "perfect linkage across the gap")
+
+
+def test_panel_provenance_reports_map_paths_and_summaries():
+    """A rate map is summarised, and a caller-supplied path recorded."""
+    sites, names = toy_sites(range(0, 1000, 20))
+    rate_map = msprime.RateMap(position=[0.0, 400.0, 1000.0],
+                               rate=[1e-8, 3e-8])
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0,
+                        recombination_map=rate_map,
+                        accessibility=[(0.0, 500.0), (600.0, 1000.0)])
+    inf._map_sources = {"recombination_map": "/maps/rec.txt",
+                        "accessibility": "/maps/mask.bed"}
+    out = inf._panel_provenance()
+    assert out["recombination_map_intervals"] == 2
+    assert out["recombination_map_mean_rate"] == pytest.approx(
+        float(rate_map.mean_rate))
+    assert out["recombination_map_path"] == "/maps/rec.txt"
+    assert out["accessibility_path"] == "/maps/mask.bed"
+    assert out["accessibility_intervals"] == 2
+    assert "mutation_map_intervals" not in out
+
+
+def test_rate_map_provenance_tolerates_a_map_without_a_mean_rate():
+    """A map whose mean rate is undefined still reports its interval count."""
+
+    class _NoMean:
+        rate = np.array([1e-8, 2e-8, 3e-8])
+
+        @property
+        def mean_rate(self):
+            raise ZeroDivisionError("empty map")
+
+    out = LocalTreeInference._rate_map_provenance("mutation_map", _NoMean())
+    assert out == {"mutation_map_intervals": 3}
+    assert LocalTreeInference._rate_map_provenance("mutation_map", None) == {}

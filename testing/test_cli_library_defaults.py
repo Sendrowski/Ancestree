@@ -8,7 +8,7 @@ import inspect
 import pytest
 
 from ancestree import LocalTreeInference
-from ancestree.cli import build_parser
+from ancestree.cli import _lib_default, build_parser
 
 #: ``argparse`` destination -> constructor parameter it configures.
 LOCAL_TREE_FLAGS = {
@@ -27,6 +27,16 @@ def _parsed_local_tree():
     """Parse a minimal ``local-tree`` command line, leaving every flag unset."""
     return build_parser().parse_args(
         ["local-tree", "--vcf", "in.vcf", "--out", "out.vcf", "--mu", "1e-8"])
+
+
+def test_lib_default_reads_the_constructor_and_rejects_unknown_names():
+    """A flag default is the constructor's own, and an unknown name is an error."""
+    from ancestree.inference import FixedTreeInference
+
+    expected = inspect.signature(FixedTreeInference).parameters["n_starts"].default
+    assert _lib_default(FixedTreeInference, "n_starts") == expected
+    with pytest.raises(KeyError, match="takes no parameter 'no_such_flag'"):
+        _lib_default(FixedTreeInference, "no_such_flag")
 
 
 @pytest.mark.parametrize("dest,param", sorted(LOCAL_TREE_FLAGS.items()))

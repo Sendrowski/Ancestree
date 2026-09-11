@@ -7,16 +7,19 @@ import pytest
 from ancestree import (
     AdaptiveIngroupWeight,
     FixedTreeInference,
+    GTR,
     OutgroupLadderTree,
     JC69,
     KingmanIngroupWeight,
     STATE_INDEX,
     STATES,
     Site,
+    StationaryPrior,
 )
-from ancestree.priors import _fit_pi_bin
+from ancestree.priors import IngroupWeight, _fit_pi_bin
+from ancestree.settings import Settings
 
-from testing._helpers import no_counts as _no_counts
+from testing._helpers import no_counts as _no_counts, panel_site, panel_ts
 
 
 def _simulate_sites_with_ingroup_sfs(
@@ -718,3 +721,72 @@ def test_a_thin_bin_is_named_in_the_unstable_pi_warning(caplog):
             pass
     assert "min_bin_n_sites" in caplog.text, (
         f"no low-count warning naming min_bin_n_sites; got {caplog.text!r}")
+
+
+class TestPriorReprsAndGuards:
+    def test_the_base_ingroup_weight_has_no_weight(self):
+        _, ids = panel_ts()
+        with pytest.raises(NotImplementedError):
+            IngroupWeight().log_probs([panel_site(ids)])
+
+    def test_reprs_name_the_identifying_fields(self):
+        assert repr(StationaryPrior(JC69())) == "StationaryPrior(model=JC69)"
+        assert repr(KingmanIngroupWeight(["a", "b"])) == (
+            "KingmanIngroupWeight(n_ingroup=2)")
+        assert repr(AdaptiveIngroupWeight(["a", "b", "c"], subsample_size=2)) == (
+            "AdaptiveIngroupWeight(n_ingroup=3, subsample_size=2)")
+        assert "rates=[1, 2, 3, 4, 5, 6]" in repr(GTR(rates=[1, 2, 3, 4, 5, 6]))
+
+
+def _sites_with_minor_counts(ingroup, minor_counts) -> list[Site]:
+    """One ``A/T`` site per entry of ``minor_counts``, both outgroups ``A``."""
+    sites = []
+    for pos, k in enumerate(minor_counts, start=1):
+        tips = {s: ("T" if j < k else "A") for j, s in enumerate(ingroup)}
+        tips.update({"o1": "A", "o2": "A"})
+        sites.append(Site(chrom="1", pos=pos, alleles=("A", "T"),
+                          tip_alleles=tips))
+    return sites
+
+
+class TestAdaptiveFitFallbacks:
+    ingroup = [f"i{k}" for k in range(8)]
+
+    @staticmethod
+    def _log_L(n_sites: int) -> np.ndarray:
+        """Per-site log-likelihoods favouring ``A`` over ``T``."""
+        row = np.log([0.6, 0.1, 0.1, 0.2])
+        return np.repeat(row[None, :], n_sites, axis=0)
+
+    def test_a_pool_that_may_not_fork_falls_back_to_the_serial_fit(
+            self, monkeypatch, caplog):
+        sites = _sites_with_minor_counts(self.ingroup, [1, 1, 2, 2, 3, 3, 1, 2])
+        serial = AdaptiveIngroupWeight(self.ingroup, n_runs=2, seed=3)
+        serial.fit(sites, self._log_L(len(sites)))
+
+        monkeypatch.setattr("ancestree.priors.os.cpu_count", lambda: 4)
+        monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+
+        def _no_pool(*args, **kwargs):
+            raise AssertionError("a process pool was started despite the fallback")
+
+        monkeypatch.setattr("ancestree.priors.ProcessPoolExecutor", _no_pool)
+        parallel = AdaptiveIngroupWeight(self.ingroup, n_runs=2, seed=3,
+                                         parallelize=True)
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            parallel.fit(sites, self._log_L(len(sites)))
+        assert any("Ignoring the parallelization request" in r.message
+                   for r in caplog.records)
+        assert parallel.fitted
+        assert parallel.pi == serial.pi
+
+    def test_a_subsample_of_two_has_no_bin_to_fit_or_warn_about(self, caplog):
+        prior = AdaptiveIngroupWeight(self.ingroup[:2], subsample_size=2)
+        sites = _sites_with_minor_counts(self.ingroup[:2], [1, 1, 1])
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            prior.fit(sites, self._log_L(len(sites)))
+        assert prior.fitted
+        # The two endpoints are deterministic and the middle bin is its own
+        # fold mirror, so the Kingman default survives the fit untouched.
+        assert prior.pi == {0: 1.0, 1: 0.5, 2: 0.0}
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

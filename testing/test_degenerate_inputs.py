@@ -112,6 +112,16 @@ class TestEmptyInputs:
         assert not [r for r in caplog.records if "read no sites" in r.message]
 
 
+def test_summary_of_an_empty_run_reports_no_sites(small_ts):
+    """A run over a tree sequence without sites summarises to zero sites and
+    a ``nan`` mean posterior mass."""
+    empty = small_ts.delete_sites(range(small_ts.num_sites))
+    summary = ARGBasedInference(empty, JC69(), mu=1e-8, progress=False).summary()
+    assert summary.n_sites == 0
+    assert summary.map_alleles == {}
+    assert np.isnan(summary.mean_max_prob)
+
+
 class TestAllMissingOutgroup:
     """With every outgroup tip missing the likelihood is flat and the prior decides."""
 

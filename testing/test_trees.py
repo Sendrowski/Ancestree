@@ -136,6 +136,29 @@ class TestFromNewickBranchLengths:
         assert tree.n_tips() == 3
 
 
+class TestTreeDefaults:
+    """A tree that names no ingroup answers the base-class defaults."""
+
+    @pytest.fixture
+    def tree(self, small_ts):
+        return TskitLocalTree(small_ts, position=small_ts.sequence_length / 2)
+
+    def test_no_ingroup_mrca(self, tree):
+        assert tree.ingroup_mrca is None
+
+    def test_no_ingroup_or_outgroup_samples(self, tree):
+        assert tree.ingroup_samples == ()
+        assert tree.outgroup_samples == ()
+
+    def test_no_deep_rooting(self, tree):
+        assert tree.as_deep_rooted() is None
+
+    def test_repr_shows_tip_count_and_root(self, tree):
+        assert repr(tree) == (
+            f"TskitLocalTree(n_tips={tree.n_tips()}, root={tree.root})"
+        )
+
+
 # ────────────────────────────────────────── OutgroupLadderTree, deep readout
 
 

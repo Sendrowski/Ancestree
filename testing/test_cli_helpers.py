@@ -1,25 +1,39 @@
 """Unit tests for the pure ``ancestree.cli`` helpers (model / prior factories,
-logging setup, and the BED / bedGraph parsers). These exercise the argument-
-plumbing branches without running any inference, so they stay fast.
+logging setup, the BED / bedGraph parsers, the empirical composition tally,
+the ``--debug`` probe and the entry points around :func:`ancestree.cli.main`).
+These exercise the argument-plumbing branches without running any inference,
+so they stay fast.
 """
 import logging
+import runpy
+import sys
 
+import msprime
+import numpy as np
 import pytest
 
+from ancestree import STATES, TRANSITION_PAIRS
 from ancestree.cli import (
     _build_model,
     _build_ingroup_weight,
     _build_prior,
     _configure_logging,
+    _debug_requested,
+    _empirical_composition,
+    _import_msprime,
     _read_bed_intervals,
     _read_ratemap_bedgraph,
+    _warn_model_defaults,
+    main,
 )
-from ancestree.models import JC69, K2, F81, HKY, GTR
+from ancestree.models import JC69, K2, F81, HKY, GTR, _KAPPA_CLAMP
 from ancestree.priors import (
     AdaptiveIngroupWeight,
     KingmanIngroupWeight,
     StationaryPrior,
 )
+
+from testing._helpers import ladder_panel
 
 
 class TestBuildModel:
@@ -84,6 +98,77 @@ class TestBuildPrior:
     def test_unknown_ingroup_weight_raises(self):
         with pytest.raises(ValueError, match="Unknown --ingroup-weight"):
             _build_ingroup_weight("nope", ingroup_samples=["a", "b"])
+
+
+def test_none_ingroup_weight_needs_no_ingroup():
+    """``--ingroup-weight none`` builds without an ingroup, in any case."""
+    from ancestree.priors import NoIngroupWeight
+
+    assert isinstance(_build_ingroup_weight("none", ingroup_samples=None),
+                      NoIngroupWeight)
+    assert isinstance(_build_ingroup_weight("NONE", ingroup_samples=None),
+                      NoIngroupWeight)
+
+
+@pytest.mark.parametrize("model, composition, kappa", [
+    ("JC69", False, False),
+    ("F81", True, False),
+    ("K2", False, True),
+    ("HKY", True, True),
+    ("gtr", True, False),
+])
+def test_warn_model_defaults_names_each_free_parameter(
+        caplog, model, composition, kappa):
+    """Each unsettable model parameter is reported once, under the mode."""
+    with caplog.at_level(logging.WARNING, logger="ancestree.cli"):
+        _warn_model_defaults("arg", model)
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("uniform base frequencies" in m for m in messages) == int(composition)
+    assert sum("default kappa" in m for m in messages) == int(kappa)
+    assert all(m.startswith("arg: model") for m in messages)
+
+
+@pytest.mark.filterwarnings("ignore::Warning:zarr")
+class TestEmpiricalComposition:
+    """``_empirical_composition`` tallies the input's own variants."""
+
+    @staticmethod
+    def _expected(alleles, gt, n_sites):
+        """Tip-allele tally and Ts/Tv counts over the first ``n_sites`` sites."""
+        pi_counts = {b: 0 for b in STATES}
+        n_ts = n_tv = 0
+        for i in range(n_sites):
+            present = set()
+            for g in gt[i]:
+                pi_counts[alleles[i][g]] += 1
+                present.add(alleles[i][g])
+            if len(present) == 2:
+                if tuple(present) in TRANSITION_PAIRS:
+                    n_ts += 1
+                else:
+                    n_tv += 1
+        arr = np.array([pi_counts[b] for b in STATES], dtype=float)
+        pi = np.maximum(arr / arr.sum(), 1e-6)
+        pi /= pi.sum()
+        kappa = float(np.clip(2.0 * n_ts / n_tv, *_KAPPA_CLAMP))
+        return pi, kappa
+
+    @pytest.mark.parametrize("which", ["vcf", "vcz"])
+    def test_pi_and_kappa_match_a_direct_tally(self, ladder_panel, which):
+        vcf, vcz, _nwk, alleles, gt = ladder_panel
+        path = vcf if which == "vcf" else vcz
+        bc = _empirical_composition(str(path), None)
+        pi, kappa = self._expected(alleles, gt, len(alleles))
+        np.testing.assert_allclose(bc.pi, pi, rtol=1e-9)
+        assert bc.kappa_estimate == pytest.approx(kappa)
+
+    def test_max_sites_caps_the_tally(self, ladder_panel):
+        vcf, _vcz, _nwk, alleles, gt = ladder_panel
+        bc = _empirical_composition(str(vcf), 40)
+        pi, kappa = self._expected(alleles, gt, 40)
+        np.testing.assert_allclose(bc.pi, pi, rtol=1e-9)
+        assert bc.kappa_estimate == pytest.approx(kappa)
+        assert bc.n_ts + bc.n_tv <= 40
 
 
 class TestConfigureLogging:
@@ -184,6 +269,17 @@ class TestMutationMapGapRate:
 
         rm = _read_ratemap_bedgraph(self._bedgraph(tmp_path), default_rate=None)
         assert np.isnan(rm.rate[0])
+
+
+def test_import_msprime_names_the_extra(monkeypatch):
+    """A missing ``msprime`` exits with the install hint."""
+    monkeypatch.setitem(sys.modules, "msprime", None)
+    with pytest.raises(SystemExit, match=r"pip install ancestree\[maps\]"):
+        _import_msprime()
+
+
+def test_import_msprime_returns_the_module():
+    assert _import_msprime() is msprime
 
 
 class TestLocalTreeOmitsFitToggles:
@@ -347,3 +443,47 @@ def test_cli_clean_error_on_missing_file(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "ancestree: error:" in err
     assert "Traceback" not in err
+
+
+class TestDebugRequested:
+    """``--debug`` is read back through the parser, abbreviation included."""
+
+    def test_a_parsable_command_line_reads_the_flag(self):
+        argv = ["arg", "--trees", "x.trees", "--out", "y.vcf"]
+        assert _debug_requested(argv) is False
+        assert _debug_requested(["--debug", *argv]) is True
+
+    def test_an_unparsable_command_line_falls_back_to_the_prefix(self):
+        assert _debug_requested(["--deb"]) is True
+        assert _debug_requested([]) is False
+        assert _debug_requested(["fixed-tree", "--debug"]) is True
+
+    def test_sys_argv_is_read_when_no_vector_is_given(self, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["ancestree", "--debug", "arg",
+                                          "--trees", "x.trees", "--out", "y.vcf"])
+        assert _debug_requested(None) is True
+
+
+def test_main_reraises_operational_errors_under_debug(tmp_path, capsys):
+    """With ``--debug`` the exception propagates uncaught."""
+    argv = ["local-tree", "--vcf", str(tmp_path / "no_such.vcf"),
+            "--sequence-length", "1000", "--out", str(tmp_path / "out.vcf")]
+    with pytest.raises(OSError, match="no_such.vcf"):
+        main(["--debug", *argv])
+    assert "ancestree: error:" not in capsys.readouterr().err
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning:runpy")
+def test_module_entry_point_runs_main(monkeypatch, capsys):
+    """``python -m ancestree.cli`` reaches :func:`main`.
+
+    The module is executed a second time in this process, which ``runpy``
+    reports as a re-execution of an imported module.
+    """
+    from ancestree import __version__
+
+    monkeypatch.setattr(sys, "argv", ["ancestree", "--version"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_module("ancestree.cli", run_name="__main__", alter_sys=True)
+    assert exc.value.code == 0
+    assert __version__ in capsys.readouterr().out

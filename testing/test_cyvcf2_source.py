@@ -7,6 +7,7 @@ on the same data.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import msprime
@@ -16,6 +17,7 @@ import ancestree as anc
 from ancestree.sources import CyVCF2Source, TskitSource
 
 import cyvcf2
+from testing._helpers import write_vcf
 
 
 @pytest.fixture(scope="module")
@@ -384,3 +386,34 @@ def test_cyvcf2_source_sites_only_vcf(tmp_path):
     )
     src = CyVCF2Source(str(vcf))
     assert src.ploidy == 2
+
+
+class TestCyVCF2Source:
+    """The repr, ploidy on a record-less file, the contig filter and the backend guard."""
+
+    def test_cyvcf2_source(self, tmp_path):
+        path = write_vcf(tmp_path / "t.vcf", [("1", 100, "A", "C", ".", ["0/1"])])
+        assert repr(CyVCF2Source(path)) == f"CyVCF2Source(path={path!r}, n_samples=2)"
+
+    def test_a_file_without_records_defaults_to_diploid(self, tmp_path):
+        source = CyVCF2Source(write_vcf(tmp_path / "t.vcf", []))
+        assert source.ploidy == 2
+        assert source.samples() == ["s1_h0", "s1_h1"]
+        assert list(source) == []
+
+    def test_the_contig_filter_drops_other_contigs(self, tmp_path):
+        path = write_vcf(tmp_path / "t.vcf", [
+            ("1", 100, "A", "C", ".", ["0/1"]),
+            ("2", 150, "G", "T", ".", ["1/1"]),
+            ("1", 200, "A", "G", ".", ["0/0"]),
+        ])
+        assert [(s.chrom, s.pos) for s in CyVCF2Source(path, chrom_filter="2")] \
+            == [("2", 150)]
+        assert [(s.chrom, s.pos) for s in CyVCF2Source(path)] \
+            == [("1", 100), ("2", 150), ("1", 200)]
+
+    def test_a_missing_backend_is_reported_at_construction(self, tmp_path, monkeypatch):
+        path = write_vcf(tmp_path / "t.vcf", [])
+        monkeypatch.setitem(sys.modules, "cyvcf2", None)
+        with pytest.raises(ImportError, match="CyVCF2Source requires cyvcf2"):
+            CyVCF2Source(path)

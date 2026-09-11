@@ -15,9 +15,10 @@ import pytest
 import ancestree as anc
 from ancestree.posterior import Posterior
 from ancestree.writers import VCFWriter
+from testing._helpers import QUICKSTART_VCF
 
 
-SRC = "docs/_static/quickstart.vcf.gz"
+SRC = QUICKSTART_VCF
 NEAR_CERTAIN = 0.9999999
 
 

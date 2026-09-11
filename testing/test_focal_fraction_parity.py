@@ -12,8 +12,9 @@ import tskit
 
 import ancestree as anc
 from ancestree.focal import FocalNode
+from testing._helpers import QUICKSTART_TREES
 
-TREES = "docs/_static/quickstart.trees"
+TREES = QUICKSTART_TREES
 
 
 def _ladder():

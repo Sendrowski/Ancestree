@@ -1,9 +1,14 @@
 """Site-level helpers that the inference layer depends on."""
 from collections import Counter
 
+import msprime
+import numpy as np
 import pytest
 
-from ancestree import Site
+from ancestree import BaseComposition, Site
+from ancestree.sites import SiteSource, SiteTable
+from ancestree.sources import CyVCF2Source
+from testing._helpers import QUICKSTART_TREES
 
 
 class TestIndividualNamesMatchHaplotypes:
@@ -81,7 +86,7 @@ class TestPhaseArgumentsAreRefusedWhereTheyCannotApply:
     def _ts():
         import tskit
 
-        return tskit.load("docs/_static/quickstart.trees")
+        return tskit.load(QUICKSTART_TREES)
 
     @pytest.mark.parametrize("kwargs", [
         {"phased": True},
@@ -144,3 +149,102 @@ class TestAlleleCategories:
 
     def test_soft_masked_alleles_stay_representable(self):
         assert self._site(("a", "c"), {"a": "a", "b": "c"}).has_representable_allele
+
+
+class TestIsCalled:
+    """``Site.is_called`` recognises the no-call spellings in any case."""
+
+    @pytest.mark.parametrize("allele", [None, "", ".", "N", "n"])
+    def test_missing_spellings_are_not_called(self, allele):
+        assert Site.is_called(allele) is False
+
+    def test_non_strings_are_not_called(self):
+        assert Site.is_called(0) is False
+
+    @pytest.mark.parametrize("allele", ["A", "a", "T"])
+    def test_bases_are_called(self, allele):
+        assert Site.is_called(allele) is True
+
+
+class TestBaseCompositionEdges:
+    """Blank FASTA lines, count-free κ and a stream with no called base."""
+
+    def test_from_fasta_skips_blank_lines(self, tmp_path):
+        path = tmp_path / "ref.fa"
+        path.write_text(">c1 first\nACGT\n\nAC\n\n>c2\n\nGG\n")
+        bc = BaseComposition.from_fasta(path)
+        assert dict(bc.counts) == {"A": 2, "C": 2, "G": 3, "T": 1}
+
+    def test_kappa_estimate_without_ts_tv_counts_is_the_default(self):
+        bc = BaseComposition.from_counts(A=10, C=10, G=10, T=10)
+        assert bc.n_ts == 0 and bc.n_tv == 0
+        assert bc.kappa_estimate == 2.0
+
+    def test_from_polymorphic_sites_with_no_called_base_is_uniform(self):
+        sites = [
+            Site(chrom="1", pos=1, alleles=("N",), tip_alleles={"a": None, "b": "N"}),
+            Site(chrom="1", pos=2, alleles=(".",), tip_alleles={"a": ".", "b": None}),
+        ]
+        bc = BaseComposition.from_polymorphic_sites(sites)
+        assert bc.n_ts == 0 and bc.n_tv == 0
+        np.testing.assert_array_equal(bc.pi, np.full(4, 0.25))
+
+
+class TestSiteTableIndexing:
+    """Slices stay tables and negative indices count from the end."""
+
+    @pytest.fixture
+    def table(self):
+        sites = [
+            Site(chrom="1", pos=10, alleles=("A", "C"), tip_alleles={"h0": "A", "h1": "C"}),
+            Site(chrom="1", pos=20, alleles=("G",), tip_alleles={"h0": "G", "h1": "G"}),
+            Site(chrom="1", pos=30, alleles=("A", "T"), tip_alleles={"h0": "T", "h1": "A"}),
+        ]
+        return SiteTable.from_sites(sites)
+
+    def test_slice_returns_a_table_over_the_selected_rows(self, table):
+        tail = table[1:]
+        assert isinstance(tail, SiteTable)
+        assert len(tail) == 2
+        assert [s.pos for s in tail] == [20, 30]
+        assert tail[0].tip_alleles == {"h0": "G", "h1": "G"}
+
+    def test_negative_index_counts_from_the_end(self, table):
+        assert table[-1].pos == 30
+        assert table[-3].pos == table[0].pos == 10
+
+
+@pytest.fixture(scope="module")
+def vcf_path(tmp_path_factory):
+    """A haploid four-sample VCF on contig ``1``."""
+    ts = msprime.sim_ancestry(
+        samples=4, ploidy=1, sequence_length=2e4, population_size=1e4,
+        random_seed=11,
+    )
+    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=11)
+    path = tmp_path_factory.mktemp("resolve") / "h.vcf"
+    with open(path, "w") as f:
+        ts.write_vcf(f, contig_id="1")
+    return path
+
+
+class TestResolvePathArguments:
+    """The filter arguments reach the VCF backend and are refused for VCZ."""
+
+    def test_every_argument_is_forwarded_to_the_vcf_source(self, vcf_path):
+        src = SiteSource.resolve(
+            str(vcf_path), sample_filter=["tsk_0", "tsk_2"], chrom_filter="1",
+            ploidy=1, phased=True, phase_seed=7,
+        )
+        assert isinstance(src, CyVCF2Source)
+        assert src.samples() == ["tsk_0", "tsk_2"]
+        assert src.ploidy == 1
+        assert src._chrom_filter == "1"
+        assert src._phased is True
+        assert src._phase_seed == 7
+        first = next(iter(src))
+        assert set(first.tip_alleles) == {"tsk_0", "tsk_2"}
+
+    def test_vcz_refuses_a_ploidy_override(self, tmp_path):
+        with pytest.raises(ValueError, match="ploidy is read from the store"):
+            SiteSource.resolve(str(tmp_path / "absent.vcz"), ploidy=2)

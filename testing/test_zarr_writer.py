@@ -8,15 +8,18 @@ embedded-header update.
 """
 from __future__ import annotations
 
+import types
+
 import numpy as np
 import pytest
 
 from ancestree.posterior import Posterior
 from ancestree.sites import Site
 from ancestree.writers import ZarrWriter
-from testing._helpers import post
+from testing._helpers import post, write_vcz
 
 import zarr
+from testing._helpers import site_pair
 
 # Fixed-length string arrays (the VCZ layout) draw a zarr-v3
 # UnstableSpecificationWarning that the format mandates and so cannot act on;
@@ -55,6 +58,19 @@ def _site(pos: int) -> Site:
 
 
 class TestZarrWriter:
+    """The added arrays, the header, the info block, the empty offer and the
+    zarr v2 array bridge."""
+
+    @staticmethod
+    def _store(tmp_path, name="in.vcz"):
+        path = str(tmp_path / name)
+        write_vcz(
+            path, positions=[100, 200], contigs_per_variant=[0, 0],
+            contig_ids=["1"], alleles=[["A", "C"], ["A", "C"]],
+            sample_ids=["s1"], genotypes=np.zeros((2, 1, 2), dtype=np.int8),
+        )
+        return path
+
     def test_adds_aa_arrays_aligned_to_variants(self, vcz_store, tmp_path):
         out = str(tmp_path / "out.vcz")
         pairs = [(_site(100), post("A", 0.9)), (_site(300), post("G", 0.8))]
@@ -159,6 +175,52 @@ class TestZarrWriter:
         )
         r = zarr.open(out, mode="r")
         assert "kappa" in dict(r.attrs["ancestree_info"])
+
+    def test_repr_shows_the_output(self, tmp_path):
+        writer = ZarrWriter(tmp_path / "in.vcz", tmp_path / "out.vcz")
+        assert repr(writer) == f"ZarrWriter(output={str(tmp_path / 'out.vcz')!r})"
+
+    def test_an_empty_offer_is_reported_and_written_unannotated(
+            self, tmp_path, caplog):
+        out = str(tmp_path / "out.vcz")
+        with caplog.at_level("WARNING"):
+            assert ZarrWriter(self._store(tmp_path), out).write([]) == 0
+        assert any("received no posteriors" in r.message
+                   for r in caplog.records)
+        root = zarr.open(out, mode="r")
+        assert [str(a) for a in root["variant_AA"][:]] == [".", "."]
+        assert np.isnan(root["variant_AA_prob"][:]).all()
+
+    def test_a_run_without_info_clears_the_earlier_block(self, tmp_path):
+        first = str(tmp_path / "first.vcz")
+        second = str(tmp_path / "second.vcz")
+        pairs = [site_pair(100), site_pair(200)]
+        ZarrWriter(self._store(tmp_path), first).write(pairs, info={"kappa": 2.0})
+        assert zarr.open(first, mode="r").attrs["ancestree_info"] == {"kappa": 2.0}
+        ZarrWriter(first, second).write(pairs)
+        assert "ancestree_info" not in zarr.open(second, mode="r").attrs
+
+    def test_the_v2_group_api_receives_the_array_and_its_attributes(self):
+        """A group exposing only ``create_dataset`` gets the same array contract."""
+
+        class V2Group(dict):
+            """The zarr v2 group surface the bridge relies on."""
+
+            def create_dataset(self, name, data, overwrite, chunks):
+                assert overwrite is True
+                arr = types.SimpleNamespace(data=data, chunks=chunks, attrs={})
+                self[name] = arr
+                return arr
+
+        root = V2Group(variant_AA="stale")
+        data = np.array(["A", "."], dtype="U1")
+        arr = ZarrWriter._create_variant_array(
+            root, "variant_AA", data, ["variants"], description="d",
+            variant_chunk=1)
+        assert root["variant_AA"] is arr
+        assert arr.chunks == (1,)
+        assert list(arr.data) == ["A", "."]
+        assert arr.attrs == {"_ARRAY_DIMENSIONS": ["variants"], "description": "d"}
 
 
 def test_annotation_arrays_carry_their_descriptions(tmp_path):

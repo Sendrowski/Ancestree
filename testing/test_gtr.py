@@ -4,7 +4,7 @@ relations to F81/HKY/JC69, free-parameter protocol, kernel integration.
 import numpy as np
 import pytest
 
-from ancestree import GTR, HKY, F81, JC69, Likelihood
+from ancestree import GTR, HKY, F81, JC69, Likelihood, STATES
 from ancestree.sites import BaseComposition, Site
 from ancestree.trees import TskitLocalTree
 
@@ -409,3 +409,19 @@ def test_empirical_from_sites_ignores_outgroup_alleles():
     # Counting the outgroup too would swamp AG and drive the others down.
     swamped = GTR.empirical_from_sites(sites, bc, ingroup + outgroup)
     assert swamped.rates[0] < 0.5  # AC, normalised against the inflated AG
+
+
+class TestGTREdges:
+    def test_repr_lists_the_rates(self):
+        assert repr(GTR(rates=[1, 2, 3, 4, 5, 6])) == "GTR(rates=[1, 2, 3, 4, 5, 6])"
+
+    def test_empirical_rates_refuse_a_zero_base_frequency(self):
+        bc = BaseComposition(
+            counts={b: 0 for b in STATES},
+            _pi_cache=np.array([0.5, 0.5, 0.0, 0.0]),
+        )
+        sites = [Site(chrom="1", pos=1, alleles=(x, y), tip_alleles={"a": x, "b": y})
+                 for x, y in
+                 [("A", "C"), ("A", "G"), ("A", "T"), ("C", "G"), ("C", "T"), ("G", "T")]]
+        with pytest.raises(ValueError, match="strictly positive"):
+            GTR.empirical_from_sites(sites, bc, ["a", "b"])

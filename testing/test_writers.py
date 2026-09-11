@@ -172,6 +172,12 @@ class TestReservedInfoKeys:
             )
 
 
+def test_a_missing_backend_names_the_writer_and_the_module(tmp_path):
+    writer = VCFWriter(tmp_path / "in.vcf", tmp_path / "out.vcf")
+    with pytest.raises(ImportError, match="VCFWriter requires ancestree_no_such"):
+        writer._require_backend("ancestree_no_such_backend", "pip install x")
+
+
 class TestTskitWriter:
     """:class:`TskitWriter` should set ``site.ancestral_state`` from MAP."""
 
@@ -259,6 +265,22 @@ class TestTskitWriter:
         assert first.metadata["ancestree"]["inference"] == {
             "prior": "kingman", "model": "JC",
         }
+
+
+class TestTskitWriterMetadata:
+    """Site metadata of any shape is coerced to a dict the block can merge into."""
+
+    def test_a_dict_is_copied(self):
+        meta = {"k": 1}
+        out = TskitWriter._coerce_metadata_to_dict(meta)
+        assert out == meta and out is not meta
+
+    def test_json_bytes_are_parsed(self):
+        assert TskitWriter._coerce_metadata_to_dict(b'{"k": 1}') == {"k": 1}
+
+    @pytest.mark.parametrize("raw", [b"", b"not json", b"[1, 2]", "text", None])
+    def test_anything_else_collapses_to_an_empty_dict(self, raw):
+        assert TskitWriter._coerce_metadata_to_dict(raw) == {}
 
 
 # -------------------------------------------------- min_confidence threshold

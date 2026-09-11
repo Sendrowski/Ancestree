@@ -6,11 +6,18 @@ multi-rooted local tree, and that :class:`~ancestree.inference.ARGBasedInference
 emits a posterior at every site by averaging across the roots' subtrees
 (uniform-prior marginalisation).
 """
+import logging
+import multiprocessing as mp
+
 import msprime
 import numpy as np
 import pytest
+import tskit
 
-from ancestree import ARGBasedInference, JC69, TskitLocalTree
+from ancestree import ARGBasedInference, JC69, Site, TskitLocalTree
+from ancestree.focal import ResolvedFocal
+from ancestree.likelihood import Likelihood
+from ancestree.trees import RerootedTree, Tree
 
 
 @pytest.fixture(scope="module")
@@ -436,3 +443,241 @@ def test_marginalising_over_repeated_draws_keeps_the_site_counts(
     marginal, _ = _quiet_walk([ts, ts])
     assert marginal._n_ingroup_monomorphic == serial._n_ingroup_monomorphic
     assert marginal._n_uncoalesced_segments == 2 * n_uncoalesced
+
+
+# ------------------------------------------- hand-built multi-root trees
+
+
+def _mutate(tables, site_positions, node_per_site, derived="C"):
+    """Add one A-to-``derived`` site per position, mutated on the given node.
+
+    :param tables: The table collection to extend.
+    :param site_positions: Site positions along the sequence.
+    :param node_per_site: The node carrying the mutation at each site.
+    :param derived: The derived state written at every site.
+    """
+    for position, node in zip(site_positions, node_per_site):
+        site = tables.sites.add_row(position=position, ancestral_state="A")
+        tables.mutations.add_row(site=site, node=node, derived_state=derived)
+
+
+def _three_root_ts() -> tskit.TreeSequence:
+    """One local tree with three roots: a clade over samples 0-2 whose
+    ingroup ``{0, 1}`` coalesces at node 6, a clade over samples 3-4 under
+    node 8, and sample 5 as an uncoalesced root of its own.
+    """
+    tables = tskit.TableCollection(sequence_length=100.0)
+    tables.time_units = "generations"
+    for _ in range(6):
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0.0)
+    n6 = tables.nodes.add_row(flags=0, time=1.0)
+    n7 = tables.nodes.add_row(flags=0, time=2.0)
+    n8 = tables.nodes.add_row(flags=0, time=1.5)
+    for parent, child in ((n6, 0), (n6, 1), (n7, n6), (n7, 2), (n8, 3), (n8, 4)):
+        tables.edges.add_row(left=0.0, right=100.0, parent=parent, child=child)
+    _mutate(tables, [10.0, 20.0, 30.0], [n6, 3, 5])
+    tables.sort()
+    return tables.tree_sequence()
+
+
+def _uncoalesced_then_coalesced_ts() -> tskit.TreeSequence:
+    """Two local trees: no edge at all over ``[0, 50)``, so every sample is
+    its own root there, and a fully coalesced tree over ``[50, 100)``.
+    """
+    tables = tskit.TableCollection(sequence_length=100.0)
+    tables.time_units = "generations"
+    for _ in range(4):
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0.0)
+    n4 = tables.nodes.add_row(flags=0, time=1.0)
+    n5 = tables.nodes.add_row(flags=0, time=1.5)
+    n6 = tables.nodes.add_row(flags=0, time=3.0)
+    for parent, child in ((n4, 0), (n4, 1), (n5, 2), (n5, 3), (n6, n4), (n6, n5)):
+        tables.edges.add_row(left=50.0, right=100.0, parent=parent, child=child)
+    _mutate(tables, [10.0, 20.0, 60.0, 70.0], [0, 1, n4, 2])
+    tables.sort()
+    return tables.tree_sequence()
+
+
+class _BareTree(Tree):
+    """A tree backed by nothing: no tskit tree and no focal resolution."""
+
+    @property
+    def root(self) -> int:
+        return 0
+
+    def children(self, node: int):
+        return ()
+
+    def branch_length(self, node: int) -> float:
+        return 0.0
+
+    def postorder(self):
+        return (0,)
+
+    def tip_for_sample(self, sample_id: str):
+        return None
+
+    def n_tips(self) -> int:
+        return 1
+
+
+class _WholeMultiRootTree(_BareTree):
+    """A caller-supplied tree exposing every tip of a multi-root tskit tree."""
+
+    def __init__(self, ts_tree):
+        self._tree = ts_tree
+
+    @property
+    def tskit_tree(self):
+        return self._tree
+
+    @property
+    def root(self) -> int:
+        return 7
+
+    def tip_for_sample(self, sample_id: str):
+        return int(sample_id)
+
+
+# ------------------------------------------------------------ focal views
+
+
+def test_focal_view_refuses_a_tree_it_cannot_resolve_on(small_ts):
+    """A tree with neither a focal view nor a tskit backing cannot report at
+    a non-root focal node."""
+    names = list(TskitLocalTree.default_sample_map(small_ts))
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False,
+                            outgroup_samples=names[-2:])
+    with pytest.raises(ValueError, match="offers no way to resolve it"):
+        inf._focal_view(_BareTree())
+
+
+def test_tskit_focal_view_needs_an_ingroup_tip(small_ts):
+    """A tskit tree naming its tips differently from the run's panel holds
+    no ingroup tip to resolve the focal node against."""
+    names = list(TskitLocalTree.default_sample_map(small_ts))
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False,
+                            outgroup_samples=names[-2:])
+    renamed = {f"x{n}": node for n, node in
+               TskitLocalTree.default_sample_map(small_ts).items()}
+    tree = TskitLocalTree.from_tskit_tree(small_ts.first(), sample_map=renamed)
+    site = Site(chrom="1", pos=1, alleles=("A", "C"),
+                tip_alleles={s: "A" for s in renamed})
+    with pytest.raises(ValueError, match="none of the ingroup samples are tips"):
+        inf.infer_site(tree, site)
+
+
+def test_tskit_focal_view_keeps_a_tree_the_ingroup_straddles():
+    """An ingroup spanning several roots has no MRCA, so a caller-supplied
+    tree is read at its own rooting."""
+    ts = _three_root_ts()
+    straddling = ARGBasedInference(ts, JC69(), mu=0.1, progress=False,
+                                   ingroup_samples=["0", "3"])
+    tree = _WholeMultiRootTree(ts.first())
+    assert straddling._focal_view(tree) is tree
+
+
+class TestMultiRootWithFocal:
+    """A multi-root segment whose ingroup coalesces under one root reports
+    at the ingroup MRCA of that root's subtree alone."""
+
+    MU = 0.1
+
+    def _manual(self, ts, site_index, prior):
+        """The posterior at node 6 of the holder subtree, re-rooted there."""
+        tree = ts.first()
+        local = TskitLocalTree.from_tskit_tree(
+            tree, sample_map=TskitLocalTree.default_sample_map(ts), root=7)
+        local.time_scale = self.MU
+        view = RerootedTree(local, 6, 0.0)
+        site = next(s for i, (s, _) in enumerate(ARGBasedInference(
+            ts, JC69(), mu=self.MU, progress=False).infer()) if i == site_index)
+        log_post = Likelihood(JC69()).log_likelihoods(view, [site])[0] \
+            + prior.log_probs([site])[0]
+        return np.exp(log_post - np.logaddexp.reduce(log_post))
+
+    def test_single_arg_reports_at_the_holder_subtree(self):
+        ts = _three_root_ts()
+        inf = ARGBasedInference(ts, JC69(), mu=self.MU, progress=False,
+                                ingroup_samples=["0", "1"])
+        results = list(inf.infer())
+        assert len(results) == 3
+        for i, (_, posterior) in enumerate(results):
+            np.testing.assert_allclose(
+                posterior.values, self._manual(ts, i, inf.prior), rtol=1e-10)
+        # The clade-defining site pulls the ingroup MRCA toward its allele.
+        assert results[0][1].map_allele == "C"
+
+    def test_posterior_sample_of_identical_draws_matches_the_single_arg(self):
+        """The draws path stashes each root's evidence into the likelihood
+        rows it merges; identical draws must reproduce the single-ARG call."""
+        ts = _three_root_ts()
+        single = ARGBasedInference(ts, JC69(), mu=self.MU, progress=False,
+                                   ingroup_samples=["0", "1"])
+        draws = ARGBasedInference([ts, ts], JC69(), mu=self.MU, progress=False,
+                                  ingroup_samples=["0", "1"])
+        expected = [(s.pos, p.values) for s, p in single.infer()]
+        got = [(s.pos, p.values) for s, p in draws.infer()]
+        assert [pos for pos, _ in got] == [pos for pos, _ in expected]
+        for (_, a), (_, b) in zip(got, expected):
+            np.testing.assert_allclose(a, b, rtol=1e-10)
+        assert draws.provenance()["parameters"]["n_draws"] == 2
+
+    def test_root_holding_focal(self):
+        tree = _three_root_ts().first()
+        assert ARGBasedInference._root_holding_focal(tree, ResolvedFocal(6)) == 7
+        assert ARGBasedInference._root_holding_focal(tree, ResolvedFocal(8)) == 8
+        # A node under no root of this tree falls back to the first root.
+        tables = tree.tree_sequence.dump_tables()
+        detached_node = tables.nodes.add_row(flags=0, time=5.0)
+        detached = tables.tree_sequence().first()
+        assert ARGBasedInference._root_holding_focal(
+            detached, ResolvedFocal(detached_node),
+        ) == int(detached.roots[0])
+
+
+class TestUncoalescedSegment:
+    """A segment without any edge constrains no ancestral node."""
+
+    def test_sites_take_the_prior_and_the_walk_continues(self, caplog):
+        ts = _uncoalesced_then_coalesced_ts()
+        inf = ARGBasedInference(ts, JC69(), mu=0.1, progress=True,
+                                focal="panel_root")
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            results = list(inf.infer())
+        assert [int(s.pos) for s, _ in results] == [10, 20, 60, 70]
+        for _, posterior in results[:2]:
+            np.testing.assert_allclose(posterior.values, 0.25)
+        for _, posterior in results[2:]:
+            assert not np.allclose(posterior.values, 0.25)
+        assert any("carried no coalescence" in r.message for r in caplog.records)
+
+    def test_posterior_sample_carries_the_tip_evidence(self):
+        """Each bare-tip root contributes its allele's prior mass to the
+        stashed evidence; identical draws reproduce the single walk."""
+        ts = _uncoalesced_then_coalesced_ts()
+        single = ARGBasedInference(ts, JC69(), mu=0.1, progress=False,
+                                   focal="panel_root")
+        draws = ARGBasedInference([ts, ts], JC69(), mu=0.1, progress=False,
+                                  focal="panel_root")
+        expected = [(int(s.pos), p.values) for s, p in single.infer()]
+        got = [(int(s.pos), p.values) for s, p in draws.infer()]
+        assert [pos for pos, _ in got] == [pos for pos, _ in expected]
+        for (_, a), (_, b) in zip(got, expected):
+            np.testing.assert_allclose(a, b, rtol=1e-10)
+
+
+@pytest.mark.skipif("fork" not in mp.get_all_start_methods(),
+                    reason="fork start method unavailable")
+def test_fork_pool_with_one_chunk_runs_inline():
+    """A single-tree ARG gives one chunk, which is walked in the parent."""
+    ts = _three_root_ts()
+    inf = ARGBasedInference(ts, JC69(), mu=0.1, progress=False, n_workers=2,
+                            focal="panel_root")
+    serial = ARGBasedInference(ts, JC69(), mu=0.1, progress=False,
+                               focal="panel_root")
+    got = [(int(s.pos), p.values) for s, p in inf._infer_fork_pool()]
+    expected = [(int(s.pos), p.values) for s, p in serial.infer()]
+    assert [pos for pos, _ in got] == [pos for pos, _ in expected]
+    for (_, a), (_, b) in zip(got, expected):
+        np.testing.assert_array_equal(a, b)

@@ -7,6 +7,9 @@ from scipy.special import logsumexp
 
 import ancestree as anc
 from ancestree import ARGBasedInference, JC69
+from ancestree.sites import Site
+from testing._helpers import post
+from testing._helpers import QUICKSTART_TREES
 
 
 @pytest.fixture(scope="module")
@@ -73,12 +76,12 @@ class TestGrade:
         assert Grade(inference.infer(), truth) == inference.grade(truth)
 
     def test_truth_at_the_panel_root_is_the_ancestral_state(self):
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         assert Grade.truth_at_focal(ts, "panel_root") == Grade.truth_mapping(ts)
 
     def test_truth_at_the_ingroup_mrca_is_the_ingroup_allele_where_fixed(self):
         """At a site fixed within the ingroup, the state at its MRCA is that allele."""
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         ingroup = [f"i{i}" for i in range(6)]
         truth = Grade.truth_at_focal(
             ts, "ingroup_mrca", ingroup_samples=ingroup,
@@ -94,7 +97,7 @@ class TestGrade:
         assert truth != Grade.truth_mapping(ts)
 
     def test_a_tree_sequence_truth_is_read_at_the_ingroup_mrca_by_default(self):
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         ingroup = [f"i{i}" for i in range(6)]
         inf = anc.Inference.from_arg(
             ts, anc.JC69(), mu=5e-8, progress=False,
@@ -106,7 +109,7 @@ class TestGrade:
 
     def test_the_truth_node_is_chosen_independently_of_the_reporting_node(self):
         """A run reporting at the ingroup MRCA graded at the panel root."""
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         ingroup = [f"i{i}" for i in range(6)]
         inf = anc.Inference.from_arg(
             ts, anc.JC69(), mu=5e-8, progress=False,
@@ -124,7 +127,7 @@ class TestGrade:
 
     def test_stored_posteriors_write_the_same_file(self, tmp_path):
         """A writer given the stored stream matches one that reruns infer()."""
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         ingroup = [f"i{i}" for i in range(6)]
         inf = anc.Inference.from_arg(
             ts, anc.JC69(), mu=5e-8, progress=False,
@@ -137,7 +140,7 @@ class TestGrade:
         assert a == b
 
     def test_reader_grades_an_annotated_file_like_the_inference(self, tmp_path):
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         ingroup = [f"i{i}" for i in range(6)]
         inf = anc.Inference.from_arg(
             ts, anc.JC69(), mu=5e-8, progress=False,
@@ -216,6 +219,21 @@ class TestGrade:
         assert 0.0 <= map_recovery <= 1.0
         assert 0.0 <= brier <= 2.0
         assert n == len(truth)
+
+    @staticmethod
+    def _grade() -> Grade:
+        site = Site(chrom="1", pos=1, alleles=("A", "C"),
+                    tip_alleles={"a": "A"})
+        return Grade([(site, post("A", 0.9))], {1: "A"})
+
+    def test_compares_as_its_tuple_and_hashes_like_it(self):
+        grade = self._grade()
+        assert grade == (1.0, grade.brier, 1)
+        assert grade != "not a grade"
+        assert hash(grade) == hash((1.0, grade.brier, 1))
+
+    def test_truth_accepts_pairs(self):
+        assert Grade.truth_mapping([(1, "A"), ("2", "C")]) == {1: "A", 2: "C"}
 
 
 class TestGradeAgainstADifferentlyNamedTruth:

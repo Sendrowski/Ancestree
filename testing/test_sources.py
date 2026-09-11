@@ -211,3 +211,20 @@ class TestNoCallAlleleSpellings:
     def test_an_n_ancestral_state_still_leaves_the_site_callable(self):
         """The derived ``C`` is readable, so the site is annotated as usual."""
         assert list(TskitSource(_n_allele_ts()))[0].has_representable_allele
+
+
+class TestTskitSource:
+    """The repr, and the sample map: nodes absent from it are left out of the site."""
+
+    def test_tskit_source(self, small_ts):
+        assert repr(TskitSource(small_ts, chrom="chrZ")) == (
+            f"TskitSource(n_samples={small_ts.num_samples}, chrom='chrZ')")
+
+    def test_only_mapped_samples_appear_in_the_tip_alleles(self, small_ts):
+        source = TskitSource(small_ts, sample_map={"a": 0, "b": 1})
+        sites = list(source)
+        assert len(sites) == small_ts.num_sites
+        for site, variant in zip(sites, small_ts.variants()):
+            assert set(site.tip_alleles) == {"a", "b"}
+            assert site.tip_alleles["a"] == variant.alleles[variant.genotypes[0]]
+            assert site.tip_alleles["b"] == variant.alleles[variant.genotypes[1]]

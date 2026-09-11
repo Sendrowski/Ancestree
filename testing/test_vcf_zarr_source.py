@@ -6,6 +6,8 @@ sites, samples, and per-haplotype tip alleles.
 """
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -336,3 +338,57 @@ def test_the_panel_follows_the_filter_order(diploid_store):
     forward = VcfZarrSource(diploid_store, sample_filter=["s0", "s1"])
     assert ([dict(s.tip_alleles) for s in reverse]
             == [dict(s.tip_alleles) for s in forward])
+
+
+class TestVcfZarrSource:
+    """The repr, the contig filter, records without a reference allele,
+    malformed stores and the backend guard."""
+
+    def test_vcf_zarr_source(self, tmp_path):
+        path = str(tmp_path / "s.vcz")
+        write_vcz(
+            path, positions=[100, 200], contigs_per_variant=[0, 0],
+            contig_ids=["1"], alleles=[["A", "C"], ["A", "C"]],
+            sample_ids=["s1"], genotypes=np.zeros((2, 1, 2), dtype=np.int8),
+        )
+        assert repr(VcfZarrSource(path)) == f"VcfZarrSource(path={path!r}, n_samples=2)"
+
+    def test_the_contig_filter_drops_other_contigs(self, tmp_path):
+        path = str(tmp_path / "s.vcz")
+        write_vcz(
+            path, positions=[100, 150, 200], contigs_per_variant=[0, 1, 0],
+            contig_ids=["1", "2"],
+            alleles=[["A", "C"], ["G", "T"], ["A", "G"]],
+            sample_ids=["s1"], genotypes=np.zeros((3, 1, 1), dtype=np.int8),
+        )
+        assert [(s.chrom, s.pos) for s in VcfZarrSource(path, chrom_filter="2")] \
+            == [("2", 150)]
+        assert [(s.chrom, s.pos) for s in VcfZarrSource(path)] \
+            == [("1", 100), ("2", 150), ("1", 200)]
+
+    def test_a_record_without_a_reference_allele_is_skipped(self, tmp_path):
+        path = str(tmp_path / "s.vcz")
+        write_vcz(
+            path, positions=[100, 200, 300], contigs_per_variant=[0, 0, 0],
+            contig_ids=["1"], alleles=[["A", "C"], [], ["", "C"]],
+            sample_ids=["s1"], genotypes=np.zeros((3, 1, 1), dtype=np.int8),
+        )
+        sites = list(VcfZarrSource(path))
+        assert [s.pos for s in sites] == [100]
+        assert sites[0].tip_alleles == {"s1": "A"}
+
+    def test_a_two_dimensional_genotype_array_is_refused(self, tmp_path):
+        path = str(tmp_path / "s.vcz")
+        write_vcz(
+            path, positions=[100], contigs_per_variant=[0], contig_ids=["1"],
+            alleles=[["A", "C"]], sample_ids=["s1"],
+            genotypes=np.zeros((1, 1), dtype=np.int8),
+        )
+        with pytest.raises(ValueError, match="Expected call_genotype"):
+            VcfZarrSource(path)
+
+    def test_a_missing_backend_is_reported_at_construction(
+            self, diploid_store, monkeypatch):
+        monkeypatch.setitem(sys.modules, "zarr", None)
+        with pytest.raises(ImportError, match="VcfZarrSource requires zarr"):
+            VcfZarrSource(diploid_store)

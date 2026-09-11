@@ -8,12 +8,17 @@ Agreement with PolarBEAR itself is covered by ``test_polarbear_agreement.py``.
 from __future__ import annotations
 
 import logging
+import os
+import sys
+import tempfile
+
 import msprime
 
 import numpy as np
 import pytest
 import tskit
 
+import ancestree.inference as inference_mod
 from ancestree import (
     ARGBasedInference,
     JC69,
@@ -73,6 +78,14 @@ def test_non_finite_mu_rejected(small_ts, mu):
 
 
 # ------------------------------------------------- ARGBasedInference guards
+def test_missing_mu_falls_back_to_the_default_with_a_warning(small_ts, caplog):
+    from ancestree import DEFAULT_MU
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        inf = ARGBasedInference(small_ts, JC69(), progress=False)
+    assert inf.mu == DEFAULT_MU
+    assert any("no mu given" in r.message for r in caplog.records)
+
+
 class TestArgGuards:
     def test_prior_wrong_type_rejected(self, small_ts):
         with pytest.raises(TypeError, match="prior must be a StationaryPrior"):
@@ -690,3 +703,142 @@ class TestInferSiteReportsAtTheFocalNode:
                 inf.infer_site(tree, site).values, expected.values, atol=1e-12)
             compared += 1
         assert compared > 100
+
+
+# ---------------------------------------------- the run's own bookkeeping
+
+
+def test_reprs_show_the_configuration(small_ts):
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    assert repr(inf).startswith("ARGBasedInference(") and "mu=" in repr(inf)
+    baseline = MajorityOutgroupInference([], ["o1"], confidence=0.8,
+                                         for_comparison_only=True)
+    assert repr(baseline) == "MajorityOutgroupInference(confidence=0.8)"
+
+
+def test_ingroup_monomorphic_tally_counts_the_sites_itself(small_ts):
+    """Without precomputed counts the tally reads each site's ingroup alleles."""
+    names = list(TskitLocalTree.default_sample_map(small_ts))
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False,
+                            outgroup_samples=names[-2:])
+    ingroup = names[:-2]
+    mono = Site(chrom="1", pos=1, alleles=("A", "C"),
+                tip_alleles={**{s: "A" for s in ingroup}, names[-1]: "C"})
+    poly = Site(chrom="1", pos=2, alleles=("A", "C"),
+                tip_alleles={**{s: "A" for s in ingroup}, ingroup[0]: "C"})
+    inf._count_ingroup_monomorphic([mono, poly, mono])
+    assert inf._n_ingroup_monomorphic == 2
+
+
+def test_all_outgroup_panel_leaves_nothing_to_resolve(small_ts):
+    """Naming every panel sample as an outgroup empties the ingroup, which the
+    ingroup-MRCA focal node needs and the panel root does not."""
+    names = list(TskitLocalTree.default_sample_map(small_ts))
+    with pytest.raises(ValueError, match="has no node to resolve"):
+        ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False,
+                          outgroup_samples=names, focal="ingroup_mrca")
+    at_root = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False,
+                                outgroup_samples=names, focal="panel_root")
+    assert at_root._resolved_ingroup == ()
+    assert len(list(at_root.infer())) == small_ts.num_sites
+
+
+# ------------------------------------------------------- template clean-up
+
+
+def _failing_unlink(monkeypatch):
+    """Route ``os.unlink`` through a stub that refuses, recording the paths."""
+    refused = []
+
+    def unlink(path, *args, **kwargs):
+        refused.append(str(path))
+        raise OSError("refused")
+
+    monkeypatch.setattr(inference_mod.os, "unlink", unlink)
+    return refused
+
+
+def test_missing_bio2zarr_is_reported_and_the_template_dropped(small_ts, monkeypatch):
+    """Without ``bio2zarr`` the VCZ template cannot be built. The temporary
+    VCF is released even where the file system refuses the unlink."""
+    refused = _failing_unlink(monkeypatch)
+    monkeypatch.setitem(sys.modules, "bio2zarr.vcf", None)
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    try:
+        with pytest.raises(ImportError, match="bio2zarr, which is not installed"):
+            inf._build_default_template_vcz()
+        assert len(refused) == 1 and refused[0].endswith(".vcf")
+    finally:
+        for path in refused:
+            if os.path.exists(path):
+                os.remove(path)
+
+
+def test_failed_conversion_removes_the_half_built_store(small_ts, monkeypatch):
+    """A conversion error propagates and leaves no template directory behind."""
+    import bio2zarr.vcf as bio2zarr_vcf
+
+    made = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        made.append(real_mkdtemp(*args, **kwargs))
+        return made[-1]
+
+    def convert(*args, **kwargs):
+        raise RuntimeError("conversion failed")
+
+    monkeypatch.setattr(inference_mod.tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(bio2zarr_vcf, "convert", convert)
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    with pytest.raises(RuntimeError, match="conversion failed"):
+        inf._build_default_template_vcz()
+    assert len(made) == 1 and not os.path.exists(made[0])
+
+
+def test_to_vcf_tolerates_an_unremovable_template(small_ts, tmp_path, monkeypatch):
+    """The annotated VCF is complete even where the temporary template
+    cannot be unlinked afterwards."""
+    refused = _failing_unlink(monkeypatch)
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    out = tmp_path / "out.vcf"
+    try:
+        assert inf.to_vcf(str(out)) == small_ts.num_sites
+        assert len(refused) == 1
+        assert out.read_text().count("AA=") == small_ts.num_sites
+    finally:
+        for path in refused:
+            if os.path.exists(path):
+                os.remove(path)
+
+
+def test_template_vcf_is_removed_when_the_dump_fails(small_ts, monkeypatch):
+    """A failed dump propagates, and the partial file is unlinked where the
+    file system allows and left where it refuses."""
+    created = []
+    real_named = tempfile.NamedTemporaryFile
+
+    def named(*args, **kwargs):
+        handle = real_named(*args, **kwargs)
+        created.append(handle.name)
+        return handle
+
+    def write_vcf(self, *args, **kwargs):
+        raise RuntimeError("dump failed")
+
+    monkeypatch.setattr(inference_mod.tempfile, "NamedTemporaryFile", named)
+    monkeypatch.setattr(tskit.TreeSequence, "write_vcf", write_vcf)
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    with pytest.raises(RuntimeError, match="dump failed"):
+        inf._default_template_vcf(None)
+    assert len(created) == 1 and not os.path.exists(created[0])
+
+    refused = _failing_unlink(monkeypatch)
+    try:
+        with pytest.raises(RuntimeError, match="dump failed"):
+            inf._default_template_vcf("chrZ")
+        assert refused == [created[1]]
+    finally:
+        for path in refused:
+            if os.path.exists(path):
+                os.remove(path)

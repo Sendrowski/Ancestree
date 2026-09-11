@@ -11,8 +11,9 @@ import pytest
 import tskit
 
 import ancestree as anc
+from testing._helpers import QUICKSTART_TREES
 
-TREES = "docs/_static/quickstart.trees"
+TREES = QUICKSTART_TREES
 ING = [f"i{i}" for i in range(6)]
 
 

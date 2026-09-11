@@ -12,6 +12,8 @@ Two layers of coverage:
 """
 from __future__ import annotations
 import argparse
+import json
+import logging
 
 
 import msprime
@@ -20,9 +22,20 @@ import pytest
 import tskit
 import ancestree as anc
 
-from ancestree.cli import _run_local_tree, build_parser, run
+from ancestree.cli import (
+    _empirical_composition,
+    _lib_default,
+    _run_local_tree,
+    build_parser,
+    run,
+)
 from ancestree.inference import _individual_of
 from ancestree.priors import NoIngroupWeight
+from ancestree.settings import Settings
+from ancestree.writers import PROVENANCE_HEADER, VCF_PROVENANCE_MARKER
+
+from testing._helpers import ladder_panel, write_skeleton_vcf
+from testing._helpers import DEMO_TREES, DEMO_VCF, QUICKSTART_TREES
 
 
 # ---------------------------------------------------------------------------- fixtures
@@ -48,6 +61,26 @@ def tiny_trees_path(tiny_ts, tmp_path_factory):
     p = tmp_path_factory.mktemp("cli_trees") / "tiny.trees"
     tiny_ts.dump(str(p))
     return p
+
+
+def _vcf_provenance(path) -> dict:
+    """The provenance record an annotated VCF carries in its header."""
+    for line in path.read_text().splitlines():
+        if line.startswith(VCF_PROVENANCE_MARKER):
+            return json.loads(line[len(VCF_PROVENANCE_MARKER):])
+    raise AssertionError(f"no provenance header in {path}")
+
+
+def _aa_calls(path) -> list[str]:
+    """The ``AA`` INFO values of every record in an annotated VCF."""
+    calls = []
+    for line in path.read_text().splitlines():
+        if line.startswith("#"):
+            continue
+        info = dict(kv.split("=", 1) for kv in line.split("\t")[7].split(";")
+                    if "=" in kv)
+        calls.append(info["AA"])
+    return calls
 
 
 # ---------------------------------------------------------------------------- parser-level
@@ -314,7 +347,7 @@ class TestArgSubcommandE2E:
         gt = rng.integers(0, 2, size=(n_sites, n_samples, 1), dtype=np.int8)
 
         vcf_in = tmp_path / "input.vcf"
-        _write_skeleton_vcf(vcf_in, sample_ids=sample_ids,
+        write_skeleton_vcf(vcf_in, sample_ids=sample_ids,
                             alleles_per_site=alleles, genotypes=gt)
         nwk = tmp_path / "species.nwk"
         nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
@@ -356,6 +389,27 @@ class TestArgSubcommandE2E:
             assert n_differs_from_ref > 0, "every call equals REF"
         finally:
             rdr.close()
+
+
+@pytest.mark.filterwarnings("ignore::Warning:zarr")
+def test_arg_writes_a_vcz_store(tiny_ts, tiny_trees_path, tmp_path, caplog):
+    """``arg --out x.vcz`` builds a template from the tree sequence and
+    annotates every site."""
+    import zarr
+
+    out = tmp_path / "annot.vcz"
+    with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+        code = run(["arg", "--trees", str(tiny_trees_path), "--mu", "1e-7",
+                    "--out", str(out)])
+    assert code == 0
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(m == f"arg: wrote {tiny_ts.num_sites} annotated records to {out}"
+               for m in messages)
+    root = zarr.open(str(out), mode="r")
+    aa = [str(a) for a in root["variant_AA"][:]]
+    assert len(aa) == tiny_ts.num_sites
+    assert set(aa) <= {"A", "C", "G", "T"}
+    assert root.attrs[PROVENANCE_HEADER]["mode"] == "arg"
 
 
 # ---------------------------------------------------------------------------- VCZ input
@@ -402,29 +456,6 @@ def _write_minimal_vcz(path, *, sample_ids, alleles_per_site, genotypes):
     _put("contig_id", np.asarray(["chr1"], dtype="U"), "U4")
 
 
-def _write_skeleton_vcf(path, *, sample_ids, alleles_per_site, genotypes):
-    """Write a plain-text VCF mirroring the same variant rows as a VCZ store.
-
-    Just enough header + records to serve as a cyvcf2 template for
-    :class:`~ancestree.writers.VCFWriter` (which iterates the template
-    and annotates each record's ``INFO`` with ``AA``).
-    """
-    n_variants, n_samples, _ = genotypes.shape
-    lines = [
-        "##fileformat=VCFv4.2",
-        "##contig=<ID=chr1>",
-        "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(sample_ids),
-    ]
-    for i in range(n_variants):
-        ref, *alts = alleles_per_site[i]
-        gts = "\t".join(str(int(genotypes[i, j, 0])) for j in range(n_samples))
-        lines.append(
-            f"chr1\t{i + 1}\t.\t{ref}\t{','.join(alts)}\t.\tPASS\t.\tGT\t{gts}"
-        )
-    path.write_text("\n".join(lines) + "\n")
-
-
 class TestFixedTreeVczInput:
     """Confirm ``fixed-tree --vcf`` transparently accepts ``.vcz`` stores
     (the inference layer dispatches by extension. The CLI just passes the
@@ -457,7 +488,7 @@ class TestFixedTreeVczInput:
         _write_minimal_vcz(store, sample_ids=sample_ids,
                            alleles_per_site=alleles, genotypes=gt)
         skel = tmp_path / "input.vcf"
-        _write_skeleton_vcf(skel, sample_ids=sample_ids,
+        write_skeleton_vcf(skel, sample_ids=sample_ids,
                             alleles_per_site=alleles, genotypes=gt)
 
         nwk = tmp_path / "species.nwk"
@@ -502,6 +533,148 @@ class TestFixedTreeVczInput:
             assert n_differs_from_ref > 0, "every call equals REF"
         finally:
             rdr.close()
+
+
+@pytest.mark.filterwarnings("ignore::Warning:zarr")
+class TestFixedTreeHandler:
+    """The ``fixed-tree`` branches beyond the species-tree VCF-to-VCF run."""
+
+    def test_adaptive_weight_with_species_tree_falls_back_to_kingman(
+            self, ladder_panel, tmp_path, caplog):
+        vcf, _vcz, nwk, _alleles, _gt = ladder_panel
+        out = tmp_path / "annot.vcf"
+        with caplog.at_level(logging.WARNING, logger="ancestree.cli"):
+            code = run([
+                "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+                "--ingroup", "i0,i1", "--outgroups", "o1,o2",
+                "--ingroup-weight", "adaptive", "--out", str(out),
+            ])
+        assert code == 0
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("Kingman values are used instead" in m for m in messages)
+        prov = _vcf_provenance(out)
+        assert prov["parameters"]["branch_rates_fitted"] is False
+
+    def test_ingroup_is_derived_from_the_panel(
+            self, ladder_panel, tmp_path, caplog):
+        vcf, _vcz, nwk, _alleles, _gt = ladder_panel
+        out = tmp_path / "annot.vcf"
+        with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+            code = run([
+                "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+                "--outgroups", "o1,o2", "--out", str(out),
+            ])
+        assert code == 0
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("--ingroup not given" in m and "i0,i1" in m for m in messages)
+        assert _vcf_provenance(out)["parameters"]["ingroup_samples"] == ["i0", "i1"]
+
+    def test_outgroups_alone_build_the_ladder_and_fit(
+            self, ladder_panel, tmp_path, caplog):
+        """Without ``--species-tree`` the ladder is fitted, and a
+        base-frequency model without ``--empirical-composition`` reports its
+        uniform frequencies."""
+        vcf, _vcz, _nwk, alleles, _gt = ladder_panel
+        out = tmp_path / "annot.vcf"
+        with caplog.at_level(logging.WARNING, logger="ancestree.cli"):
+            code = run([
+                "fixed-tree", "--vcf", str(vcf),
+                "--ingroup", "i0,i1", "--outgroups", "o1,o2",
+                "--model", "F81", "--prior", "uniform",
+                "--n-target-sites", str(len(alleles)), "--n-starts", "1",
+                "--seed", "3", "--out", str(out),
+            ])
+        assert code == 0
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("Model F81 runs with uniform base frequencies" in m
+                   for m in messages)
+        params = _vcf_provenance(out)["parameters"]
+        assert params["branch_rates_fitted"] is True
+        assert params["outgroup_samples"] == ["o1", "o2"]
+        assert set(params["fitted"]) >= {"K1", "K2"}
+        assert all(np.isfinite(v) for v in params["fitted"].values())
+        calls = _aa_calls(out)
+        assert len(calls) == len(alleles)
+        assert set(calls) <= {"A", "C", "G", "T"}
+
+    @pytest.mark.parametrize("model, fit_kappa", [
+        ("K2", False), ("K2", True), ("JC69", False),
+    ])
+    def test_empirical_composition_feeds_the_model(
+            self, ladder_panel, tmp_path, caplog, monkeypatch, model, fit_kappa):
+        """``--empirical-composition`` reports the tally, hands the composition
+        to the inference, and seeds kappa for a two-parameter model whose
+        kappa is not fitted."""
+        import inspect
+
+        from ancestree import inference as inference_module
+
+        built = []
+
+        class Recording(inference_module.FixedTreeInference):
+            """The handler's inference, with its constructor arguments kept."""
+
+            __signature__ = inspect.signature(inference_module.FixedTreeInference)
+
+            def __init__(self, *args, **kwargs):
+                built.append(kwargs)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(inference_module, "FixedTreeInference", Recording)
+        vcf, _vcz, nwk, alleles, gt = ladder_panel
+        out = tmp_path / "annot.vcf"
+        argv = [
+            "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+            "--ingroup", "i0,i1", "--outgroups", "o1,o2",
+            "--model", model, "--empirical-composition",
+            "--max-calibration-sites", "200", "--out", str(out),
+        ]
+        if fit_kappa:
+            argv.append("--fit-kappa")
+        with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+            code = run(argv)
+        assert code == 0
+        messages = [r.getMessage() for r in caplog.records]
+        reported = [m for m in messages if m.startswith("Empirical base composition")]
+        assert len(reported) == 1
+        expected = _empirical_composition(str(vcf), 200)
+        assert f"kappa = {expected.kappa_estimate:.3f}" in reported[0]
+        (kwargs,) = built
+        np.testing.assert_allclose(kwargs["base_composition"].pi, expected.pi)
+        fitted_model = kwargs["model"]
+        assert type(fitted_model).__name__ == model
+        if model == "K2":
+            seeded = not fit_kappa
+            assert fitted_model.fit_kappa is fit_kappa
+            assert fitted_model.kappa == pytest.approx(
+                expected.kappa_estimate if seeded else _lib_default(type(fitted_model), "kappa"))
+        assert len(_aa_calls(out)) == len(alleles)
+
+    def test_vcz_output_ignores_the_template_vcf(
+            self, ladder_panel, tmp_path, caplog):
+        """A ``.vcz`` destination is built from the input, and a supplied
+        ``--template-vcf`` is reported as ignored."""
+        import zarr
+
+        vcf, _vcz, nwk, alleles, _gt = ladder_panel
+        out = tmp_path / "annot.vcz"
+        with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+            code = run([
+                "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+                "--ingroup", "i0,i1", "--outgroups", "o1,o2",
+                "--template-vcf", str(vcf), "--out", str(out),
+            ])
+        assert code == 0
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("--template-vcf is ignored for a .vcz --out" in m
+                   for m in messages)
+        assert any(m == f"Wrote {len(alleles)} annotated variants to {out}"
+                   for m in messages)
+        root = zarr.open(str(out), mode="r")
+        aa = [str(a) for a in root["variant_AA"][:]]
+        assert len(aa) == len(alleles)
+        assert set(aa) <= {"A", "C", "G", "T"}
+        assert root.attrs[PROVENANCE_HEADER]["parameters"]["ingroup_samples"] == ["i0", "i1"]
 
 
 # ---------------------------------------------------------------------------- local-tree
@@ -654,6 +827,38 @@ class TestLocalTreeE2E:
         assert "template-vcf" in msg or "VCZ" in msg or ".vcz" in msg
 
 
+def test_recombination_map_reaches_the_inference(tmp_path):
+    """A HapMap file drives the HMM and is recorded in the provenance."""
+    ts = msprime.sim_ancestry(
+        samples=6, ploidy=1, sequence_length=1e5, recombination_rate=1e-8,
+        population_size=1e4, random_seed=3,
+    )
+    ts = msprime.sim_mutations(ts, rate=1e-7, random_seed=3)
+    assert ts.num_sites > 0
+    vcf = tmp_path / "panel.vcf"
+    with open(vcf, "w") as f:
+        ts.write_vcf(f, contig_id="1")
+    hapmap = tmp_path / "map.txt"
+    hapmap.write_text(
+        "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n"
+        "chr1\t0\t1.0\t0.0\n"
+        "chr1\t50000\t2.0\t0.05\n"
+        "chr1\t100000\t0.0\t0.15\n"
+    )
+    out = tmp_path / "annot.vcf"
+    code = run([
+        "local-tree", "--vcf", str(vcf), "--sequence-length", "100000",
+        "--mu", "1e-7", "--recombination-map", str(hapmap),
+        "--window", "10snp", "--block-size", "1000", "--out", str(out),
+    ])
+    assert code == 0
+    params = _vcf_provenance(out)["parameters"]
+    assert params["recombination_map_path"] == str(hapmap)
+    calls = _aa_calls(out)
+    assert len(calls) == ts.num_sites
+    assert set(calls) <= {"A", "C", "G", "T"}
+
+
 class TestArgLocalTreeRejectKingmanPrior:
     """Kingman and adaptive priors are fixed-tree only.
 
@@ -704,7 +909,7 @@ class TestNoPosteriorFlag:
 
         from ancestree.cli import run
 
-        trees = "docs/_static/demo.trees"
+        trees = DEMO_TREES
         for flag, expected in (([], True), (["--no-posterior"], False)):
             out = tmp_path / f"o{expected}.vcf.gz"
             assert run(["arg", "--trees", trees, "--mu", "1.25e-8",
@@ -721,7 +926,7 @@ class TestDerivedIngroup:
 
     @staticmethod
     def _demo() -> str:
-        return "docs/_static/demo.vcf.gz"
+        return DEMO_VCF
 
     def test_excludes_every_haplotype_of_a_named_outgroup_individual(self):
         from ancestree.cli import _derive_ingroup
@@ -778,7 +983,7 @@ class TestDerivedIngroupFollowsThePanel:
     def _vcf(tmp_path):
         import tskit
 
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         names = [f"i{i}" for i in range(6)] + ["o0", "o1"]
         p = tmp_path / "panel.vcf"
         with open(p, "w") as fh:
@@ -815,7 +1020,7 @@ class TestProvenanceNamesTheCompositionItUsed:
         import tskit
 
         import ancestree as anc
-        return list(anc.TskitSource(tskit.load("docs/_static/quickstart.trees")))
+        return list(anc.TskitSource(tskit.load(QUICKSTART_TREES)))
 
     def _kind(self, **kwargs):
         import ancestree as anc
@@ -851,7 +1056,7 @@ class TestLocalTreeDispatchGuards:
             _run_local_tree(_args(out="result.txt"))
 
 
-TREES = "docs/_static/quickstart.trees"
+TREES = QUICKSTART_TREES
 
 
 ING = [f"i{i}" for i in range(6)]
@@ -949,3 +1154,14 @@ def test_verbose_and_quiet_are_exclusive_across_the_subcommand(pre, post):
     with pytest.raises(SystemExit) as exc:
         cli.run(argv)
     assert exc.value.code == 2
+
+
+def test_no_progress_disables_the_progress_bar(tiny_trees_path, tmp_path, monkeypatch):
+    """``--no-progress`` flips the package-wide progress-bar setting."""
+    monkeypatch.setattr(Settings, "disable_pbar", False)
+    out = tmp_path / "annot.trees"
+    code = run(["--no-progress", "arg", "--trees", str(tiny_trees_path),
+                "--mu", "1e-7", "--out", str(out)])
+    assert code == 0
+    assert Settings.disable_pbar is True
+    assert out.exists()

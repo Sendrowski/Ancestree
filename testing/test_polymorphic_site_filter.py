@@ -7,9 +7,14 @@ branch above the outgroup MRCA, and a single outgroup population cannot say
 which. These tests pin the split so a defect in the kernel cannot hide
 behind that ceiling.
 """
+import logging
+
+import msprime
+import pytest
 import tskit
 
 import ancestree as anc
+from testing._helpers import QUICKSTART_TREES
 
 
 INGROUP = [f"i{i}" for i in range(6)]
@@ -17,7 +22,7 @@ OUTGROUP = ["o0", "o1"]
 
 
 def _ts():
-    return tskit.load("docs/_static/quickstart.trees")
+    return tskit.load(QUICKSTART_TREES)
 
 
 def test_the_two_criteria_partition_the_stream():
@@ -127,3 +132,37 @@ def test_a_one_shot_iterable_survives_a_second_pass():
     keep = anc.PolymorphicSiteFilter((s for s in src), samples=INGROUP)
     first, second = list(keep), list(keep)
     assert first and len(first) == len(second)
+
+
+class TestPloidyTruncationWarning:
+    """The truncation notice is raised once per source."""
+
+    def test_second_call_is_silent(self, caplog):
+        src = anc.PolymorphicSiteFilter([])
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            src._warn_ploidy_truncated("1", 5, 3, 2)
+            src._warn_ploidy_truncated("1", 9, 3, 2)
+        records = [r for r in caplog.records if "carries 3 haplotypes" in r.getMessage()]
+        assert len(records) == 1
+        assert "1:5" in records[0].getMessage()
+
+
+class TestFilterSamples:
+    """``PolymorphicSiteFilter.samples`` reports the wrapped panel."""
+
+    def test_unbound_filter_has_no_samples(self):
+        with pytest.raises(ValueError, match="no source bound"):
+            anc.PolymorphicSiteFilter(samples=["a"]).samples()
+
+    def test_source_with_a_samples_method_is_asked_directly(self):
+        ts = msprime.sim_ancestry(
+            samples=3, ploidy=1, sequence_length=1e4, population_size=1e4,
+            random_seed=3,
+        )
+        inner = anc.TskitSource(ts)
+        assert anc.PolymorphicSiteFilter(inner, samples=["0"]).samples() == inner.samples()
+
+    def test_sites_without_tips_report_no_samples(self):
+        sites = [anc.Site(chrom="1", pos=1, alleles=("A", "C"), tip_alleles={})]
+        with pytest.raises(ValueError, match="reports no samples"):
+            anc.PolymorphicSiteFilter(sites).samples()

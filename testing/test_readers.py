@@ -1,6 +1,12 @@
 """Reading annotated output back through :class:`ancestree.readers.Reader`."""
+import json
+
 import pytest
 import ancestree as anc
+from ancestree.readers import Provenance, Reader
+from ancestree.sites import PolymorphicSiteFilter
+from ancestree.writers import VCFWriter
+from testing._helpers import site_pair, write_vcf
 
 
 @pytest.fixture(scope="module")
@@ -171,6 +177,11 @@ class TestReaderDispatch:
         """A path that does not exist fails at construction, not at read time."""
         with pytest.raises(FileNotFoundError):
             anc.Reader(tmp_path / "absent.vcf.gz")
+
+
+def test_reader_repr_shows_the_path_and_the_format(tmp_path):
+    path = write_vcf(tmp_path / "t.vcf", [])
+    assert repr(Reader(path)) == f"Reader(path={path!r}, format='vcf')"
 
 
 class TestHead:
@@ -361,3 +372,56 @@ class TestProvenanceOfAReAnnotatedOutput:
         second = self._two_runs(small_ts, tmp_path)
         record = anc.Reader(str(second)).provenance()
         assert record["parameters"]["model"] == "K2"
+
+
+class TestReader:
+    """Provenance forms, the grading of point-mass records and field parsing."""
+
+    def test_a_provenance_row_whose_software_is_a_string_is_read(
+            self, small_ts, tmp_path):
+        record = {"software": "ancestree", "version": "0.0",
+                  "mode": "arg", "parameters": {"chrom": "1"}}
+        tables = small_ts.dump_tables()
+        tables.provenances.add_row(timestamp="t", record=json.dumps(record))
+        path = str(tmp_path / "p.trees")
+        tables.tree_sequence().dump(path)
+        read = Reader(path).provenance()
+        assert isinstance(read, Provenance)
+        assert read == record
+
+    def test_grade_refuses_a_polymorphic_site_filter(self, tmp_path):
+        path = write_vcf(tmp_path / "t.vcf", [])
+        with pytest.raises(ValueError, match="PolymorphicSiteFilter"):
+            Reader(path).grade({}, filter=PolymorphicSiteFilter(samples=["s1_h0"]))
+
+    def test_grade_scores_a_point_mass_and_skips_unannotated_sites(self, tmp_path):
+        """Without a stored posterior the MAP allele is a point mass.
+
+        Site 100 is assigned ``A`` against a truth of ``A``, site 200 ``A``
+        against ``C``, and site 300 is unannotated, so two sites are graded,
+        one recovered, with Brier scores of 0 and 2. The file carries no
+        provenance record: a position-to-allele truth needs none.
+        """
+        template = write_vcf(tmp_path / "t.vcf", [
+            ("1", 100, "A", "C", ".", ["0/1"]),
+            ("1", 200, "A", "C", ".", ["0/1"]),
+            ("1", 300, "A", "C", ".", ["0/1"]),
+        ])
+        out = str(tmp_path / "out.vcf")
+        VCFWriter(template, out).write(
+            [site_pair(100), site_pair(200)], store_posterior=False)
+        with pytest.raises(ValueError, match="no ancestree provenance"):
+            Reader(out).provenance()
+        grade = Reader(out).grade({100: "A", 200: "C", 300: "A"})
+        assert grade.n_sites == 2
+        assert grade.map_recovery == pytest.approx(0.5)
+        assert grade.brier == pytest.approx(1.0)
+
+    def test_a_non_numeric_probability_reads_as_none(self):
+        assert Reader._as_prob("abc") is None
+        assert Reader._as_prob("0.25") == pytest.approx(0.25)
+
+    def test_a_posterior_of_the_wrong_length_reads_as_none(self):
+        assert Reader._as_posterior("0.5,0.5") is None
+        assert Reader._as_posterior("0.5,0.5,0,0") == {
+            "A": 0.5, "C": 0.5, "G": 0.0, "T": 0.0}

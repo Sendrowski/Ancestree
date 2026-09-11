@@ -6,7 +6,14 @@ read block was destroyed and then failed to parse. And template rows are keyed
 on ``(contig, int(position))``, so two sites sharing an integer position -- a
 tree sequence with ``discrete_genome=False``, or a split-multiallelic VCF --
 collapse onto one row and the last call silently wins.
+
+The staged-file discipline of every writer belongs here too: a failed
+rename, swap or dump leaves neither a partial file nor a lost store, a run
+that scores nothing is refused or reported, and a row the run does not
+score carries nothing from an earlier run.
 """
+import glob
+import gzip
 import os
 import shutil
 
@@ -15,8 +22,13 @@ import pytest
 
 import ancestree as anc
 from ancestree.posterior import Posterior
+from ancestree.sites import Site
+from ancestree.writers import TskitWriter, VCFWriter, Writer, ZarrWriter
+from testing._helpers import post
+from testing._helpers import DEMO_VCF, QUICKSTART_VCF
+from testing._helpers import site_pair, staged_files, write_vcf
 
-TEMPLATE = "docs/_static/quickstart.vcf.gz"
+TEMPLATE = QUICKSTART_VCF
 
 
 def test_writing_over_the_template_is_refused(tmp_path):
@@ -94,6 +106,31 @@ def test_two_sites_on_one_integer_position_get_their_own_rows(tmp_path):
              if not line.startswith("#")]
     assert "AA=A" in calls[0], f"row 1 got {calls[0]}"
     assert "AA=G" in calls[1], f"row 2 got {calls[1]}"
+
+
+class TestRowLocator:
+    """Keys that fall outside the template's variant axis resolve to no row."""
+
+    def test_an_empty_axis_locates_nothing(self):
+        locate = Writer._row_locator(
+            np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int32), [], {})
+        assert locate("1", 100) == -1
+
+    def test_a_contig_without_rows_locates_nothing(self):
+        """A contig declared in the header but absent from the records."""
+        pos = np.array([100, 200], dtype=np.int64)
+        contig = np.array([0, 0], dtype=np.int32)
+        locate = Writer._row_locator(pos, contig, ["1", "2"], {"1": 0, "2": 1})
+        assert locate("1", 200) == 1
+        assert locate("2", 200) == -1
+
+    def test_a_run_is_walked_back_to_its_first_row(self):
+        """A canonical row inside a shared-position run still claims the run's first free row."""
+        annotated = np.zeros(2, dtype=bool)
+        rows = Writer._rows_for_site(
+            annotated, np.array([100, 100]), np.array([0, 0]), 1,
+            site_pair(100)[0])
+        assert rows == [0]
 
 
 class TestAlleleTupleTolerance:
@@ -208,7 +245,7 @@ def test_local_tree_templates_from_its_source_not_its_inference(tmp_path):
     """
     import ancestree as anc
 
-    vcf = "docs/_static/demo.vcf.gz"
+    vcf = DEMO_VCF
     common = dict(mu=1.25e-8, rec_rate=1e-8, sequence_length=200_000.0,
                   n_ensemble=None, progress=False)
     scored = sum(1 for _ in anc.LocalTreeInference(vcf, **common).infer())
@@ -381,7 +418,7 @@ class TestThePosteriorMatrixIsOnlyAllocatedWhenItIsStored:
         return seen
 
     @staticmethod
-    def _pair(pos):
+    def site_pair(pos):
         return (
             anc.Site(chrom="1", pos=pos, alleles=("A", "C"),
                      tip_alleles={"s1_h0": "A"}),
@@ -403,7 +440,7 @@ class TestThePosteriorMatrixIsOnlyAllocatedWhenItIsStored:
         seen = self._watch(monkeypatch)
 
         n = anc.VCFWriter(template, out).write(
-            [self._pair(100), self._pair(200)],
+            [self.site_pair(100), self.site_pair(200)],
             store_posterior=store_posterior)
 
         assert n == 2
@@ -433,7 +470,7 @@ class TestThePosteriorMatrixIsOnlyAllocatedWhenItIsStored:
         seen = self._watch(monkeypatch)
 
         n = anc.ZarrWriter(path, out).write(
-            [self._pair(100), self._pair(200)],
+            [self.site_pair(100), self.site_pair(200)],
             store_posterior=store_posterior)
 
         assert n == 2
@@ -473,3 +510,113 @@ class TestReAnnotatingAStoreClearsTheEarlierPosterior:
             "the earlier run's posterior survived, so grade() would score "
             "this run's calls against it")
         assert anc.Reader(out).head(1)[0].posterior is None
+
+
+class TestStagedFiles:
+    """A failed rename or swap leaves neither a partial file nor a lost store."""
+
+    def test_a_failed_rename_removes_the_staged_file(self, tmp_path):
+        staged = tmp_path / ".partial-x"
+        staged.write_text("partial")
+        output = tmp_path / "out"
+        output.mkdir()
+        (output / "keep").write_text("keep")
+        with pytest.raises(OSError):
+            Writer._finish_staged(str(staged), str(output))
+        assert not staged.exists()
+        assert (output / "keep").read_text() == "keep"
+
+    def test_a_failed_swap_restores_the_original_store(self, tmp_path):
+        dst = tmp_path / "store.vcz"
+        dst.mkdir()
+        (dst / "marker").write_text("original")
+        with pytest.raises(FileNotFoundError):
+            ZarrWriter._swap_into_place(str(tmp_path / "missing"), str(dst))
+        assert (dst / "marker").read_text() == "original"
+        assert not glob.glob(str(tmp_path / "store.vcz.old-*"))
+
+
+class TestVCFWriter:
+    """Rows the run does not score and failures during the second pass."""
+
+    AA_HEADER = (
+        '##INFO=<ID=AA,Number=1,Type=String,Description="x">',
+        '##INFO=<ID=AA_prob,Number=1,Type=Float,Description="x">',
+        '##INFO=<ID=AA_post,Number=4,Type=Float,Description="x">',
+    )
+
+    def test_an_unscored_row_loses_the_earlier_runs_fields(self, tmp_path, caplog):
+        """A row that received no posterior carries no ``AA`` field from before."""
+        import cyvcf2
+
+        template = write_vcf(
+            tmp_path / "t.vcf",
+            [("1", 100, "A", "C", "AA=A;AA_prob=0.5;AA_post=1,0,0,0", ["0/1"]),
+             ("1", 200, "A", "C", "AA=C;AA_prob=0.5;AA_post=0,1,0,0", ["0/1"])],
+            extra_header=self.AA_HEADER)
+        out = str(tmp_path / "out.vcf")
+        with caplog.at_level("WARNING"):
+            assert VCFWriter(template, out).write([]) == 0
+        assert any("received no posteriors" in r.message for r in caplog.records)
+        for record in cyvcf2.VCF(out):
+            assert record.INFO.get("AA") is None
+            assert record.INFO.get("AA_prob") is None
+            assert record.INFO.get("AA_post") is None
+
+    def test_a_failure_in_the_second_pass_leaves_no_partial_file(
+            self, tmp_path, monkeypatch):
+        template = write_vcf(tmp_path / "t.vcf",
+                        [("1", 100, "A", "C", ".", ["0/1"])])
+        out = tmp_path / "out.vcf"
+
+        def _boom(value, vcf_type):
+            raise RuntimeError("cannot coerce")
+
+        monkeypatch.setattr(VCFWriter, "_coerce_info_value", staticmethod(_boom))
+        with pytest.raises(RuntimeError, match="cannot coerce"):
+            VCFWriter(template, out).write([site_pair(100)], info={"kappa": 2.0})
+        assert not out.exists()
+        assert staged_files(tmp_path) == []
+
+
+class TestTskitWriter:
+    """Handle-less collisions, an empty offer and a failed dump."""
+
+    @pytest.mark.parametrize("chroms,remedy", [
+        (("1", "2"), "Restrict the run to one contig"),
+        (("1", "1"), "Supply posteriors carrying local_tree_handle"),
+    ])
+    def test_two_handle_less_posteriors_on_one_integer_are_refused(
+            self, small_ts, tmp_path, chroms, remedy):
+        pairs = [site_pair(100, chrom=chroms[0]), site_pair(100, chrom=chroms[1])]
+        with pytest.raises(ValueError, match=remedy):
+            TskitWriter(small_ts, tmp_path / "o.trees").write(pairs)
+
+    def test_an_empty_offer_is_reported_and_written_unannotated(
+            self, small_ts, tmp_path, caplog):
+        import tskit
+
+        out = tmp_path / "o.trees"
+        with caplog.at_level("WARNING"):
+            assert TskitWriter(small_ts, out).write([]) == 0
+        assert any("received no posteriors" in r.message
+                   and "input tree sequence" in r.message
+                   for r in caplog.records)
+        written = tskit.load(str(out))
+        assert ([s.ancestral_state for s in written.sites()]
+                == [s.ancestral_state for s in small_ts.sites()])
+
+    def test_a_failed_dump_leaves_no_partial_file(
+            self, small_ts, tmp_path, monkeypatch):
+        import tskit
+
+        def _dump(self, path, **kwargs):
+            open(path, "wb").close()
+            raise OSError("no space left on device")
+
+        monkeypatch.setattr(tskit.TreeSequence, "dump", _dump)
+        out = tmp_path / "o.trees"
+        with pytest.raises(OSError, match="no space"):
+            TskitWriter(small_ts, out).write([])
+        assert not out.exists()
+        assert staged_files(tmp_path) == []

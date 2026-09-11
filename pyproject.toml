@@ -129,6 +129,8 @@ ignore_errors = true
 
 [tool.coverage.report]
 # numba compiles @njit functions to machine code, so coverage.py cannot trace
-# inside them. Excluding the decorated function keeps the untraceable lines
-# out of the denominator without dropping the module's Python code.
-exclude_also = ["^\\s*@njit"]
+# inside them, and an @intrinsic's code generator runs only when numba
+# compiles from scratch rather than from its on-disk cache. Excluding the
+# decorated functions keeps the untraceable lines out of the denominator
+# without dropping the modules' Python code.
+exclude_also = ["^\\s*@njit", "^\\s*@intrinsic"]

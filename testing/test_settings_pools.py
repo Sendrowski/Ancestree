@@ -6,6 +6,7 @@ never reports ready: the run hangs rather than failing. Neither helper had a
 test, so that failure mode was reachable without anything going red.
 """
 import logging
+import sys
 
 import numba
 import pytest
@@ -45,6 +46,13 @@ class TestCapWorkerThreads:
             assert many <= few
         finally:
             numba.set_num_threads(before)
+
+    def test_capping_threads_without_numba_leaves_the_pool_alone(
+            self, monkeypatch):
+        before = numba.get_num_threads()
+        monkeypatch.setitem(sys.modules, "numba", None)
+        assert Settings._cap_worker_threads(4) is None
+        assert numba.get_num_threads() == before
 
 
 class TestForkPoolOk:

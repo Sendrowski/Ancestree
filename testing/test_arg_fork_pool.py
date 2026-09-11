@@ -19,14 +19,17 @@ single-worker there. Nothing to compare).
 """
 from __future__ import annotations
 
+import logging
 import multiprocessing as mp
 
 import msprime
 import numpy as np
 import pytest
 
+import ancestree.inference as inference_mod
 from ancestree import ARGBasedInference, JC69
 from ancestree.inference import _arg_infer_chunk_worker
+from ancestree.settings import Settings
 
 
 FORK_AVAILABLE = "fork" in mp.get_all_start_methods()
@@ -329,3 +332,103 @@ def test_fork_worker_without_parent_inference_raises():
     # _ARG_INFERENCE_FOR_FORK is None outside an active parallel infer().
     with pytest.raises(RuntimeError, match="fork did not propagate"):
         _arg_infer_chunk_worker((0, 1))
+
+
+def test_chunk_worker_refuses_to_run_without_a_parent(monkeypatch):
+    monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", None)
+    with pytest.raises(RuntimeError, match="without an inference object"):
+        _arg_infer_chunk_worker((0, 1))
+
+
+def test_chunk_worker_reproduces_the_serial_walk(small_ts, monkeypatch):
+    """The fork-pool worker, run in-process, returns the serial posteriors
+    and integer diagnostic counts."""
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    serial = [(s.pos, p.values) for s, p in inf.infer()]
+    monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", inf)
+    results, *counts = _arg_infer_chunk_worker((0, small_ts.num_trees))
+    assert [(s.pos, v.tolist()) for s, v in results] == \
+        [(pos, v.tolist()) for pos, v in serial]
+    assert len(counts) == 7 and all(isinstance(c, int) for c in counts)
+
+
+def test_infer_range_over_an_empty_window_yields_nothing(small_ts):
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    assert list(inf._infer_range(2, 2)) == []
+    assert list(inf._infer_range(3, 1)) == []
+
+
+# ----------------------------------------------------- serial fallbacks
+
+
+def test_fork_unsafe_threading_layer_falls_back_to_serial(small_ts, monkeypatch, caplog):
+    """When the numba threading layer is not fork-safe the request for
+    workers is ignored, with a warning, and the serial walk runs."""
+    monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False, n_workers=2)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        results = list(inf.infer())
+    assert len(results) == small_ts.num_sites
+    assert any("Ignoring the parallelization request" in r.message
+               for r in caplog.records)
+
+
+def test_fork_pool_without_fork_runs_serially(small_ts, monkeypatch, caplog):
+    monkeypatch.setattr(mp, "get_all_start_methods", lambda: ["spawn"])
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False, n_workers=2)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        results = list(inf._infer_fork_pool())
+    assert len(results) == small_ts.num_sites
+    assert any("'fork' start method is unavailable" in r.message
+               for r in caplog.records)
+
+
+# ------------------------------------------------------ chunk geometry
+
+
+@pytest.fixture(scope="module")
+def few_trees_ts():
+    """An ARG with five local trees, every one of them carrying sites."""
+    ts = msprime.sim_ancestry(samples=4, sequence_length=2_000,
+                              recombination_rate=4e-8, population_size=1e4,
+                              random_seed=2)
+    ts = msprime.sim_mutations(ts, rate=5e-7, random_seed=2)
+    assert ts.num_trees == 5 and all(t.num_sites > 0 for t in ts.trees())
+    return ts
+
+
+def test_chunks_without_sites_cover_every_tree(few_trees_ts):
+    empty = few_trees_ts.delete_sites(range(few_trees_ts.num_sites))
+    inf = ARGBasedInference(empty, JC69(), mu=1e-8, progress=False)
+    assert inf._build_tree_chunks(4) == [(0, empty.num_trees)]
+
+
+def test_chunks_stay_strictly_increasing_when_sites_cluster(few_trees_ts):
+    """Per-tree site counts of ``1, 0, 0, 10, 0`` put both boundaries of a
+    three-way split on the fourth tree; the chunks are still contiguous,
+    non-empty and cover every tree."""
+    ts = few_trees_ts
+    keep_per_tree = {0: 1, 3: 10}
+    kept: list[int] = []
+    for tree in ts.trees():
+        kept += [s.id for s in tree.sites()][:keep_per_tree.get(tree.index, 0)]
+    shaped = ts.delete_sites([s.id for s in ts.sites() if s.id not in kept])
+    assert [t.num_sites for t in shaped.trees()] == [1, 0, 0, 10, 0]
+    inf = ARGBasedInference(shaped, JC69(), mu=1e-8, progress=False)
+    chunks = inf._build_tree_chunks(3)
+    assert chunks == [(0, 3), (3, 4), (4, 5)]
+
+
+def test_fork_pool_with_fewer_chunks_than_its_window(few_trees_ts, monkeypatch):
+    """Fewer chunks than in-flight slots: the submission window closes early
+    and the stream still matches the serial walk."""
+    monkeypatch.setattr(ARGBasedInference, "FORK_CHUNKS_PER_WORKER", 1)
+    inf = ARGBasedInference(few_trees_ts, JC69(), mu=1e-8, progress=False,
+                            n_workers=2)
+    assert 1 < len(inf._build_tree_chunks(2)) < 4
+    serial = ARGBasedInference(few_trees_ts, JC69(), mu=1e-8, progress=False)
+    got = [(int(s.pos), p.values) for s, p in inf.infer()]
+    expected = [(int(s.pos), p.values) for s, p in serial.infer()]
+    assert [pos for pos, _ in got] == [pos for pos, _ in expected]
+    for (_, a), (_, b) in zip(got, expected):
+        np.testing.assert_array_equal(a, b)

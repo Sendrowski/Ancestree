@@ -10,7 +10,9 @@ ancestral-state truth is read.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import tempfile
 
 import numpy as np
 import msprime
@@ -30,7 +32,15 @@ from ancestree import (
     Site,
 )
 import ancestree._smc_kernel as smc
-from testing._helpers import canonical_alleles
+from ancestree.sites import SiteTable
+from testing._helpers import (
+    MU,
+    REC,
+    canonical_alleles,
+    toy_builder,
+    toy_inference,
+    toy_sites,
+)
 
 
 def _sim(samples=10, length=200_000, mu=1.25e-8, rec=1e-8, N=1e4, seed=7):
@@ -315,6 +325,15 @@ class TestLocalTreeReprOnPrebuiltInput:
         assert "LocalTreeInference(" in repr(inference)
 
 
+def test_reprs_name_the_configuration():
+    """The HMM and the builder render their identifying fields."""
+    hmm = PairwiseCoalescentHMM(3, mu=MU, rec_rate=REC, n_time_bins=8)
+    assert repr(hmm) == "PairwiseCoalescentHMM(n_haplotypes=3, n_time_bins=8)"
+    sites, names = toy_sites(range(0, 2000, 20))
+    b = toy_builder(sites, names, 2000.0, n_time_bins=8)
+    assert repr(b) == "LocalTreeBuilder(window_bp=200, n_time_bins=8)"
+
+
 def test_builder_topology_only_when_not_baking():
     """bake_genotypes=False yields a sites-free topology tree sequence."""
     ts = _sim(samples=6, length=60_000, seed=12)
@@ -328,6 +347,76 @@ def test_builder_topology_only_when_not_baking():
     topo = builder.to_tree_sequence()
     assert topo.num_sites == 0
     assert topo.num_samples == 6
+
+
+def test_builder_accepts_a_site_table_and_tallies_its_alleles():
+    """A ``SiteTable`` is held as given, its unrepresentable alleles tallied."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    sites[3] = Site(chrom="1", pos=sites[3].pos, alleles=("A", "AT"),
+                    tip_alleles=dict(sites[3].tip_alleles))
+    table = SiteTable.from_sites(sites, names)
+    b = toy_builder(table, names, 1000.0)
+    assert b.sites is table
+    assert b._n_unrepresentable_sites == 1
+    assert b._n_unrepresentable_tips == 0
+    assert len(b.sites) == len(sites)
+
+
+def test_genotype_matrix_follows_a_reordered_panel():
+    """Columns follow ``sample_names``, an unknown name reading as uncalled."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    table = SiteTable.from_sites(sites, names)
+    order = ["h3", "h1", "hx"]
+    b = toy_builder(table, order, 1000.0, validate_coverage=False)
+    g, _pos, _bos, _nb = b._genotype_matrix()
+    assert g.shape == (len(sites), 3)
+    np.testing.assert_array_equal(g[:, 0], table.genotypes[:, 3])
+    np.testing.assert_array_equal(g[:, 1], table.genotypes[:, 1])
+    assert (g[:, 2] == -1).all()
+
+
+def test_genotype_matrix_refuses_a_sample_observed_nowhere():
+    """With coverage validation on, a never-called column is an error."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    table = SiteTable.from_sites(sites, names)
+    b = toy_builder(table, ["h0", "h1", "hx"], 1000.0)
+    with pytest.raises(ValueError, match=r"no observed genotype.*hx"):
+        b._genotype_matrix()
+
+
+def test_pairwise_block_tmrcas_are_cached():
+    """A second call returns the array of the first without a rerun."""
+    sites, names = toy_sites(range(0, 1000, 20))
+    b = toy_builder(sites, names, 1000.0)
+    g, _pos, bos, nb = b._genotype_matrix()
+    first = b._pairwise_block_tmrcas(g, bos, nb)
+    assert b._pairwise_block_tmrcas(g, bos, nb) is first
+    assert first.shape == (6, nb)
+
+
+def test_uncalled_site_is_left_out_of_the_trees_and_scored_flat(caplog):
+    """A site with no called tip is not baked, and streams at the flat posterior."""
+    sites, names = toy_sites(range(0, 2000, 20))
+    blank = Site(chrom="1", pos=1010, alleles=("A", "C"),
+                 tip_alleles={n: None for n in names})
+    sites = sorted(sites + [blank], key=lambda s: s.pos)
+    b = toy_builder(sites, names, 2000.0)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        ts = b.to_tree_sequence()
+    assert ts.num_sites == len(sites) - 1
+    assert 1010.0 not in set(ts.sites_position)
+    assert any(r.getMessage().startswith(
+        f"1 of {len(sites)} sites carry no called genotype")
+        for r in caplog.records)
+
+    inf = toy_inference(sites, names, n_ensemble=None)
+    out = list(inf.infer())
+    assert [s.pos for s, _ in out] == [s.pos for s in sites]
+    by_pos = {s.pos: p for s, p in out}
+    np.testing.assert_allclose(by_pos[1010].values, np.full(4, 0.25))
+    assert tuple(by_pos[1010].alleles) == tuple(STATES)
+    peaked = [p for s, p in out if s.pos != 1010]
+    assert max(p.max_prob for p in peaked) > 0.25
 
 
 # --------------------------------------------------------- end to end
@@ -582,6 +671,81 @@ def test_run_to_run_determinism():
     for (sa, pa), (sb, pb) in zip(a, b):
         assert sa.pos == sb.pos and pa.map_allele == pb.map_allele
         np.testing.assert_array_equal(pa.values, pb.values)
+
+
+def test_ensemble_row_count_mismatch_is_an_error(monkeypatch):
+    """An ensemble returning the wrong number of rows is refused."""
+    from ancestree._ensemble import SegmentEnsemble
+    sites, names = toy_sites(range(0, 1000, 50))
+    inf = toy_inference(sites, names, n_ensemble=2, sequence_length=1000.0)
+    monkeypatch.setattr(
+        SegmentEnsemble, "posterior",
+        lambda self, *a, **k: np.full((len(sites) - 1, 4), 0.25))
+    with pytest.raises(RuntimeError, match="must pair one to one"):
+        list(inf.infer())
+
+
+def test_baseline_check_compares_against_the_named_outgroups(caplog):
+    """The baseline hook reports the outgroups and logs the agreement line."""
+    sites, names = toy_sites(range(0, 2000, 20))
+    inf = toy_inference(sites, names, n_ensemble=None, outgroup_samples=["h3"],
+                        baseline_check=True)
+    assert inf._baseline_outgroup_samples() == ("h3",)
+    assert inf._baseline_ingroup_samples() == ("h0", "h1", "h2")
+    with caplog.at_level(logging.INFO, logger="ancestree"):
+        out = list(inf.infer())
+    assert len(out) == len(sites)
+    assert any("agree" in r.getMessage().lower() for r in caplog.records)
+
+
+def test_to_tree_sequence_yields_the_plug_in_tree_once_without_an_ensemble():
+    """Without an ensemble the single group holds the plug-in tree sequence."""
+    sites, names = toy_sites(range(0, 1000, 20))
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
+    groups = list(inf.to_tree_sequence())
+    assert len(groups) == 1
+    (interval, members), = groups
+    assert interval == (0.0, 1000.0)
+    members = list(members)
+    assert len(members) == 1
+    assert members[0] is inf.point_tree_sequence()
+    assert members[0].num_sites == len(sites)
+
+
+# --------------------------------------------------------- provenance
+def test_provenance_of_an_unchunked_ensemble_run():
+    """The ensemble record carries the builder's widths and the draw settings."""
+    sites, names = toy_sites(range(0, 1000, 20))
+    inf = toy_inference(sites, names, n_ensemble=3, ensemble_seed=5,
+                        member_chunk=2, sequence_length=1000.0,
+                        outgroup_samples=["h3"])
+    params = inf._provenance_parameters()
+    assert params["model"] == "JC69"
+    assert params["prior"] == "StationaryPrior"
+    assert params["mu"] == pytest.approx(MU)
+    assert params["rec_rate"] == pytest.approx(REC)
+    assert params["window_bp"] == 200
+    assert params["block_size"] == 50
+    assert params["n_time_bins"] == 32
+    assert params["n_ensemble"] == 3
+    assert params["ensemble_seed"] == 5
+    assert params["member_chunk"] == 2
+    assert params["outgroup_samples"] == ["h3"]
+    assert params["focal"] == "ingroup_mrca"
+
+
+def test_provenance_of_an_unchunked_plug_in_run():
+    """The plug-in record reads model, prior and focal from the point ARG."""
+    sites, names = toy_sites(range(0, 1000, 20))
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
+    params = inf._provenance_parameters()
+    assert params["model"] == "JC69"
+    assert params["prior"] == "StationaryPrior"
+    assert params["mu"] == pytest.approx(MU)
+    assert params["window_bp"] == 200
+    assert params["block_size"] == 50
+    assert "n_ensemble" not in params
+    assert inf._arg is not None
 
 
 # --------------------------------------------------------- HMM correctness
@@ -853,23 +1017,6 @@ def test_no_segment_breaks_covers_axis():
     assert all(wins[i][1] == wins[i + 1][0] for i in range(len(wins) - 1))
 
 
-def _toy_sites(chrom, positions, n_hap=4, seed=0):
-    """Deterministic biallelic Site records for `n_hap` haplotypes."""
-    from ancestree import Site
-    rng = np.random.default_rng(seed)
-    names = [f"h{i}" for i in range(n_hap)]
-    out = []
-    for p in positions:
-        ref, alt = "A", "C"
-        g = rng.integers(0, 2, n_hap)
-        if g.sum() == 0:
-            g[0] = 1  # ensure polymorphic
-        ta = {names[i]: (alt if g[i] else ref) for i in range(n_hap)}
-        out.append(Site(chrom=chrom, pos=int(p), alleles=(ref, alt),
-                        tip_alleles=ta))
-    return out, names
-
-
 def test_chunked_multicontig_decoupling_exact():
     """Chunked path: contigs are independent and coordinate-stable.
 
@@ -878,8 +1025,8 @@ def test_chunked_multicontig_decoupling_exact():
     order, with original positions preserved.
     """
     from ancestree import JC69
-    a, names = _toy_sites("1", range(1000, 1000 + 80 * 100, 100), seed=1)
-    b, _ = _toy_sites("2", range(500, 500 + 60 * 100, 100), seed=2)
+    a, names = toy_sites(range(1000, 1000 + 80 * 100, 100), seed=1)
+    b, _ = toy_sites(range(500, 500 + 60 * 100, 100), seed=2, chrom="2")
     kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names,
               window=500, block_size=100, chunk_size="1mb")
 
@@ -898,7 +1045,7 @@ def test_chunked_halo_covers_all_core_sites():
     """Slicing a single contig (chunk_size << span) still emits every site once,
     in order, with halo overlap discarded (no duplicates, no gaps)."""
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 4000, 20), seed=3)  # 200 sites, ~4 kb
+    a, names = toy_sites(range(0, 4000, 20), seed=3)  # 200 sites, ~4 kb
     out = list(LocalTreeInference(
         a, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         window=300, block_size=50, chunk_size=1000, halo=500,  # forces slicing
@@ -910,8 +1057,8 @@ def test_chunked_halo_covers_all_core_sites():
 def test_chunked_parallel_matches_serial():
     """The fork-pool segment path (n_workers>1) is identical to serial."""
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 6000, 20), seed=7)  # one sliced contig
-    a2, _ = _toy_sites("2", range(100, 100 + 50 * 20, 20), seed=8)
+    a, names = toy_sites(range(0, 6000, 20), seed=7)  # one sliced contig
+    a2, _ = toy_sites(range(100, 100 + 50 * 20, 20), seed=8, chrom="2")
     src = a + a2
     kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names,
               window=300, block_size=50, chunk_size=1500, halo=400)
@@ -939,6 +1086,56 @@ def test_to_arg_writes_pseudo_arg(tmp_path):
     assert n > 0
     annotated = tskit.load(str(out))
     assert all(s.ancestral_state in STATES for s in annotated.sites())
+
+
+def test_default_template_vcf_dumps_the_inferred_trees(monkeypatch, tmp_path):
+    """Without a VCF source the template is a temporary dump of the trees."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    sites, names = toy_sites(range(20, 1000, 20), chrom="chr7")
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
+    path, owns = inf._default_template_vcf(None)
+    try:
+        assert owns is True
+        assert os.path.dirname(path) == str(tmp_path)
+        with open(path) as fh:
+            records = [line.split("\t") for line in fh
+                       if not line.startswith("#")]
+        assert len(records) == len(sites)
+        assert {r[0] for r in records} == {"chr7"}
+        assert [int(r[1]) for r in records] == [s.pos for s in sites]
+        header = open(path).read()
+        assert all(n in header for n in names)
+    finally:
+        os.unlink(path)
+
+
+def test_default_template_vcf_removes_the_partial_file_on_failure(monkeypatch, tmp_path):
+    """A failing tree dump leaves no temporary template behind."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    sites, names = toy_sites(range(0, 1000, 20))
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
+
+    def _boom():
+        raise RuntimeError("no trees today")
+
+    monkeypatch.setattr(inf, "point_tree_sequence", _boom)
+    with pytest.raises(RuntimeError, match="no trees today"):
+        inf._default_template_vcf("chr1")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_to_vcf_from_sites_annotates_every_record(tmp_path):
+    """``to_vcf`` on a sites source templates from the trees and annotates."""
+    import cyvcf2
+    sites, names = toy_sites(range(20, 1000, 20), chrom="chr7")
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
+    out = tmp_path / "out.vcf"
+    n = inf.to_vcf(str(out))
+    assert n == len(sites)
+    recs = list(cyvcf2.VCF(str(out)))
+    assert len(recs) == len(sites)
+    assert all(r.CHROM == "chr7" for r in recs)
+    assert all(r.INFO.get("AA") in STATES for r in recs)
 
 
 def _stitch_inputs(seed=12, samples=8, length=60_000):
@@ -1054,8 +1251,8 @@ def test_chunked_to_arg_round_trip(tmp_path):
 def test_chunked_tree_sequence_multicontig_raises():
     """A genome-wide tree sequence needs a single coordinate axis, so a
     multi-contig chunked source is rejected (use VCF/VCZ output)."""
-    a, names = _toy_sites("1", range(0, 6000, 20), seed=7)
-    b, _ = _toy_sites("2", range(0, 6000, 20), seed=8)
+    a, names = toy_sites(range(0, 6000, 20), seed=7)
+    b, _ = toy_sites(range(0, 6000, 20), seed=8, chrom="2")
     inf = LocalTreeInference(
         a + b, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         window=300, block_size=50, chunk_size=1500, halo=400,
@@ -1077,7 +1274,7 @@ class _ReIterSource:
 def test_chunked_streaming_reiterable_source():
     """A re-iterable source is streamed (not materialised) and matches a list."""
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 3000, 30), seed=11)
+    a, names = toy_sites(range(0, 3000, 30), seed=11)
     kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names, window="50snp",
               block_size=50, chunk_size=1000, halo=300)
     src = _ReIterSource(a)
@@ -1107,7 +1304,7 @@ def test_chunked_rejects_unsorted():
 def test_auto_halo_is_grounded_and_clamped():
     """The 'auto' halo resolves to a positive value clamped to [block, chunk/2]."""
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 5000, 25), seed=4)
+    a, names = toy_sites(range(0, 5000, 25), seed=4)
     inf = LocalTreeInference(
         a, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         window=300, block_size=50, chunk_size=2000, halo="auto",
@@ -1370,7 +1567,7 @@ def test_recombination_map_step_tracks_local_rate():
 def test_recombination_map_uniform_matches_constant():
     """A uniform RateMap at rate == rec_rate reproduces the no-map build exactly."""
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 5000, 25), seed=6)
+    a, names = toy_sites(range(0, 5000, 25), seed=6)
     L = 5000
     kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names,
               sequence_length=L, window=300, block_size=50, progress=False)
@@ -1390,7 +1587,7 @@ def test_the_chunked_maps_reach_the_builder():
     """
     from ancestree import JC69
 
-    a, names = _toy_sites("1", range(0, 6000, 20), seed=9)
+    a, names = toy_sites(range(0, 6000, 20), seed=9)
     rm = msprime.RateMap(position=[0, 2000, 4000, 6000], rate=[1e-9, 8e-8, 1e-9])
     mm = msprime.RateMap(position=[0, 3000, 6000], rate=[2e-9, 6e-8])
 
@@ -1425,7 +1622,7 @@ def test_chunked_recombination_map_slices_per_segment():
     at the same genome position.
     """
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 6000, 20), seed=9)
+    a, names = toy_sites(range(0, 6000, 20), seed=9)
     rm = msprime.RateMap(position=[0, 2000, 4000, 6000], rate=[1e-8, 4e-8, 1e-8])
     inference = LocalTreeInference(
         a, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
@@ -1492,7 +1689,7 @@ def test_mutation_map_uniform_matches_constant():
     accessibility and mutation maps reach the emission but not the time grid.
     """
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 5000, 25), seed=6)
+    a, names = toy_sites(range(0, 5000, 25), seed=6)
     L = 5000
     kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names, n_ensemble=None,
               sequence_length=L, window=300, block_size=50, progress=False)
@@ -1540,7 +1737,7 @@ def test_chunked_mutation_map_slices_per_segment():
     slicing.
     """
     from ancestree import JC69
-    a, names = _toy_sites("1", range(0, 6000, 20), seed=9)
+    a, names = toy_sites(range(0, 6000, 20), seed=9)
     mm = msprime.RateMap(position=[0, 2000, 4000, 6000],
                          rate=[1.25e-8, 4e-8, 1.25e-8])
     inference = LocalTreeInference(
@@ -1972,14 +2169,6 @@ def test_hmm_pair_prior_mean_excludes_masked_blocks(monkeypatch):
 def _candidate_names(ts):
     nm = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
     return [nm[int(s)] for s in ts.samples()]
-
-
-def _builder(sites, names, L, **kw):
-    return LocalTreeBuilder(
-        sites, mu=1.25e-8, rec_rate=1e-8, sample_names=names,
-        sequence_length=L, **kw,
-    )
-
 
 
 def test_one_segment_reproduces_the_unsegmented_build():
@@ -2436,8 +2625,8 @@ class TestUnrepresentableAllelesReachTheLocalTreeSummary:
     @staticmethod
     def _panel(n_sites=120, step=50):
         """Biallelic haplotypes with an indel allele at every tenth site."""
-        sites, names = _toy_sites("1", range(1000, 1000 + n_sites * step, step),
-                                  seed=5)
+        sites, names = toy_sites(range(1000, 1000 + n_sites * step, step),
+                                 seed=5)
         for k in range(0, len(sites), 10):
             site = sites[k]
             tips = dict(site.tip_alleles)

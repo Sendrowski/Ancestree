@@ -16,13 +16,18 @@ These re-simulate per test and run the full pipeline, so they are marked
 """
 from __future__ import annotations
 
+import logging
+import multiprocessing
+
 import numpy as np
 import msprime
 import pytest
 
+import ancestree.local_tree_inference as lti
 from ancestree import (JC69, LocalTreeBuilder, LocalTreeInference, STATES,
                        Site)
-from testing._helpers import canonical_alleles
+from ancestree.settings import Settings
+from testing._helpers import canonical_alleles, toy_chunked_inference, toy_sites
 
 
 # --------------------------------------------------------------- simulation
@@ -237,3 +242,65 @@ def test_chunked_small_config_runs_and_recovers():
         progress=False).infer())
     assert len(out) == len(sites)
     assert _accuracy(out, truth) > 0.5  # well above 0.25 random
+
+
+# ------------------------------------------------------ segment workers
+def test_point_arg_is_unavailable_on_the_chunked_path():
+    """The chunked path has no single genome-wide plug-in ARG."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    inf = toy_chunked_inference(sites, names)
+    with pytest.raises(NotImplementedError, match="per-segment"):
+        inf._point_arg()
+
+
+def test_segment_worker_requires_the_module_global(monkeypatch):
+    """The fork entrypoint refuses to run without the inherited instance."""
+    monkeypatch.setattr(lti, "_LOCAL_TREE_FOR_FORK", None)
+    with pytest.raises(RuntimeError, match="_LOCAL_TREE_FOR_FORK"):
+        lti._segment_worker(None)
+
+
+def test_segment_worker_processes_the_inherited_instance(monkeypatch):
+    """The fork entrypoint delegates to the parent's ``_process_segment``."""
+    sites, names = toy_sites(range(0, 1500, 20))
+    inf = toy_chunked_inference(sites, names, n_ensemble=None)
+    inf._resolve_segmentation_params()
+    work_units = list(inf._stream_segments())
+    assert work_units
+    monkeypatch.setattr(lti, "_LOCAL_TREE_FOR_FORK", inf)
+    rows, counts = lti._segment_worker(work_units[0])
+    direct, direct_counts = inf._process_segment(work_units[0])
+    assert counts == direct_counts
+    assert [s.pos for s, _ in rows] == [s.pos for s, _ in direct]
+    for (_, a), (_, b) in zip(rows, direct):
+        np.testing.assert_allclose(a, b)
+
+
+def test_chunked_workers_fall_back_to_serial_on_an_unsafe_fork(monkeypatch, caplog):
+    """An unsafe numba layer runs the segments in-process with a warning."""
+    sites, names = toy_sites(range(0, 3000, 20))
+    kw = dict(chunk_size=1000, halo=400, n_ensemble=None)
+    serial = list(toy_chunked_inference(sites, names, n_workers=1, **kw).infer())
+    monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        par = list(toy_chunked_inference(sites, names, n_workers=2, **kw).infer())
+    assert any("not fork-safe" in r.getMessage() for r in caplog.records)
+    assert [s.pos for s, _ in par] == [s.pos for s, _ in serial]
+    for (_, a), (_, b) in zip(par, serial):
+        np.testing.assert_allclose(a.values, b.values)
+
+
+def test_chunked_workers_fall_back_to_serial_without_a_fork_method(monkeypatch, caplog):
+    """A platform without the ``fork`` start method runs single-threaded."""
+    sites, names = toy_sites(range(0, 3000, 20))
+    kw = dict(chunk_size=1000, halo=400, n_ensemble=None)
+    serial = list(toy_chunked_inference(sites, names, n_workers=1, **kw).infer())
+    monkeypatch.setattr(multiprocessing, "get_all_start_methods",
+                        lambda: ["spawn"])
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        par = list(toy_chunked_inference(sites, names, n_workers=2, **kw).infer())
+    assert any("'fork' start method is unavailable" in r.getMessage()
+               for r in caplog.records)
+    assert [s.pos for s, _ in par] == [s.pos for s, _ in serial]
+    for (_, a), (_, b) in zip(par, serial):
+        np.testing.assert_allclose(a.values, b.values)

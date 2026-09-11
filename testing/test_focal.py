@@ -19,8 +19,10 @@ from ancestree.priors import KingmanIngroupWeight
 import ancestree._jit_kernel as jk
 from ancestree.focal import FocalNode, ResolvedFocal
 from ancestree.models import JC69, K2, F81, HKY, GTR
+from ancestree.posterior import Grade
 from ancestree.sites import BaseComposition
-from testing._helpers import canonical_alleles
+from testing._helpers import canonical_alleles, panel_tables, panel_ts
+from testing._helpers import QUICKSTART_TREES
 
 #: Skewed enough that a non-reversible slip shows up in the third decimal.
 COMPOSITION = BaseComposition(counts={"A": 400, "C": 100, "G": 100, "T": 400})
@@ -36,34 +38,9 @@ MODELS = [
 ]
 
 
-def _panel():
-    """Six tips: an ingroup of four over two clades, plus two outgroups.
-
-    Deliberately non-ultrametric, and built as a table collection rather than
-    through ``from_newick``, which would force ultrametricity and silently
-    rewrite these branch lengths.
-    """
-    tables = tskit.TableCollection(sequence_length=10.0)
-    a, b, c, d = [tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-                  for _ in range(4)]
-    o1, o2 = [tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
-              for _ in range(2)]
-    ab = tables.nodes.add_row(flags=0, time=1.0)
-    cd = tables.nodes.add_row(flags=0, time=1.5)
-    ingroup_mrca = tables.nodes.add_row(flags=0, time=3.0)
-    outgroup_mrca = tables.nodes.add_row(flags=0, time=2.0)
-    root = tables.nodes.add_row(flags=0, time=6.0)
-    for parent, child in (
-        (ab, a), (ab, b), (cd, c), (cd, d), (ingroup_mrca, ab),
-        (ingroup_mrca, cd), (outgroup_mrca, o1), (outgroup_mrca, o2),
-        (root, ingroup_mrca), (root, outgroup_mrca),
-    ):
-        tables.edges.add_row(left=0, right=10.0, parent=parent, child=child)
-    tables.sort()
-    return tables.tree_sequence(), [a, b, c, d], ingroup_mrca
-
-
-TREE_SEQUENCE, INGROUP_NODES, INGROUP_MRCA = _panel()
+TREE_SEQUENCE, _PANEL_IDS = panel_ts()
+INGROUP_NODES = [_PANEL_IDS[s] for s in ("a", "b", "c", "d")]
+INGROUP_MRCA = _PANEL_IDS["mrca"]
 #: One G among the ingroup, both outgroups T: informative at every node.
 OBSERVED = {0: "A", 1: "A", 2: "G", 3: "A", 4: "T", 5: "T"}
 STATE_INDEX = {s: i for i, s in enumerate(anc.STATES)}
@@ -190,6 +167,27 @@ def _inside_outside(model, pi, focal_node: int) -> np.ndarray:
     return joint / joint.sum()
 
 
+def _two_root_ts() -> "tuple[tskit.TreeSequence, dict[str, int]]":
+    """Two disjoint cherries, ``(a, b)`` under ``ab`` and ``(c, d)`` under ``cd``.
+
+    A site at position 1 carries a mutation ``A -> C`` on the edge above
+    ``ab``.
+    """
+    tables = tskit.TableCollection(sequence_length=10.0)
+    ids: dict[str, int] = {}
+    for name in ("a", "b", "c", "d"):
+        ids[name] = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    ids["ab"] = tables.nodes.add_row(flags=0, time=1.0)
+    ids["cd"] = tables.nodes.add_row(flags=0, time=2.0)
+    for parent, child in (("ab", "a"), ("ab", "b"), ("cd", "c"), ("cd", "d")):
+        tables.edges.add_row(left=0, right=10.0, parent=ids[parent],
+                             child=ids[child])
+    site = tables.sites.add_row(position=1.0, ancestral_state="A")
+    tables.mutations.add_row(site=site, node=ids["ab"], derived_state="C")
+    tables.sort()
+    return tables.tree_sequence(), ids
+
+
 class TestResolution:
     """`FocalNode` names a node as a rule, resolved per tree."""
 
@@ -228,6 +226,28 @@ class TestResolution:
             FocalNode("panel_root", fraction=0.5, depth=1.0)
         with pytest.raises(ValueError, match=r"fraction must be in \[0, 1\]"):
             FocalNode("panel_root", fraction=1.5)
+
+
+class TestFocalNodeSpec:
+    def test_an_unknown_spec_type_is_refused(self):
+        with pytest.raises(TypeError, match="got int"):
+            FocalNode.parse(3)
+
+    def test_provenance_records_a_depth(self):
+        assert FocalNode("ingroup_mrca", depth=1.5).provenance() == {
+            "focal": "ingroup_mrca", "focal_depth": 1.5}
+
+    def test_an_ingroup_spanning_two_roots_has_no_mrca(self):
+        ts, ids = _two_root_ts()
+        with pytest.raises(ValueError, match="spans several roots"):
+            FocalNode().resolve(ts.first(), ingroup_nodes=[ids["a"], ids["c"]])
+
+    def test_a_fraction_above_the_root_resolves_to_the_root(self):
+        ts, ids = panel_ts()
+        tree = ts.first()
+        resolved = FocalNode("ingroup_mrca", fraction=0.5).resolve(
+            tree, ingroup_nodes=list(tree.samples()))
+        assert resolved == ResolvedFocal(ids["root"], 0.0, True)
 
 
 class TestRerootingIsExact:
@@ -827,7 +847,7 @@ class TestInferSiteAcceptsAReRootedView:
     root, nor ``at_focal``, nor a tskit tree, and must still resolve.
     """
 
-    TREES = "docs/_static/quickstart.trees"
+    TREES = QUICKSTART_TREES
     ING = [f"i{i}" for i in range(6)]
     OUT = ["o0", "o1"]
 
@@ -1425,6 +1445,51 @@ def test_the_rank_shortcut_matches_the_pairwise_fold_across_roots():
                 subset = nodes[start:start + size]
                 assert _mrca(tree, subset, ranks) == _mrca(tree, subset, None)
     assert n_multi > 0
+
+
+class TestTruthAtFocal:
+    """The true allele read at a placed, degenerate or unresolvable focal node."""
+
+    def test_a_placement_excludes_dated_mutations_above_it(self):
+        tables, ids = panel_tables()
+        for pos, time in ((1.0, 4.0), (2.0, 3.2)):
+            site = tables.sites.add_row(position=pos, ancestral_state="A")
+            tables.mutations.add_row(site=site, node=ids["mrca"],
+                                     derived_state="C", time=time)
+        tables.sort()
+        ts = tables.tree_sequence()
+        sample_map = {k: ids[k] for k in ("a", "b", "c", "d", "o1", "o2")}
+        truth = Grade.truth_at_focal(
+            ts, FocalNode("ingroup_mrca", depth=3.5),
+            ingroup_samples=["a", "b", "c", "d"], sample_map=sample_map)
+        # The readout sits at time 3.5 on the edge above the ingroup MRCA:
+        # the mutation at 4.0 lies above it, the one at 3.2 below.
+        assert truth == {1: "A", 2: "C"}
+
+    def test_the_panel_root_of_a_multi_root_tree_is_the_arg_root_state(self):
+        ts, ids = _two_root_ts()
+        sample_map = {k: ids[k] for k in ("a", "b", "c", "d")}
+        at_root = Grade.truth_at_focal(
+            ts, "panel_root", ingroup_samples=["a", "b"], sample_map=sample_map)
+        at_mrca = Grade.truth_at_focal(
+            ts, None, ingroup_samples=["a", "b"], sample_map=sample_map)
+        assert at_root == {1: "A"}
+        assert at_mrca == {1: "C"}
+
+    def test_a_focal_node_on_a_tip_is_read_at_the_arg_root(self):
+        tables, ids = panel_tables()
+        site = tables.sites.add_row(position=1.0, ancestral_state="A")
+        tables.mutations.add_row(site=site, node=ids["ab"], derived_state="C")
+        tables.sort()
+        ts = tables.tree_sequence()
+        sample_map = {k: ids[k] for k in ("a", "b", "c", "d", "o1", "o2")}
+        at_tip = Grade.truth_at_focal(
+            ts, None, ingroup_samples=["a"], sample_map=sample_map)
+        above_tip = Grade.truth_at_focal(
+            ts, FocalNode("ingroup_mrca", coalescences=1),
+            ingroup_samples=["a"], sample_map=sample_map)
+        assert at_tip == {1: "A"}
+        assert above_tip == {1: "C"}
 
 
 class TestThePostOrderRefusesIndicesItCannotBoundsCheck:

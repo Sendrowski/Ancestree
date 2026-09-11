@@ -19,8 +19,9 @@ from ancestree import (
     OutgroupLadderTree,
     Site,
 )
+from ancestree.inference import Inference
 
-from testing._helpers import no_counts as _no_counts
+from testing._helpers import no_counts as _no_counts, post
 
 
 # ---------------------------------------------------------------- the rule itself
@@ -361,3 +362,25 @@ class TestBaselineMemoryGate:
             if "baseline" in r.message and "agreement" in r.message
         )
         assert "leading 4-site sample" in line
+
+
+# ------------------------------------------------- the agreement summary
+
+
+def test_baseline_agreement_refuses_misaligned_streams():
+    """Streams whose sites differ in position cannot be compared."""
+    real = [(Site(chrom="1", pos=1, alleles=("A",), tip_alleles={}), post("A", 0.9))]
+    baseline = [(Site(chrom="1", pos=2, alleles=("A",), tip_alleles={}), post("A", 0.9))]
+    assert Inference._summarise_baseline_agreement(
+        real, baseline, ingroup_samples=None) is None
+    aligned = [(Site(chrom="1", pos=1, alleles=("A",), tip_alleles={}), post("A", 0.9))]
+    assert "1.000 on 1" in Inference._summarise_baseline_agreement(
+        real, aligned, ingroup_samples=None)
+
+
+def test_baseline_without_designated_samples_names_none():
+    """A mode without designated outgroups yields empty sample tuples, so the
+    consistency check is skipped."""
+    inf = MajorityOutgroupInference([], ["o1"], for_comparison_only=True)
+    assert Inference._baseline_outgroup_samples(inf) == ()
+    assert Inference._baseline_ingroup_samples(inf) == ()

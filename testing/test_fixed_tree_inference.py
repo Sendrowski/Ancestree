@@ -1,6 +1,7 @@
 """Tests for FixedTreeInference."""
 import gc
 import logging
+import multiprocessing as mp
 import warnings
 
 import numpy as np
@@ -18,7 +19,10 @@ from ancestree import (
     JC69,
     STATES,
     Site,
+    TskitLocalTree,
 )
+from ancestree.priors import KingmanIngroupWeight
+from ancestree.settings import Settings
 from ancestree.sites import SiteSource
 from testing._helpers import no_counts as _no_counts
 
@@ -1937,3 +1941,179 @@ class TestTheNoOutgroupModeStillRecordsProvenance:
         record = inference.provenance()
         assert record["parameters"]["ingroup_samples"] == []
         assert record["parameters"]["outgroup_samples"] == []
+
+
+# ---------------------------------------- constructor guards and fit paths
+
+
+def _ladder_sites(n: int, outgroups=("o1", "o2"), pattern=None) -> list[Site]:
+    """``n`` polymorphic sites over ``outgroups``, alleles cycling A/C.
+
+    :param n: Number of sites.
+    :param outgroups: Outgroup ids carried by every site.
+    :param pattern: Optional callable ``(i, outgroup) -> allele or None``.
+    """
+    sites = []
+    for i in range(n):
+        if pattern is None:
+            tips = {o: ("A" if (i + k) % 2 == 0 else "C")
+                    for k, o in enumerate(outgroups)}
+        else:
+            tips = {o: pattern(i, o) for o in outgroups}
+        alleles = tuple(sorted({a for a in tips.values() if a}))
+        sites.append(Site(chrom="1", pos=i + 1, alleles=alleles, tip_alleles=tips))
+    return sites
+
+
+def _fixed_tree(sites, **kwargs) -> FixedTreeInference:
+    """A fit-ready fixed-tree inference over ``i1`` and two outgroups."""
+    return FixedTreeInference(
+        sites, JC69(), _no_counts(),
+        tree=OutgroupLadderTree(["i1"], ["o1", "o2"]),
+        n_target_sites=1_000, progress=False, baseline_check=False, **kwargs,
+    )
+
+
+def test_provenance_reports_an_ascertained_composition_as_empirical():
+    """A composition tallied from polymorphic sites carries no counts, only pi."""
+    sites = _ladder_sites(4)
+    bc = BaseComposition.from_polymorphic_sites(sites)
+    assert bc.n_total == 0
+    inf = FixedTreeInference(
+        sites, JC69(), bc, tree=OutgroupLadderTree(["i1"], ["o1", "o2"]),
+        n_target_sites=1_000, progress=False, baseline_check=False)
+    assert inf.provenance()["parameters"]["base_composition"] == "empirical"
+    assert _fixed_tree(sites).provenance()["parameters"]["base_composition"] == "uniform"
+
+
+def test_fixed_tree_needs_names_or_a_ladder():
+    with pytest.raises(ValueError, match="ingroup_samples and outgroup_samples"):
+        FixedTreeInference([], JC69(), _no_counts(), ingroup_samples=["i1"])
+
+
+def test_fixed_tree_refuses_an_ingroup_weight_as_prior():
+    with pytest.raises(TypeError, match="prior must be a StationaryPrior"):
+        _fixed_tree(_ladder_sites(4), prior=KingmanIngroupWeight(["i1"]))
+
+
+def test_subsample_size_is_bounded_by_the_ingroup():
+    sites = _ladder_sites(4, outgroups=("i1", "o1", "o2"))
+    with pytest.raises(ValueError, match=r"subsample_size must be in \[2, 1\]"):
+        _fixed_tree(sites, subsample_size=3)
+    with pytest.raises(ValueError, match="subsample_size must be >= 2"):
+        _fixed_tree(sites, subsample_size=1)
+
+
+def test_infer_site_needs_an_ingroup_mrca_to_seed_the_weight(small_ts):
+    """A fixed-tree run carries an ingroup weight that a tree without an
+    ingroup MRCA cannot host."""
+    inf = FixedTreeInference(
+        [], JC69(), _no_counts(), tree=OutgroupLadderTree(["i1"], ["o1", "o2"]),
+        fit_required=False, focal="panel_root",
+    )
+    assert isinstance(inf.ingroup_weight, KingmanIngroupWeight)
+    tree = TskitLocalTree.from_tskit_tree(small_ts.first())
+    site = Site(chrom="1", pos=1, alleles=("A",), tip_alleles={"0": "A"})
+    with pytest.raises(ValueError, match="no ingroup MRCA"):
+        inf.infer_site(tree, site)
+
+
+def test_bound_warning_is_silent_before_the_fit(caplog):
+    inf = _fixed_tree(_ladder_sites(4))
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        inf._warn_if_branch_rates_at_bounds()
+    assert not caplog.records
+
+
+def test_redundancy_check_skips_a_pair_never_observed_together(caplog):
+    """Two identical outgroups are reported. A third that is never observed
+    alongside them is not compared."""
+    def pattern(i, o):
+        if o == "o3":
+            return None
+        return "A" if i % 2 == 0 else "C"
+
+    sites = _ladder_sites(60, outgroups=("o1", "o2", "o3"), pattern=pattern)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        FixedTreeInference(
+            sites, JC69(), _no_counts(),
+            tree=OutgroupLadderTree(["i1"], ["o1", "o2", "o3"]),
+            n_target_sites=1_000, progress=False, baseline_check=False,
+        )
+    reported = [r for r in caplog.records if "near-redundant" in r.message]
+    assert len(reported) == 1
+    assert "'o1' and 'o2'" in reported[0].message
+
+
+def test_sample_presence_check_is_a_no_op_without_names():
+    site = Site(chrom="1", pos=1, alleles=("A",), tip_alleles={"o1": "A"})
+    assert FixedTreeInference._check_samples_present(None, [site]) is None
+    assert FixedTreeInference._check_samples_present([], [site],
+                                                     ingroup_samples=[]) is None
+
+
+def test_no_outgroup_mode_has_nothing_to_fit_and_no_ladder(caplog):
+    site = Site(chrom="1", pos=1, alleles=("A", "C"),
+                tip_alleles={"i1": "A", "i2": "C"})
+    inf = FixedTreeInference([site], JC69(), _no_counts(), ingroup_samples=["i1", "i2"],
+                             outgroup_samples=[], progress=False)
+    assert inf.fit() == {}
+    assert inf._focal_tree is None
+    assert len(list(inf.infer())) == 1
+    empty = FixedTreeInference([], JC69(), _no_counts(), ingroup_samples=["i1"],
+                               outgroup_samples=[], progress=False)
+    assert list(empty.infer()) == []
+
+
+def test_monotone_divergence_check_needs_two_outgroups(caplog):
+    inf = FixedTreeInference(
+        _ladder_sites(4, outgroups=("o1",)), JC69(), _no_counts(),
+        tree=OutgroupLadderTree(["i1"], ["o1"]), n_target_sites=1_000,
+        progress=False, baseline_check=False,
+    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        inf._warn_if_outgroup_divergences_non_monotone()
+    assert not caplog.records
+
+
+def test_objective_is_zero_without_configs():
+    inf = _fixed_tree([], fit_required=False)
+    inf._fit_configs = []
+    assert inf._neg_log_likelihood(np.array(inf._x0)[inf._free_indices]) == 0.0
+
+
+class TestRunParallelFallbacks:
+    """Every serial fallback of the multi-start dispatcher returns one
+    optimiser result per start."""
+
+    @pytest.fixture
+    def inf(self):
+        return _fixed_tree(_ladder_sites(6), n_starts=2)
+
+    def _check(self, inf):
+        starts = inf._generate_starts()
+        results = inf._run_parallel(starts)
+        assert len(results) == len(starts)
+        assert all(np.isfinite(r.fun) for r in results)
+
+    def test_single_worker(self, inf, monkeypatch):
+        monkeypatch.setattr(Settings, "parallelize", False)
+        self._check(inf)
+
+    def test_fork_unsafe_layer(self, inf, monkeypatch, caplog):
+        monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+        inf.n_workers = 2
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            self._check(inf)
+        assert any("Ignoring the parallelization request" in r.message
+                   for r in caplog.records)
+
+    def test_no_fork_start_method(self, inf, monkeypatch, caplog):
+        monkeypatch.setattr(mp, "get_all_start_methods", lambda: ["spawn"])
+        inf.n_workers = 2
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            self._check(inf)
+        assert any("running the 2 starts serially" in r.message
+                   for r in caplog.records)

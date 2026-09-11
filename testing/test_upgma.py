@@ -36,3 +36,14 @@ class TestWindowedUpgma:
             WindowedUpgmaTreeSequence(
                 2, 10.0, [(0.0, 10.0)], [np.array([1.0])], sample_names=["only-one"],
             )
+
+
+class TestWindowedUpgmaGuards:
+    def test_window_lists_must_align(self):
+        with pytest.raises(ValueError, match="must have the same length"):
+            WindowedUpgmaTreeSequence(
+                2, 10.0, [(0.0, 5.0), (5.0, 10.0)], [np.array([1.0])])
+
+    def test_a_condensed_vector_must_hold_every_pair(self):
+        with pytest.raises(ValueError, match=r"expected n\*\(n-1\)/2 = 3"):
+            WindowedUpgmaTreeSequence(3, 10.0, [(0.0, 10.0)], [np.array([1.0])])

@@ -30,6 +30,7 @@ from ancestree.writers import ZarrWriter
 from testing._helpers import post
 
 import zarr
+from testing._helpers import QUICKSTART_TREES
 
 # ZarrWriter creates the fixed-length string ``variant_AA`` array VCZ mandates, which
 # zarr v3 flags with an UnstableSpecificationWarning it has no V3 spec for.
@@ -216,7 +217,7 @@ class TestToZarrReusesAZarrSource:
     def test_a_store_source_needs_no_explicit_template(self, tmp_path):
         import bio2zarr.vcf as bio2zarr_vcf
 
-        ts = tskit.load("docs/_static/quickstart.trees")
+        ts = tskit.load(QUICKSTART_TREES)
         names = [f"i{i}" for i in range(6)] + ["o0", "o1"]
         vcf = tmp_path / "src.vcf"
         with open(vcf, "w") as fh:

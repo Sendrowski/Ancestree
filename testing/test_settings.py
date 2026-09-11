@@ -1,5 +1,8 @@
 """Package-wide :class:`~ancestree.settings.Settings` switches."""
+import multiprocessing
 import os
+import types
+
 import msprime
 
 import pytest
@@ -84,6 +87,12 @@ class TestResolveNWorkers:
     def test_true_respects_an_explicit_count(self):
         Settings.parallelize = True
         assert Settings._resolve_n_workers(4) == 4
+
+    def test_a_daemonic_process_resolves_to_one_worker(self, monkeypatch):
+        monkeypatch.setattr(Settings, "parallelize", None)
+        monkeypatch.setattr(multiprocessing, "current_process",
+                            lambda: types.SimpleNamespace(daemon=True))
+        assert Settings._resolve_n_workers(8) == 1
 
 
 class TestKillSwitchReachesTheFit:

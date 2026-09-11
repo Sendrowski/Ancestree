@@ -14,6 +14,7 @@ import pytest
 import tskit
 
 import ancestree as anc
+from ancestree import ARGBasedInference
 from ancestree.models import JC69
 from ancestree.settings import Settings
 
@@ -143,6 +144,19 @@ def test_generator_input_is_accepted():
 def test_empty_iterable_is_rejected():
     with pytest.raises(ValueError, match="empty iterable"):
         anc.ARGBasedInference([], anc.JC69(), mu=MU, progress=False)
+
+
+def test_empty_posterior_sample_is_refused():
+    with pytest.raises(ValueError, match="empty iterable"):
+        ARGBasedInference([], JC69(), mu=1e-8, progress=False)
+
+
+def test_a_posterior_sample_emptied_after_construction_scores_nothing(small_ts):
+    """The marginal over no draws is empty, with nothing to merge."""
+    draws = [small_ts]
+    inf = ARGBasedInference(draws, JC69(), mu=1e-8, progress=False)
+    draws.clear()
+    assert list(inf.infer()) == []
 
 
 def _keys_and_values_equal(x, y):
@@ -563,3 +577,48 @@ class TestTheMixtureIsTheAverageLikelihood:
         assert only_full
         for pos in only_full:
             np.testing.assert_allclose(mixed[pos], alone[pos], atol=1e-12)
+
+
+# ------------------------------------------------------------ n_draws
+
+
+class _Rewalkable:
+    """A re-walkable, unsized posterior sample."""
+
+    def __init__(self, draws):
+        self._draws = list(draws)
+
+    def __iter__(self):
+        return iter(self._draws)
+
+
+class _SizedIterator:
+    """A one-shot iterator that still knows its length."""
+
+    def __init__(self, draws):
+        self._draws = list(draws)
+        self._i = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._i >= len(self._draws):
+            raise StopIteration
+        self._i += 1
+        return self._draws[self._i - 1]
+
+    def __len__(self):
+        return len(self._draws) - self._i
+
+
+def test_n_draws_is_recorded_only_where_the_sample_is_countable(small_ts):
+    def params(source):
+        return ARGBasedInference(
+            source, JC69(), mu=1e-8, progress=False).provenance()["parameters"]
+
+    assert params([small_ts, small_ts, small_ts])["n_draws"] == 3
+    assert "n_draws" not in params(_Rewalkable([small_ts, small_ts]))
+    assert params(_SizedIterator([small_ts, small_ts]))["n_draws"] == 2
+    assert "n_draws" not in params(ts for ts in [small_ts, small_ts])
+    assert params(small_ts)["n_draws"] == 1

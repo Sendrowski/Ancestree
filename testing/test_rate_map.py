@@ -16,10 +16,11 @@ dep. Coverage:
 4. Non-numeric, non-rate-map ``mu`` raises ``TypeError`` with a clear
    message naming the expected contract.
 """
+import msprime
 import numpy as np
 import pytest
 
-from ancestree import ARGBasedInference, JC69
+from ancestree import ARGBasedInference, JC69, TskitLocalTree
 
 
 def _small_arg():
@@ -144,3 +145,20 @@ def test_invalid_mu_type_rejected():
     ts = _small_arg()
     with pytest.raises(TypeError, match="get_cumulative_mass"):
         ARGBasedInference(ts, JC69(), mu="not a rate", progress=False)
+
+
+def test_rate_map_scales_a_supplied_tree_by_its_interval(small_ts):
+    """``infer_site`` on a tskit-backed tree reads the rate map over the
+    tree's own interval, so it agrees with a scalar run at that rate."""
+    length = small_ts.sequence_length
+    rate_map = msprime.RateMap(position=[0.0, length / 2, length],
+                               rate=[1e-8, 4e-8])
+    mapped = ARGBasedInference(small_ts, JC69(), mu=rate_map, progress=False)
+    scalar = ARGBasedInference(small_ts, JC69(), mu=4e-8, progress=False)
+    tree = small_ts.at(0.75 * length)
+    assert tree.interval.left >= length / 2
+    site = next(s for s, _ in scalar.infer() if s.pos >= tree.interval.left)
+    values = mapped.infer_site(TskitLocalTree.from_tskit_tree(tree), site).values
+    expected = scalar.infer_site(TskitLocalTree.from_tskit_tree(tree), site).values
+    np.testing.assert_allclose(values, expected, rtol=1e-12)
+    assert not np.allclose(values, 0.25)

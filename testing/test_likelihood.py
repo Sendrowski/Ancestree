@@ -18,7 +18,8 @@ import ancestree as anc
 from ancestree.likelihood import Likelihood, _normalise
 from ancestree.models import JC69, K2
 from ancestree.sites import Site
-from ancestree.trees import Tree
+from ancestree.trees import Tree, TskitLocalTree
+from testing._helpers import panel_site, panel_ts
 
 
 # --------------------------------------------------------------------- helpers
@@ -440,3 +441,31 @@ class TestNormaliseRejectsNaN:
         probabilities, n_bad = _normalise(np.full((1, 4), -np.inf), 4)
         assert n_bad == 1
         assert probabilities == pytest.approx(np.full((1, 4), 0.25))
+
+
+class TestLikelihoodGuards:
+    def test_repr_names_the_model(self):
+        assert repr(Likelihood(JC69())) == "Likelihood(model=JC69)"
+
+    def test_a_seed_of_the_wrong_shape_is_refused(self):
+        ts, ids = panel_ts()
+        tree = TskitLocalTree(ts, position=0.0)
+        with pytest.raises(ValueError, match=r"expected \(1, 4\)"):
+            Likelihood(JC69()).log_likelihoods(
+                tree, [panel_site(ids)],
+                node_seeds={ids["mrca"]: np.ones((2, 4))})
+
+    def test_the_native_kernel_needs_a_positive_time_scale(self):
+        ts, ids = panel_ts()
+        tip_states = np.zeros((1, ts.num_samples), dtype=np.int8)
+        with pytest.raises(ValueError, match="time_scale must be positive"):
+            Likelihood(JC69()).log_likelihoods_tskit_native(
+                ts.first(), tip_states, ts.samples(), ts.tables.nodes.time,
+                time_scale=0.0)
+
+    def test_a_split_past_the_end_of_its_edge_is_refused(self):
+        engine = Likelihood(JC69())
+        parent = np.array([-1, 0], dtype=np.int32)
+        with pytest.raises(ValueError, match="exceeds the branch"):
+            engine._split_edge(2.0, parent, np.zeros((2, 4, 4)), 2, 0,
+                               path_child=1, edge_length=1.0)

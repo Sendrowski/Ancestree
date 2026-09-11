@@ -17,7 +17,7 @@ import pytest
 import scipy.linalg
 
 from ancestree import Site
-from ancestree.models import _KAPPA_CLAMP, F81, GTR, HKY, JC69, K2
+from ancestree.models import _KAPPA_CLAMP, F81, GTR, HKY, JC69, K2, SubstitutionModel
 
 
 class TestJC69:
@@ -301,6 +301,16 @@ class TestK2EstimateKappaFromData:
             )
 
 
+class TestEstimateKappaSkipsUncalledGroups:
+    def test_a_site_with_no_call_in_one_group_is_skipped(self):
+        sites = [
+            Site(chrom="1", pos=1, alleles=("A",), tip_alleles={"a": "A", "b": None}),
+            Site(chrom="1", pos=2, alleles=("A", "G"), tip_alleles={"a": "A", "b": "G"}),
+        ]
+        kappa = K2.estimate_kappa_from_data(sites, ["a"], ["b"])
+        assert kappa == _KAPPA_CLAMP[1]
+
+
 PI = np.array([0.1, 0.2, 0.3, 0.4])
 
 
@@ -385,6 +395,50 @@ class TestScipyExpmFallback:
         np.testing.assert_array_equal(P, scipy.linalg.expm(Q * 0.75))
 
 
+class _FixedQ(SubstitutionModel):
+    """A model whose rate matrix is given verbatim."""
+
+    def __init__(self, Q) -> None:
+        super().__init__()
+        self._Q = np.asarray(Q, dtype=float)
+
+    def Q(self, *, pi=None) -> np.ndarray:
+        return self._Q
+
+
+class TestRealEigDeclines:
+    """Rate matrices without a usable symmetric form yield ``None``.
+
+    Each case also checks that :meth:`transition_probs` still returns the
+    matrix exponential, which is the fallback the caller takes.
+    """
+
+    ABSORBING = [[-1, 1, 0, 0], [0, 0, 0, 0], [0, 1, -1, 0], [0, 1, 0, -1]]
+    TRANSIENT = [[-1, 1, 0, 0], [1, -1, 0, 0], [1, 0, -1, 0], [1, 0, 0, -1]]
+    CYCLIC = [[-1, 1, 0, 0], [0, -1, 1, 0], [0, 0, -1, 1], [1, 0, 0, -1]]
+
+    def test_a_matrix_without_a_stationary_distribution(self):
+        """The identity has no left null vector, so it is not a generator."""
+        assert _FixedQ(np.eye(4)).real_eig() is None
+
+    @pytest.mark.parametrize("Q", [ABSORBING, TRANSIENT, CYCLIC],
+                             ids=["absorbing", "transient", "cyclic"])
+    def test_returns_none_and_transition_probs_fall_back_to_expm(self, Q):
+        model = _FixedQ(Q)
+        assert model.real_eig() is None
+        np.testing.assert_allclose(
+            model.transition_probs(0.7),
+            scipy.linalg.expm(0.7 * np.asarray(Q, dtype=float)),
+            atol=1e-12,
+        )
+
+    def test_a_reversible_matrix_is_decomposed(self):
+        """The reference case: K2 reconstructs from its real decomposition."""
+        model = K2(kappa=3.0)
+        lam, V, Vinv = model.real_eig()
+        np.testing.assert_allclose(V @ (lam[:, None] * Vinv), model.Q(), atol=1e-12)
+
+
 class TestArrayTNonSymmetricModels:
     """The array-``t`` transition path for F81 / HKY / GTR, whose ``Q``
     depends on ``pi``, equals the stack of per-scalar (cached) calls."""
@@ -458,6 +512,12 @@ class TestModelValidation:
     def test_gtr_bad_rate_bounds(self):
         with pytest.raises(ValueError, match="rate_bounds"):
             GTR(fit_rates=True, rate_bounds=(0.0, 1.0))
+
+
+class TestKappaBounds:
+    def test_inverted_bounds_are_rejected(self):
+        with pytest.raises(ValueError, match="kappa_bounds must be"):
+            K2(kappa=2.0, kappa_bounds=(1.0, 0.5))
 
 
 class TestWarnIfBoundsHit:
