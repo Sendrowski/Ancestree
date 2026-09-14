@@ -1,4 +1,5 @@
 # Ancestree  <img align="right" width="100" src="https://raw.githubusercontent.com/Sendrowski/Ancestree/main/docs/logo_thumbnail.png">
+[![Tests](https://github.com/Sendrowski/Ancestree/actions/workflows/run-tests.yml/badge.svg?branch=main)](https://github.com/Sendrowski/Ancestree/actions/workflows/run-tests.yml)
 [![codecov](https://codecov.io/gh/Sendrowski/Ancestree/branch/main/graph/badge.svg)](https://codecov.io/gh/Sendrowski/Ancestree)
 [![Documentation Status](https://readthedocs.org/projects/ancestree/badge/?version=latest)](https://ancestree.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/ancestree-popgen.svg)](https://badge.fury.io/py/ancestree-popgen)
