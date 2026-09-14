@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: If you use this software, please cite the article below.
+title: Ancestree
+authors:
+  - family-names: Sendrowski
+    given-names: Janek
+  - family-names: Bataillon
+    given-names: Thomas
+repository-code: https://github.com/Sendrowski/Ancestree
+preferred-citation:
+  type: article
+  title: "Ancestree: unified likelihood inference of ancestral alleles under supplied or inferred genealogies"
+  authors:
+    - family-names: Sendrowski
+      given-names: Janek
+    - family-names: Bataillon
+      given-names: Thomas
+  journal: bioRxiv
+  year: 2026
+  month: 9
+  doi: 10.64898/2026.09.11.750934
