@@ -1,7 +1,6 @@
 """Sphinx configuration for Ancestree's docs."""
 from __future__ import annotations
 
-import datetime
 import sys
 from pathlib import Path
 
@@ -11,13 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # -- Project information ------------------------------------------------------
 
 project = "Ancestree"
-year = datetime.datetime.now().year
-copyright = f"{year}, Janek Sendrowski"
 author = "Janek Sendrowski"
 
 # The version is read from the package itself, so the two cannot diverge.
 from ancestree import __version__ as _ancestree_version  # noqa: E402
 release = _ancestree_version
+html_show_copyright = False
 
 # -- General configuration ----------------------------------------------------
 
