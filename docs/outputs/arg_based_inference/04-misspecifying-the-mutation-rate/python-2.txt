@@ -1,0 +1,4 @@
+mu                      MAP recovery   mean Brier
+5e-8 (true)                    98.3%        0.031
+5e-5 (1000× too high)          96.6%        0.173
+5e-11 (1000× too low)          98.3%        0.031

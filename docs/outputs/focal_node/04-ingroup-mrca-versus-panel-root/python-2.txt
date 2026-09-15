@@ -1,0 +1,3 @@
+Brier score at         polymorphic   fixed ancestral     fixed derived
+ingroup_mrca                 0.031             0.000             2.000
+panel_root                   0.031             0.190             0.772

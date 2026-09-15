@@ -1,0 +1,1 @@
+INFO:ancestree.TskitSource: Reading variants from a tree sequence (224 sites, 8 samples)

@@ -481,8 +481,9 @@ rule manuscript_diff:
 # Re-execute the docs Jupyter notebooks in place, refreshing their committed
 # outputs. The docs build itself does NOT re-execute them (conf.py sets
 # ``nb_execution_mode = "off"``), so run this on demand after code changes that
-# affect notebook output, then rebuild the docs and commit:
-#   snakemake -j1 --scheduler greedy execute_docs_notebooks
+# affect notebook output. The docs_notebooks target runs it and writes the
+# displayed outputs to docs/outputs. Then rebuild the docs and commit:
+#   snakemake -j1 --scheduler greedy docs_notebooks
 DOCS_NOTEBOOKS = sorted(glob.glob("docs/reference/Python/*.ipynb"))
 
 
@@ -526,6 +527,28 @@ rule execute_docs_notebooks:
         # directory, where there is no project to install.
         "PYTHONPATH=$PWD jupyter execute --inplace --timeout=900 {input} && "
         "PYTHONPATH=$PWD python docs/coalesce_streams.py {input}"
+
+
+rule extract_docs_outputs:
+    """Write the outputs one executed docs notebook displays to
+    ``docs/outputs/{page}``, so that result changes show up in version control.
+    """
+    input:
+        notebook="docs/reference/Python/{page}.ipynb",
+        executed=f"{REPORTS}/.docs_notebooks_executed",
+    output:
+        touch(f"{RESULTS}/docs/{{page}}.outputs.written"),
+    conda:
+        "../docs/environment.yml"
+    script:
+        "../docs/extract_outputs.py"
+
+
+rule docs_notebooks:
+    """Execute the docs notebooks and write their displayed outputs."""
+    input:
+        expand(f"{RESULTS}/docs/{{page}}.outputs.written",
+               page=[Path(p).stem for p in DOCS_NOTEBOOKS]),
 
 
 rule all:

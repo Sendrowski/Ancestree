@@ -1,0 +1,1 @@
+INFO:ancestree.TskitWriter: Wrote 224 annotated sites to annotated.trees

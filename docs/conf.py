@@ -96,7 +96,7 @@ intersphinx_mapping = {
     "tsinfer": ("https://tskit.dev/tsinfer/docs/stable", None),
 }
 
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "outputs", "Thumbs.db", ".DS_Store"]
 
 # -- HTML output --------------------------------------------------------------
 

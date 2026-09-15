@@ -1,0 +1,3 @@
+INFO:ancestree.VCFWriter: Wrote 224 annotated sites to annotated.vcf.gz
+INFO:ancestree.ZarrWriter: Wrote 224 annotated sites to annotated.vcz
+INFO:ancestree.TskitWriter: Wrote 224 annotated sites to annotated.trees

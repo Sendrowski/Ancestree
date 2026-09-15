@@ -50,7 +50,7 @@ Three inference modes:
 (:mod:`tskit`) files, both for reading and for writing.
 
 .. toctree::
-   :caption: Python Reference
+   :caption: User Guide
    :hidden:
 
    reference/Python/installation
@@ -69,7 +69,7 @@ Three inference modes:
    reference/CLI/usage
 
 .. toctree::
-   :caption: API reference
+   :caption: API Reference
    :maxdepth: 1
    :hidden:
 

@@ -1,0 +1,5 @@
+ingroup_mrca                           -> split above node 0 at tau=0
+ingroup_mrca, coalescences=1           -> split above node 4 at tau=0
+ingroup_mrca, fraction=0.25            -> split above node 4 at tau=0.00025
+ingroup_mrca, depth=0.006              -> split above node 5 at tau=0.004
+panel_root                             -> split above node 3 at tau=0.015

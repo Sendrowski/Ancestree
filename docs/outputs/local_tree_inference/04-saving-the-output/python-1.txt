@@ -1,0 +1,1 @@
+INFO:ancestree.VCFWriter: Wrote 224 annotated sites to annotated.vcf.gz

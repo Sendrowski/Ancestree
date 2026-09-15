@@ -1,0 +1,9 @@
+site          model                      A       C       G       T
+transition    JC69                  0.8387  0.0181  0.1250  0.0181
+transition    K2(k=4)               0.7877  0.0040  0.2043  0.0040
+transition    F81(AT-rich)          0.8223  0.0165  0.1364  0.0248
+transition    HKY(k=4, AT-rich)     0.7786  0.0036  0.2123  0.0055
+transversion  JC69                  0.8387  0.1250  0.0181  0.0181
+transversion  K2(k=4)               0.8682  0.0729  0.0437  0.0152
+transversion  F81(AT-rich)          0.8223  0.1364  0.0165  0.0248
+transversion  HKY(k=4, AT-rich)     0.8607  0.0783  0.0400  0.0210

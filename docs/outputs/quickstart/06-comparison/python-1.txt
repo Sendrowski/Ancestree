@@ -1,0 +1,5 @@
+mode                          MAP recovery   mean Brier
+ARG mode                             98.3%        0.031
+ARG mode, ingroup only               85.6%        0.168
+Fixed-tree mode                      98.3%        0.034
+Local-tree mode                      98.3%        0.028

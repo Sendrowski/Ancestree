@@ -86,9 +86,10 @@ results/data/*
 # hold is in the merged focal_interpolation_local_tree_ens.json.
 results/reports/focal_ens_shard_n*.json
 
-# Snakemake touch() sentinel: tracking it would tell a clone the docs
-# notebooks are already executed.
+# Snakemake touch() sentinels: tracking them would tell a clone the docs
+# notebooks are already executed and their outputs written.
 results/reports/.docs_notebooks_executed
+results/docs/
 
 # Reference PDFs, not distributed
 /Literature/

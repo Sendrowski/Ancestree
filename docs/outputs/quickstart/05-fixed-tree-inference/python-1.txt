@@ -1,0 +1,6 @@
+INFO:ancestree.CyVCF2Source: Genotypes read as ploidy 1; pass ploidy= to override
+INFO:ancestree.CyVCF2Source: Reading variants from quickstart.vcf (8 haplotype samples)
+INFO:ancestree.FixedTreeInference: Streaming fit: pass 1 (config histogram) complete; fitting 3 branch rate(s) by ML, then a second streaming pass emits posteriors.
+INFO:ancestree.FixedTreeInference: 10/10 L-BFGS-B starts converged; best is start 7 (log L -70267.9684, range 0.0000); winning fit took 14 iterations
+INFO:ancestree.FixedTreeInference: MLE branch rates: K0=2.0240e-03, K1=3.9986e-05, K2=6.0017e-05
+INFO:ancestree.FixedTreeInference: Ingroup MRCA → outgroup divergences: o0=2.0640e-03, o1=2.0840e-03

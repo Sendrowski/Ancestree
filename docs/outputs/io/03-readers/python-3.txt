@@ -1,0 +1,2 @@
+annotated.vcz: MAP alleles identical to the VCF: True
+annotated.trees: MAP alleles identical to the VCF: True

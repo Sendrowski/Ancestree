@@ -1,0 +1,6 @@
+INFO:ancestree.TskitSource: Reading variants from a tree sequence (224 sites, 8 samples)
+INFO:ancestree.FixedTreeInference: Inferring the ancestral allele at 224 site(s) on the fitted outgroup ladder
+FixedTreeInference: 100%|██████████| 224/224 [--:--<--:--, -- sites/s]
+INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.540 on 224 polymorphic sites; largest disagreement at SFS bin 0 (0.028); SFS bin 3 (1.000)
+WARNING:ancestree.FixedTreeInference: 106 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup's own allele is the answer.
+INFO:ancestree.FixedTreeInference: Focal node: reported at the ingroup_mrca

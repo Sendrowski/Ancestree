@@ -1,0 +1,2 @@
+Site(chrom='1', pos=556, alleles=('G', 'C'), tip_alleles={'i0': 'G', 'i1': 'G', 'i2': 'G', 'i3': 'C', 'i4': 'C', 'i5': 'C', 'o0': 'G', 'o1': 'G'}, local_tree_handle=None, info={})
+224 sites from either source, identical: True

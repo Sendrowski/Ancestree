@@ -1,0 +1,3 @@
+INFO:ancestree.TskitSource: Reading variants from a tree sequence (224 sites, 8 samples)
+INFO:ancestree.CyVCF2Source: Genotypes read as ploidy 1; pass ploidy= to override
+INFO:ancestree.CyVCF2Source: Reading variants from quickstart.vcf (8 haplotype samples)
