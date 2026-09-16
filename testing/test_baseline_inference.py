@@ -21,7 +21,7 @@ from ancestree import (
 )
 from ancestree.inference import Inference
 
-from testing._helpers import QUICKSTART_TREES
+from testing._helpers import DEMO_VCF, QUICKSTART_TREES
 from testing._helpers import no_counts as _no_counts, post
 
 
@@ -385,6 +385,19 @@ def test_baseline_without_designated_samples_names_none():
     inf = MajorityOutgroupInference([], ["o1"], for_comparison_only=True)
     assert Inference._baseline_outgroup_samples(inf) == ()
     assert Inference._baseline_ingroup_samples(inf) == ()
+
+
+def test_the_majority_outgroup_rule_writes_its_named_samples(tmp_path):
+    import cyvcf2
+
+    from ancestree.sites import SiteSource
+
+    rule = MajorityOutgroupInference(
+        list(SiteSource.resolve(DEMO_VCF)), ["o1_h0"], ingroup_samples=["i0"],
+        for_comparison_only=True)
+    out = str(tmp_path / "out.vcf")
+    rule.to_vcf(out, input_vcf=DEMO_VCF, restrict_samples=True)
+    assert cyvcf2.VCF(out).samples == ["i0", "o1"]
 
 
 def test_the_majority_outgroup_rule_is_graded_at_the_arg_root():

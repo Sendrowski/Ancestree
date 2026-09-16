@@ -42,6 +42,29 @@ def test_writing_over_the_template_is_refused(tmp_path):
     assert os.path.getsize(panel) == before, "the template was modified"
 
 
+def test_writing_over_the_zarr_template_is_refused(tmp_path):
+    """The store must survive, with any ``variant_AA`` it already carried."""
+    import zarr
+
+    from testing._helpers import write_vcz
+
+    path = str(tmp_path / "s.vcz")
+    write_vcz(
+        path, positions=[100, 200], contigs_per_variant=[0, 0],
+        contig_ids=["1"], alleles=[["A", "C"], ["T", "G"]],
+        sample_ids=["s1"], genotypes=np.zeros((2, 1, 2), dtype=np.int8),
+    )
+    root = zarr.open(path, mode="r+")
+    ZarrWriter._create_variant_array(
+        root, "variant_AA", np.asarray(["A", "T"], dtype="U1"), ["variants"])
+    pair = site_pair(pos=100)
+
+    with pytest.raises(ValueError, match="cannot write over its template"):
+        ZarrWriter(path, path).write([pair])
+
+    assert list(zarr.open(path, mode="r")["variant_AA"][:]) == ["A", "T"]
+
+
 def test_a_different_output_path_is_allowed(tmp_path):
     """The guard must not block ordinary use."""
     panel = tmp_path / "panel.vcf.gz"
@@ -256,70 +279,6 @@ def test_local_tree_templates_from_its_source_not_its_inference(tmp_path):
         f"the template does not describe the source")
 
 
-class TestInPlaceZarrAnnotationSurvivesARefusal:
-    """Refusing to write must not have already destroyed the caller's store.
-
-    The in-place branch handed the real store to ``_annotate_store``, which
-    deletes and recreates ``variant_AA`` / ``variant_AA_prob`` /
-    ``variant_AA_post`` before ``write`` evaluates the empty-match refusal, and
-    the ``except`` cleaned only the staging directory, which that branch never
-    created. So the raise arrived with the caller's only copy already blanked,
-    taking with it any ``variant_AA`` the template carried, such as the source
-    VCF's ``AA`` INFO field as vcf2zarr stores it.
-    """
-
-    @staticmethod
-    def _store(tmp_path, aa=("A", "T", "G")):
-        """A three-variant VCZ carrying a pre-existing ``variant_AA``."""
-        import zarr
-
-        from testing._helpers import write_vcz
-
-        path = str(tmp_path / "s.vcz")
-        write_vcz(
-            path, positions=[100, 200, 300], contigs_per_variant=[0, 0, 0],
-            contig_ids=["1"], alleles=[["A", "C"], ["T", "G"], ["G", "A"]],
-            sample_ids=["s1"], genotypes=np.zeros((3, 1, 2), dtype=np.int8),
-        )
-        root = zarr.open(path, mode="r+")
-        if hasattr(root, "create_array"):
-            root.create_array("variant_AA", shape=(3,), dtype="<U1")
-        else:
-            root.create_dataset("variant_AA", shape=(3,), dtype="<U1")
-        root["variant_AA"][:] = np.asarray(aa, dtype="U1")
-        return path
-
-    @staticmethod
-    def _posterior(chrom, pos, alleles):
-        return (
-            anc.Site(chrom=chrom, pos=pos, alleles=alleles,
-                    tip_alleles={"s1_h0": alleles[0]}),
-            Posterior(alleles=("A", "C", "G", "T"),
-                      values=np.array([0.9, 0.1, 0.0, 0.0])),
-        )
-
-    def test_a_refused_in_place_write_leaves_the_store_untouched(self, tmp_path):
-        import zarr
-
-        path = self._store(tmp_path)
-        # A posterior on a contig the store does not carry, so nothing matches.
-        pair = self._posterior("chrZ", 1, ("A", "C"))
-        with pytest.raises(Exception):
-            anc.ZarrWriter(path, path).write([pair])
-        assert list(zarr.open(path, mode="r")["variant_AA"][:]) == ["A", "T", "G"]
-
-    def test_a_successful_in_place_write_still_lands(self, tmp_path):
-        import zarr
-
-        path = self._store(tmp_path)
-        pairs = [self._posterior("1", pos, al) for pos, al in
-                 ((100, ("A", "C")), (200, ("T", "G")), (300, ("G", "A")))]
-        assert anc.ZarrWriter(path, path).write(pairs) == 3
-        root = zarr.open(path, mode="r")
-        assert list(root["variant_AA"][:]) == ["A", "A", "A"]
-        assert "variant_position" in root
-
-
 class TestReAnnotationCarriesNothingFromTheEarlierRun:
     """A second pass must not leave the first run's values in its output.
 
@@ -502,14 +461,15 @@ class TestReAnnotatingAStoreClearsTheEarlierPosterior:
         inference.to_zarr(out, store_posterior=True)
         assert ZARR_AA_POST_FIELD in zarr.open_group(str(out), mode="r")
 
+        rerun = tmp_path / "b.vcz"
         anc.Inference.from_arg(
             small_ts, anc.JC69(), mu=5e-8, progress=False,
-        ).to_zarr(out, input_zarr=out, store_posterior=False)
-        root = zarr.open_group(str(out), mode="r")
+        ).to_zarr(rerun, input_zarr=out, store_posterior=False)
+        root = zarr.open_group(str(rerun), mode="r")
         assert ZARR_AA_POST_FIELD not in root, (
             "the earlier run's posterior survived, so grade() would score "
             "this run's calls against it")
-        assert anc.Reader(out).head(1)[0].posterior is None
+        assert anc.Reader(rerun).head(1)[0].posterior is None
 
 
 class TestStagedFiles:

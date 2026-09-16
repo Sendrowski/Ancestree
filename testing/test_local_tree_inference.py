@@ -38,6 +38,7 @@ from testing._helpers import (
     REC,
     canonical_alleles,
     toy_builder,
+    toy_chunked_inference,
     toy_inference,
     toy_sites,
 )
@@ -1088,14 +1089,24 @@ def test_to_arg_writes_pseudo_arg(tmp_path):
     assert all(s.ancestral_state in STATES for s in annotated.sites())
 
 
+@pytest.mark.parametrize("chunk_size", ["10mb", None])
+def test_a_vcf_source_is_its_own_template(chunk_size):
+    from testing._helpers import DEMO_VCF
+
+    inf = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
+                             sequence_length=1e6, chunk_size=chunk_size,
+                             progress=False)
+    assert inf._default_template_vcf(None) == (DEMO_VCF, False, None)
+
+
 def test_default_template_vcf_dumps_the_inferred_trees(monkeypatch, tmp_path):
     """Without a VCF source the template is a temporary dump of the trees."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     sites, names = toy_sites(range(20, 1000, 20), chrom="chr7")
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
-    path, owns = inf._default_template_vcf(None)
+    path, owns, samples = inf._default_template_vcf(None)
     try:
-        assert owns is True
+        assert owns is True and samples is None
         assert os.path.dirname(path) == str(tmp_path)
         with open(path) as fh:
             records = [line.split("\t") for line in fh
@@ -1110,15 +1121,18 @@ def test_default_template_vcf_dumps_the_inferred_trees(monkeypatch, tmp_path):
 
 
 def test_default_template_vcf_removes_the_partial_file_on_failure(monkeypatch, tmp_path):
-    """A failing tree dump leaves no temporary template behind."""
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    """A failing write of the stitched chunked trees leaves no temporary
+    template behind."""
     sites, names = toy_sites(range(0, 1000, 20))
-    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
+    inf = toy_chunked_inference(sites, names, n_ensemble=None,
+                                sequence_length=1000.0)
+    inf.point_tree_sequence()
 
-    def _boom():
+    def _boom(*args, **kwargs):
         raise RuntimeError("no trees today")
 
-    monkeypatch.setattr(inf, "point_tree_sequence", _boom)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(tskit.TreeSequence, "write_vcf", _boom)
     with pytest.raises(RuntimeError, match="no trees today"):
         inf._default_template_vcf("chr1")
     assert list(tmp_path.iterdir()) == []

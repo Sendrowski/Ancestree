@@ -1679,7 +1679,7 @@ class TestToVcfTemplate:
         inf = FixedTreeInference(
             [site], JC69(), _no_counts(), tree=tree, fit_required=False,
         )
-        with pytest.raises(ValueError, match="cannot infer a template"):
+        with pytest.raises(ValueError, match="no template VCF available"):
             inf.to_vcf(tmp_path / "out.vcf")
 
 

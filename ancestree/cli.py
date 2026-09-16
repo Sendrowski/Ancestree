@@ -41,7 +41,7 @@ from typing import Sequence, cast
 from ancestree import DEFAULT_MU, __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
-from ancestree.sites import _individual_of
+from ancestree.sites import _individual_of, _path_format
 
 __all__ = ["main", "build_parser", "run"]
 
@@ -142,7 +142,7 @@ def _derive_ingroup(vcf_path: str, outgroups: Sequence[str],
     """
     from ancestree.sources import CyVCF2Source, VcfZarrSource
 
-    source_cls = VcfZarrSource if _zarr_suffix(vcf_path) else CyVCF2Source
+    source_cls = VcfZarrSource if _path_format(vcf_path) == "vcz" else CyVCF2Source
     excluded = {_individual_of(o) for o in outgroups}
     kept = ({_individual_of(s) for s in sample_filter}
             if sample_filter else None)
@@ -157,23 +157,6 @@ def _derive_ingroup(vcf_path: str, outgroups: Sequence[str],
             f"{vcf_path!r}, leaving no ingroup. Pass --ingroup explicitly."
         )
     return ingroup
-
-
-def _vcf_like_suffix(path: str) -> bool:
-    """Whether ``path`` ends with ``.vcf``, ``.vcf.gz`` or ``.bcf``."""
-    lower = path.rstrip("/").lower()
-    return lower.endswith(".vcf") or lower.endswith(".vcf.gz") or lower.endswith(".bcf")
-
-
-def _trees_suffix(path: str) -> bool:
-    """Whether ``path`` ends with ``.trees``."""
-    return path.rstrip("/").lower().endswith(".trees")
-
-
-def _zarr_suffix(path: str) -> bool:
-    """Whether ``path`` ends with a VCF Zarr extension (``.vcz`` / ``.zarr``)."""
-    lower = path.rstrip("/").lower()
-    return lower.endswith(".vcz") or lower.endswith(".zarr")
 
 
 def _build_model(name: str, *, fit_kappa: bool, fit_rates: bool, kappa: float | None = None):
@@ -222,7 +205,7 @@ def _empirical_composition(vcf: str, max_sites: int | None):
     from ancestree.sites import BaseComposition
     from ancestree.sources import CyVCF2Source, VcfZarrSource
 
-    source = VcfZarrSource(vcf) if _zarr_suffix(vcf) else CyVCF2Source(vcf)
+    source = VcfZarrSource(vcf) if _path_format(vcf) == "vcz" else CyVCF2Source(vcf)
     return BaseComposition.from_polymorphic_sites(source, max_sites=max_sites)
 
 
@@ -390,6 +373,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Blank the ancestral-allele call at any site whose MAP posterior "
              "is below P, writing AA=. instead. The posterior itself is still "
              "written where it is requested. Default: report every site.",
+    )
+    output_parent.add_argument(
+        "--restrict-samples", action="store_true",
+        help="Write only the samples the inference used, the ingroup and "
+             "outgroups. Default: every sample of the output template. Trees "
+             "inferred from genotypes hold only the used samples.",
     )
 
     _add_fixed_tree_parser(sub, parents=[verbosity_parent, output_parent])
@@ -970,8 +959,8 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             "--ingroup-weight adaptive with --species-tree: its per-bin fit "
             "runs inside fit(), which --species-tree skips, so the Kingman "
             "values are used instead")
-    out_is_zarr = _zarr_suffix(args.out)
-    if not (_vcf_like_suffix(args.out) or out_is_zarr):
+    out_is_zarr = _path_format(args.out) == "vcz"
+    if not (_path_format(args.out) == "vcf" or out_is_zarr):
         raise SystemExit(
             f"fixed-tree --out must end with .vcf, .vcf.gz, .bcf, or .vcz "
             f"(got {args.out!r}). The .trees format is only valid under "
@@ -1012,7 +1001,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             "from a VCF input), not the supplied VCF skeleton."
         )
     if not out_is_zarr and template_vcf is None:
-        if _zarr_suffix(args.vcf):
+        if _path_format(args.vcf) == "vcz":
             raise SystemExit(
                 "fixed-tree: --vcf is a VCF Zarr store but no --template-vcf "
                 "was supplied. Pass --template-vcf=<path> pointing at a "
@@ -1073,15 +1062,17 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     if out_is_zarr:
         # A .vcz input is the template. A plain VCF is converted to one in
         # to_zarr (input_zarr=None).
-        zarr_template = args.vcf if _zarr_suffix(args.vcf) else None
+        zarr_template = args.vcf if _path_format(args.vcf) == "vcz" else None
         n = inference.to_zarr(args.out, input_zarr=zarr_template,
                               store_posterior=not args.no_posterior,
-                              min_confidence=args.min_confidence)
+                              min_confidence=args.min_confidence,
+                              restrict_samples=args.restrict_samples)
         _log.info("Wrote %d annotated variants to %s", n, args.out)
     else:
         n = inference.to_vcf(args.out, input_vcf=template_vcf,
                              store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence)
+                             min_confidence=args.min_confidence,
+                             restrict_samples=args.restrict_samples)
         _log.info("Wrote %d annotated records to %s", n, args.out)
     return 0
 
@@ -1117,26 +1108,29 @@ def _run_arg(args: argparse.Namespace) -> int:
         outgroup_samples=args.outgroups,
     )
 
-    if _trees_suffix(args.out):
+    if _path_format(args.out) == "trees":
         n = inference.to_arg(args.out,
                              store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence)
+                             min_confidence=args.min_confidence,
+                             restrict_samples=args.restrict_samples)
         _log.info(
             "arg: wrote %d annotated sites to %s", n, args.out,
         )
         return 0
-    if _vcf_like_suffix(args.out):
+    if _path_format(args.out) == "vcf":
         n = inference.to_vcf(args.out, contig_id=args.chrom,
                              store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence)
+                             min_confidence=args.min_confidence,
+                             restrict_samples=args.restrict_samples)
         _log.info(
             "arg: wrote %d annotated records to %s", n, args.out,
         )
         return 0
-    if _zarr_suffix(args.out):
+    if _path_format(args.out) == "vcz":
         n = inference.to_zarr(args.out,
                               store_posterior=not args.no_posterior,
-                              min_confidence=args.min_confidence)
+                              min_confidence=args.min_confidence,
+                              restrict_samples=args.restrict_samples)
         _log.info(
             "arg: wrote %d annotated records to %s", n, args.out,
         )
@@ -1248,9 +1242,9 @@ def _run_local_tree(args: argparse.Namespace) -> int:
          "inside the kernel: pass --chunk-size or --no-ensemble to fan out"),
         ("member_chunk", no_ens, "with --no-ensemble"),
     ])
-    out_is_vcf = _vcf_like_suffix(args.out)
-    out_is_trees = _trees_suffix(args.out)
-    out_is_zarr = _zarr_suffix(args.out)
+    out_is_vcf = _path_format(args.out) == "vcf"
+    out_is_trees = _path_format(args.out) == "trees"
+    out_is_zarr = _path_format(args.out) == "vcz"
     if not (out_is_vcf or out_is_trees or out_is_zarr):
         raise SystemExit(
             f"local-tree --out must end with .vcf, .vcf.gz, .bcf, .vcz, or "
@@ -1337,22 +1331,21 @@ def _run_local_tree(args: argparse.Namespace) -> int:
     if out_is_trees:
         n = inference.to_arg(args.out,
                              store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence)
+                             min_confidence=args.min_confidence,
+                             restrict_samples=args.restrict_samples)
         _log.info("Wrote %d annotated sites to %s", n, args.out)
     elif out_is_zarr:
-        # A .vcz input is the template. A plain VCF is converted from the
-        # inferred local-tree sequence in to_zarr (input_zarr=None).
-        zarr_template = args.vcf if _zarr_suffix(args.vcf) else None
-        n = inference.to_zarr(args.out, input_zarr=zarr_template,
+        n = inference.to_zarr(args.out,
                               store_posterior=not args.no_posterior,
-                              min_confidence=args.min_confidence)
+                              min_confidence=args.min_confidence,
+                              restrict_samples=args.restrict_samples)
         _log.info("Wrote %d annotated variants to %s", n, args.out)
     else:
-        vcf_template = args.vcf if not _zarr_suffix(args.vcf) else None
         n = inference.to_vcf(
-            args.out, input_vcf=vcf_template, contig_id=args.chrom,
+            args.out, contig_id=args.chrom,
             store_posterior=not args.no_posterior,
             min_confidence=args.min_confidence,
+            restrict_samples=args.restrict_samples,
         )
         _log.info("Wrote %d annotated records to %s", n, args.out)
     return 0

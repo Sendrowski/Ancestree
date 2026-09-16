@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from ancestree import BaseComposition, Site
-from ancestree.sites import SiteSource, SiteTable
+from ancestree.sites import SiteSource, SiteTable, _path_format
 from ancestree.sources import CyVCF2Source
 from testing._helpers import QUICKSTART_TREES
 
@@ -248,3 +248,16 @@ class TestResolvePathArguments:
     def test_vcz_refuses_a_ploidy_override(self, tmp_path):
         with pytest.raises(ValueError, match="ploidy is read from the store"):
             SiteSource.resolve(str(tmp_path / "absent.vcz"), ploidy=2)
+
+
+@pytest.mark.parametrize("path, fmt", [
+    ("https://github.com/o/r/blob/main/x.vcf.gz?raw=true", "vcf"),
+    ("https://host/x.bcf#section", "vcf"),
+    ("data/x.VCF.BGZ", "vcf"),
+    ("data/x.vcz/", "vcz"),
+    ("data/x.zarr", "vcz"),
+    ("data/x.trees", "trees"),
+    ("data/x.txt", None),
+])
+def test_path_format_reads_the_suffix_of_a_path_or_url(path, fmt):
+    assert _path_format(path) == fmt

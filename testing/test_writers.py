@@ -1,4 +1,5 @@
-"""Tests for :class:`VCFWriter` and :class:`TskitWriter`.
+"""Tests for :class:`VCFWriter` and :class:`TskitWriter`, and for the samples
+and templates the inferences write through them.
 
 Round-trip pattern: build a small site stream, manufacture matching
 posteriors, write, and re-read the output (cyvcf2 / tskit) to confirm
@@ -19,8 +20,16 @@ from ancestree.readers import Reader
 from ancestree.sites import Site
 from ancestree.sources import TskitSource
 from ancestree.writers import TskitWriter, VCFWriter
+from testing._helpers import DEMO_VCF, QUICKSTART_TREES
 
+import ancestree as anc
 import cyvcf2
+from ancestree.local_tree_inference import LocalTreeInference
+from ancestree.trees import TskitLocalTree
+
+#: The quickstart panel's ingroup and outgroup, leaving i4, i5 and o1 in neither.
+ING = ["i0", "i1", "i2", "i3"]
+OUT = ["o0"]
 
 
 @pytest.fixture(scope="module")
@@ -873,3 +882,159 @@ class TestSiteWithNoReadableAlleleIsNotCalled:
         states = [s.ancestral_state for s in tskit.load(str(out)).sites()]
         assert states[0] == "T"
         assert states[1] == ""
+
+
+class TestRestrictSamples:
+    """Output keeps every input sample unless ``restrict_samples`` is set."""
+
+    @staticmethod
+    def _inference():
+        return anc.Inference.from_arg(
+            tskit.load(QUICKSTART_TREES), mu=5e-8, progress=False,
+            ingroup_samples=ING, outgroup_samples=OUT)
+
+    @pytest.mark.parametrize("restrict, want", [
+        (False, ["i0", "i1", "i2", "i3", "i4", "i5", "o0", "o1"]),
+        (True, ING + OUT),
+    ])
+    def test_vcf(self, tmp_path, restrict, want):
+        import cyvcf2
+
+        out = str(tmp_path / "out.vcf")
+        self._inference().to_vcf(out, restrict_samples=restrict)
+        assert cyvcf2.VCF(out).samples == want
+
+    @pytest.mark.parametrize("restrict, n", [(False, 8), (True, 5)])
+    def test_arg(self, tmp_path, restrict, n):
+        out = tmp_path / "out.trees"
+        self._inference().to_arg(out, restrict_samples=restrict)
+        assert tskit.load(out).num_samples == n
+
+    def test_zarr_keeps_the_genotypes_of_the_kept_columns(self, tmp_path):
+        import zarr
+
+        inference = self._inference()
+        full, sub = str(tmp_path / "full.vcz"), str(tmp_path / "sub.vcz")
+        inference.to_zarr(full)
+        inference.to_zarr(sub, input_zarr=full, restrict_samples=True)
+        a, b = zarr.open(full, mode="r"), zarr.open(sub, mode="r")
+        names = [str(s) for s in a["sample_id"][:]]
+        keep = [names.index(s) for s in ING + OUT]
+        assert [str(s) for s in b["sample_id"][:]] == ING + OUT
+        np.testing.assert_array_equal(
+            b["call_genotype"][:], a["call_genotype"][:][:, keep])
+        np.testing.assert_array_equal(b["variant_AA"][:], a["variant_AA"][:])
+
+
+class TestTemplateColumnNames:
+    """A template written from trees names each column from ``sample_map``."""
+
+    def test_unnamed_samples_keep_the_tskit_default(self):
+        ts = tskit.load(QUICKSTART_TREES)
+        smap = {s: n for s, n in TskitLocalTree.default_sample_map(ts).items()
+                if s in ING + OUT}
+        assert anc.Inference._template_individual_names(ts, smap) == [
+            "i0", "i1", "i2", "i3", "tsk_4", "tsk_5", "o0", "tsk_7"]
+
+    def test_a_diploid_column_takes_the_individual_name(self):
+        from testing._helpers import DEMO_TREES
+
+        ts = tskit.load(DEMO_TREES)
+        smap = TskitLocalTree.default_sample_map(ts)
+        names = anc.Inference._template_individual_names(ts, smap)
+        assert names == ["i0", "i1", "i2", "i3", "o1", "o2", "o3"]
+        half = {"i0_h1": smap["i0_h1"]}
+        assert anc.Inference._template_individual_names(ts, half)[0] == "i0"
+
+    def test_an_explicit_partial_sample_map_restricts_by_name(self, tmp_path):
+        import cyvcf2
+
+        ts = tskit.load(QUICKSTART_TREES)
+        smap = {s: n for s, n in TskitLocalTree.default_sample_map(ts).items()
+                if s in ING + OUT}
+        inf = anc.Inference.from_arg(ts, mu=5e-8, sample_map=smap,
+                                     ingroup_samples=ING,
+                                     outgroup_samples=OUT, progress=False)
+        out = str(tmp_path / "out.vcf")
+        inf.to_vcf(out, restrict_samples=True)
+        assert cyvcf2.VCF(out).samples == ING + OUT
+
+
+class TestPrebuiltLocalTreeWritesTheInput:
+    """A pre-built tree sequence is written as ARG mode writes it."""
+
+    @staticmethod
+    def _inference():
+        return LocalTreeInference(tskit.load(QUICKSTART_TREES), mu=5e-8,
+                                  ingroup_samples=ING, outgroup_samples=OUT,
+                                  progress=False)
+
+    @pytest.mark.parametrize("restrict, n", [(False, 8), (True, 5)])
+    def test_arg(self, tmp_path, restrict, n):
+        out = tmp_path / "out.trees"
+        self._inference().to_arg(out, restrict_samples=restrict)
+        assert tskit.load(out).num_samples == n
+
+    @pytest.mark.parametrize("restrict, n", [(False, 8), (True, 5)])
+    def test_vcf(self, tmp_path, restrict, n):
+        import cyvcf2
+
+        out = str(tmp_path / "out.vcf")
+        self._inference().to_vcf(out, restrict_samples=restrict)
+        assert len(cyvcf2.VCF(out).samples) == n
+
+
+def test_unnamed_diploids_restrict_by_node(tmp_path):
+    """Individuals without name metadata take tskit's column names, which no
+    sample name matches, so a restricted template is written from the
+    restricted tree sequence."""
+    import cyvcf2
+    import msprime
+
+    ts = msprime.sim_ancestry(4, sequence_length=1e4, population_size=1e4,
+                              random_seed=1)
+    ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
+                               random_seed=2)
+    inf = anc.Inference.from_arg(ts, mu=5e-8, progress=False,
+                                 ingroup_samples=["0", "1", "2", "3"],
+                                 outgroup_samples=["6", "7"])
+    full, sub = str(tmp_path / "full.vcf"), str(tmp_path / "sub.vcf")
+    inf.to_vcf(full)
+    inf.to_vcf(sub, restrict_samples=True)
+    assert len(cyvcf2.VCF(full).samples) == 4
+    assert len(cyvcf2.VCF(sub).samples) == 3
+
+
+@pytest.mark.parametrize("suffix, magic", [
+    (".vcf.bgz", b"\x1f\x8b"), (".BCF", b"BCF"), (".vcf", b"##fileformat"),
+])
+def test_the_output_format_follows_the_suffix(tmp_path, suffix, magic):
+    import gzip
+
+    out = tmp_path / f"out{suffix}"
+    TestRestrictSamples._inference().to_vcf(str(out), store_posterior=False)
+    head = out.read_bytes()
+    if suffix == ".BCF":
+        head = gzip.decompress(head)
+    assert head.startswith(magic)
+
+
+def test_only_a_local_store_is_the_zarr_template():
+    """A store named by URL cannot be copied, so the template is built."""
+    from testing._helpers import toy_sites
+
+    sites, names = toy_sites(range(0, 1000, 20))
+
+    class Remote:
+        _path = "https://host/demo.vcz?raw=true"
+
+        def samples(self):
+            return names
+
+        def __iter__(self):
+            return iter(sites)
+
+    inf = LocalTreeInference(Remote(), mu=5e-8, rec_rate=1e-8, window=200,
+                             block_size=50, sequence_length=1000.0,
+                             chunk_size=None, n_ensemble=None, progress=False)
+    assert inf._input_store_path is None

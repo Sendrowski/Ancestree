@@ -205,6 +205,31 @@ class Site:
         return replace(self, tip_alleles=tips, alleles=alleles or self.alleles)
 
 
+def _path_format(path: "str | os.PathLike") -> "str | None":
+    """The format a path names by its suffix.
+
+    A URL's query and fragment are ignored, so ``https://host/x.vcf.gz?raw=true``
+    names a VCF.
+
+    :param path: A file path or URL.
+    :return: ``"trees"``, ``"vcz"`` or ``"vcf"``, or ``None`` for any other
+        suffix.
+    """
+    from urllib.parse import urlsplit
+
+    text = str(path)
+    if "://" in text:
+        text = urlsplit(text).path
+    text = text.rstrip("/").lower()
+    if text.endswith(".trees"):
+        return "trees"
+    if text.endswith((".vcz", ".zarr")):
+        return "vcz"
+    if text.endswith((".vcf", ".vcf.gz", ".vcf.bgz", ".bcf")):
+        return "vcf"
+    return None
+
+
 def _individual_of(sample_id: str) -> str:
     """Strip a trailing ``_h<k>`` haplotype suffix from a tip id.
 
@@ -995,7 +1020,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     """
 
     #: Whether the unphased-genotype notice has been emitted.
-    _warned_unphased: bool = False
+    _noted_unphased: bool = False
     _phase_seed: int = 0
     #: Whether a record carrying more haplotypes than the resolved ploidy has
     #: been reported.
@@ -1063,8 +1088,8 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                 ploidy, phased, phase_seed)
             return source
         if isinstance(source, (str, os.PathLike)):
-            path_str = str(source).rstrip("/")
-            if path_str.endswith(".trees"):
+            fmt = _path_format(source)
+            if fmt == "trees":
                 import tskit
                 from ancestree.sources import TskitSource
                 cls._refuse_unsupported_filters(
@@ -1080,7 +1105,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                 kwargs["phased"] = phased
             if phase_seed is not None:
                 kwargs["phase_seed"] = phase_seed
-            if path_str.endswith((".vcz", ".zarr")):
+            if fmt == "vcz":
                 from ancestree.sources import VcfZarrSource
                 if ploidy is not None:
                     raise ValueError(
@@ -1110,18 +1135,16 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
             f"or a list[Site]."
         )
 
-    def _warn_unphased_once(self) -> None:
+    def _note_unphased_once(self) -> None:
         """Report, once, that haplotype assignment is being drawn."""
-        if self._warned_unphased:
+        if self._noted_unphased:
             return
-        self._warned_unphased = True
-        self._log.warning(
-            "Unphased heterozygous calls are present, so each one's alleles "
-            "are assigned to haplotypes at random per site (phase_seed=%d). "
-            "Reading the written order instead would make the first "
-            "haplotype the reference carrier throughout, which the genealogy "
-            "estimators read as a clade. Phase the data to recover the "
-            "linkage, or pass phased=True to take the file's order as given.",
+        self._noted_unphased = True
+        self._log.info(
+            "Unphased heterozygous calls are present. Their alleles are "
+            "assigned to haplotypes at random per site (phase_seed=%d), which "
+            "keeps the file's allele order from forming a spurious clade but "
+            "leaves the linkage between sites unused.",
             self._phase_seed,
         )
 

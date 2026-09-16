@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from ancestree import STATES
-from ancestree.sites import PolymorphicSiteFilter, Site, SiteSource
+from ancestree.sites import Site, SiteSource, _path_format
 from ancestree.writers import (
     ZARR_ALLELE_FIELD,
     ZARR_CONTIG_FIELD,
@@ -196,12 +196,7 @@ class Reader(ReprMixin):
         self._path = str(path)
         if not os.path.exists(self._path):
             raise FileNotFoundError(self._path)
-        if self._path.rstrip("/").endswith((".vcz", ".zarr")):
-            self.format = "vcz"
-        elif self._path.endswith(".trees"):
-            self.format = "trees"
-        else:
-            self.format = "vcf"
+        self.format = _path_format(self._path) or "vcf"
 
     @property
     def _repr_params(self) -> dict[str, object]:

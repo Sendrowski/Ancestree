@@ -89,6 +89,17 @@ def test_fixed_tree_sample_filter_with_unlabelled_sample_raises():
             n_target_sites=100_000, progress=False)
 
 
+def test_a_sample_in_both_lists_raises():
+    with pytest.raises(ValueError, match="in both"):
+        anc.Inference.from_arg(tskit.load(QUICKSTART_TREES), mu=5e-8,
+                               ingroup_samples=ING, outgroup_samples=["i0"])
+    with pytest.raises(ValueError, match="in both"):
+        anc.Inference.from_fixed_tree(
+            DEMO_VCF, ingroup_samples=["i0", "i1"],
+            outgroup_samples=["i0_h0"], n_target_sites=100_000,
+            progress=False)
+
+
 def test_local_tree_sites_hold_only_the_panel(tmp_path):
     """Sites emitted from a store carry only the panel's tips and alleles, so
     a template written from the inferred trees takes every posterior."""
@@ -100,6 +111,7 @@ def test_local_tree_sites_hold_only_the_panel(tmp_path):
                              ingroup_samples=["i0", "i1"],
                              outgroup_samples=["o1"], sequence_length=2e5,
                              chunk_size=None, n_ensemble=None, progress=False)
+    assert inf._input_store_path == store
     res = list(inf.infer())
     panel = set(inf.sample_names)
     assert all(set(site.tip_alleles) <= panel for site, _ in res)

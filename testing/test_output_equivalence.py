@@ -427,7 +427,7 @@ class TestUnphasedGenotypes:
     def test_the_written_order_is_not_taken_as_phase(self, tmp_path, caplog):
         path = tmp_path / "unphased.vcf"
         path.write_text(_UNPHASED_VCF)
-        with caplog.at_level("WARNING"):
+        with caplog.at_level("INFO"):
             sites = list(CyVCF2Source(str(path)))
         first_hap = [s.tip_alleles["s1_h0"] for s in sites]
         assert len(set(first_hap)) > 1, (

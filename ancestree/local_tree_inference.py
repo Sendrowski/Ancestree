@@ -54,7 +54,7 @@ from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
 from ancestree.settings import Settings
 from ancestree.sites import (BaseComposition, Site, SiteSource,
-                             SiteTable, _PanelSites)
+                             SiteTable, _PanelSites, _path_format)
 from ancestree._repr import ReprMixin
 
 # Below this many SNPs per block (panel-wide average), a large fraction of
@@ -1384,8 +1384,8 @@ class LocalTreeInference(Inference):
     :raises ValueError: If ``member_chunk``, ``n_ensemble`` or ``n_workers`` is
         below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
         ``sample_names`` is needed and absent, if a named sample is absent
-        from the panel, or if ``sample_names`` names a sample in neither list
-        while both are named.
+        from the panel or named in both lists, or if ``sample_names`` names a
+        sample in neither list while both are named.
     """
 
     @staticmethod
@@ -1516,7 +1516,7 @@ class LocalTreeInference(Inference):
         # resolve it to a SiteSource and fall through to the genotype path.
         is_prebuilt = isinstance(source, tskit.TreeSequence) or (
             isinstance(source, (str, os.PathLike))
-            and str(source).rstrip("/").endswith(".trees")
+            and _path_format(source) == "trees"
         )
         if is_prebuilt:
             ts = source if isinstance(source, tskit.TreeSequence) \
@@ -1586,11 +1586,17 @@ class LocalTreeInference(Inference):
             from ancestree.sources import CyVCF2Source, VcfZarrSource
             source = (
                 VcfZarrSource(source)
-                if str(source).rstrip("/").endswith((".vcz", ".zarr"))
+                if _path_format(source) == "vcz"
                 else CyVCF2Source(source)
             )
         if sample_names is None and callable(getattr(source, "samples", None)):
             sample_names = list(source.samples())
+        # A VCF path is the to_vcf template, a local VCZ store the to_zarr one.
+        path = getattr(source, "_path", None)
+        fmt = _path_format(path) if path is not None else None
+        self._input_vcf_path = path if fmt == "vcf" else None
+        self._input_store_path = (
+            path if fmt == "vcz" and os.path.isdir(path) else None)
 
         if self.n_ensemble is not None and self.focal.depth is not None:
             raise NotImplementedError(
@@ -2847,59 +2853,41 @@ class LocalTreeInference(Inference):
         """
         self.pairwise_tmrcas().write(path)
 
-    def _default_template_vcf(self, contig_id: str | None) -> "tuple[str, bool]":
-        """Dump the inferred local-tree sequence to a temporary template VCF.
+    def _dump_template_vcf(
+        self, contig_id: str | None, restrict_samples: bool = False,
+    ) -> str:
+        """Dump the local-tree sequence to a temporary template VCF.
 
-        Templates from :meth:`point_tree_sequence`: the single inferred tree
-        sequence on the non-segmented path, or the genome-wide stitch on the
-        chunked path (single contig, since a multi-contig chunked source raises).
+        On the chunked path the template is the genome-wide stitch of the
+        per-segment builds, which holds only the panel.
 
         :param contig_id: Contig label for the auto-written template. ``None``
             resolves to the source contig the posteriors carry, so the template
             ``CHROM`` matches and the annotation lands.
-        :return: ``(template_path, owns_temp)``.
+        :param restrict_samples: Whether the template holds only the samples
+            the inference used.
+        :return: Path of the temporary file, which the caller unlinks.
         :raises NotImplementedError: On the chunked path with a multi-contig source.
         """
-        import os
-        import tempfile
-
-        # A VCF source is the template: it carries every input record's alleles.
-        source_path = getattr(getattr(self, "_source", None), "_path", None)
-        if source_path is not None and str(source_path).endswith(
-                (".vcf", ".vcf.gz", ".bcf")):
-            return str(source_path), False
-
         contig = contig_id if contig_id is not None else self._chrom
-        tmp = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False, mode="w")
-        try:
-            ts = self.point_tree_sequence()
-            names = [str(n) for n in (self.sample_names or ())]
-            ts.write_vcf(
-                tmp, contig_id=contig,
-                individual_names=(names if len(names) == ts.num_individuals
-                                  else None),
-                position_transform=lambda p: np.floor(np.asarray(p)).astype(int),
-            )
-        except BaseException:
-            # Remove the partial template.
-            tmp.close()
-            if os.path.exists(tmp.name):
-                os.unlink(tmp.name)
-            raise
-        tmp.close()
-        return tmp.name, True
+        if not self._segmented:
+            return self._point_arg()._dump_template_vcf(contig, restrict_samples)
+        ts = self.point_tree_sequence()
+        return self._write_template_vcf(
+            ts, dict(zip(self.sample_names or (), ts.samples())), contig)
 
-    def _source_tree_sequence(self) -> "tskit.TreeSequence":
-        """The inferred local-tree sequence annotated by :meth:`to_arg`.
+    def _source_tree_sequence(
+        self, restrict_samples: bool = False,
+    ) -> "tskit.TreeSequence":
+        """The local-tree sequence annotated by :meth:`to_arg`: the pre-built or
+        plug-in genealogy as ARG mode resolves it, or the chunked stitch from
+        :meth:`point_tree_sequence`, which holds only the panel.
 
-        Local-tree mode has no input ARG. The tree sequence written by
-        :meth:`to_arg` is a pseudo-ARG assembled from the per-window local
-        trees (built from the pairwise-coalescent TMRCA estimates), not a true
-        recombination-aware ancestral recombination graph. On the chunked path
-        it is stitched genome-wide from the per-segment builds by
-        :meth:`point_tree_sequence` (single contig only).
-
-        :return: The inferred pseudo-ARG tree sequence.
+        :param restrict_samples: Whether to hold only the samples the
+            inference used.
+        :return: The tree sequence to annotate.
         :raises NotImplementedError: On the chunked path with a multi-contig source.
         """
+        if not self._segmented:
+            return self._point_arg()._source_tree_sequence(restrict_samples)
         return self.point_tree_sequence()

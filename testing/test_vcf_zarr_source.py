@@ -255,7 +255,7 @@ class TestAbsentPhaseArray:
         }
         assert first_haplotype == {"A", "G"}
 
-    def test_the_same_warning_is_reported(self, unphased_pair, caplog):
+    def test_the_same_notice_is_reported(self, unphased_pair, caplog):
         import logging
 
         store, vcf = unphased_pair
@@ -263,7 +263,7 @@ class TestAbsentPhaseArray:
         for source, logger in ((VcfZarrSource(store), "ancestree.VcfZarrSource"),
                                (CyVCF2Source(vcf), "ancestree.CyVCF2Source")):
             caplog.clear()
-            with caplog.at_level(logging.WARNING, logger=logger):
+            with caplog.at_level(logging.INFO, logger=logger):
                 list(source)
             messages.append([r.getMessage() for r in caplog.records
                              if "Unphased heterozygous" in r.getMessage()])

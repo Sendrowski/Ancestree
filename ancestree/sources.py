@@ -350,7 +350,7 @@ class CyVCF2Source(SiteSource):
                         if not phased:
                             called = [int(a) for a in call[:-1] if int(a) >= 0]
                             if len(set(called)) > 1:
-                                self._warn_unphased_once()
+                                self._note_unphased_once()
                                 order = CyVCF2Source._phase_permutation(
                                     self._phase_seed, int(variant.POS), sample,
                                     self._ploidy)
@@ -574,7 +574,7 @@ class VcfZarrSource(SiteSource):
                     if ph_row is not None and not bool(ph_row[s_idx]):
                         called = [int(a) for a in gt_row[s_idx] if int(a) >= 0]
                         if len(set(called)) > 1:
-                            self._warn_unphased_once()
+                            self._note_unphased_once()
                             order = CyVCF2Source._phase_permutation(
                                 self._phase_seed, int(pos_batch[i]),
                                 name, self._ploidy)

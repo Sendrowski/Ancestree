@@ -119,15 +119,6 @@ class TestZarrWriter:
         # INFO lines precede the #CHROM column line.
         assert header.index("ID=AA,") < header.index("#CHROM")
 
-    def test_in_place_annotation(self, vcz_store):
-        # output == input annotates the store in place (no copy).
-        n = ZarrWriter(vcz_store, vcz_store).write(
-            iter([(_site(200), post("T", 0.7))])
-        )
-        assert n == 1
-        r = zarr.open(vcz_store, mode="r")
-        assert str(r["variant_AA"][1]) == "T"
-
     def test_multi_contig_alignment(self, tmp_path):
         # Same pos on different contigs must not cross-annotate. The searchsorted
         # locator keeps each contig's row block separate.
@@ -203,12 +194,18 @@ class TestZarrWriter:
     def test_the_v2_group_api_receives_the_array_and_its_attributes(self):
         """A group exposing only ``create_dataset`` gets the same array contract."""
 
+        class V2Array(types.SimpleNamespace):
+            """An array accepting a whole-array assignment."""
+
+            def __setitem__(self, key, value):
+                self.data = value
+
         class V2Group(dict):
             """The zarr v2 group surface the bridge relies on."""
 
-            def create_dataset(self, name, data, overwrite, chunks):
+            def create_dataset(self, name, shape, dtype, chunks, overwrite):
                 assert overwrite is True
-                arr = types.SimpleNamespace(data=data, chunks=chunks, attrs={})
+                arr = V2Array(shape=shape, dtype=dtype, chunks=chunks, attrs={})
                 self[name] = arr
                 return arr
 
@@ -395,3 +392,12 @@ class TestSplitMultiallelicRowsTakeTheirOwnCall:
             ZarrWriter(split_multiallelic_vcz, out).write(
                 iter([(site, post("A", 0.9))])
             )
+
+
+def test_a_store_without_dimension_names_refuses_restriction(tmp_path):
+    src = str(tmp_path / "src.vcz")
+    write_vcz(src, positions=[100, 200], contigs_per_variant=[0, 0],
+              contig_ids=["1"], alleles=[["A", "C"], ["T", "G"]],
+              sample_ids=["a", "b"], genotypes=np.zeros((2, 2, 2), dtype=np.int8))
+    with pytest.raises(ValueError, match="carry no dimension names"):
+        ZarrWriter(src, str(tmp_path / "out.vcz"), samples=["a"]).write([])

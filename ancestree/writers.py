@@ -23,6 +23,7 @@ command-line and Python output carry the same record.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from abc import ABC, abstractmethod
@@ -208,8 +209,8 @@ class Writer(ReprMixin, ABC):
         """A sibling path to build ``output`` at before renaming it into place.
 
         The marker is a prefix, so the extension chain (``.vcf.gz`` and the
-        like) is preserved and the writer still picks its format from it. The
-        leading dot keeps a partial build out of an unqualified glob.
+        like) is preserved. The leading dot keeps a partial build out of an
+        unqualified glob.
 
         :param output: Final path.
         :return: Sibling path in the same directory.
@@ -428,16 +429,49 @@ class Writer(ReprMixin, ABC):
 
     def _init_output(
         self, output: "str | os.PathLike", min_confidence: float | None,
+        samples: "Iterable[str] | None" = None,
     ) -> None:
-        """Record the destination and the reporting threshold.
+        """Record the destination, the reporting threshold and the samples.
 
         :param output: Destination path.
         :param min_confidence: Calls below this are written as missing.
+        :param samples: Sample columns to write, or ``None`` for all of them.
         """
         self._output = str(output)
         self._min_confidence: float | None = (
             float(min_confidence) if min_confidence is not None else None
         )
+        self._samples: "frozenset[str] | None" = (
+            frozenset(samples) if samples is not None else None)
+
+    def _refuse_template_overwrite(self) -> None:
+        """Refuse an output that resolves to the template.
+
+        :raises ValueError: If the output is the template.
+        """
+        if os.path.realpath(self._input) == os.path.realpath(self._output):
+            raise ValueError(
+                f"{type(self).__name__} cannot write over its template "
+                f"({self._output}). Write to a different path.")
+
+    def _kept_samples(self, names: "Iterable[str]") -> "list[str] | None":
+        """The template's sample columns to write, in template order.
+
+        :param names: The template's sample names.
+        :return: The kept names, or ``None`` when every column is written.
+        :raises ValueError: If no column is among the samples to write.
+        """
+        if self._samples is None:
+            return None
+        names = list(names)
+        kept = [n for n in names if n in self._samples]
+        if not kept:
+            raise ValueError(
+                f"none of the {len(names)} sample columns of {self._input!r} "
+                f"is among the samples to write; the template holds "
+                f"{names[:3]}")
+        return kept
+
 
 class VCFWriter(Writer):
     """Copy an input VCF to disk with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO``
@@ -450,8 +484,9 @@ class VCFWriter(Writer):
     ``INFO`` fields. Variants without a matching posterior are
     written unannotated.
 
-    Output compression is inferred by ``cyvcf2`` from ``output_vcf``'s
-    extension (``.vcf.gz`` → bgzipped, ``.bcf`` → BCF, ``.vcf`` → plain).
+    The output format follows ``output_vcf``'s extension, case-insensitively:
+    ``.gz`` or ``.bgz`` is bgzipped VCF, ``.bcf`` is BCF and anything else is
+    plain VCF.
 
     :param input_vcf: Template VCF / VCF.GZ / BCF path.
     :param output_vcf: Destination path.
@@ -462,6 +497,9 @@ class VCFWriter(Writer):
         "ancestral allele unknown" sentinel) in place of the MAP allele.
         ``AA_prob`` still records the (sub-threshold) max probability.
         ``None`` (default) disables the check.
+    :param samples: Sample columns to write, matched against the template's
+        sample names. ``None`` (default) writes every column. ``INFO`` allele
+        counts such as ``AC`` and ``AN`` are copied from the template.
     :raises ImportError: If ``cyvcf2`` is not installed.
     """
 
@@ -531,13 +569,14 @@ class VCFWriter(Writer):
         output_vcf: str | os.PathLike,
         *,
         min_confidence: float | None = None,
+        samples: "Iterable[str] | None" = None,
     ) -> None:
         """Validate that the backend is importable. Defer all I/O to :meth:`write`."""
         self._require_backend(
             "cyvcf2",
             "`pip install cyvcf2` or `conda install -c bioconda cyvcf2`")
         self._input = str(input_vcf)
-        self._init_output(output_vcf, min_confidence)
+        self._init_output(output_vcf, min_confidence, samples)
 
     def write(
         self,
@@ -653,17 +692,13 @@ class VCFWriter(Writer):
         annotating every record whose key locates to a placed row. Peak memory
         is the O(n_variants) key and flag arrays, not the posterior stream.
         """
-        if os.path.realpath(self._input) == os.path.realpath(self._output):
-            raise ValueError(
-                f"VCFWriter cannot write over its template ({self._output}): "
-                f"the second pass would truncate the file the first is still "
-                f"reading. Write to a different path."
-            )
+        self._refuse_template_overwrite()
         import cyvcf2
         import numpy as np
 
         # Pass 1: integer key arrays in template file order.
         in_vcf = cyvcf2.VCF(self._input)
+        kept = self._kept_samples(in_vcf.samples)
         positions: list[int] = []
         contigs: list[int] = []
         contig_ids: list[str] = []
@@ -702,10 +737,13 @@ class VCFWriter(Writer):
 
         # Pass 2: re-open and emit. Built at a sibling path and renamed onto
         # the destination once complete.
-        in_vcf = cyvcf2.VCF(self._input)
+        in_vcf = cyvcf2.VCF(self._input, samples=kept)
         info_fields = self._add_headers(in_vcf, info, provenance, store_posterior)
         staged = self._staged_path(self._output)
-        writer = cyvcf2.Writer(staged, in_vcf)
+        lower = self._output.lower()
+        mode = ("wz" if lower.endswith((".gz", ".bgz"))
+                else "wb" if lower.endswith(".bcf") else "w")
+        writer = cyvcf2.Writer(staged, in_vcf, mode=mode)
         try:
             n_annotated = 0
             # Pass 2 walks the template in the same order pass 1 built the
@@ -1071,13 +1109,18 @@ class ZarrWriter(Writer):
     and ``ancestree_info``. Only directory-backed stores are supported.
 
     :param input_zarr: Template VCZ store path.
-    :param output_zarr: Destination store path. May equal ``input_zarr`` to
-        annotate the store in place.
+    :param output_zarr: Destination store path, which must differ from
+        ``input_zarr``.
     :param min_confidence: Optional minimum
         :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
         to commit a MAP allele. Below it ``variant_AA`` gets ``"."``
         (``AA_prob`` still
         records the sub-threshold value). ``None`` (default) disables it.
+    :param samples: Sample columns to write, matched against ``sample_id``.
+        Every array with a ``samples`` dimension is subset, which requires
+        every array to carry dimension names. ``None`` (default) writes every
+        column. Allele counts such as ``variant_AC`` are copied from the
+        template.
     :raises ImportError: If ``zarr`` is not installed.
     """
 
@@ -1099,20 +1142,65 @@ class ZarrWriter(Writer):
         output_zarr: str | os.PathLike,
         *,
         min_confidence: float | None = None,
+        samples: "Iterable[str] | None" = None,
     ) -> None:
         """Validate that the backend is importable. Defer all I/O to :meth:`write`."""
         self._require_backend(
             "zarr", "`pip install zarr` or `conda install -c conda-forge zarr`")
         self._input = str(input_zarr)
-        self._init_output(output_zarr, min_confidence)
+        self._init_output(output_zarr, min_confidence, samples)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _string_dtypes_allowed():
+        """Silence zarr v3's warning on the fixed-length string dtypes VCZ
+        mandates."""
+        import warnings
+
+        with warnings.catch_warnings():
+            try:
+                from zarr.errors import UnstableSpecificationWarning
+            except ImportError:  # zarr v2
+                pass
+            else:
+                warnings.simplefilter("ignore", UnstableSpecificationWarning)
+            yield
+
+    @staticmethod
+    def _create_array(root, name, shape, dtype, dims, chunks=None):
+        """Create (overwriting) an empty root array tagged with its VCZ
+        dimensions.
+
+        Bridges the zarr v2 (``create_dataset``) and v3 (``create_array``)
+        group APIs.
+
+        :param dims: Dimension names, one per axis.
+        :param chunks: Chunk shape, or ``None`` for zarr's own choice.
+        :return: The new array.
+        """
+        if name in root:
+            del root[name]
+        if hasattr(root, "create_array"):  # zarr v3
+            extra = ({"dimension_names": list(dims)}
+                     if root.metadata.zarr_format == 3 else {})
+            arr = root.create_array(name, shape=shape, dtype=dtype,
+                                    chunks=chunks or "auto", **extra)
+        else:  # zarr v2
+            import numpy as np
+
+            extra = {}
+            if np.dtype(dtype) == object:
+                from numcodecs import VLenUTF8
+                extra["object_codec"] = VLenUTF8()
+            arr = root.create_dataset(name, shape=shape, dtype=dtype,
+                                      chunks=chunks, overwrite=True, **extra)
+        arr.attrs["_ARRAY_DIMENSIONS"] = list(dims)
+        return arr
 
     @staticmethod
     def _create_variant_array(root, name, data, dims, description=None,
                               variant_chunk=None):
-        """Create (overwriting) a root array and tag its VCZ dimensions.
-
-        Bridges the zarr v2 (``create_dataset``) and v3 (``create_array``)
-        group APIs.
+        """Create (overwriting) a root array holding ``data``.
 
         :param description: Text for the array's ``description`` attribute,
             which is what an exporter reads to build the field's ``##INFO``
@@ -1120,28 +1208,93 @@ class ZarrWriter(Writer):
         :param variant_chunk: Chunk length along the variants axis, shared by
             every variant-indexed array in a VCZ store.
         """
-        chunks = None
-        if variant_chunk:
-            chunks = (int(variant_chunk), *data.shape[1:])
-        if name in root:
-            del root[name]
-        if hasattr(root, "create_array"):  # zarr v3
-            # zarr v3 warns on the fixed-length string dtypes VCZ mandates.
-            import warnings
-
-            from zarr.errors import UnstableSpecificationWarning
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", UnstableSpecificationWarning)
-                arr = root.create_array(name, shape=data.shape,
-                                        dtype=data.dtype, chunks=chunks)
-                arr[:] = data
-        else:  # zarr v2
-            arr = root.create_dataset(name, data=data, overwrite=True,
-                                      chunks=chunks)
-        arr.attrs["_ARRAY_DIMENSIONS"] = list(dims)
+        chunks = (int(variant_chunk), *data.shape[1:]) if variant_chunk else None
+        with ZarrWriter._string_dtypes_allowed():
+            arr = ZarrWriter._create_array(root, name, data.shape, data.dtype,
+                                           dims, chunks)
+            arr[:] = data
         if description is not None:
             arr.attrs["description"] = str(description)
         return arr
+
+    def _subset_samples(self, store: str) -> None:
+        """Keep only the sample columns to write, in every array with a
+        ``samples`` dimension.
+
+        :param store: Path of the staged store.
+        """
+        import numpy as np
+        import zarr
+
+        if self._samples is None:
+            return
+        root = zarr.open(store, mode="r+")
+        names = [SiteSource._decode(s) for s in root["sample_id"][:]]
+        kept = self._kept_samples(names)
+        if len(kept) == len(names):
+            return
+        keep = set(kept)
+        index = np.asarray([i for i, n in enumerate(names) if n in keep])
+        dims_of = {
+            name: list(root[name].attrs.get("_ARRAY_DIMENSIONS")
+                       or getattr(getattr(root[name], "metadata", None),
+                                  "dimension_names", None)
+                       or ())
+            for name in root.array_keys()}
+        untagged = sorted(name for name, dims in dims_of.items() if not dims)
+        if untagged:
+            raise ValueError(
+                f"cannot select sample columns in {self._input!r}: "
+                f"{len(untagged)} array(s) carry no dimension names "
+                f"(_ARRAY_DIMENSIONS or dimension_names), so their samples "
+                f"axis is unknown: {untagged[:5]}")
+        with self._string_dtypes_allowed():
+            for name, dims in dims_of.items():
+                if "samples" not in dims:
+                    continue
+                src = root[name]
+                axis = dims.index("samples")
+                shape = list(src.shape)
+                shape[axis] = index.size
+                chunks = list(src.chunks)
+                chunks[axis] = min(chunks[axis], index.size)
+                scratch = f"_subset_{name}"
+                dst = self._create_array(root, scratch, tuple(shape),
+                                         src.dtype, dims, tuple(chunks))
+                dst.attrs.update({k: v for k, v in src.attrs.items()
+                                  if k != "_ARRAY_DIMENSIONS"})
+                step = max(int(src.chunks[0] if axis else src.shape[0]), 1)
+                for lo in range(0, src.shape[0], step):
+                    dst[lo:lo + step] = np.take(src[lo:lo + step], index,
+                                                axis=axis)
+                del root[name]
+                os.rename(os.path.join(store, scratch),
+                          os.path.join(store, name))
+        header = root.attrs.get("vcf_header")
+        if isinstance(header, str):
+            lines = header.split("\n")
+            for i, line in enumerate(lines):
+                fields = line.split("\t")
+                if line.startswith("#CHROM") and len(fields) > 9:
+                    lines[i] = "\t".join(
+                        fields[:9] + [f for f in fields[9:] if f in keep])
+            root.attrs["vcf_header"] = "\n".join(lines)
+
+    @staticmethod
+    def _reconsolidate(store: str) -> None:
+        """Rewrite consolidated metadata, where the store carries any.
+
+        :param store: Path of the store.
+        """
+        import zarr
+
+        v3_root = os.path.join(store, "zarr.json")
+        consolidated = os.path.exists(os.path.join(store, ".zmetadata"))
+        if not consolidated and os.path.exists(v3_root):
+            with open(v3_root) as fh:
+                consolidated = bool(json.load(fh).get("consolidated_metadata"))
+        if consolidated:
+            zarr.consolidate_metadata(store)
 
     def write(
         self,
@@ -1169,6 +1322,7 @@ class ZarrWriter(Writer):
 
         import zarr
 
+        self._refuse_template_overwrite()
         # The build is staged in a sibling temp store and swapped into place
         # once every array is written and the empty-match refusal has passed.
         parent = os.path.dirname(os.path.abspath(self._output)) or "."
@@ -1177,6 +1331,7 @@ class ZarrWriter(Writer):
         shutil.copytree(self._input, work_dir)
 
         try:
+            self._subset_samples(work_dir)
             root = zarr.open(work_dir, mode="r+")
             n_annotated, n_seen = self._annotate_store(
                 root, posteriors, info, provenance, store_posterior,
@@ -1184,6 +1339,7 @@ class ZarrWriter(Writer):
             if n_annotated == 0 and n_seen:
                 self._refuse_no_matches(
                     n_seen, f"the variants of {self._input!r}")
+            self._reconsolidate(work_dir)
             self._swap_into_place(work_dir, self._output)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
