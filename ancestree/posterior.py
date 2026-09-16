@@ -142,6 +142,8 @@ class Grade:
         outgroup.
     :param outgroup_samples: Outgroup sample names resolving ``focal`` in a
         tree-sequence truth.
+    :param panel_samples: The samples the inference used, to which a
+        tree-sequence truth is restricted (:meth:`truth_at_focal`).
     :param sample_map: ``{sample: node}`` mapping the sample names onto the
         nodes of a tree-sequence truth, interpreted in the truth tree
         sequence's own node space and not in that of any inference. ``None``
@@ -173,6 +175,7 @@ class Grade:
         focal: "FocalNode | str" = "ingroup_mrca",
         ingroup_samples: "Sequence[str] | None" = None,
         outgroup_samples: "Sequence[str] | None" = None,
+        panel_samples: "Sequence[str] | None" = None,
         sample_map: "Mapping[str, int] | None" = None,
     ) -> None:
         import tskit
@@ -182,6 +185,7 @@ class Grade:
                 truth, focal,
                 ingroup_samples=ingroup_samples,
                 outgroup_samples=outgroup_samples,
+                panel_samples=panel_samples,
                 sample_map=sample_map,
             )
         truth = self.truth_mapping(truth)
@@ -244,6 +248,7 @@ class Grade:
         *,
         ingroup_samples: "Sequence[str] | None" = None,
         outgroup_samples: "Sequence[str] | None" = None,
+        panel_samples: "Sequence[str] | None" = None,
         sample_map: "Mapping[str, int] | None" = None,
     ) -> dict[int, str]:
         """The true allele at a focal node, per site of a tree sequence.
@@ -254,7 +259,9 @@ class Grade:
         A placement part-way along a branch excludes the branch's mutations
         above it, where their times are known. Where the ingroup spans
         several roots, or the focal node falls on a tip, the ARG-root state
-        is taken, as an inference then reports at the root.
+        is taken, as an inference then reports at the root. ``ts`` is first
+        restricted to the panel, as an inference restricts it. Names match a
+        haplotype or the individual it belongs to.
 
         :param ts: The tree sequence carrying the true mutations.
         :param focal: The :class:`~ancestree.focal.FocalNode`, an anchor
@@ -262,6 +269,9 @@ class Grade:
         :param ingroup_samples: Ingroup sample names. ``None`` takes every
             sample not named as an outgroup.
         :param outgroup_samples: Outgroup sample names.
+        :param panel_samples: The samples the inference used. ``None`` takes
+            the ingroup and outgroups when both are named, and every sample
+            otherwise.
         :param sample_map: ``{sample: node}``, interpreted in the node space
             of ``ts`` and not in that of any inference. ``None`` reads the
             individual names of ``ts``.
@@ -274,19 +284,28 @@ class Grade:
         import tskit
 
         from ancestree.focal import FocalNode, _is_degenerate_focal, _mrca
+        from ancestree.sites import _named
         from ancestree.trees import TskitLocalTree
 
         focal = FocalNode.parse(focal)
         if sample_map is None:
             sample_map = TskitLocalTree.default_sample_map(ts)
+        named = set(ingroup_samples or ())
         outgroup = set(outgroup_samples or ())
-        ingroup = (list(ingroup_samples) if ingroup_samples is not None
-                   else [s for s in sample_map if s not in outgroup])
-        nodes = tuple(int(sample_map[s]) for s in ingroup if s in sample_map)
-        if ingroup and not nodes and focal.anchor != "panel_root":
+        panel = (set(panel_samples) if panel_samples
+                 else named | outgroup if named and outgroup else None)
+        if panel:
+            kept = {s: n for s, n in sample_map.items() if _named(s, panel)}
+            if kept:
+                ts, sample_map = TskitLocalTree.restrict(ts, kept)
+        ingroup = [s for s in sample_map
+                   if (_named(s, named) if named else not _named(s, outgroup))]
+        nodes = tuple(int(sample_map[s]) for s in ingroup)
+        if named and not nodes and focal.anchor != "panel_root":
             raise ValueError(
-                f"no ingroup sample of the truth matches {list(ingroup)[:3]}, "
-                f"which holds {list(sample_map)[:3]}. Pass sample_map= keyed to it."
+                f"no ingroup sample of the truth matches "
+                f"{list(ingroup_samples)[:3]}, which holds "
+                f"{list(sample_map)[:3]}. Pass sample_map= keyed to it."
             )
 
         def state_at(tree, site, node, tau):

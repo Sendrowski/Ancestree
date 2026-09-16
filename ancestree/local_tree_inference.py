@@ -54,7 +54,7 @@ from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
 from ancestree.settings import Settings
 from ancestree.sites import (BaseComposition, Site, SiteSource,
-                             SiteTable)
+                             SiteTable, _PanelSites)
 from ancestree._repr import ReprMixin
 
 # Below this many SNPs per block (panel-wide average), a large fraction of
@@ -1303,9 +1303,10 @@ class LocalTreeInference(Inference):
         ``1e-8`` with a warning (used when ``source`` is genotypes.
         Ignored for a pre-built tree sequence).
     :param sample_names: Panel haplotype names (tip order). Required when
-        building from :class:`~ancestree.sites.Site` records. Read from the file
-        for a VCF / BCF / VCZ source, and taken from the individual metadata of
-        a pre-built tree sequence.
+        building from :class:`~ancestree.sites.Site` records. Read from the
+        source for a VCF / BCF / VCZ path or a
+        :class:`~ancestree.sites.SiteSource`, and taken from the individual
+        metadata of a pre-built tree sequence.
     :param sequence_length: Region length in bp. Required when building, unless
         ``chunk_size`` is set (the chunked path derives it per segment).
     :param window: Local-tree window spec (the primary resolution parameter). See
@@ -1364,9 +1365,11 @@ class LocalTreeInference(Inference):
         coordinates) giving the local mutation rate for the HMM emission in
         place of the constant ``mu``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced
         per segment on the chunked path. Ignored for a pre-built tree sequence.
-    :param outgroup_samples: Sample ids treated as outgroups. Required for the
-        ``baseline_check`` comparison, and, together with ``ingroup_samples``,
-        for resolving a ``focal`` node other than the window tree's own root.
+    :param outgroup_samples: Sample ids treated as outgroups, used by the
+        ``baseline_check`` comparison. Defaults to the panel samples outside
+        ``ingroup_samples``. With both lists named, samples in neither are
+        dropped before the local trees are inferred, or refused where
+        ``sample_names`` names them.
     :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
         baseline comparison by folded-SFS bin, and defines the ingroup whose
         MRCA ``focal="ingroup_mrca"`` reports at. Defaults to all non-outgroup
@@ -1377,10 +1380,12 @@ class LocalTreeInference(Inference):
     :param baseline_check: INFO-log MAP agreement with the majority-outgroup
         rule (:class:`~ancestree.inference.MajorityOutgroupInference`) as a
         consistency check. Off by default. Set ``True`` together with
-        ``outgroup_samples`` to enable.
+        ``outgroup_samples`` or ``ingroup_samples`` to enable.
     :raises ValueError: If ``member_chunk``, ``n_ensemble`` or ``n_workers`` is
-        below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, or if
-        ``sample_names`` is needed and absent.
+        below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
+        ``sample_names`` is needed and absent, if a named sample is absent
+        from the panel, or if ``sample_names`` names a sample in neither list
+        while both are named.
     """
 
     @staticmethod
@@ -1528,9 +1533,8 @@ class LocalTreeInference(Inference):
             # the supplied ARG so infer()'s logging and the baseline hooks have a
             # sample list and a window to report.
             self.sample_names = list(self._arg.sample_map)
-            self._resolved_ingroup = self._ingroup_from_panel(self.sample_names)
-            if not self._resolved_ingroup:
-                self._refuse_empty_ingroup(len(self.sample_names))
+            self._resolved_ingroup = self._arg._resolved_ingroup
+            self._resolved_outgroups = self._arg._resolved_outgroups
             self.window = None
             self.rec_rate = None
             # A supplied genealogy is the estimate: no ensemble is drawn.
@@ -1576,17 +1580,17 @@ class LocalTreeInference(Inference):
             self._chrom = self._arg.chrom
             return
 
+        explicit_panel = sample_names is not None
         if isinstance(source, (str, os.PathLike)):
-            # VCF / BCF / VCZ path → read genotypes. Derive the haplotype panel
-            # from the file when sample_names was not given explicitly.
+            # VCF / BCF / VCZ path → read genotypes.
             from ancestree.sources import CyVCF2Source, VcfZarrSource
             source = (
                 VcfZarrSource(source)
                 if str(source).rstrip("/").endswith((".vcz", ".zarr"))
                 else CyVCF2Source(source)
             )
-            if sample_names is None:
-                sample_names = list(source.samples())
+        if sample_names is None and callable(getattr(source, "samples", None)):
+            sample_names = list(source.samples())
 
         if self.n_ensemble is not None and self.focal.depth is not None:
             raise NotImplementedError(
@@ -1610,8 +1614,12 @@ class LocalTreeInference(Inference):
             raise ValueError(
                 f"rec_rate must be positive, got {rec_rate}")
         self.rec_rate = float(rec_rate)
-        self.sample_names = list(sample_names)
-        self._resolved_ingroup = self._ingroup_from_panel(self.sample_names)
+        self.sample_names = list(
+            self._resolve_panel(sample_names, explicit=explicit_panel))
+        if len(self.sample_names) < len(sample_names):
+            source = _PanelSites(
+                list(source) if hasattr(source, "__next__") else source,
+                self.sample_names)
         if not self._resolved_ingroup:
             self._refuse_empty_ingroup(len(self.sample_names))
         self.window = window
@@ -1660,7 +1668,7 @@ class LocalTreeInference(Inference):
             )
         self._log_start()
         self.builder = LocalTreeBuilder(
-            source, mu=mu, rec_rate=rec_rate, sample_names=sample_names,
+            source, mu=mu, rec_rate=rec_rate, sample_names=self.sample_names,
             sequence_length=sequence_length, window=window,
             block_size=block_size, n_time_bins=n_time_bins,
             time_grid=time_grid,
@@ -1815,7 +1823,7 @@ class LocalTreeInference(Inference):
 
     def _baseline_outgroup_samples(self) -> tuple[str, ...]:
         """Outgroup ids the baseline check compares this run against."""
-        return self._outgroup_samples
+        return self._resolved_outgroups
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
         """Ingroup ids the baseline check compares this run against."""

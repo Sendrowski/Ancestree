@@ -1100,7 +1100,8 @@ def test_outgroups_are_excluded_per_individual():
     inf = anc.Inference.from_arg(ts, model=anc.JC69(), mu=5e-8,
                                 outgroup_samples=["o0"], progress=False)
     panel = ["i0_h0", "i0_h1", "o0_h0", "o0_h1"]
-    got = inf._ingroup_from_panel(panel)
+    inf._resolve_panel(panel, explicit=True)
+    got = inf._resolved_ingroup
     assert "o0_h0" not in got and "o0_h1" not in got, (
         f"outgroup haplotypes leaked into the ingroup: {got}")
     assert set(got) == {"i0_h0", "i0_h1"}

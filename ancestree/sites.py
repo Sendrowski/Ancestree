@@ -11,7 +11,7 @@ from collections import Counter
 
 #: Trailing per-haplotype suffix a VCF reader appends.
 _HAP_SUFFIX = re.compile(r"_h\d+$")
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -182,14 +182,27 @@ class Site:
         counts: Counter = Counter()
         wanted = set(samples)
         for sid, a in self.tip_alleles.items():
-            # An id matches a tip id or its individual.
-            if sid not in wanted and _individual_of(sid) not in wanted:
+            if not _named(sid, wanted):
                 continue
             a = Site.canonical(a)
             if a is None:
                 continue
             counts[a] += 1
         return counts
+
+    def restricted_to(self, names: "Collection[str]") -> "Site":
+        """This site with only the tips in ``names`` and the alleles they carry.
+
+        :param names: Tip ids to keep.
+        :return: A copy, whose ``alleles`` keep their order. They are left
+            whole where no kept tip is called.
+        """
+        from dataclasses import replace
+
+        tips = {n: a for n, a in self.tip_alleles.items() if n in names}
+        carried = {a.upper() for a in tips.values() if Site.is_called(a)}
+        alleles = tuple(a for a in self.alleles if a.upper() in carried)
+        return replace(self, tip_alleles=tips, alleles=alleles or self.alleles)
 
 
 def _individual_of(sample_id: str) -> str:
@@ -200,6 +213,16 @@ def _individual_of(sample_id: str) -> str:
         when it carries no haplotype suffix.
     """
     return _HAP_SUFFIX.sub("", sample_id)
+
+
+def _named(sample_id: str, names: "Collection[str]") -> bool:
+    """Whether a haplotype id, or the individual it belongs to, is in ``names``.
+
+    :param sample_id: Per-haplotype tip id, e.g. ``"o0_h1"``.
+    :param names: Sample names, each a haplotype id or an individual.
+    :return: ``True`` for ``"o0_h1"`` against ``{"o0"}`` or ``{"o0_h1"}``.
+    """
+    return sample_id in names or _individual_of(sample_id) in names
 
 
 #: How one site's contribution is keyed while the config histogram is built:
@@ -1207,6 +1230,34 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         if ploidy == 1:
             return list(sample_names)
         return [f"{s}_h{h}" for s in sample_names for h in range(ploidy)]
+
+
+class _PanelSites(SiteSource):
+    """The sites of a source, each restricted to a panel.
+
+    :param source: The sites, re-iterable.
+    :param panel: Tip ids to keep, in panel order.
+    """
+
+    @property
+    def _repr_params(self) -> dict[str, object]:
+        """Fields shown by :meth:`__repr__`."""
+        return {"n_samples": len(self._panel)}
+
+    def __init__(self, source: "Iterable[Site]", panel: "Sequence[str]") -> None:
+        """Store the source and the panel. Sites are restricted as they are read."""
+        self._source = source
+        self._panel = list(panel)
+        self._names = frozenset(panel)
+
+    def __iter__(self) -> Iterator[Site]:
+        """Yield each site of the source restricted to the panel."""
+        for site in self._source:
+            yield site.restricted_to(self._names)
+
+    def samples(self) -> list[str]:
+        """The panel, in panel order."""
+        return list(self._panel)
 
 
 class PolymorphicSiteFilter(SiteSource):

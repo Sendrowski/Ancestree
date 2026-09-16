@@ -284,6 +284,28 @@ class TskitLocalTree(Tree):
         self._init(ts, ts.at(position), position, sample_map, root=root)
 
     @staticmethod
+    def restrict(
+        ts: "tskit.TreeSequence", sample_map: Mapping[str, int],
+    ) -> "tuple[tskit.TreeSequence, dict[str, int]]":
+        """``ts`` simplified to the nodes of ``sample_map``, every site kept.
+
+        The retained nodes are renumbered in their original order, so tree
+        sequences sharing sample node ids restrict identically.
+
+        :param ts: The tree sequence to restrict.
+        :param sample_map: ``{name: node}`` for the samples to keep.
+        :return: The restricted tree sequence and ``sample_map`` renumbered to
+            it, or both unchanged when ``sample_map`` covers every sample.
+        """
+        nodes = sorted(int(n) for n in sample_map.values())
+        if len(nodes) >= ts.num_samples:
+            return ts, dict(sample_map)
+        rank = {n: i for i, n in enumerate(nodes)}
+        return (ts.simplify(samples=nodes, filter_sites=False,
+                            record_provenance=False),
+                {s: rank[int(n)] for s, n in sample_map.items()})
+
+    @staticmethod
     def default_sample_map(ts: "tskit.TreeSequence") -> dict[str, int]:
         """The individual-metadata map, or tskit node ids as their own names.
 

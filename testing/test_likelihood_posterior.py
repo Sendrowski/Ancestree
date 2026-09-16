@@ -139,12 +139,19 @@ class TestGrade:
         b = [(x.pos, x.aa, x.posterior) for x in anc.Reader(tmp_path / "stored.trees").annotations()]
         assert a == b
 
-    def test_reader_grades_an_annotated_file_like_the_inference(self, tmp_path):
+    @pytest.mark.parametrize("sample_map", [False, True])
+    def test_reader_grades_an_annotated_file_like_the_inference(
+            self, tmp_path, sample_map):
+        """The panel, named by both lists or by a partial ``sample_map``, is
+        read back from the file's provenance."""
         ts = tskit.load(QUICKSTART_TREES)
-        ingroup = [f"i{i}" for i in range(6)]
+        panel = [f"i{i}" for i in range(4)] + ["o0"]
+        kw = dict(ingroup_samples=panel[:4], outgroup_samples=panel[4:])
+        if sample_map:
+            full = anc.TskitLocalTree.default_sample_map(ts)
+            kw = dict(sample_map={s: full[s] for s in panel})
         inf = anc.Inference.from_arg(
-            ts, anc.JC69(), mu=5e-8, progress=False,
-            ingroup_samples=ingroup, outgroup_samples=["o0", "o1"])
+            ts, anc.JC69(), mu=5e-8, progress=False, **kw)
         out = tmp_path / "annotated.trees"
         inf.to_arg(out)
         for focal in ("ingroup_mrca", "panel_root"):
@@ -277,3 +284,46 @@ class TestGradeAgainstADifferentlyNamedTruth:
         assert graded == Grade(
             inference.infer(), small_ts, ingroup_samples=ingroup,
             outgroup_samples=list(self.OUTGROUP), sample_map=names)
+
+
+class TestGradingReadsTheScoredPanel:
+    """The truth is read on the tree sequence the inference scored."""
+
+    ING = ["i0", "i1", "i2", "i3"]
+    OUT = ["o0"]
+
+    def test_samples_in_neither_list_are_dropped(self):
+        ts = tskit.load(QUICKSTART_TREES)
+        full = anc.TskitLocalTree.default_sample_map(ts)
+        small, small_map = anc.TskitLocalTree.restrict(
+            ts, {s: full[s] for s in self.ING + self.OUT})
+        got = Grade.truth_at_focal(ts, "panel_root", ingroup_samples=self.ING,
+                                   outgroup_samples=self.OUT)
+        want = Grade.truth_at_focal(small, "panel_root",
+                                    ingroup_samples=self.ING,
+                                    outgroup_samples=self.OUT,
+                                    sample_map=small_map)
+        assert got == want
+
+    def test_names_match_by_individual(self):
+        from testing._helpers import DEMO_TREES
+
+        ts = tskit.load(DEMO_TREES)
+        ing = ["i0_h0", "i0_h1", "i1_h0", "i1_h1"]
+        by_name = Grade.truth_at_focal(ts, "panel_root", ingroup_samples=ing,
+                                       outgroup_samples=["o1"])
+        by_haplotype = Grade.truth_at_focal(
+            ts, "panel_root", ingroup_samples=ing,
+            outgroup_samples=["o1_h0", "o1_h1"])
+        assert by_name == by_haplotype
+
+    def test_a_partial_sample_map_is_graded_on_its_panel(self):
+        ts = tskit.load(QUICKSTART_TREES)
+        full = anc.TskitLocalTree.default_sample_map(ts)
+        sub = {s: full[s] for s in self.ING}
+        inf = anc.Inference.from_arg(ts, mu=5e-8, focal="panel_root",
+                                     sample_map=sub, progress=False)
+        small, small_map = anc.TskitLocalTree.restrict(ts, sub)
+        truth = Grade.truth_at_focal(small, "panel_root", sample_map=small_map)
+        assert inf.grade(ts) == Grade(inf.infer(), truth)
+

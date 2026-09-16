@@ -438,7 +438,9 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--outgroups", type=_split_csv,
-        help="Comma-separated outgroup sample ids.",
+        help=("Comma-separated outgroup sample ids. Defaults to every sample "
+              "not in --ingroup. With both given, other samples are ignored, "
+              "or refused where --samples names them."),
     )
     p.add_argument(
         "--focal", default="ingroup-mrca",
@@ -521,8 +523,9 @@ def _add_fixed_tree_parser(
     )
     p.add_argument(
         "--samples", type=_split_csv, default=None,
-        help=("Comma-separated subset of VCF samples to use as the panel "
-              "(default: all samples in the VCF)."),
+        help=("Comma-separated subset of VCF samples to read, each in "
+              "--ingroup or --outgroups. Default: every sample in the VCF, "
+              "ignoring those in neither."),
     )
     p.add_argument(
         "--focal", default="ingroup-mrca",
@@ -784,7 +787,8 @@ def _add_local_tree_parser(
         "--samples", type=_split_csv, default=None,
         help=(
             "Comma-separated subset of VCF samples to use as the panel "
-            "(default: all samples in the VCF)."
+            "(default: all samples in the VCF, or the union of --ingroup and "
+            "--outgroups when both are given)."
         ),
     )
     p.add_argument(
@@ -1259,7 +1263,9 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         args.vcf, sample_filter=(args.samples or None),
         ploidy=args.ploidy, phased=args.phased, phase_seed=args.phase_seed,
     ))
-    sample_names = source.samples()  # canonical (ploidy-expanded) haplotype ids
+    # Canonical (ploidy-expanded) haplotype ids. Left to the library without
+    # --samples, so the panel then follows --ingroup and --outgroups.
+    sample_names = source.samples() if args.samples else None
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
     _warn_model_defaults("local-tree", args.model)

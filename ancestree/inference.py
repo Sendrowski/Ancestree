@@ -34,7 +34,7 @@ from tqdm import tqdm  # not tqdm.auto: avoids ipywidgets dep and per-line outpu
 
 from ancestree import DEFAULT_MU, STATE_INDEX, STATES
 from ancestree._repr import ReprMixin
-from ancestree.sites import _individual_of
+from ancestree.sites import _individual_of, _named
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
 from ancestree.likelihood import Likelihood, _normalise
@@ -516,6 +516,9 @@ class Inference(ReprMixin, ABC):
         from ancestree import __version__
 
         parameters = self._provenance_parameters()
+        panel = self._panel_samples()
+        if panel:
+            parameters = {**parameters, "panel_samples": list(panel)}
         # The same merge the writers apply once the walk has finished, so the
         # record returned here and the record written agree.
         if self._focal_counts_complete and not self.focal.is_root:
@@ -642,6 +645,14 @@ class Inference(ReprMixin, ABC):
         if ts is None or len(names) != ts.num_individuals:
             return None
         return [str(n) for n in names]
+
+    def _panel_samples(self) -> tuple[str, ...]:
+        """The resolved ingroup and outgroup samples.
+
+        :return: Sample ids.
+        """
+        return (*self._baseline_ingroup_samples(),
+                *self._baseline_outgroup_samples())
 
     def _note_unnamed_ingroup(self) -> None:
         """Report that an unnamed ingroup is the whole panel.
@@ -824,48 +835,74 @@ class Inference(ReprMixin, ABC):
             f"panel samples was named as an outgroup"
         )
 
-    def _ingroup_from_panel(self, panel: "Iterable[str]") -> tuple[str, ...]:
-        """The explicit ingroup if one was named, else the panel less the
-        outgroups.
+    def _resolve_panel(
+        self, panel: "Iterable[str]", *, explicit: bool,
+    ) -> tuple[str, ...]:
+        """Resolve the panel, and the ingroup and outgroups within it.
 
-        Both lists are matched per individual: a VCF source splits a diploid
-        into ``o0_h0`` / ``o0_h1``, so naming ``o0`` designates both haplotypes
-        whichever list it appears in. A name matching nothing in the panel is
-        refused.
+        With both lists named the panel is their union. With one named, the
+        other is the rest of the panel. Names match a haplotype id or its
+        individual, so naming ``o0`` designates ``o0_h0`` and ``o0_h1``. Sets
+        ``_resolved_ingroup`` and ``_resolved_outgroups``.
 
         :param panel: The mode's own sample identifiers, in panel order.
-        :return: Ingroup identifiers, in panel order.
-        :raises ValueError: If a named ingroup or outgroup sample is not in
-            the panel.
+        :param explicit: Whether the caller chose the panel. A haplotype in
+            neither list then raises, and is otherwise dropped.
+        :return: The panel, in panel order.
+        :raises ValueError: If a named sample is not in the panel, or if an
+            explicit panel holds a haplotype in neither list.
         """
         panel = list(panel)
-        if self._outgroup_samples:
-            in_panel = set(panel)
-            in_panel |= {_individual_of(s) for s in panel}
-            absent = [s for s in self._outgroup_samples if s not in in_panel]
+        present = set(panel) | {_individual_of(s) for s in panel}
+        for label, named in (("ingroup", self._ingroup_samples),
+                             ("outgroup", self._outgroup_samples)):
+            absent = [s for s in named if s not in present]
             if absent:
                 raise ValueError(
-                    f"outgroup sample(s) not in the panel: {absent[:5]}; the "
+                    f"{label} sample(s) not in the panel: {absent[:5]}; the "
                     f"panel holds {len(panel)} identifiers starting "
                     f"{panel[:3]}")
-        if self._ingroup_samples:
-            wanted = set(self._ingroup_samples)
-            keep = tuple(s for s in panel
-                         if s in wanted or _individual_of(s) in wanted)
-            matched = {s for s in panel if s in wanted}
-            matched |= {_individual_of(s) for s in panel
-                        if _individual_of(s) in wanted}
-            missing = [s for s in self._ingroup_samples if s not in matched]
-            if missing:
-                raise ValueError(
-                    f"ingroup sample(s) not in the panel: {missing[:5]}; the "
-                    f"panel holds {len(panel)} identifiers starting "
-                    f"{panel[:3]}")
-            return keep
-        out = set(self._outgroup_samples)
-        out |= {_individual_of(s) for s in self._outgroup_samples}
-        return tuple(s for s in panel
-                     if s not in out and _individual_of(s) not in out)
+        ins, outs = set(self._ingroup_samples), set(self._outgroup_samples)
+        if ins and outs:
+            unlabelled = self._unlabelled(
+                panel, ins | outs, chosen_by="the panel" if explicit else None)
+            if unlabelled:
+                self._log.info(
+                    "Ignoring %d sample(s) in neither ingroup_samples nor "
+                    "outgroup_samples", len(unlabelled))
+                dropped = set(unlabelled)
+                panel = [s for s in panel if s not in dropped]
+        if ins:
+            ingroup = [s for s in panel if _named(s, ins)]
+        else:
+            ingroup = [s for s in panel if not _named(s, outs)]
+        members = set(ingroup)
+        self._resolved_ingroup: tuple[str, ...] = tuple(ingroup)
+        self._resolved_outgroups: tuple[str, ...] = tuple(
+            s for s in panel if s not in members)
+        return tuple(panel)
+
+    @staticmethod
+    def _unlabelled(
+        samples: "Iterable[str]", named: "set[str]", *,
+        chosen_by: "str | None" = None,
+    ) -> list[str]:
+        """The samples in neither the ingroup nor the outgroups.
+
+        :param samples: Sample ids, matched by id or by individual.
+        :param named: The ingroup and outgroup ids together.
+        :param chosen_by: The argument that chose ``samples``, named in the
+            error.
+        :return: The unlabelled samples, in order.
+        :raises ValueError: If ``chosen_by`` is given and a sample is unlabelled.
+        """
+        unlabelled = [s for s in samples if not _named(s, named)]
+        if unlabelled and chosen_by is not None:
+            raise ValueError(
+                f"{len(unlabelled)} sample(s) in {chosen_by} are in neither "
+                f"ingroup_samples nor outgroup_samples: {unlabelled[:5]}. "
+                f"Label them, or leave them out of {chosen_by}.")
+        return unlabelled
 
     def _with_baseline_check(
         self, inner: "Iterator[tuple[Site, Posterior]]",
@@ -1032,6 +1069,7 @@ class Inference(ReprMixin, ABC):
             self.infer(), truth, filter, focal=focal,
             ingroup_samples=self._baseline_ingroup_samples(),
             outgroup_samples=self._baseline_outgroup_samples(),
+            panel_samples=self._panel_samples(),
             sample_map=sample_map,
         )
 
@@ -1627,17 +1665,20 @@ class ARGBasedInference(Inference):
         composition. An :class:`~ancestree.priors.IngroupWeight` is rejected
         here and belongs to :class:`~ancestree.inference.FixedTreeInference`.
     :param chrom: Contig name embedded in each emitted :class:`~ancestree.sites.Site`.
-    :param sample_map: Optional ``{sample_name: tskit_node_id}``. ``None``
-        derives one from the tree sequence's individual names, falling back
-        to ``{str(i): i}`` over the sample nodes.
+    :param sample_map: Optional ``{sample_name: tskit_node_id}`` whose keys
+        are the panel. ``None`` derives one from the tree sequence's
+        individual names, falling back to ``{str(i): i}`` over the sample
+        nodes.
     :param progress: Show a tqdm progress bar over the walk (default
         ``True``). No bar is shown when ``n_workers > 1``.
     :param n_workers: Fork-pool workers for the walk. Default ``1``. On a
         platform without ``fork`` it warns and runs a single worker. Sites are
         emitted in tskit-natural order regardless.
-    :param outgroup_samples: Sample ids treated as outgroups. Required for the
-        ``baseline_check`` comparison, and, together with ``ingroup_samples``,
-        for resolving a ``focal`` node other than the tree's own root.
+    :param outgroup_samples: Sample ids treated as outgroups, used by the
+        ``baseline_check`` comparison. Defaults to the panel samples outside
+        ``ingroup_samples``. With both lists named, samples in neither are
+        dropped from the tree sequence, or refused where ``sample_map`` names
+        them.
     :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
         baseline comparison by folded-SFS bin, and defines the ingroup whose
         MRCA ``focal="ingroup_mrca"`` reports at. Defaults to all non-outgroup
@@ -1650,7 +1691,8 @@ class ARGBasedInference(Inference):
     :param baseline_check: INFO-log MAP agreement with the majority-outgroup
         rule (:class:`~ancestree.inference.MajorityOutgroupInference`) as a
         consistency check. Off by default, since ARG mode requires no outgroup designation.
-        Set ``True`` together with ``outgroup_samples`` to enable.
+        Set ``True`` together with ``outgroup_samples`` or ``ingroup_samples``
+        to enable.
     :param mu_matches_time_units: Assert that ``mu`` is expressed per unit of
         this tree sequence's own node times. An undated ARG declares
         ``uncalibrated`` times and is otherwise refused, since no rate scales
@@ -1661,7 +1703,8 @@ class ARGBasedInference(Inference):
     :raises TypeError: If an :class:`~ancestree.priors.IngroupWeight` is
         passed as ``prior``, which this mode does not fit.
     :raises ValueError: If a named ingroup or outgroup sample is absent from
-        the panel.
+        the panel, or if ``sample_map`` names a sample in neither list while
+        both are named.
     """
 
     @property
@@ -1752,12 +1795,6 @@ class ARGBasedInference(Inference):
         self.chrom = chrom
         self.progress = progress
 
-        if sample_map is None:
-            sample_map = (
-                TskitLocalTree.default_sample_map(ts))
-        self.sample_map: dict[str, int] = dict(sample_map)
-        self._node_to_sample: dict[int, str] = {v: k for k, v in self.sample_map.items()}
-
         if n_workers < 1:
             raise ValueError(f"n_workers must be >= 1; got {n_workers}")
         self.n_workers = int(n_workers)
@@ -1769,9 +1806,19 @@ class ARGBasedInference(Inference):
         from ancestree.focal import FocalNode
         self.focal = FocalNode.parse(focal)
         self._note_unnamed_ingroup()
-        # The ingroup and its node ids, resolved once against the panel.
-        self._resolved_ingroup: tuple[str, ...] = self._ingroup_from_panel(
-            self.sample_map)
+
+        explicit_map = sample_map is not None
+        if sample_map is None:
+            sample_map = TskitLocalTree.default_sample_map(ts)
+        panel = self._resolve_panel(sample_map, explicit=explicit_map)
+        # Scoring runs on the tree sequence restricted to the panel, and
+        # to_arg annotates the one supplied.
+        self._input_ts = ts
+        self._panel_map = {s: int(sample_map[s]) for s in panel}
+        self.ts, sample_map = TskitLocalTree.restrict(ts, self._panel_map)
+        self.sample_map: dict[str, int] = sample_map
+        self._node_to_sample: dict[int, str] = {v: k for k, v in self.sample_map.items()}
+
         self._ingroup_nodes: tuple[int, ...] = tuple(
             self.sample_map[s] for s in self._resolved_ingroup
         )
@@ -1800,7 +1847,7 @@ class ARGBasedInference(Inference):
         return entry
 
     def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        return self._outgroup_samples
+        return self._resolved_outgroups
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
         return self._resolved_ingroup
@@ -1897,8 +1944,9 @@ class ARGBasedInference(Inference):
         import tskit
 
         def resolve(d):
-            """Load a draw given as a path, or pass a tree sequence through."""
-            return tskit.load(d) if isinstance(d, (str, os.PathLike)) else d
+            """Load a draw given as a path, restricted to the panel."""
+            ts = tskit.load(d) if isinstance(d, (str, os.PathLike)) else d
+            return TskitLocalTree.restrict(ts, self._panel_map)[0]
 
         if self._draws_source is not None:
             for draw in self._draws_source:
@@ -2588,7 +2636,7 @@ class ARGBasedInference(Inference):
 
     def _source_tree_sequence(self) -> "tskit.TreeSequence":
         """The source ARG. Its sites receive the annotated ancestral states."""
-        return self.ts
+        return self._input_ts
 
 
 class FixedTreeInference(Inference):
@@ -2641,7 +2689,9 @@ class FixedTreeInference(Inference):
     :param n_target_sites: Total target-region length, from which the
         monomorphic weights are derived. Required when
         ``base_composition.counts`` is all-zero and ``fit_required=True``.
-    :param sample_filter: Restrict a VCF / VCZ read to these sample names.
+    :param sample_filter: Restrict a VCF / VCZ read to these sample names,
+        each of which must be in ``ingroup_samples`` or ``outgroup_samples``.
+        ``None`` reads every sample and ignores those in neither list.
     :param chrom_filter: Restrict a VCF / VCZ read to this contig.
     :param ploidy: Sample ploidy for the VCF reader. ``None`` infers it.
     :param initial_rates: Length-:attr:`OutgroupLadderTree.n_params <ancestree.trees.OutgroupLadderTree.n_params>`
@@ -2697,7 +2747,8 @@ class FixedTreeInference(Inference):
         no-outgroup mode. Results are identical either way.
 
     :raises ValueError: On a tree with no outgroups, an ingroup and
-        outgroup set that overlap, or an unresolvable focal placement.
+        outgroup set that overlap, a ``sample_filter`` entry in neither list,
+        or an unresolvable focal placement.
     :raises NotImplementedError: On a combination the fixed-tree kernel does
         not implement, such as streaming with no outgroups named.
     """
@@ -2841,6 +2892,8 @@ class FixedTreeInference(Inference):
         self._check_samples_present(outgroup_samples, actual_sites,
                                     self._stream_source,
                                     ingroup_samples=ingroup_samples)
+        self._check_filter_labelled(sample_filter, ingroup_samples,
+                                    outgroup_samples)
         self.model = model
         actual_bc = BaseComposition.require(
             actual_bc, context="FixedTreeInference",
@@ -3105,7 +3158,7 @@ class FixedTreeInference(Inference):
         wanted = set(names)
         return sum(
             1 for sid in panel
-            if sid in wanted or _individual_of(sid) in wanted
+            if _named(sid, wanted)
         )
 
     def _resolve_subsample_size(
@@ -3266,6 +3319,24 @@ class FixedTreeInference(Inference):
         on an unfitted instance (matching their documented behaviour)."""
         if self.fit_required and self._params_mle is None:
             self.fit()
+
+    @staticmethod
+    def _check_filter_labelled(sample_filter, ingroup_samples,
+                               outgroup_samples) -> None:
+        """Refuse a ``sample_filter`` sample in neither the ingroup nor the
+        outgroups.
+
+        :param sample_filter: The panel restriction, or ``None``.
+        :param ingroup_samples: Named ingroup ids, or ``None``.
+        :param outgroup_samples: Named outgroup ids, or ``None``.
+        :raises ValueError: If a filtered sample is in neither list.
+        """
+        if not sample_filter:
+            return
+        named = set(ingroup_samples or ()) | set(outgroup_samples or ())
+        # Filter entries name individuals, the lists may name haplotypes.
+        named |= {_individual_of(s) for s in named}
+        Inference._unlabelled(sample_filter, named, chosen_by="sample_filter")
 
     @staticmethod
     def _check_samples_present(outgroup_samples, sites, source=None,

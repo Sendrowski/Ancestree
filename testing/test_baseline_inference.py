@@ -21,6 +21,7 @@ from ancestree import (
 )
 from ancestree.inference import Inference
 
+from testing._helpers import QUICKSTART_TREES
 from testing._helpers import no_counts as _no_counts, post
 
 
@@ -384,3 +385,16 @@ def test_baseline_without_designated_samples_names_none():
     inf = MajorityOutgroupInference([], ["o1"], for_comparison_only=True)
     assert Inference._baseline_outgroup_samples(inf) == ()
     assert Inference._baseline_ingroup_samples(inf) == ()
+
+
+def test_the_majority_outgroup_rule_is_graded_at_the_arg_root():
+    """The rule resolves no ingroup, so its truth stays at the ARG root."""
+    import tskit
+
+    from ancestree.posterior import Grade
+    from ancestree.sites import SiteSource
+
+    ts = tskit.load(QUICKSTART_TREES)
+    rule = MajorityOutgroupInference(
+        list(SiteSource.resolve(ts)), ["o0", "o1"], for_comparison_only=True)
+    assert rule.grade(ts) == Grade(rule.infer(), Grade.truth_mapping(ts))

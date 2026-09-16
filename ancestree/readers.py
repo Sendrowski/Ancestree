@@ -290,8 +290,8 @@ class Reader(ReprMixin):
             :meth:`Inference.grade() <ancestree.inference.Inference.grade>` on
             the run itself instead.
         :param focal: The node of a tree-sequence truth at which the true
-            allele is read, resolved over the ingroup and outgroup samples
-            recorded in the file's provenance. Defaults to the ingroup's
+            allele is read, resolved over the panel, ingroup and outgroup
+            samples recorded in the file's provenance. Defaults to the ingroup's
             most recent common ancestor.
         :param sample_map: ``{sample: node}`` mapping the provenance's sample
             names onto the nodes of a tree-sequence truth, read in that tree
@@ -336,6 +336,7 @@ class Reader(ReprMixin):
             pairs(), truth, filter, focal=focal,
             ingroup_samples=params.get("ingroup_samples"),
             outgroup_samples=params.get("outgroup_samples"),
+            panel_samples=params.get("panel_samples"),
             sample_map=sample_map,
         )
 
