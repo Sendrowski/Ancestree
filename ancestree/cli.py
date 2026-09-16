@@ -18,7 +18,7 @@ Exposes three subcommands matching the three inference modes:
 
 The output format is inferred from the ``--out`` extension:
 
-- ``.vcf``, ``.vcf.gz``, ``.bcf`` route to
+- ``.vcf``, ``.vcf.gz``, ``.vcf.bgz``, ``.bcf`` route to
   :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`;
 - ``.vcz`` routes to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`, annotating a
   copy of the input VCF Zarr store when the input is one, and a store built
@@ -428,8 +428,7 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--outgroups", type=_split_csv,
         help=("Comma-separated outgroup sample ids. Defaults to every sample "
-              "not in --ingroup. With both given, other samples are ignored, "
-              "or refused where --samples names them."),
+              "not in --ingroup. With both given, other samples are ignored."),
     )
     p.add_argument(
         "--focal", default="ingroup-mrca",
@@ -636,18 +635,15 @@ def _add_fixed_tree_parser(
     )
     p.add_argument(
         "--out", required=True,
-        help="Output VCF (.vcf / .vcf.gz / .bcf) or VCF Zarr store (.vcz, "
+        help="Output VCF (.vcf / .vcf.gz / .vcf.bgz / .bcf) or VCF Zarr store (.vcz, "
              "which copies + annotates the input .vcz). The .trees format is "
              "not supported for fixed-tree output.",
     )
     p.add_argument(
         "--template-vcf", default=None,
         help=(
-            "VCF / BCF used as the header + record template for the "
-            "annotated output. Defaults to --vcf when --vcf is a regular "
-            "VCF; required when --vcf is a .vcz store (cyvcf2 cannot read "
-            "VCZ, so the writer needs a parallel VCF skeleton with the "
-            "same CHROM/POS rows)."
+            "VCF / BCF used as the header and record template for the "
+            "annotated output. Defaults to the records of --vcf."
         ),
     )
     p.set_defaults(handler=_run_fixed_tree)
@@ -710,7 +706,7 @@ def _add_arg_parser(
         "--chrom", default=_lib_default(ARGBasedInference, "chrom"),
         help=(
             "Contig label used when auto-writing a template VCF for "
-            ".vcf / .vcf.gz / .bcf output. Default: %(default)s."
+            ".vcf / .vcf.gz / .vcf.bgz / .bcf output. Default: %(default)s."
         ),
     )
     p.add_argument(
@@ -724,7 +720,7 @@ def _add_arg_parser(
         "--out", required=True,
         help=(
             "Output path. The format is inferred from the extension: "
-            "'.vcf', '.vcf.gz' and '.bcf' write an annotated VCF, '.vcz' an "
+            "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated VCF, '.vcz' an "
             "annotated VCF Zarr store, and '.trees' an annotated tskit tree "
             "sequence."
         ),
@@ -775,9 +771,10 @@ def _add_local_tree_parser(
     p.add_argument(
         "--samples", type=_split_csv, default=None,
         help=(
-            "Comma-separated subset of VCF samples to use as the panel "
-            "(default: all samples in the VCF, or the union of --ingroup and "
-            "--outgroups when both are given)."
+            "Comma-separated subset of VCF samples to use as the panel, each "
+            "in --ingroup or --outgroups when both are given (default: all "
+            "samples in the VCF, or the union of --ingroup and --outgroups "
+            "when both are given)."
         ),
     )
     p.add_argument(
@@ -913,7 +910,7 @@ def _add_local_tree_parser(
         "--out", required=True,
         help=(
             "Output path. The format is inferred from the extension: "
-            "'.vcf', '.vcf.gz' and '.bcf' write an annotated VCF, '.vcz' an "
+            "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated VCF, '.vcz' an "
             "annotated VCF Zarr store copied from the input, and '.trees' an "
             "annotated tskit tree sequence."
         ),
@@ -962,7 +959,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     out_is_zarr = _path_format(args.out) == "vcz"
     if not (_path_format(args.out) == "vcf" or out_is_zarr):
         raise SystemExit(
-            f"fixed-tree --out must end with .vcf, .vcf.gz, .bcf, or .vcz "
+            f"fixed-tree --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, or .vcz "
             f"(got {args.out!r}). The .trees format is only valid under "
             f"the `arg` and `local-tree` subcommands."
         )
@@ -1000,14 +997,6 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             "output is a copy of the .vcz input (or a bio2zarr-built template "
             "from a VCF input), not the supplied VCF skeleton."
         )
-    if not out_is_zarr and template_vcf is None:
-        if _path_format(args.vcf) == "vcz":
-            raise SystemExit(
-                "fixed-tree: --vcf is a VCF Zarr store but no --template-vcf "
-                "was supplied. Pass --template-vcf=<path> pointing at a "
-                "VCF/BCF skeleton with the same variant rows."
-            )
-        template_vcf = args.vcf
 
     base_composition = None
     if args.empirical_composition:
@@ -1136,7 +1125,7 @@ def _run_arg(args: argparse.Namespace) -> int:
         )
         return 0
     raise SystemExit(
-        f"arg --out must end with .vcf, .vcf.gz, .bcf, .vcz, or .trees "
+        f"arg --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, .vcz, or .trees "
         f"(got {args.out!r})."
     )
 
@@ -1247,7 +1236,7 @@ def _run_local_tree(args: argparse.Namespace) -> int:
     out_is_zarr = _path_format(args.out) == "vcz"
     if not (out_is_vcf or out_is_trees or out_is_zarr):
         raise SystemExit(
-            f"local-tree --out must end with .vcf, .vcf.gz, .bcf, .vcz, or "
+            f"local-tree --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, .vcz, or "
             f".trees (got {args.out!r})."
         )
     from ancestree.local_tree_inference import LocalTreeInference

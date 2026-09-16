@@ -807,24 +807,34 @@ class TestLocalTreeE2E:
         recon_ts = tskit.load(str(recon))  # the side-artifact reconstruction
         assert recon_ts.num_samples == ts.num_samples
 
-    def test_vcz_without_template_errors(self, tmp_path):
-        """``.vcz`` input without ``--template-vcf`` should fail clearly
-        (no silent fallback to cyvcf2 trying to read the zarr store)."""
+    def test_vcz_without_template_writes_the_store_records(self, tmp_path):
+        """A ``.vcz`` input without ``--template-vcf`` templates the annotated
+        VCF from the store's own records, every sample included."""
+        import bio2zarr.vcf as bio2zarr_vcf
+        import cyvcf2
+        import numpy as np
+
+        sample_ids = ["i0", "i1", "o1", "o2", "x"]
+        n_sites = 200
+        alleles = [["A", "G"]] * n_sites
+        gt = np.random.default_rng(7).integers(
+            0, 2, size=(n_sites, len(sample_ids), 1), dtype=np.int8)
+        skel = tmp_path / "input.vcf"
+        write_skeleton_vcf(skel, sample_ids=sample_ids,
+                           alleles_per_site=alleles, genotypes=gt)
         store = tmp_path / "input.vcz"
-        store.mkdir()  # path exists but no template, CLI must bail at the check
+        bio2zarr_vcf.convert([str(skel)], str(store), show_progress=False)
         nwk = tmp_path / "species.nwk"
-        nwk.write_text("((i0:0.1,i1:0.1):0.1,o1:0.2);")
-        with pytest.raises(SystemExit) as exc:
-            run([
-                "fixed-tree",
-                "--vcf", str(store),
-                "--species-tree", str(nwk),
-                "--ingroup", "i0,i1", "--outgroups", "o1",
-                "--n-target-sites", "100",
-                "--out", str(tmp_path / "annot.vcf"),
-            ])
-        msg = str(exc.value)
-        assert "template-vcf" in msg or "VCZ" in msg or ".vcz" in msg
+        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
+        out = tmp_path / "annot.vcf"
+        assert run([
+            "fixed-tree", "--vcf", str(store), "--species-tree", str(nwk),
+            "--ingroup", "i0,i1", "--outgroups", "o1,o2", "--prior", "uniform",
+            "--n-target-sites", str(n_sites), "--out", str(out),
+        ]) == 0
+        rdr = cyvcf2.VCF(str(out))
+        assert rdr.samples == sample_ids
+        assert sum(r.INFO.get("AA") is not None for r in rdr) > 0
 
 
 def test_recombination_map_reaches_the_inference(tmp_path):

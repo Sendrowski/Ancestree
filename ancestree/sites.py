@@ -191,18 +191,15 @@ class Site:
         return counts
 
     def restricted_to(self, names: "Collection[str]") -> "Site":
-        """This site with only the tips in ``names`` and the alleles they carry.
+        """This site with only the tips in ``names``.
 
         :param names: Tip ids to keep.
-        :return: A copy, whose ``alleles`` keep their order. They are left
-            whole where no kept tip is called.
+        :return: A copy, whose ``alleles`` stay the record's.
         """
         from dataclasses import replace
 
-        tips = {n: a for n, a in self.tip_alleles.items() if n in names}
-        carried = {a.upper() for a in tips.values() if Site.is_called(a)}
-        alleles = tuple(a for a in self.alleles if a.upper() in carried)
-        return replace(self, tip_alleles=tips, alleles=alleles or self.alleles)
+        return replace(self, tip_alleles={
+            n: a for n, a in self.tip_alleles.items() if n in names})
 
 
 def _path_format(path: "str | os.PathLike") -> "str | None":
@@ -248,6 +245,90 @@ def _named(sample_id: str, names: "Collection[str]") -> bool:
     :return: ``True`` for ``"o0_h1"`` against ``{"o0"}`` or ``{"o0_h1"}``.
     """
     return sample_id in names or _individual_of(sample_id) in names
+
+
+def _by_individual(ids: "Iterable[str]") -> "frozenset[str]":
+    """``ids`` together with the individuals they belong to."""
+    ids = tuple(ids)
+    return frozenset(ids) | {_individual_of(s) for s in ids}
+
+
+def _unlabelled(
+    samples: "Iterable[str]", named: "Collection[str]", *,
+    chosen_by: "str | None" = None,
+) -> list[str]:
+    """The samples in neither the ingroup nor the outgroups.
+
+    :param samples: Sample ids, matched by id or by individual.
+    :param named: The ingroup and outgroup ids together.
+    :param chosen_by: The argument that chose ``samples``, named in the error.
+    :return: The unlabelled samples, in order.
+    :raises ValueError: If ``chosen_by`` is given and a sample is unlabelled.
+    """
+    unlabelled = [s for s in samples if not _named(s, named)]
+    if unlabelled and chosen_by is not None:
+        raise ValueError(
+            f"{len(unlabelled)} sample(s) in {chosen_by} are in neither "
+            f"ingroup_samples nor outgroup_samples: {unlabelled[:5]}. "
+            f"Label them, or leave them out of {chosen_by}.")
+    return unlabelled
+
+
+def _refuse_overlap(ingroup: "Iterable[str]", outgroup: "Iterable[str]") -> None:
+    """Refuse a sample named as both ingroup and outgroup.
+
+    :param ingroup: Named ingroup ids.
+    :param outgroup: Named outgroup ids.
+    :raises ValueError: If a sample, or the individual it belongs to, is in
+        both lists.
+    """
+    ins, outs = set(ingroup), set(outgroup)
+    both = sorted({s for s in ins if _named(s, outs)}
+                  | {s for s in outs if _named(s, ins)})
+    if both:
+        raise ValueError(
+            f"{len(both)} sample(s) are in both ingroup_samples and "
+            f"outgroup_samples: {both[:5]}")
+
+
+def _resolve_panel(
+    panel: "Iterable[str]", ingroup: "Iterable[str]",
+    outgroup: "Iterable[str]", *, chosen_by: "str | None" = None,
+) -> "tuple[list[str], list[str], list[str], list[str]]":
+    """The panel, and the ingroup and outgroups within it.
+
+    With both lists named the panel is their union. With one named, the other
+    is the rest of the panel. Names match a haplotype id or its individual.
+
+    :param panel: Sample ids, in panel order.
+    :param ingroup: Named ingroup ids, possibly none.
+    :param outgroup: Named outgroup ids, possibly none.
+    :param chosen_by: The argument that chose ``panel``. When given, a sample
+        in neither list raises, and is otherwise dropped.
+    :return: ``(panel, ingroup, outgroups, dropped)``, each in panel order.
+    :raises ValueError: If a named sample is not in the panel or in both
+        lists, or if ``chosen_by`` is given and a sample is in neither.
+    """
+    panel = list(panel)
+    ins, outs = set(ingroup), set(outgroup)
+    present = _by_individual(panel)
+    for label, named in (("ingroup", ins), ("outgroup", outs)):
+        absent = sorted(s for s in named if s not in present)
+        if absent:
+            raise ValueError(
+                f"{label} sample(s) not in the panel: {absent[:5]}; the panel "
+                f"holds {len(panel)} identifiers starting {panel[:3]}")
+    _refuse_overlap(ins, outs)
+    dropped: list[str] = []
+    if ins and outs:
+        dropped = _unlabelled(panel, ins | outs, chosen_by=chosen_by)
+        panel = [s for s in panel if s not in set(dropped)]
+    if ins:
+        members = [s for s in panel if _named(s, ins)]
+    else:
+        members = [s for s in panel if not _named(s, outs)]
+    kept = set(members)
+    return panel, members, [s for s in panel if s not in kept], dropped
 
 
 #: How one site's contribution is keyed while the config histogram is built:
@@ -1268,7 +1349,7 @@ class _PanelSites(SiteSource):
         return {"n_samples": len(self._panel)}
 
     def __init__(self, source: "Iterable[Site]", panel: "Sequence[str]") -> None:
-        """Store the source and the panel. Sites are restricted as they are read."""
+        """Store the source and the panel."""
         self._source = source
         self._panel = list(panel)
         self._names = frozenset(panel)

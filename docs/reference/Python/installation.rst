@@ -21,7 +21,7 @@ actually used need be installed. Select the matching extra:
 .. code-block:: bash
 
    pip install "ancestree-popgen[vcf]"       # + cyvcf2 (VCF / BCF I/O)
-   pip install "ancestree-popgen[zarr]"      # + zarr, bio2zarr (VCF Zarr I/O)
+   pip install "ancestree-popgen[zarr]"      # + zarr, bio2zarr, vcztools (VCF Zarr I/O)
    pip install "ancestree-popgen[newick]"    # + newick (Newick species trees)
    pip install "ancestree-popgen[maps]"      # + msprime (rate maps)
    pip install "ancestree-popgen[plotting]"  # + matplotlib (plotting)
@@ -60,6 +60,9 @@ Or use an environment file for reproducibility:
      - newick          # [newick]: OutgroupLadderTree.from_newick
      - msprime         # [maps]: recombination and mutation maps
      - matplotlib      # [plotting]: ancestree.plotting
+     - pip
+     - pip:
+         - vcztools    # [zarr]: VCF template from a VCF Zarr store
 
 .. code-block:: bash
 

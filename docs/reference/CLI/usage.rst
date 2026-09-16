@@ -133,8 +133,8 @@ Flags
 Output and logging
 ------------------
 
-The output format follows the ``--out`` extension: ``.vcf``, ``.vcf.gz`` or
-``.bcf`` writes an annotated VCF, ``.vcz`` a VCF Zarr store and ``.trees`` a
+The output format follows the ``--out`` extension: ``.vcf``, ``.vcf.gz``,
+``.vcf.bgz`` or ``.bcf`` writes an annotated VCF, ``.vcz`` a VCF Zarr store and ``.trees`` a
 tree sequence, the formats described in :doc:`../Python/io`. ``fixed-tree``
 does not write ``.trees``. VCF input and output need the ``[vcf]`` extra, VCF
 Zarr the ``[zarr]`` extra and ``--species-tree`` the ``[newick]`` extra (see

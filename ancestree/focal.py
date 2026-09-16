@@ -184,6 +184,34 @@ class FocalNode:
         )
         return f"{self.anchor} ({placement})" if placement else self.anchor
 
+    def locate(
+        self, tree, ingroup_nodes: "Sequence[int] | np.ndarray | None" = None,
+    ) -> "ResolvedFocal | None":
+        """The point a run reads its posterior at on one :class:`tskit.Tree`.
+
+        :param tree: The local tree to read.
+        :param ingroup_nodes: Sample node ids making up the ingroup. Required
+            for the ``"ingroup_mrca"`` anchor.
+        :return: The resolved point, or ``None`` for the tree's own root or
+            roots: where this names the panel root, where the ingroup spans
+            several roots, and where the point is a tip.
+        """
+        if self.is_root or FocalNode.spans_roots(tree, ingroup_nodes):
+            return None
+        ranks = {int(n): i for i, n in enumerate(tree.postorder())}
+        resolved = self.resolve(tree, ingroup_nodes=ingroup_nodes,
+                                postorder_rank=ranks)
+        return None if _is_degenerate_focal(tree, resolved) else resolved
+
+    @staticmethod
+    def spans_roots(tree, ingroup_nodes) -> bool:
+        """Whether the ingroup has no common ancestor in ``tree``."""
+        import tskit
+
+        return bool(tree.num_roots > 1 and ingroup_nodes is not None
+                    and len(ingroup_nodes)
+                    and _mrca(tree, ingroup_nodes, None) == tskit.NULL)
+
     def resolve(
         self,
         tree,

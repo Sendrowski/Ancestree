@@ -195,7 +195,7 @@ class TestGrade:
         """
         assert not anc.TskitLocalTree.sample_map_from_individuals(small_ts)
         names = [f"n{int(n)}" for n in small_ts.samples()[:4]]
-        with pytest.raises(ValueError, match="no ingroup sample of the truth matches"):
+        with pytest.raises(ValueError, match="match no sample of the truth"):
             Grade.truth_at_focal(small_ts, "ingroup_mrca", ingroup_samples=names)
         inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
         with pytest.raises(ValueError, match="Pass sample_map="):
@@ -317,6 +317,43 @@ class TestGradingReadsTheScoredPanel:
             outgroup_samples=["o1_h0", "o1_h1"])
         assert by_name == by_haplotype
 
+    def test_a_tip_focal_node_is_read_at_the_scored_root(self):
+        """A single-haplotype ingroup puts the focal node on a tip, so the run
+        reads at the root of the restricted tree, whose state includes the
+        mutations that restriction moves onto it."""
+        ts = tskit.load(QUICKSTART_TREES)
+        lists = dict(ingroup_samples=["i0"], outgroup_samples=["i1", "i2"])
+        assert (Grade.truth_at_focal(ts, "ingroup_mrca", **lists)
+                == Grade.truth_at_focal(ts, "panel_root", **lists))
+
+    @pytest.mark.parametrize("focal", [
+        "ingroup_mrca", "panel_root", anc.FocalNode("ingroup_mrca", fraction=0.5),
+        anc.FocalNode("ingroup_mrca", coalescences=1),
+    ])
+    @pytest.mark.parametrize("ingroup", [["i0", "i1", "i2", "i3"], ["i0"]])
+    def test_the_truth_is_read_where_the_inference_reports(self, focal, ingroup):
+        """Reading the simulated allele at the point the run itself locates on
+        each tree it scored gives the truth ``Grade.truth_at_focal`` returns."""
+        ts = tskit.load(QUICKSTART_TREES)
+        inf = anc.Inference.from_arg(ts, mu=5e-8, focal=focal, progress=False,
+                                     ingroup_samples=ingroup,
+                                     outgroup_samples=self.OUT)
+        want = {}
+        for tree in inf.ts.trees():
+            point = inf._resolve_focal(tree)
+            for site in tree.sites():
+                if point is not None:
+                    want[int(site.position)] = Grade._allele_at(
+                        tree, site, int(point.node), float(point.tau))
+                elif tree.num_roots == 1:
+                    want[int(site.position)] = Grade._allele_at(
+                        tree, site, int(tree.root), 0.0)
+                else:
+                    want[int(site.position)] = site.ancestral_state
+        got = Grade.truth_at_focal(ts, focal, ingroup_samples=ingroup,
+                                   outgroup_samples=self.OUT)
+        assert got == want
+
     def test_a_partial_sample_map_is_graded_on_its_panel(self):
         ts = tskit.load(QUICKSTART_TREES)
         full = anc.TskitLocalTree.default_sample_map(ts)
@@ -326,4 +363,3 @@ class TestGradingReadsTheScoredPanel:
         small, small_map = anc.TskitLocalTree.restrict(ts, sub)
         truth = Grade.truth_at_focal(small, "panel_root", sample_map=small_map)
         assert inf.grade(ts) == Grade(inf.infer(), truth)
-

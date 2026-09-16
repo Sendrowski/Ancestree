@@ -1371,12 +1371,7 @@ class TestPlottingUtilities:
 
 
 class TestPanelRootOnAMultiRootTree:
-    """``Grade.truth_at_focal`` at the panel root, with no ingroup resolved.
-
-    The ``"panel_root"`` anchor is exempt from the guard that refuses an
-    ingroup matching no sample of the truth, so the resolved ingroup node set
-    is legitimately empty there.
-    """
+    """``Grade.truth_at_focal`` at the panel root of a forest and of a tree."""
 
     @staticmethod
     def _forest(join_the_roots: bool):
@@ -1406,14 +1401,11 @@ class TestPanelRootOnAMultiRootTree:
         return tables.tree_sequence()
 
     def test_several_roots_fall_back_to_the_ancestral_state(self):
-        """An ingroup resolving to no node asked for the MRCA of an empty set,
-        which indexed the first of no nodes and raised IndexError."""
         from ancestree.posterior import Grade
 
         ts = self._forest(join_the_roots=False)
         assert ts.first().num_roots == 2
-        truth = Grade.truth_at_focal(
-            ts, "panel_root", ingroup_samples=["absent0", "absent1"])
+        truth = Grade.truth_at_focal(ts, "panel_root")
         assert truth == Grade.truth_mapping(ts) == {5: "A"}
 
     def test_one_root_reads_at_that_root(self):
@@ -1421,9 +1413,18 @@ class TestPanelRootOnAMultiRootTree:
 
         ts = self._forest(join_the_roots=True)
         assert ts.first().num_roots == 1
-        truth = Grade.truth_at_focal(
-            ts, "panel_root", ingroup_samples=["absent0", "absent1"])
+        truth = Grade.truth_at_focal(ts, "panel_root")
         assert truth == {5: "A"}
+
+    def test_names_matching_no_sample_are_refused(self):
+        """A panel root read with unmatched names would describe a panel the
+        run never scored."""
+        from ancestree.posterior import Grade
+
+        ts = self._forest(join_the_roots=True)
+        with pytest.raises(ValueError, match="match no sample of the truth"):
+            Grade.truth_at_focal(ts, "panel_root",
+                                 ingroup_samples=["absent0", "absent1"])
 
 
 def test_the_rank_shortcut_matches_the_pairwise_fold_across_roots():
@@ -1450,7 +1451,12 @@ def test_the_rank_shortcut_matches_the_pairwise_fold_across_roots():
 class TestTruthAtFocal:
     """The true allele read at a placed, degenerate or unresolvable focal node."""
 
-    def test_a_placement_excludes_dated_mutations_above_it(self):
+    def test_a_placement_inherits_the_dated_mutations_above_it(self):
+        """A mutation older than the readout lies between it and the root, so
+        the readout carries its derived allele, and a younger one lies below.
+
+        The rule was inverted, so every truth read part-way along a branch
+        carrying a dated mutation took the wrong side of it."""
         tables, ids = panel_tables()
         for pos, time in ((1.0, 4.0), (2.0, 3.2)):
             site = tables.sites.add_row(position=pos, ancestral_state="A")
@@ -1462,9 +1468,9 @@ class TestTruthAtFocal:
         truth = Grade.truth_at_focal(
             ts, FocalNode("ingroup_mrca", depth=3.5),
             ingroup_samples=["a", "b", "c", "d"], sample_map=sample_map)
-        # The readout sits at time 3.5 on the edge above the ingroup MRCA:
-        # the mutation at 4.0 lies above it, the one at 3.2 below.
-        assert truth == {1: "A", 2: "C"}
+        # The readout sits at time 3.5 on the edge above the ingroup MRCA.
+        # The mutation at 4.0 lies above it, the one at 3.2 below.
+        assert truth == {1: "C", 2: "A"}
 
     def test_the_panel_root_of_a_multi_root_tree_is_the_arg_root_state(self):
         ts, ids = _two_root_ts()

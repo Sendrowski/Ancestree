@@ -129,7 +129,7 @@ class Grade:
         ``filter``.
     :param truth: ``{position: allele}``, an iterable of such pairs, or a
         :class:`tskit.TreeSequence` carrying the true mutations, read at
-        ``focal`` (:meth:`truth_at_focal`).
+        ``focal`` (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
     :param filter: Optional
         :class:`~ancestree.sites.PolymorphicSiteFilter`, or any callable
         taking a site and returning whether it is scored.
@@ -143,13 +143,13 @@ class Grade:
     :param outgroup_samples: Outgroup sample names resolving ``focal`` in a
         tree-sequence truth.
     :param panel_samples: The samples the inference used, to which a
-        tree-sequence truth is restricted (:meth:`truth_at_focal`).
+        tree-sequence truth is restricted (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
     :param sample_map: ``{sample: node}`` mapping the sample names onto the
         nodes of a tree-sequence truth, interpreted in the truth tree
         sequence's own node space and not in that of any inference. ``None``
         reads the individual names of the tree sequence.
     :raises ValueError: If the named ingroup matches no sample of a
-        tree-sequence truth (:meth:`truth_at_focal`).
+        tree-sequence truth (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
     """
 
     __slots__ = ("map_recovery", "brier", "n_sites")
@@ -253,15 +253,13 @@ class Grade:
     ) -> dict[int, str]:
         """The true allele at a focal node, per site of a tree sequence.
 
-        On each local tree the focal node is resolved as an inference
-        resolves it, and the site's allele there is its ancestral state with
-        every mutation on the path from the root down to that node applied.
-        A placement part-way along a branch excludes the branch's mutations
-        above it, where their times are known. Where the ingroup spans
-        several roots, or the focal node falls on a tip, the ARG-root state
-        is taken, as an inference then reports at the root. ``ts`` is first
-        restricted to the panel, as an inference restricts it. Names match a
-        haplotype or the individual it belongs to.
+        ``ts`` is restricted to the panel and the point located on each local
+        tree as an inference does both
+        (:meth:`FocalNode.locate() <ancestree.focal.FocalNode.locate>`). The
+        allele there is the ancestral state with every mutation above the
+        point applied. Where an inference reads at the tree's own root, so
+        does the truth, taking the ARG-root state on a tree with several
+        roots. Names match a haplotype or the individual it belongs to.
 
         :param ts: The tree sequence carrying the true mutations.
         :param focal: The :class:`~ancestree.focal.FocalNode`, an anchor
@@ -276,75 +274,73 @@ class Grade:
             of ``ts`` and not in that of any inference. ``None`` reads the
             individual names of ``ts``.
         :return: ``{position: allele}`` over every site of ``ts``.
-        :raises ValueError: If ``ingroup_samples`` names samples and none of
-            them resolves to a node of ``ts``.
+        :raises ValueError: If a named sample matches no sample of ``ts``, or
+            is named in both lists.
         """
-        import math
-
-        import tskit
-
-        from ancestree.focal import FocalNode, _is_degenerate_focal, _mrca
-        from ancestree.sites import _named
+        from ancestree.focal import FocalNode
+        from ancestree.sites import _by_individual, _named, _resolve_panel
         from ancestree.trees import TskitLocalTree
 
         focal = FocalNode.parse(focal)
         if sample_map is None:
             sample_map = TskitLocalTree.default_sample_map(ts)
-        named = set(ingroup_samples or ())
-        outgroup = set(outgroup_samples or ())
-        panel = (set(panel_samples) if panel_samples
-                 else named | outgroup if named and outgroup else None)
-        if panel:
-            kept = {s: n for s, n in sample_map.items() if _named(s, panel)}
-            if kept:
-                ts, sample_map = TskitLocalTree.restrict(ts, kept)
-        ingroup = [s for s in sample_map
-                   if (_named(s, named) if named else not _named(s, outgroup))]
-        nodes = tuple(int(sample_map[s]) for s in ingroup)
-        if named and not nodes and focal.anchor != "panel_root":
+        known = _by_individual(sample_map)
+        absent = [s for s in (*(panel_samples or ()), *(ingroup_samples or ()),
+                              *(outgroup_samples or ())) if s not in known]
+        if absent:
             raise ValueError(
-                f"no ingroup sample of the truth matches "
-                f"{list(ingroup_samples)[:3]}, which holds "
-                f"{list(sample_map)[:3]}. Pass sample_map= keyed to it."
-            )
-
-        def state_at(tree, site, node, tau):
-            """The allele at ``node``, ``tau`` above it, for ``site``."""
-            state = site.ancestral_state
-            limit = tree.time(node) + tau
-            for m in site.mutations:
-                if m.node != node and not tree.is_descendant(node, m.node):
-                    continue
-                if (m.node == node and tau > 0.0 and not math.isnan(m.time)
-                        and m.time > limit):
-                    continue
-                state = m.derived_state
-            return state
+                f"{len(absent)} sample(s) match no sample of the truth: "
+                f"{absent[:3]}, which holds {list(sample_map)[:3]}. Pass "
+                f"sample_map= keyed to it.")
+        used = set(panel_samples or ())
+        names = [s for s in sample_map if not used or _named(s, used)]
+        panel, ingroup, _, _ = _resolve_panel(
+            names, ingroup_samples or (), outgroup_samples or ())
+        ts, sample_map = TskitLocalTree.restrict(
+            ts, {s: sample_map[s] for s in panel})
+        nodes = tuple(int(sample_map[s]) for s in ingroup)
 
         out: dict[int, str] = {}
         for tree in ts.trees():
             sites = list(tree.sites())
             if not sites:
                 continue
-            resolved = None
-            if focal.anchor == "panel_root" or nodes:
-                ranks = {int(n): i for i, n in enumerate(tree.postorder())}
-                if tree.num_roots == 1 or (
-                        nodes and _mrca(tree, nodes, ranks) != tskit.NULL):
-                    if focal.anchor == "panel_root" and tree.num_roots > 1:
-                        resolved = None
-                    else:
-                        resolved = focal.resolve(
-                            tree, ingroup_nodes=nodes, postorder_rank=ranks)
-                        if _is_degenerate_focal(tree, resolved):
-                            resolved = None
+            point = focal.locate(tree, nodes)
             for site in sites:
-                if resolved is None:
-                    out[int(site.position)] = site.ancestral_state
+                if point is not None:
+                    allele = Grade._allele_at(tree, site, int(point.node),
+                                              float(point.tau))
+                elif tree.num_roots == 1:
+                    allele = Grade._allele_at(tree, site, int(tree.root), 0.0)
                 else:
-                    out[int(site.position)] = state_at(
-                        tree, site, int(resolved.node), float(resolved.tau))
+                    allele = site.ancestral_state
+                out[int(site.position)] = allele
         return out
+
+    @staticmethod
+    def _allele_at(tree, site, node: int, tau: float) -> str:
+        """The allele of ``site`` at the point ``tau`` above ``node``.
+
+        A mutation on the branch holding the point is inherited where it is
+        older than the point, or where its time is unknown.
+
+        :param tree: The local tree covering the site.
+        :param site: The :class:`tskit.Site`.
+        :param node: The node immediately below the point.
+        :param tau: Distance of the point above ``node``.
+        :return: The allele.
+        """
+        import math
+
+        state = site.ancestral_state
+        point = tree.time(node) + tau
+        for m in site.mutations:
+            if m.node != node and not tree.is_descendant(node, m.node):
+                continue
+            if m.node == node and not math.isnan(m.time) and m.time < point:
+                continue
+            state = m.derived_state
+        return state
 
     def __repr__(self) -> str:
         """Render the scores as a sentence.

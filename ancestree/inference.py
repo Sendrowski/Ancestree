@@ -34,7 +34,10 @@ from tqdm import tqdm  # not tqdm.auto: avoids ipywidgets dep and per-line outpu
 
 from ancestree import DEFAULT_MU, STATE_INDEX, STATES
 from ancestree._repr import ReprMixin
-from ancestree.sites import _individual_of, _named, _path_format
+from ancestree.sites import (
+    _by_individual, _individual_of, _named, _path_format, _refuse_overlap,
+    _resolve_panel, _unlabelled,
+)
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
 from ancestree.likelihood import Likelihood, _normalise
@@ -115,7 +118,8 @@ class Inference(ReprMixin, ABC):
     #: Per-site rate scaling branch lengths measured in generations. Absent
     #: from the modes whose trees are in substitutions per site.
     mu: "float | msprime.RateMap | None" = None
-    #: The Zarr store this inference was constructed from, where it was one.
+    #: The local VCF Zarr store this inference was constructed from, where it
+    #: was one.
     #: A template for :meth:`Inference.to_zarr`, never for
     #: :meth:`Inference.to_vcf`, which hands its template to htslib.
     _input_store_path: "str | None" = None
@@ -637,7 +641,9 @@ class Inference(ReprMixin, ABC):
                 self._n_unrepresentable_sites += 1
 
     @staticmethod
-    def _template_individual_names(ts, sample_map) -> "list[str] | None":
+    def _template_individual_names(
+        ts, sample_map, nodes: "Collection[int] | None" = None,
+    ) -> "list[str] | None":
         """Names of the VCF sample columns of a template written from ``ts``,
         in the source reader's naming convention.
 
@@ -645,8 +651,10 @@ class Inference(ReprMixin, ABC):
         individual (``i0_h0`` and ``i0_h1`` give ``i0``), or ``tsk_<j>``
         where ``sample_map`` names none of its haplotypes.
 
-        :param ts: The tree sequence the template is written from.
+        :param ts: The tree sequence the columns are numbered in.
         :param sample_map: ``{name: node}`` for the named haplotypes.
+        :param nodes: Nodes whose columns are named, in ``ts``'s numbering.
+            ``None`` names every column.
         :return: One name per column, or ``None`` to keep tskit's defaults
             throughout where two columns would share a name.
         """
@@ -655,55 +663,42 @@ class Inference(ReprMixin, ABC):
         names = []
         for default, row in zip(model.individuals_name,
                                 model.individuals_nodes):
-            nodes = [int(n) for n in row if n >= 0]
-            known = {by_node[n] for n in nodes if n in by_node}
-            if len(nodes) > 1:
+            row_nodes = [int(n) for n in row if n >= 0]
+            if nodes is not None and not any(n in nodes for n in row_nodes):
+                continue
+            known = {by_node[n] for n in row_nodes if n in by_node}
+            if len(row_nodes) > 1:
                 known = {_individual_of(s) for s in known}
             names.append(known.pop() if len(known) == 1 else str(default))
         return names if len(set(names)) == len(names) else None
 
-    def _panel_samples(self) -> tuple[str, ...]:
-        """The resolved ingroup and outgroup samples.
+    def _set_input_paths(self, source) -> None:
+        """Take the file a source was read from as the default template.
 
-        :return: Sample ids.
+        A local VCF Zarr store templates :meth:`to_zarr`, and any other path
+        but a tree sequence templates :meth:`to_vcf`, as
+        :meth:`SiteSource.resolve() <ancestree.sites.SiteSource.resolve>`
+        reads it as a VCF.
+
+        :param source: A path, or a source carrying the path it read.
         """
+        path = (str(source) if isinstance(source, (str, os.PathLike))
+                else getattr(source, "_path", None))
+        fmt = _path_format(path) if path is not None else None
+        self._input_vcf_path = (
+            path if path is not None and fmt not in ("vcz", "trees") else None)
+        self._input_store_path = (
+            path if fmt == "vcz" and os.path.isdir(path) else None)
+
+    def _panel_samples(self) -> tuple[str, ...]:
+        """The resolved ingroup and outgroup sample ids."""
         return (*self._baseline_ingroup_samples(),
                 *self._baseline_outgroup_samples())
 
     def _used_samples(self) -> "frozenset[str]":
-        """The sample columns output restricted to the panel keeps.
-
-        :return: :meth:`_panel_samples` by haplotype and by individual.
-        """
-        return self._by_individual(self._panel_samples())
-
-    @staticmethod
-    def _by_individual(ids: "Iterable[str]") -> "frozenset[str]":
-        """Sample ids together with the individuals they belong to.
-
-        :param ids: Sample ids.
-        :return: The ids and their individuals.
-        """
-        ids = tuple(ids)
-        return frozenset(ids) | {_individual_of(s) for s in ids}
-
-    @staticmethod
-    def _refuse_overlap(ingroup_samples, outgroup_samples) -> None:
-        """Refuse a sample named as both ingroup and outgroup.
-
-        :param ingroup_samples: Named ingroup ids, or ``None``.
-        :param outgroup_samples: Named outgroup ids, or ``None``.
-        :raises ValueError: If a sample, or the individual it belongs to, is
-            in both lists.
-        """
-        ins = set(ingroup_samples or ())
-        outs = set(outgroup_samples or ())
-        both = sorted({s for s in ins if _named(s, outs)}
-                      | {s for s in outs if _named(s, ins)})
-        if both:
-            raise ValueError(
-                f"{len(both)} sample(s) are in both ingroup_samples and "
-                f"outgroup_samples: {both[:5]}")
+        """The sample columns a restricted output keeps, the panel samples
+        and their individuals."""
+        return _by_individual(self._panel_samples())
 
     def _note_unnamed_ingroup(self) -> None:
         """Report that an unnamed ingroup is the whole panel.
@@ -889,12 +884,10 @@ class Inference(ReprMixin, ABC):
     def _resolve_panel(
         self, panel: "Iterable[str]", *, explicit: bool,
     ) -> tuple[str, ...]:
-        """Resolve the panel, and the ingroup and outgroups within it.
+        """Resolve the panel, and the ingroup and outgroups within it
+        (:func:`ancestree.sites._resolve_panel`).
 
-        With both lists named the panel is their union. With one named, the
-        other is the rest of the panel. Names match a haplotype id or its
-        individual, so naming ``o0`` designates ``o0_h0`` and ``o0_h1``. Sets
-        ``_resolved_ingroup`` and ``_resolved_outgroups``.
+        Sets ``_resolved_ingroup`` and ``_resolved_outgroups``.
 
         :param panel: The mode's own sample identifiers, in panel order.
         :param explicit: Whether the caller chose the panel. A haplotype in
@@ -903,58 +896,16 @@ class Inference(ReprMixin, ABC):
         :raises ValueError: If a named sample is not in the panel or in both
             lists, or if an explicit panel holds a haplotype in neither list.
         """
-        panel = list(panel)
-        present = set(panel) | {_individual_of(s) for s in panel}
-        for label, named in (("ingroup", self._ingroup_samples),
-                             ("outgroup", self._outgroup_samples)):
-            absent = [s for s in named if s not in present]
-            if absent:
-                raise ValueError(
-                    f"{label} sample(s) not in the panel: {absent[:5]}; the "
-                    f"panel holds {len(panel)} identifiers starting "
-                    f"{panel[:3]}")
-        self._refuse_overlap(self._ingroup_samples, self._outgroup_samples)
-        ins, outs = set(self._ingroup_samples), set(self._outgroup_samples)
-        if ins and outs:
-            unlabelled = self._unlabelled(
-                panel, ins | outs, chosen_by="the panel" if explicit else None)
-            if unlabelled:
-                self._log.info(
-                    "Ignoring %d sample(s) in neither ingroup_samples nor "
-                    "outgroup_samples", len(unlabelled))
-                dropped = set(unlabelled)
-                panel = [s for s in panel if s not in dropped]
-        if ins:
-            ingroup = [s for s in panel if _named(s, ins)]
-        else:
-            ingroup = [s for s in panel if not _named(s, outs)]
-        members = set(ingroup)
+        panel, ingroup, outgroups, dropped = _resolve_panel(
+            panel, self._ingroup_samples, self._outgroup_samples,
+            chosen_by="the panel" if explicit else None)
+        if dropped:
+            self._log.info(
+                "Ignoring %d sample(s) in neither ingroup_samples nor "
+                "outgroup_samples", len(dropped))
         self._resolved_ingroup: tuple[str, ...] = tuple(ingroup)
-        self._resolved_outgroups: tuple[str, ...] = tuple(
-            s for s in panel if s not in members)
+        self._resolved_outgroups: tuple[str, ...] = tuple(outgroups)
         return tuple(panel)
-
-    @staticmethod
-    def _unlabelled(
-        samples: "Iterable[str]", named: "set[str]", *,
-        chosen_by: "str | None" = None,
-    ) -> list[str]:
-        """The samples in neither the ingroup nor the outgroups.
-
-        :param samples: Sample ids, matched by id or by individual.
-        :param named: The ingroup and outgroup ids together.
-        :param chosen_by: The argument that chose ``samples``, named in the
-            error.
-        :return: The unlabelled samples, in order.
-        :raises ValueError: If ``chosen_by`` is given and a sample is unlabelled.
-        """
-        unlabelled = [s for s in samples if not _named(s, named)]
-        if unlabelled and chosen_by is not None:
-            raise ValueError(
-                f"{len(unlabelled)} sample(s) in {chosen_by} are in neither "
-                f"ingroup_samples nor outgroup_samples: {unlabelled[:5]}. "
-                f"Label them, or leave them out of {chosen_by}.")
-        return unlabelled
 
     def _with_baseline_check(
         self, inner: "Iterator[tuple[Site, Posterior]]",
@@ -1229,21 +1180,9 @@ class Inference(ReprMixin, ABC):
                 f"ingroup samples are tips of the tree supplied, so there is "
                 f"no node to resolve it against."
             )
-        ranks = {int(n): i for i, n in enumerate(ts_tree.postorder())}
-        # The ingroup straddles roots, so it has no common ancestor and nothing
-        # is better defined than the tree's own rooting.
-        import tskit as _tskit
-
-        from ancestree.focal import _is_degenerate_focal, _mrca
-
-        if (ts_tree.num_roots > 1
-                and _mrca(ts_tree, nodes, None) == _tskit.NULL):
-            return tree
-        resolved = focal.resolve(
-            ts_tree, ingroup_nodes=nodes, postorder_rank=ranks)
-        if int(resolved.node) == int(tree.root) and resolved.tau <= 0.0:
-            return tree
-        if _is_degenerate_focal(ts_tree, resolved):
+        resolved = focal.locate(ts_tree, nodes)
+        if resolved is None or (int(resolved.node) == int(tree.root)
+                                and resolved.tau <= 0.0):
             return tree
         from ancestree.trees import RerootedTree
         return RerootedTree(tree, int(resolved.node), resolved.tau)
@@ -1367,16 +1306,16 @@ class Inference(ReprMixin, ABC):
         store and adds the ``variant_AA`` / ``variant_AA_prob`` / ``variant_AA_post``
         arrays plus the provenance record (see that writer for the on-disk
         layout). The template resolves in this order: an explicit
-        ``input_zarr``, then the ``.vcz`` path this inference was constructed
-        from, and otherwise a template built with ``bio2zarr`` from the mode's
-        source (the source VCF, or the tree sequence dumped to a temporary
-        VCF).
+        ``input_zarr``, then the local VCZ store this inference was
+        constructed from, and otherwise a template built with ``bio2zarr`` from
+        the mode's source (the source VCF, or the tree sequence dumped to a
+        temporary VCF).
 
         :param output_zarr: Destination VCZ store path, which must differ from
             the template.
-        :param input_zarr: Template VCZ store. Defaults to the constructor's
-            ``.vcz`` source path when available, or a ``bio2zarr``-built
-            template from the mode's source otherwise.
+        :param input_zarr: Template VCZ store. Defaults to the local VCZ store
+            the inference was constructed from, or a ``bio2zarr``-built template
+            from the mode's source otherwise.
         :param info: Optional run-level constants stored in the store's root
             ``attrs`` under ``ancestree_info``.
         :param provenance: Structured provenance stored under
@@ -1445,6 +1384,11 @@ class Inference(ReprMixin, ABC):
         # with a ValueError.
         vcf_template, owns_vcf, samples = self._default_template_vcf(
             None, restrict_samples)
+        if "://" in vcf_template:
+            raise ValueError(
+                f"to_zarr cannot build a template from the remote VCF "
+                f"{vcf_template!r}, which bio2zarr reads only from local "
+                f"files. Pass input_zarr=<store>.")
 
         def _drop_temp() -> None:
             """Remove the VCF template this call created, if it made one."""
@@ -1503,8 +1447,9 @@ class Inference(ReprMixin, ABC):
         Feeds the posteriors to
         :class:`~ancestree.writers.VCFWriter`, which copies headers and
         variant records from a template VCF. When ``input_vcf`` is ``None``
-        the template is the VCF path the inference was built from, or else
-        the source or inferred tree sequence dumped to a temporary VCF.
+        the template is the VCF the inference was built from, the records of
+        its VCF Zarr store, or else the source or inferred tree sequence dumped
+        to a temporary VCF.
 
         :param output_vcf: Where to write the annotated output.
         :param input_vcf: Optional template VCF path. Defaults to the
@@ -1565,8 +1510,8 @@ class Inference(ReprMixin, ABC):
     def _default_template_vcf(
         self, contig_id: str | None, restrict_samples: bool = False,
     ) -> "tuple[str, bool, frozenset[str] | None]":
-        """The VCF this inference was constructed from, or else a temporary
-        one written from the mode's trees.
+        """The VCF this inference was constructed from, the records of its VCF
+        Zarr store, or else a temporary VCF written from the mode's trees.
 
         :param contig_id: Contig label for a written template, or ``None`` for
             the mode's own.
@@ -1574,11 +1519,36 @@ class Inference(ReprMixin, ABC):
         :return: ``(path, owns_temp, samples)``, ``samples`` being the columns
             to keep or ``None`` for all.
         :raises ValueError: There is no source to build a template from.
+        :raises ImportError: If a store must be read but ``vcztools`` is not
+            installed.
         """
+        samples = self._used_samples() if restrict_samples else None
         if self._input_vcf_path is not None:
-            samples = self._used_samples() if restrict_samples else None
             return self._input_vcf_path, False, samples
+        if self._input_store_path is not None:
+            return self._vcf_from_store(self._input_store_path), True, samples
         return self._dump_template_vcf(contig_id, restrict_samples), True, None
+
+    @staticmethod
+    def _vcf_from_store(store: str) -> str:
+        """Write the records of a VCF Zarr store to a temporary VCF.
+
+        :param store: Local store path.
+        :return: Path of the temporary file, which the caller unlinks.
+        :raises ImportError: If ``vcztools`` is not installed.
+        """
+        try:
+            import zarr
+            from vcztools.retrieval import VczReader
+            from vcztools.vcf_writer import write_vcf
+        except ImportError as e:
+            raise ImportError(
+                "to_vcf from a VCF Zarr store writes its template with "
+                "vcztools, which is not installed. Install it with `pip "
+                "install ancestree-popgen[zarr]`, or pass input_vcf=<path>."
+            ) from e
+        return Inference._temporary_vcf(
+            lambda fh: write_vcf(VczReader(zarr.open(store, mode="r")), fh))
 
     def _dump_template_vcf(
         self, contig_id: str | None, restrict_samples: bool = False,
@@ -1598,27 +1568,34 @@ class Inference(ReprMixin, ABC):
             "or construct the inference from a VCF path."
         )
 
-    def _write_template_vcf(self, ts, sample_map, contig: str) -> str:
+    @staticmethod
+    def _write_template_vcf(ts, names, contig: str) -> str:
         """Write ``ts`` to a temporary template VCF.
 
         Positions are truncated to ``int(site.pos)``, the position the sites
         are keyed on.
 
         :param ts: The tree sequence to write.
-        :param sample_map: ``{name: node}`` naming its sample columns
+        :param names: Its sample column names
             (:meth:`_template_individual_names`).
         :param contig: Contig label of every record.
         :return: Path of the temporary file, which the caller unlinks.
         """
+        return Inference._temporary_vcf(lambda fh: ts.write_vcf(
+            fh, contig_id=contig, individual_names=names,
+            position_transform=lambda p: np.floor(np.asarray(p)).astype(int)))
+
+    @staticmethod
+    def _temporary_vcf(write) -> str:
+        """A temporary VCF filled by ``write``, removed again if it fails.
+
+        :param write: Callable taking the open text file.
+        :return: Path of the file, which the caller unlinks.
+        """
         tmp = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False, mode="w")
         try:
-            ts.write_vcf(
-                tmp, contig_id=contig,
-                individual_names=self._template_individual_names(ts, sample_map),
-                position_transform=lambda p: np.floor(np.asarray(p)).astype(int),
-            )
+            write(tmp)
         except BaseException:
-            # Remove the partial template.
             tmp.close()
             try:
                 os.unlink(tmp.name)
@@ -2663,24 +2640,15 @@ class ARGBasedInference(Inference):
             tree's own root (the default) or when the ingroup spans several
             roots and no MRCA exists.
         """
-        import tskit
-
-        from ancestree.focal import _is_degenerate_focal, _mrca
+        from ancestree.focal import FocalNode
 
         if self.focal.is_root:
             return None
-        if tree.num_roots > 1 and _mrca(tree, self._ingroup_nodes, None) == tskit.NULL:
-            # The ingroup straddles roots in this segment, so it has no common
-            # ancestor. Nothing better is defined than the segment's own rooting.
+        if FocalNode.spans_roots(tree, self._ingroup_nodes):
             self._n_focal_multiroot_fallback += 1
             return None
-        ranks = {int(n): i for i, n in enumerate(tree.postorder())}
-        resolved = self.focal.resolve(
-            tree, ingroup_nodes=self._ingroup_nodes, postorder_rank=ranks,
-        )
-        if _is_degenerate_focal(tree, resolved):
-            return None
-        if resolved.ingroup_is_monophyletic is False:
+        resolved = self.focal.locate(tree, self._ingroup_nodes)
+        if resolved is not None and resolved.ingroup_is_monophyletic is False:
             self._n_ingroup_non_monophyletic += 1
         return resolved
 
@@ -2753,10 +2721,12 @@ class ARGBasedInference(Inference):
         :return: Path of the temporary file, which the caller unlinks.
         """
         contig = contig_id if contig_id is not None else self.chrom
-        if restrict_samples:
-            return self._write_template_vcf(self.ts, self.sample_map, contig)
-        return self._write_template_vcf(
-            self._input_ts, self._input_sample_map, contig)
+        # Columns keep the names they carry in the unrestricted output.
+        nodes = set(self._panel_map.values()) if restrict_samples else None
+        names = self._template_individual_names(
+            self._input_ts, self._input_sample_map, nodes)
+        ts = self.ts if restrict_samples else self._input_ts
+        return self._write_template_vcf(ts, names, contig)
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,
@@ -2961,12 +2931,7 @@ class FixedTreeInference(Inference):
                 "no-outgroup mode."
             )
 
-        # A VCF path is the to_vcf template, a local VCZ store the to_zarr one.
-        fmt = (_path_format(source)
-               if isinstance(source, (str, os.PathLike)) else None)
-        self._input_vcf_path = str(source) if fmt == "vcf" else None
-        self._input_store_path = (
-            str(source) if fmt == "vcz" and os.path.isdir(source) else None)
+        self._set_input_paths(source)
         self._chrom_filter = chrom_filter
         self._sample_filter = list(sample_filter) if sample_filter else None
         if self._streaming:
@@ -3012,7 +2977,7 @@ class FixedTreeInference(Inference):
         self._check_samples_present(outgroup_samples, actual_sites,
                                     self._stream_source,
                                     ingroup_samples=ingroup_samples)
-        self._refuse_overlap(ingroup_samples, outgroup_samples)
+        _refuse_overlap(ingroup_samples or (), outgroup_samples or ())
         self._check_filter_labelled(sample_filter, ingroup_samples,
                                     outgroup_samples)
         self.model = model
@@ -3454,10 +3419,10 @@ class FixedTreeInference(Inference):
         """
         if not sample_filter:
             return
-        named = set(ingroup_samples or ()) | set(outgroup_samples or ())
         # Filter entries name individuals, the lists may name haplotypes.
-        named |= {_individual_of(s) for s in named}
-        Inference._unlabelled(sample_filter, named, chosen_by="sample_filter")
+        named = _by_individual((*(ingroup_samples or ()),
+                                *(outgroup_samples or ())))
+        _unlabelled(sample_filter, named, chosen_by="sample_filter")
 
     @staticmethod
     def _check_samples_present(outgroup_samples, sites, source=None,
@@ -4191,13 +4156,9 @@ class MajorityOutgroupInference(Inference):
         self.prior = None
 
     def _used_samples(self) -> "frozenset[str]":
-        """The sample columns output restricted to the panel keeps.
-
-        :return: The named ingroup and outgroup samples, by haplotype and by
-            individual.
-        """
-        return self._by_individual((*self.ingroup_samples,
-                                    *self.outgroup_samples))
+        """The sample columns a restricted output keeps, the named samples and
+        their individuals."""
+        return _by_individual((*self.ingroup_samples, *self.outgroup_samples))
 
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` per input site under the majority rule.

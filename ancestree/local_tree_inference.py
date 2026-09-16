@@ -1591,12 +1591,7 @@ class LocalTreeInference(Inference):
             )
         if sample_names is None and callable(getattr(source, "samples", None)):
             sample_names = list(source.samples())
-        # A VCF path is the to_vcf template, a local VCZ store the to_zarr one.
-        path = getattr(source, "_path", None)
-        fmt = _path_format(path) if path is not None else None
-        self._input_vcf_path = path if fmt == "vcf" else None
-        self._input_store_path = (
-            path if fmt == "vcz" and os.path.isdir(path) else None)
+        self._set_input_paths(source)
 
         if self.n_ensemble is not None and self.focal.depth is not None:
             raise NotImplementedError(
@@ -2873,8 +2868,9 @@ class LocalTreeInference(Inference):
         if not self._segmented:
             return self._point_arg()._dump_template_vcf(contig, restrict_samples)
         ts = self.point_tree_sequence()
-        return self._write_template_vcf(
-            ts, dict(zip(self.sample_names or (), ts.samples())), contig)
+        names = self._template_individual_names(
+            ts, dict(zip(self.sample_names or (), ts.samples())))
+        return self._write_template_vcf(ts, names, contig)
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

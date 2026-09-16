@@ -484,9 +484,9 @@ class VCFWriter(Writer):
     ``INFO`` fields. Variants without a matching posterior are
     written unannotated.
 
-    The output format follows ``output_vcf``'s extension, case-insensitively:
-    ``.gz`` or ``.bgz`` is bgzipped VCF, ``.bcf`` is BCF and anything else is
-    plain VCF.
+    The output format follows the extension of ``output_vcf``,
+    case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
+    ``.bcf`` writes BCF and any other suffix writes plain VCF.
 
     :param input_vcf: Template VCF / VCF.GZ / BCF path.
     :param output_vcf: Destination path.

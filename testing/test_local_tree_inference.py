@@ -1090,13 +1090,19 @@ def test_to_arg_writes_pseudo_arg(tmp_path):
 
 
 @pytest.mark.parametrize("chunk_size", ["10mb", None])
-def test_a_vcf_source_is_its_own_template(chunk_size):
+@pytest.mark.parametrize("name", ["panel.vcf.gz", "panel.gvcf.gz"])
+def test_a_vcf_source_is_its_own_template(tmp_path, chunk_size, name):
+    """Any path read as a VCF is the template, whatever its suffix."""
+    import shutil
+
     from testing._helpers import DEMO_VCF
 
-    inf = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
+    path = str(tmp_path / name)
+    shutil.copy(DEMO_VCF, path)
+    inf = LocalTreeInference(path, mu=5e-8, rec_rate=1e-8,
                              sequence_length=1e6, chunk_size=chunk_size,
                              progress=False)
-    assert inf._default_template_vcf(None) == (DEMO_VCF, False, None)
+    assert inf._default_template_vcf(None) == (path, False, None)
 
 
 def test_default_template_vcf_dumps_the_inferred_trees(monkeypatch, tmp_path):
