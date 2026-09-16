@@ -44,7 +44,7 @@ _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d
 _PROGRESS_TIME = re.compile(r"(?<=\[)\d+(?::\d+)+(?:<(?:\d+(?::\d+)+|\?))?(?=,)")
 
 #: Rate of a progress bar with the spaces it is padded with, as units per second or seconds per unit.
-_PROGRESS_RATE = re.compile(r"(?<=,)[ \t]*[\d.?]+(?=[ \t]*[A-Za-z]+/s\]|s/[ \t]*[A-Za-z]+\])")
+_PROGRESS_RATE = re.compile(r"(?<=,)[ \t]*[\d.?]+[ \t]*(?:([A-Za-z]+)/s|s/[ \t]*([A-Za-z]+))(?=\])")
 
 #: Temporary directory of the machine that executes the notebooks, and names of temporary files created in it.
 _TEMP_DIR = re.compile(re.escape(tempfile.gettempdir()))
@@ -128,7 +128,7 @@ def _output_file(data: dict) -> tuple[str, bytes]:
     text = _TRAILING_SPACE.sub("", _ANSI.sub("", "".join(data["text/plain"])))
     text = _TEMP_FILE.sub("tmp--------", _TEMP_DIR.sub("<tmp>", text))
     text = _PROGRESS_TIME.sub(lambda m: re.sub(r"[\d?]+", "--", m[0]), text)
-    text = _PROGRESS_RATE.sub(" --", text)
+    text = _PROGRESS_RATE.sub(lambda m: f" --{m[1] or m[2]}/s", text)
 
     text = _TIMESTAMP.sub("1970-01-01T00:00:00", text)
 

@@ -1,6 +1,6 @@
 INFO:ancestree.CyVCF2Source: Genotypes read as ploidy 1; pass ploidy= to override
 INFO:ancestree.CyVCF2Source: Reading variants from quickstart.vcf (8 haplotype samples)
 INFO:ancestree.LocalTreeInference: Inferring local trees from genotypes (8 samples, window=8snp)
-LocalTreeInference: 100%|██████████| 1/1 [--:--<--:--, --s/ segments]
+LocalTreeInference: 100%|██████████| 1/1 [--:--<--:--, --segments/s]
 WARNING:ancestree.LocalTreeInference: 106 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup's own allele is the answer.
 INFO:ancestree.LocalTreeInference: Focal node: reported at the ingroup_mrca
