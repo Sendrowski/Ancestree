@@ -97,6 +97,11 @@ class Site:
     """Free-form auxiliary information a caller may attach to a site. The
     bundled sources leave it empty, and the kernel does not consume it."""
 
+    phased: bool = True
+    """Whether the haplotype order of every call at this site is the
+    source's own. ``False`` where a source read an unphased call, whose
+    order it then drew at random."""
+
     @classmethod
     def monomorphic(
         cls,
@@ -966,7 +971,7 @@ class BaseComposition:
 class SiteTable:
     """Columnar store of polymorphic sites, list-like over :class:`~ancestree.sites.Site`.
 
-    Holds positions, contig ids, tree handles and a ``(n_sites, n_hap) int8``
+    Holds positions, contig ids, tree handles, phase flags and a ``(n_sites, n_hap) int8``
     genotype matrix indexed through the global ``STATE_INDEX``.
 
     Supports ``len``, iteration, indexing, slicing and truthiness, rebuilding
@@ -976,10 +981,10 @@ class SiteTable:
     """
 
     __slots__ = ("sample_names", "pos", "genotypes", "alleles", "chrom_of",
-                 "_chrom_names", "handle")
+                 "_chrom_names", "handle", "phased")
 
     def __init__(self, sample_names, pos, genotypes, alleles, chrom_of,
-                 chrom_names, handle):
+                 chrom_names, handle, phased):
         self.sample_names = tuple(sample_names)
         self.pos = pos
         self.genotypes = genotypes
@@ -987,6 +992,7 @@ class SiteTable:
         self.chrom_of = chrom_of
         self._chrom_names = chrom_names
         self.handle = handle
+        self.phased = phased
 
     @classmethod
     def from_sites(cls, sites, sample_names=None):
@@ -1009,13 +1015,15 @@ class SiteTable:
             names = tuple(sample_names or ())
             return cls(names, np.empty(0, np.int64),
                        np.empty((0, len(names)), np.int8), [],
-                       np.empty(0, np.int32), [], np.empty(0, np.float64))
+                       np.empty(0, np.int32), [], np.empty(0, np.float64),
+                       np.empty(0, bool))
         names = tuple(sample_names) if sample_names is not None \
             else tuple(first.tip_alleles)
         n_hap = len(names)
         cap = 1024
         pos = np.empty(cap, np.int64)
         handle = np.full(cap, np.nan, np.float64)
+        phased = np.empty(cap, bool)
         chrom_of = np.empty(cap, np.int32)
         g = np.full((cap, n_hap), -1, np.int8)
         alleles, chrom_names, chrom_id = [], [], {}
@@ -1025,6 +1033,7 @@ class SiteTable:
                 cap *= 2
                 pos = np.resize(pos, cap)
                 handle = np.resize(handle, cap)
+                phased = np.resize(phased, cap)
                 chrom_of = np.resize(chrom_of, cap)
                 grown = np.full((cap, n_hap), -1, np.int8)
                 grown[:n] = g[:n]
@@ -1038,6 +1047,7 @@ class SiteTable:
             pos[n] = int(site.pos)
             h = site.local_tree_handle
             handle[n] = np.nan if h is None else float(h)
+            phased[n] = site.phased
             alleles.append(tuple(
                 (a.upper() if a is not None else a) for a in site.alleles))
             ta = site.tip_alleles
@@ -1049,7 +1059,8 @@ class SiteTable:
                     row[hi] = STATE_INDEX.get(a.upper(), -1)
             n += 1
         return cls(names, pos[:n].copy(), g[:n].copy(), alleles,
-                   chrom_of[:n].copy(), chrom_names, handle[:n].copy())
+                   chrom_of[:n].copy(), chrom_names, handle[:n].copy(),
+                   phased[:n].copy())
 
     def __len__(self):
         return len(self.pos)
@@ -1067,13 +1078,15 @@ class SiteTable:
         return Site(chrom=self._chrom_names[self.chrom_of[i]],
                     pos=int(self.pos[i]), alleles=self.alleles[i],
                     tip_alleles=tip,
-                    local_tree_handle=None if h != h else float(h))
+                    local_tree_handle=None if h != h else float(h),
+                    phased=bool(self.phased[i]))
 
     def __getitem__(self, i):
         if isinstance(i, slice):
             return SiteTable(self.sample_names, self.pos[i], self.genotypes[i],
                              self.alleles[i], self.chrom_of[i],
-                             self._chrom_names, self.handle[i])
+                             self._chrom_names, self.handle[i],
+                             self.phased[i])
         if i < 0:
             i += len(self)
         return self._site(i)

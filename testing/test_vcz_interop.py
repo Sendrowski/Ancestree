@@ -233,12 +233,11 @@ class TestToZarrReusesAZarrSource:
 
 
 # ---------------------------------------------------- to_zarr template guard
-def test_to_zarr_without_template_or_source_raises(tmp_path):
-    # to_zarr builds a template from the mode's source when none is given, and
-    # a source-less inference has nothing to build from.
+def test_to_zarr_without_sites_writes_an_empty_store(tmp_path):
     inf = MajorityOutgroupInference([], [], for_comparison_only=True)
-    with pytest.raises(ValueError, match="no template VCF available"):
-        inf.to_zarr(str(tmp_path / "out.vcz"))
+    out = str(tmp_path / "out.vcz")
+    assert inf.to_zarr(out) == 0
+    assert zarr.open(out, mode="r")["variant_position"].shape == (0,)
 
 
 def test_cli_vcf_in_vcz_out(tmp_path):

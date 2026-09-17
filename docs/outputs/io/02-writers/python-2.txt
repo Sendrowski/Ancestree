@@ -1,3 +1,5 @@
+INFO:ancestree.ARGBasedInference: No VCF input to annotate, so annotated.vcf.gz is written from the sites with the samples the inference used
 INFO:ancestree.VCFWriter: Wrote 224 annotated sites to annotated.vcf.gz
+INFO:ancestree.ARGBasedInference: No local VCF Zarr store input to annotate, so annotated.vcz is written from the sites with the samples the inference used
 INFO:ancestree.ZarrWriter: Wrote 224 annotated sites to annotated.vcz
 INFO:ancestree.TskitWriter: Wrote 224 annotated sites to annotated.trees

@@ -8,9 +8,6 @@ Agreement with PolarBEAR itself is covered by ``test_polarbear_agreement.py``.
 from __future__ import annotations
 
 import logging
-import os
-import sys
-import tempfile
 
 import msprime
 
@@ -18,7 +15,6 @@ import numpy as np
 import pytest
 import tskit
 
-import ancestree.inference as inference_mod
 from ancestree import (
     ARGBasedInference,
     JC69,
@@ -743,102 +739,3 @@ def test_all_outgroup_panel_leaves_nothing_to_resolve(small_ts):
     assert len(list(at_root.infer())) == small_ts.num_sites
 
 
-# ------------------------------------------------------- template clean-up
-
-
-def _failing_unlink(monkeypatch):
-    """Route ``os.unlink`` through a stub that refuses, recording the paths."""
-    refused = []
-
-    def unlink(path, *args, **kwargs):
-        refused.append(str(path))
-        raise OSError("refused")
-
-    monkeypatch.setattr(inference_mod.os, "unlink", unlink)
-    return refused
-
-
-def test_missing_bio2zarr_is_reported_and_the_template_dropped(small_ts, monkeypatch):
-    """Without ``bio2zarr`` the VCZ template cannot be built. The temporary
-    VCF is released even where the file system refuses the unlink."""
-    refused = _failing_unlink(monkeypatch)
-    monkeypatch.setitem(sys.modules, "bio2zarr.vcf", None)
-    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
-    try:
-        with pytest.raises(ImportError, match="bio2zarr, which is not installed"):
-            inf._build_default_template_vcz()
-        assert len(refused) == 1 and refused[0].endswith(".vcf")
-    finally:
-        for path in refused:
-            if os.path.exists(path):
-                os.remove(path)
-
-
-def test_failed_conversion_removes_the_half_built_store(small_ts, monkeypatch):
-    """A conversion error propagates and leaves no template directory behind."""
-    import bio2zarr.vcf as bio2zarr_vcf
-
-    made = []
-    real_mkdtemp = tempfile.mkdtemp
-
-    def mkdtemp(*args, **kwargs):
-        made.append(real_mkdtemp(*args, **kwargs))
-        return made[-1]
-
-    def convert(*args, **kwargs):
-        raise RuntimeError("conversion failed")
-
-    monkeypatch.setattr(inference_mod.tempfile, "mkdtemp", mkdtemp)
-    monkeypatch.setattr(bio2zarr_vcf, "convert", convert)
-    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
-    with pytest.raises(RuntimeError, match="conversion failed"):
-        inf._build_default_template_vcz()
-    assert len(made) == 1 and not os.path.exists(made[0])
-
-
-def test_to_vcf_tolerates_an_unremovable_template(small_ts, tmp_path, monkeypatch):
-    """The annotated VCF is complete even where the temporary template
-    cannot be unlinked afterwards."""
-    refused = _failing_unlink(monkeypatch)
-    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
-    out = tmp_path / "out.vcf"
-    try:
-        assert inf.to_vcf(str(out)) == small_ts.num_sites
-        assert len(refused) == 1
-        assert out.read_text().count("AA=") == small_ts.num_sites
-    finally:
-        for path in refused:
-            if os.path.exists(path):
-                os.remove(path)
-
-
-def test_template_vcf_is_removed_when_the_dump_fails(small_ts, monkeypatch):
-    """A failed dump propagates, and the partial file is unlinked where the
-    file system allows and left where it refuses."""
-    created = []
-    real_named = tempfile.NamedTemporaryFile
-
-    def named(*args, **kwargs):
-        handle = real_named(*args, **kwargs)
-        created.append(handle.name)
-        return handle
-
-    def write_vcf(self, *args, **kwargs):
-        raise RuntimeError("dump failed")
-
-    monkeypatch.setattr(inference_mod.tempfile, "NamedTemporaryFile", named)
-    monkeypatch.setattr(tskit.TreeSequence, "write_vcf", write_vcf)
-    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
-    with pytest.raises(RuntimeError, match="dump failed"):
-        inf._default_template_vcf(None)
-    assert len(created) == 1 and not os.path.exists(created[0])
-
-    refused = _failing_unlink(monkeypatch)
-    try:
-        with pytest.raises(RuntimeError, match="dump failed"):
-            inf._default_template_vcf("chrZ")
-        assert refused == [created[1]]
-    finally:
-        for path in refused:
-            if os.path.exists(path):
-                os.remove(path)

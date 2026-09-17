@@ -650,15 +650,6 @@ class TestFixedTreeHandler:
                 expected.kappa_estimate if seeded else _lib_default(type(fitted_model), "kappa"))
         assert len(_aa_calls(out)) == len(alleles)
 
-    def test_an_untagged_vcz_needs_a_template_for_vcf_output(
-            self, ladder_panel, tmp_path):
-        """The refusal comes before the fit, and names --template-vcf."""
-        _vcf, vcz, nwk, _alleles, _gt = ladder_panel
-        with pytest.raises(SystemExit, match="Pass --template-vcf"):
-            run(["fixed-tree", "--vcf", str(vcz), "--outgroups", "o1,o2",
-                 "--n-target-sites", "1000", "--out",
-                 str(tmp_path / "annot.vcf")])
-
     def test_vcz_output_ignores_the_template_vcf(
             self, ladder_panel, tmp_path, caplog):
         """A ``.vcz`` destination is built from the input, and a supplied
@@ -816,9 +807,9 @@ class TestLocalTreeE2E:
         recon_ts = tskit.load(str(recon))  # the side-artifact reconstruction
         assert recon_ts.num_samples == ts.num_samples
 
-    def test_vcz_without_template_writes_the_store_records(self, tmp_path):
-        """A ``.vcz`` input without ``--template-vcf`` templates the annotated
-        VCF from the store's own records, every sample included."""
+    def test_vcz_input_to_vcf_is_written_from_the_sites(self, tmp_path):
+        """A ``.vcz`` input without ``--template-vcf`` gives a VCF written from
+        the sites, one annotated record per site with the panel's samples."""
         import bio2zarr.vcf as bio2zarr_vcf
         import cyvcf2
         import numpy as np
@@ -842,8 +833,8 @@ class TestLocalTreeE2E:
             "--n-target-sites", str(n_sites), "--out", str(out),
         ]) == 0
         rdr = cyvcf2.VCF(str(out))
-        assert rdr.samples == sample_ids
-        assert sum(r.INFO.get("AA") is not None for r in rdr) > 0
+        assert rdr.samples == ["i0", "i1", "o1", "o2"]
+        assert sum(r.INFO.get("AA") is not None for r in rdr) == n_sites
 
 
 def test_recombination_map_reaches_the_inference(tmp_path):

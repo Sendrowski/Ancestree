@@ -10,9 +10,7 @@ ancestral-state truth is read.
 from __future__ import annotations
 
 import logging
-import os
 import re
-import tempfile
 
 import numpy as np
 import msprime
@@ -1102,49 +1100,11 @@ def test_a_vcf_source_is_its_own_template(tmp_path, chunk_size, name):
     inf = LocalTreeInference(path, mu=5e-8, rec_rate=1e-8,
                              sequence_length=1e6, chunk_size=chunk_size,
                              progress=False)
-    assert inf._default_template_vcf(None) == (path, False, None)
-
-
-def test_default_template_vcf_dumps_the_inferred_trees(monkeypatch, tmp_path):
-    """Without a VCF source the template is a temporary dump of the trees."""
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    sites, names = toy_sites(range(20, 1000, 20), chrom="chr7")
-    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
-    path, owns, samples = inf._default_template_vcf(None)
-    try:
-        assert owns is True and samples is None
-        assert os.path.dirname(path) == str(tmp_path)
-        with open(path) as fh:
-            records = [line.split("\t") for line in fh
-                       if not line.startswith("#")]
-        assert len(records) == len(sites)
-        assert {r[0] for r in records} == {"chr7"}
-        assert [int(r[1]) for r in records] == [s.pos for s in sites]
-        header = open(path).read()
-        assert all(n in header for n in names)
-    finally:
-        os.unlink(path)
-
-
-def test_default_template_vcf_removes_the_partial_file_on_failure(monkeypatch, tmp_path):
-    """A template write that fails part-way leaves no temporary file behind."""
-    sites, names = toy_sites(range(0, 1000, 20))
-    inf = toy_chunked_inference(sites, names, n_ensemble=None,
-                                sequence_length=1000.0)
-
-    def _boom():
-        yield sites[0]
-        raise RuntimeError("no sites today")
-
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    monkeypatch.setattr(inf, "_source", _boom())
-    with pytest.raises(RuntimeError, match="no sites today"):
-        inf._default_template_vcf("chr1")
-    assert list(tmp_path.iterdir()) == []
+    assert inf._output_template(None, "vcf", "out.vcf", False) == (path, None)
 
 
 def test_to_vcf_from_sites_annotates_every_record(tmp_path):
-    """``to_vcf`` on a sites source templates from the sites and annotates."""
+    """``to_vcf`` on a sites source writes one annotated record per site."""
     import cyvcf2
     sites, names = toy_sites(range(20, 1000, 20), chrom="chr7")
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)

@@ -16,13 +16,13 @@ Exposes three subcommands matching the three inference modes:
   allele on it with the ARG kernel. No outgroups and no input ARG required.
   Emits an annotated VCF, VCF-Zarr, or ``.trees`` file.
 
-The output format is inferred from the ``--out`` extension:
+The output format is inferred from the ``--out`` extension. An output
+annotates the input when the input has its format, and is otherwise written
+from the sites with the samples the inference used:
 
 - ``.vcf``, ``.vcf.gz``, ``.vcf.bgz``, ``.bcf`` route to
   :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`;
-- ``.vcz`` routes to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`, annotating a
-  copy of the input VCF Zarr store when the input is one, and a store built
-  from the mode's own source otherwise;
+- ``.vcz`` routes to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`;
 - ``.trees`` (valid under ``arg`` and ``local-tree``) routes to the
   matching ``to_arg`` writer.
 
@@ -35,7 +35,6 @@ from __future__ import annotations
 import argparse
 import inspect
 import logging
-import os
 import sys
 from typing import Sequence, cast
 
@@ -644,10 +643,9 @@ def _add_fixed_tree_parser(
     p.add_argument(
         "--template-vcf", default=None,
         help=(
-            "VCF / BCF used as the header and record template for the "
-            "annotated output. Defaults to the records of --vcf, and is "
-            "required for a remote VCZ store or one whose arrays lack "
-            "dimension names."
+            "VCF / BCF whose records the annotated VCF copies. Defaults to "
+            "--vcf when it is a VCF. Otherwise the output is written from "
+            "the sites."
         ),
     )
     p.set_defaults(handler=_run_fixed_tree)
@@ -708,10 +706,7 @@ def _add_arg_parser(
     )
     p.add_argument(
         "--chrom", default=_lib_default(ARGBasedInference, "chrom"),
-        help=(
-            "Contig label used when auto-writing a template VCF for "
-            ".vcf / .vcf.gz / .vcf.bgz / .bcf output. Default: %(default)s."
-        ),
+        help="Contig label of the annotated sites. Default: %(default)s.",
     )
     p.add_argument(
         "--n-workers", type=int,
@@ -906,9 +901,8 @@ def _add_local_tree_parser(
     p.add_argument(
         "--chrom", default=None,
         help="Contig label of the annotated sites. Defaults to the source's "
-             "own contig. Another label matches only a template written from "
-             "the sites, as for a remote VCZ --vcf or one whose arrays lack "
-             "dimension names.",
+             "own contig. Under another label an output annotating --vcf "
+             "matches none of its records.",
     )
     p.add_argument(
         "--out", required=True,
@@ -967,15 +961,6 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             f"(got {args.out!r}). The .trees format is only valid under "
             f"the `arg` and `local-tree` subcommands."
         )
-    if out_format == "vcf" and args.template_vcf is None \
-            and _path_format(args.vcf) == "vcz":
-        from ancestree.writers import ZarrWriter
-
-        if not (os.path.isdir(args.vcf) and ZarrWriter._is_tagged(args.vcf)):
-            raise SystemExit(
-                f"fixed-tree: {args.vcf!r} is remote or its arrays lack "
-                f"dimension names, so its records cannot template a VCF "
-                f"--out. Pass --template-vcf.")
     from ancestree.inference import FixedTreeInference
     from ancestree.trees import OutgroupLadderTree
 
@@ -999,9 +984,8 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     template_vcf = args.template_vcf
     if out_is_zarr and template_vcf is not None:
         _log.warning(
-            "fixed-tree: --template-vcf is ignored for a .vcz --out; the VCZ "
-            "output is a copy of the .vcz input (or a bio2zarr-built template "
-            "from a VCF input), not the supplied VCF skeleton."
+            "fixed-tree: --template-vcf is ignored for a .vcz --out, which "
+            "annotates a .vcz input or is written from the sites"
         )
 
     base_composition = None
@@ -1055,11 +1039,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         inference.fit()  # ML branch rates. Skipped when a dated tree is given
 
     if out_is_zarr:
-        # A .vcz input is the template. A plain VCF is converted to one in
-        # to_zarr (input_zarr=None).
-        zarr_template = args.vcf if _path_format(args.vcf) == "vcz" else None
-        n = inference.to_zarr(args.out, input_zarr=zarr_template,
-                              store_posterior=not args.no_posterior,
+        n = inference.to_zarr(args.out, store_posterior=not args.no_posterior,
                               min_confidence=args.min_confidence,
                               restrict_samples=args.restrict_samples)
         _log.info("Wrote %d annotated variants to %s", n, args.out)
@@ -1114,8 +1094,7 @@ def _run_arg(args: argparse.Namespace) -> int:
         )
         return 0
     if out_format == "vcf":
-        n = inference.to_vcf(args.out, contig_id=args.chrom,
-                             store_posterior=not args.no_posterior,
+        n = inference.to_vcf(args.out, store_posterior=not args.no_posterior,
                              min_confidence=args.min_confidence,
                              restrict_samples=args.restrict_samples)
         _log.info(
@@ -1337,7 +1316,7 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         _log.info("Wrote %d annotated variants to %s", n, args.out)
     else:
         n = inference.to_vcf(
-            args.out, contig_id=args.chrom,
+            args.out,
             store_posterior=not args.no_posterior,
             min_confidence=args.min_confidence,
             restrict_samples=args.restrict_samples,

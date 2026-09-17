@@ -341,6 +341,7 @@ class CyVCF2Source(SiteSource):
 
                 genotypes = variant.genotypes  # indices + a phase flag
                 tip_alleles: dict[str, str | None] = {}
+                site_phased = True
                 for row, sample in zip(self._genotype_rows, self._vcf_samples):
                     call = genotypes[row]
                     order = None
@@ -348,6 +349,7 @@ class CyVCF2Source(SiteSource):
                         phased = self._phased if self._phased is not None \
                             else bool(call[-1])
                         if not phased:
+                            site_phased = False
                             called = [int(a) for a in call[:-1] if int(a) >= 0]
                             if len(set(called)) > 1:
                                 self._note_unphased_once()
@@ -371,6 +373,7 @@ class CyVCF2Source(SiteSource):
                     pos=int(variant.POS),
                     alleles=tuple(site_alleles),
                     tip_alleles=tip_alleles,
+                    phased=site_phased,
                 )
         finally:
             vcf.close()
@@ -569,9 +572,11 @@ class VcfZarrSource(SiteSource):
                 if self._ploidy > 1 and self._phased is not True:
                     ph_row = (phased_batch[i] if phased_batch is not None
                               else np.zeros(gt_row.shape[0], dtype=bool))
+                site_phased = True
                 for s_idx, name in enumerate(self._kept_sample_names):
                     order: Sequence[int] = range(self._ploidy)
                     if ph_row is not None and not bool(ph_row[s_idx]):
+                        site_phased = False
                         called = [int(a) for a in gt_row[s_idx] if int(a) >= 0]
                         if len(set(called)) > 1:
                             self._note_unphased_once()
@@ -590,6 +595,7 @@ class VcfZarrSource(SiteSource):
                     pos=int(pos_batch[i]),
                     alleles=site_alleles,
                     tip_alleles=tip_alleles,
+                    phased=site_phased,
                 )
 
     def _open_root(self):

@@ -17,11 +17,9 @@ All three implement :meth:`Inference.infer() <ancestree.inference.Inference.infe
 import datetime
 import logging
 import os
-import shutil
-import tempfile
 from abc import ABC, abstractmethod
 from collections import Counter
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -643,46 +641,16 @@ class Inference(ReprMixin, ABC):
             if n_tips or site.has_unrepresentable_allele:
                 self._n_unrepresentable_sites += 1
 
-    @staticmethod
-    def _template_individual_names(
-        ts, sample_map, nodes: "Collection[int] | None" = None,
-    ) -> "list[str] | None":
-        """Names of the VCF sample columns of a template written from ``ts``,
-        in the source reader's naming convention.
-
-        Each individual is one column, named from ``sample_map`` by
-        individual (``i0_h0`` and ``i0_h1`` give ``i0``), or ``tsk_<j>``
-        where ``sample_map`` names none of its haplotypes.
-
-        :param ts: The tree sequence the columns are numbered in.
-        :param sample_map: ``{name: node}`` for the named haplotypes.
-        :param nodes: Nodes whose columns are named, in ``ts``'s numbering.
-            ``None`` names every column.
-        :return: One name per column, or ``None`` to keep tskit's defaults
-            throughout where two columns would share a name.
-        """
-        by_node = {int(n): str(s) for s, n in sample_map.items()}
-        model = ts.map_to_vcf_model()
-        names = []
-        for default, row in zip(model.individuals_name,
-                                model.individuals_nodes):
-            row_nodes = [int(n) for n in row if n >= 0]
-            if nodes is not None and not any(n in nodes for n in row_nodes):
-                continue
-            known = {by_node[n] for n in row_nodes if n in by_node}
-            if len(row_nodes) > 1:
-                known = {_individual_of(s) for s in known}
-            names.append(known.pop() if len(known) == 1 else str(default))
-        return names if len(set(names)) == len(names) else None
-
     def _set_input_paths(self, source) -> None:
-        """Take the file a source was read from as the default template.
+        """Take the file a source was read from as the file an output of the
+        same format annotates.
 
-        A local directory is a VCF Zarr store, the template of
-        :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`.
-        Any other path naming neither a store nor a tree sequence is a VCF,
-        the template of
-        :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`.
+        A local directory is a VCF Zarr store, which
+        :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`
+        annotates. Any other path naming neither a store nor a tree sequence
+        is a VCF, which
+        :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`
+        annotates.
 
         :param source: A path, or a source carrying the path it read.
         """
@@ -1304,6 +1272,37 @@ class Inference(ReprMixin, ABC):
             if isinstance(params, dict):
                 params.update(self._focal_totals)
 
+    def _output_template(
+        self, given: "str | os.PathLike | None", fmt: str,
+        output: "str | os.PathLike", restrict_samples: bool,
+    ) -> "tuple[str | None, frozenset[str] | None]":
+        """The file an output annotates, and the samples it keeps.
+
+        An output annotates the file passed for it, or else the input when the
+        input has the output's format. Otherwise it is written from the sites
+        and holds the samples the inference used.
+
+        :param given: The file passed for the output, or ``None``.
+        :param fmt: ``"vcf"`` or ``"vcz"``.
+        :param output: Destination path, named in the log.
+        :param restrict_samples: Whether an annotated file keeps only the
+            samples the inference used.
+        :return: ``(template, samples)``, the template ``None`` for an output
+            written from the sites and ``samples`` ``None`` for every sample.
+        """
+        if given is not None:
+            template: "str | None" = str(given)
+        else:
+            template = (self._input_vcf_path if fmt == "vcf"
+                        else self._input_store_path)
+        if template is None:
+            self._log.info(
+                "No %s input to annotate, so %s is written from the sites with "
+                "the samples the inference used",
+                "VCF" if fmt == "vcf" else "local VCF Zarr store", output)
+            return None, self._used_samples()
+        return template, self._used_samples() if restrict_samples else None
+
     def to_zarr(
         self,
         output_zarr: str | os.PathLike,
@@ -1318,21 +1317,17 @@ class Inference(ReprMixin, ABC):
     ) -> int:
         """Write an annotated VCF Zarr (VCZ) store with the ``variant_AA*`` arrays.
 
-        Feeds the posteriors to
-        :class:`~ancestree.writers.ZarrWriter`, which copies a template VCZ
-        store and adds the ``variant_AA`` / ``variant_AA_prob`` / ``variant_AA_post``
+        Feeds the posteriors to :class:`~ancestree.writers.ZarrWriter`, which
+        adds the ``variant_AA`` / ``variant_AA_prob`` / ``variant_AA_post``
         arrays plus the provenance record (see that writer for the on-disk
-        layout). The template resolves in this order: an explicit
-        ``input_zarr``, then the local VCZ store this inference was
-        constructed from, and otherwise a template built with ``bio2zarr`` from
-        the mode's source (the source VCF, or the tree sequence dumped to a
-        temporary VCF).
+        layout). The writer annotates a copy of ``input_zarr``, or of the
+        local store this inference was constructed from. Otherwise it writes
+        one variant per site, holding the samples the inference used.
 
         :param output_zarr: Destination VCZ store path, which must differ from
-            the template.
-        :param input_zarr: Template VCZ store. Defaults to the local VCZ store
-            the inference was constructed from, or a ``bio2zarr``-built template
-            from the mode's source otherwise.
+            the store it annotates.
+        :param input_zarr: Store to annotate. Defaults to the local store the
+            inference was constructed from.
         :param info: Optional run-level constants stored in the store's root
             ``attrs`` under ``ancestree_info``.
         :param provenance: Structured provenance stored under
@@ -1345,107 +1340,25 @@ class Inference(ReprMixin, ABC):
             below this get ``variant_AA = "."``. ``None`` (default) disables the check.
         :param posteriors: Stored ``(Site, Posterior)`` pairs to write, as
             :meth:`infer` yields them. ``None`` (default) runs :meth:`infer`.
-        :param restrict_samples: Write only the samples the inference used,
-            the ingroup and outgroups. ``False`` (default) writes every sample
-            of the template.
+        :param restrict_samples: Keep only the samples the inference used, the
+            ingroup and outgroups, in an annotated store. ``False`` (default)
+            keeps every sample.
         :return: Number of variants annotated.
-        :raises ImportError: If a template must be built but ``bio2zarr`` is
-            not installed.
-        :raises ValueError: If no template is available and the mode has no
-            local source to build one from.
         """
         from ancestree.writers import ZarrWriter
         supplied, provenance = provenance, self._resolve_provenance(
             provenance, min_confidence)
-        template = str(input_zarr) if input_zarr is not None else None
-        if template is None:
-            template = self._input_store_path
-        cleanup_dir: str | None = None
-        samples = self._used_samples() if restrict_samples else None
-        if template is None:
-            template, cleanup_dir, samples = self._build_default_template_vcz(
-                restrict_samples)
-        try:
-            return ZarrWriter(
-                template, output_zarr, min_confidence=min_confidence,
-                samples=samples,
-            ).write(
-                self._completing(self._posteriors_for_writing(posteriors),
-                                 provenance, supplied),
-                store_posterior=store_posterior,
-                info=info, provenance=provenance,
-            )
-        finally:
-            if cleanup_dir is not None:
-                shutil.rmtree(cleanup_dir, ignore_errors=True)
-
-    def _build_default_template_vcz(
-        self, restrict_samples: bool = False,
-    ) -> "tuple[str, str, frozenset[str] | None]":
-        """Build a VCF Zarr template from the mode's default template VCF.
-
-        Reuses :meth:`_default_template_vcf` (the source VCF, or the tree
-        sequence dumped to a temporary VCF) and converts it to a VCZ store with
-        ``bio2zarr``. The template's variants match the sites the posteriors
-        carry, so the annotation aligns by ``(chrom, pos)``.
-
-        :param restrict_samples: Whether the output holds only the samples
-            the inference used.
-        :return: ``(template_store_path, cleanup_dir, samples)``, ``samples``
-            being the sample columns to write or ``None`` for all. The caller
-            removes ``cleanup_dir`` once the store has been consumed.
-        :raises ImportError: If ``bio2zarr`` is not installed.
-        :raises ValueError: If the mode has no local source to build a
-            template from.
-        """
-        # Resolved ahead of the bio2zarr import, so a mode with no source fails
-        # with a ValueError.
-        vcf_template, owns_vcf, samples = self._default_template_vcf(
-            None, restrict_samples)
-        if "://" in vcf_template:
-            raise ValueError(
-                f"to_zarr cannot build a template from the remote VCF "
-                f"{vcf_template!r}, which bio2zarr reads only from local "
-                f"files. Pass input_zarr=<store>.")
-
-        def _drop_temp() -> None:
-            """Remove the VCF template this call created, if it made one."""
-            if owns_vcf:
-                try:
-                    os.unlink(vcf_template)
-                except OSError:
-                    pass
-
-        try:
-            import bio2zarr.vcf as bio2zarr_vcf
-        except ImportError as e:
-            _drop_temp()
-            raise ImportError(
-                "to_zarr without an explicit input_zarr template builds one "
-                "from the source with bio2zarr, which is not installed. Install "
-                "it with `pip install ancestree[zarr]`, or pass "
-                "input_zarr=<.vcz store>."
-            ) from e
-        cleanup_dir = tempfile.mkdtemp(prefix="ancestree_vcz_")
-        vcz_path = os.path.join(cleanup_dir, "template.vcz")
-        try:
-            # The template is unindexed, so bio2zarr cannot count its records
-            # and would log a progress notice that has no bearing here.
-            log = logging.getLogger("bio2zarr")
-            level = log.level
-            log.setLevel(logging.ERROR)
-            try:
-                bio2zarr_vcf.convert([vcf_template], vcz_path,
-                                     show_progress=False)
-            finally:
-                log.setLevel(level)
-        except BaseException:
-            # Remove the half-built template directory.
-            shutil.rmtree(cleanup_dir, ignore_errors=True)
-            raise
-        finally:
-            _drop_temp()
-        return vcz_path, cleanup_dir, samples
+        template, samples = self._output_template(
+            input_zarr, "vcz", output_zarr, restrict_samples)
+        return ZarrWriter(
+            template, output_zarr, min_confidence=min_confidence,
+            samples=samples,
+        ).write(
+            self._completing(self._posteriors_for_writing(posteriors),
+                             provenance, supplied),
+            store_posterior=store_posterior,
+            info=info, provenance=provenance,
+        )
 
     def to_vcf(
         self,
@@ -1454,7 +1367,6 @@ class Inference(ReprMixin, ABC):
         input_vcf: str | os.PathLike | None = None,
         info: Mapping[str, object] | None = None,
         provenance: Mapping[str, object] | None = None,
-        contig_id: str | None = None,
         min_confidence: float | None = None,
         store_posterior: bool = True,
         posteriors: "Iterable[tuple[Site, Posterior]] | None" = None,
@@ -1462,16 +1374,14 @@ class Inference(ReprMixin, ABC):
     ) -> int:
         """Write an annotated VCF with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` fields.
 
-        Feeds the posteriors to
-        :class:`~ancestree.writers.VCFWriter`, which copies headers and
-        variant records from a template VCF. When ``input_vcf`` is ``None``
-        the template is the VCF the inference was built from, the records of
-        its VCF Zarr store, or else the source or inferred tree sequence dumped
-        to a temporary VCF.
+        Feeds the posteriors to :class:`~ancestree.writers.VCFWriter`, which
+        annotates the records of ``input_vcf``, or of the VCF this inference
+        was constructed from. Otherwise it writes one record per site,
+        holding the samples the inference used.
 
         :param output_vcf: Where to write the annotated output.
-        :param input_vcf: Optional template VCF path. Defaults to the
-            template described above.
+        :param input_vcf: VCF to annotate. Defaults to the VCF the inference
+            was constructed from.
         :param info: Optional run-level constants threaded into the VCF
             header / per-record ``AA_<key>`` fields (see
             :class:`~ancestree.writers.VCFWriter`).
@@ -1479,12 +1389,6 @@ class Inference(ReprMixin, ABC):
             (``##source`` + ``##ancestree_provenance``). Defaults to
             :meth:`provenance`. Pass an explicit dict to override, or ``{}``
             to suppress.
-        :param contig_id: Contig label used when auto-writing a template
-            from a tree sequence. ``None`` (default) resolves to the
-            inference's own contig
-            (:paramref:`ARGBasedInference.chrom <ancestree.inference.ARGBasedInference.chrom>`), so the
-            template's ``CHROM`` matches the chrom the posteriors carry and
-            the annotation actually lands.
         :param store_posterior: When ``True`` (default), also record the
             whole per-state posterior in the ``AA_post`` ``INFO`` field.
         :param posteriors: Stored ``(Site, Posterior)`` pairs to write, as
@@ -1492,124 +1396,25 @@ class Inference(ReprMixin, ABC):
         :param min_confidence: Sites with
             :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
             below this get ``AA = "."``. ``None`` (default) disables the check.
-        :param restrict_samples: Write only the samples the inference used,
-            the ingroup and outgroups. ``False`` (default) writes every sample
-            of the template.
+        :param restrict_samples: Keep only the samples the inference used, the
+            ingroup and outgroups, in an annotated VCF. ``False`` (default)
+            keeps every sample.
         :return: Number of records annotated.
-        :raises ValueError: If no template VCF is available.
-        :raises ImportError: If the template is read from a VCF Zarr store and
-            ``vcztools`` is not installed.
         """
         from ancestree.writers import VCFWriter
         supplied, provenance = provenance, self._resolve_provenance(
             provenance, min_confidence)
-        if input_vcf is not None:
-            template, owns_temp = str(input_vcf), False
-            samples = self._used_samples() if restrict_samples else None
-        else:
-            template, owns_temp, samples = self._default_template_vcf(
-                contig_id, restrict_samples)
-        try:
-            return VCFWriter(
-                template, output_vcf, min_confidence=min_confidence,
-                samples=samples,
-            ).write(
-                self._completing(self._posteriors_for_writing(posteriors),
-                                 provenance, supplied),
-                store_posterior=store_posterior,
-                info=info, provenance=provenance,
-            )
-        finally:
-            if owns_temp:
-                try:
-                    os.unlink(template)
-                except OSError:
-                    pass
-
-    def _default_template_vcf(
-        self, contig_id: str | None, restrict_samples: bool = False,
-    ) -> "tuple[str, bool, frozenset[str] | None]":
-        """The VCF this inference was constructed from, the records of its VCF
-        Zarr store where every array carries dimension names, or else a
-        temporary VCF written from the mode's trees.
-
-        :param contig_id: Contig label for a written template, or ``None`` for
-            the mode's own.
-        :param restrict_samples: Whether the output holds only the used samples.
-        :return: ``(path, owns_temp, samples)``, ``samples`` being the columns
-            to keep or ``None`` for all.
-        :raises ValueError: There is no source to build a template from.
-        :raises ImportError: If a store must be read but ``vcztools`` is not
-            installed.
-        """
-        samples = self._used_samples() if restrict_samples else None
-        if self._input_vcf_path is not None:
-            return self._input_vcf_path, False, samples
-        from ancestree.writers import ZarrWriter
-
-        if (self._input_store_path is not None
-                and ZarrWriter._is_tagged(self._input_store_path)):
-            return self._vcf_from_store(self._input_store_path), True, samples
-        return self._dump_template_vcf(contig_id, restrict_samples), True, None
-
-    @staticmethod
-    def _vcf_from_store(store: str) -> str:
-        """Write the records of a VCF Zarr store to a temporary VCF.
-
-        :param store: Local store path.
-        :return: Path of the temporary file, which the caller unlinks.
-        :raises ImportError: If ``vcztools`` is not installed.
-        """
-        try:
-            import zarr
-            from vcztools.retrieval import VczReader
-            from vcztools.vcf_writer import write_vcf
-        except ImportError as e:
-            raise ImportError(
-                "to_vcf from a VCF Zarr store writes its template with "
-                "vcztools, which is not installed. Install it with `pip "
-                "install ancestree-popgen[zarr]`, or pass input_vcf=<path>."
-            ) from e
-        return Inference._temporary_vcf(
-            lambda fh: write_vcf(VczReader(zarr.open(store, mode="r")), fh))
-
-    def _dump_template_vcf(
-        self, contig_id: str | None, restrict_samples: bool = False,
-    ) -> str:
-        """Write a temporary template VCF from the mode's own trees.
-
-        :param contig_id: Contig label for the template, or ``None`` to let
-            the mode pick its own contig.
-        :param restrict_samples: Whether the template holds only the samples
-            the inference used.
-        :return: Path of the temporary file, which the caller unlinks.
-        :raises ValueError: There is no source to build a template from.
-        """
-        raise ValueError(
-            f"{type(self).__name__}: no template VCF available. Pass "
-            "input_vcf=<path> to to_vcf() or input_zarr=<path> to to_zarr(), "
-            "or construct the inference from a VCF path."
+        template, samples = self._output_template(
+            input_vcf, "vcf", output_vcf, restrict_samples)
+        return VCFWriter(
+            template, output_vcf, min_confidence=min_confidence,
+            samples=samples,
+        ).write(
+            self._completing(self._posteriors_for_writing(posteriors),
+                             provenance, supplied),
+            store_posterior=store_posterior,
+            info=info, provenance=provenance,
         )
-
-    @staticmethod
-    def _temporary_vcf(write) -> str:
-        """A temporary VCF filled by ``write``, removed again if it fails.
-
-        :param write: Callable taking the open text file.
-        :return: Path of the file, which the caller unlinks.
-        """
-        tmp = tempfile.NamedTemporaryFile(suffix=".vcf", delete=False, mode="w")
-        try:
-            write(tmp)
-        except BaseException:
-            tmp.close()
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
-            raise
-        tmp.close()
-        return tmp.name
 
     def to_arg(
         self,
@@ -2712,28 +2517,6 @@ class ARGBasedInference(Inference):
             return 1 + len(self._draws_rest)
         except TypeError:
             return None
-
-    def _dump_template_vcf(
-        self, contig_id: str | None, restrict_samples: bool = False,
-    ) -> str:
-        """Dump the supplied tree sequence, or the one restricted to the
-        panel, to a temporary template VCF.
-
-        :param contig_id: Contig label for the template. ``None`` resolves to
-            :paramref:`ARGBasedInference.chrom <ancestree.inference.ARGBasedInference.chrom>`.
-        :param restrict_samples: Whether to write the restricted tree sequence.
-        :return: Path of the temporary file, which the caller unlinks.
-        """
-        contig = contig_id if contig_id is not None else self.chrom
-        # Columns keep the names they carry in the unrestricted output.
-        nodes = set(self._panel_map.values()) if restrict_samples else None
-        names = self._template_individual_names(
-            self._input_ts, self._input_sample_map, nodes)
-        ts = self.ts if restrict_samples else self._input_ts
-        # Positions are truncated to int(site.pos), the key sites are matched on.
-        return self._temporary_vcf(lambda fh: ts.write_vcf(
-            fh, contig_id=contig, individual_names=names,
-            position_transform=lambda p: np.floor(np.asarray(p)).astype(int)))
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

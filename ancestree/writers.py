@@ -6,12 +6,14 @@ ancestral allele together with its posterior probability:
 
 - :class:`~ancestree.writers.VCFWriter` copies an input VCF and adds ``AA``,
   ``AA_prob`` and ``AA_post`` INFO fields. Variants with no matching posterior
-  pass through unannotated.
+  pass through unannotated. Without an input VCF it writes one record per
+  site.
 - :class:`~ancestree.writers.TskitWriter` sets each site's
   ``ancestral_state`` to the MAP allele and stores the full posterior in the
   site metadata.
 - :class:`~ancestree.writers.ZarrWriter` annotates a copy of a ``.vcz`` store
   with ``variant_AA``, ``variant_AA_prob`` and ``variant_AA_post`` arrays.
+  Without an input store it writes one variant per site.
 
 An optional ``info`` dict naming the prior, substitution model and fitted
 parameters is recorded once per run. An optional ``provenance`` dict is
@@ -26,6 +28,8 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
+import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
@@ -35,7 +39,7 @@ if TYPE_CHECKING:
 
 from ancestree.posterior import Posterior
 from ancestree import STATE_INDEX, STATES
-from ancestree.sites import Site, SiteSource
+from ancestree.sites import Site, SiteSource, _individual_of, _named
 from ancestree._repr import ReprMixin
 
 
@@ -472,23 +476,49 @@ class Writer(ReprMixin, ABC):
                 f"{names[:3]}")
         return kept
 
+    def _columns(self, site: Site) -> dict[str, list[str]]:
+        """The sample columns of an output written from the sites.
+
+        :param site: The first site written, whose tips name the columns.
+        :return: ``{individual: haplotypes}`` over the samples to write, each
+            individual's haplotypes in order.
+        """
+        columns: dict[str, list[str]] = {}
+        for name in site.tip_alleles:
+            if self._samples is None or _named(name, self._samples):
+                columns.setdefault(_individual_of(name), []).append(name)
+        return columns
+
+    @staticmethod
+    def _record_alleles(site: Site) -> tuple[list[str], dict[str, int]]:
+        """The alleles of the record written for ``site``, and their indices.
+
+        :param site: The site written.
+        :return: ``(alleles, index)``, REF first, without the missing-data
+            placeholder a tree sequence appends.
+        """
+        alleles = [a for a in site.alleles if a]
+        return alleles, {a: i for i, a in enumerate(alleles)}
+
 
 class VCFWriter(Writer):
-    """Copy an input VCF to disk with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO``
-    annotations.
+    """Write a VCF with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` annotations.
 
-    The input VCF is used as a template: its full header and every variant
+    An input VCF is used as a template: its full header and every variant
     field other than the ``AA`` ``INFO`` fields, which each run rewrites,
     are passed through to the output. For each variant the writer
     looks up the posterior by ``(chrom, pos)`` and, if found, sets the
     ``INFO`` fields. Variants without a matching posterior are
-    written unannotated.
+    written unannotated. Without an input VCF, each site is written as one
+    record carrying its alleles and the genotypes of its tips, phased where
+    :attr:`Site.phased <ancestree.sites.Site.phased>` is set.
 
     The output format follows the extension of ``output_vcf``,
     case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
     ``.bcf`` writes BCF and any other suffix writes plain VCF.
 
-    :param input_vcf: Template VCF / VCF.GZ / BCF path.
+    :param input_vcf: Template VCF / VCF.GZ / BCF path, or ``None`` to write
+        the records from the sites.
     :param output_vcf: Destination path.
     :param min_confidence: Optional minimum
         :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
@@ -498,8 +528,9 @@ class VCFWriter(Writer):
         ``AA_prob`` still records the (sub-threshold) max probability.
         ``None`` (default) disables the check.
     :param samples: Sample columns to write, matched against the template's
-        sample names. ``None`` (default) writes every column. ``INFO`` allele
-        counts such as ``AC`` and ``AN`` are copied from the template.
+        sample names, or against the tips and the individuals they belong to.
+        ``None`` (default) writes every column. ``INFO`` allele counts such as
+        ``AC`` and ``AN`` are copied from the template.
     :raises ImportError: If ``cyvcf2`` is not installed.
     """
 
@@ -565,7 +596,7 @@ class VCFWriter(Writer):
 
     def __init__(
         self,
-        input_vcf: str | os.PathLike,
+        input_vcf: "str | os.PathLike | None",
         output_vcf: str | os.PathLike,
         *,
         min_confidence: float | None = None,
@@ -575,7 +606,7 @@ class VCFWriter(Writer):
         self._require_backend(
             "cyvcf2",
             "`pip install cyvcf2` or `conda install -c bioconda cyvcf2`")
-        self._input = str(input_vcf)
+        self._input = None if input_vcf is None else str(input_vcf)
         self._init_output(output_vcf, min_confidence, samples)
 
     def write(
@@ -586,7 +617,7 @@ class VCFWriter(Writer):
         info: Mapping[str, object] | None = None,
         provenance: Mapping[str, object] | None = None,
     ) -> int:
-        """Stream the template VCF to ``output_vcf`` with the ``AA`` annotations.
+        """Write ``output_vcf`` with the ``AA`` annotations.
 
         :param posteriors: Iterable of ``(Site, Posterior)`` pairs. Fully
             consumed before writing. Keep the input VCF and the
@@ -617,6 +648,11 @@ class VCFWriter(Writer):
                 f"keep AA_post, or pass store_posterior=False to write AA and "
                 f"AA_prob only."
             )
+        if self._input is None:
+            return self._write_from_sites(
+                posteriors, store_posterior=store_posterior,
+                info=info, provenance=provenance,
+            )
         return self._write_streaming(
             posteriors, store_posterior=store_posterior,
             info=info, provenance=provenance,
@@ -632,7 +668,8 @@ class VCFWriter(Writer):
         """Add the ``AA`` / ``AA_prob`` / ``AA_post`` (and any ``info``) INFO headers
         + provenance.
 
-        :param in_vcf: The open ``cyvcf2.VCF`` template whose header is edited.
+        :param in_vcf: The open ``cyvcf2.VCF`` template or ``cyvcf2.Writer``
+            whose header is edited.
         :param info: Optional run-level constants declared as ``AA_<key>``.
         :param provenance: Optional structured run record for the header.
         :return: ``[(field_id, vcf_type, value), ...]`` for the ``info`` fields,
@@ -740,10 +777,7 @@ class VCFWriter(Writer):
         in_vcf = cyvcf2.VCF(self._input, samples=kept)
         info_fields = self._add_headers(in_vcf, info, provenance, store_posterior)
         staged = self._staged_path(self._output)
-        lower = self._output.lower()
-        mode = ("wz" if lower.endswith((".gz", ".bgz"))
-                else "wb" if lower.endswith(".bcf") else "w")
-        writer = cyvcf2.Writer(staged, in_vcf, mode=mode)
+        writer = cyvcf2.Writer(staged, in_vcf, mode=self._mode())
         try:
             n_annotated = 0
             # Pass 2 walks the template in the same order pass 1 built the
@@ -751,17 +785,9 @@ class VCFWriter(Writer):
             # discard pass 1's choice among rows sharing a position.
             for row, variant in enumerate(in_vcf):
                 if row < n and annotated[row]:
-                    variant.INFO["AA"] = str(aa[row])
-                    variant.INFO["AA_prob"] = self._float_info(float(prob[row]))
-                    if post is not None:
-                        variant.INFO["AA_post"] = self._float_info(
-                            *(float(v) for v in post[row])
-                        )
-                    elif variant.INFO.get("AA_post") is not None:
-                        del variant.INFO["AA_post"]
-                    self._clear_owned_info(variant)
-                    for field_id, vcf_type, value in info_fields:
-                        variant.INFO[field_id] = self._coerce_info_value(value, vcf_type)
+                    self._annotate(variant, str(aa[row]), float(prob[row]),
+                                   None if post is None else post[row],
+                                   info_fields)
                     n_annotated += 1
                 else:
                     # Unscored rows and AA_* fields from earlier runs are cleared.
@@ -788,6 +814,105 @@ class VCFWriter(Writer):
         self._log.info("Wrote %s annotated sites to %s",
                        f"{n_annotated:,}", self._output)
         return n_annotated
+
+    def _mode(self) -> str:
+        """The cyvcf2 write mode the output suffix names."""
+        lower = self._output.lower()
+        return ("wz" if lower.endswith((".gz", ".bgz"))
+                else "wb" if lower.endswith(".bcf") else "w")
+
+    def _annotate(self, variant, allele: str, prob: float, post,
+                  info_fields: list[tuple[str, str, object]]) -> None:
+        """Set the ``AA`` fields of one record.
+
+        :param variant: The record being emitted.
+        :param allele: The MAP allele, or :attr:`AA_UNKNOWN`.
+        :param prob: Its posterior probability.
+        :param post: The per-state posterior, or ``None`` to omit ``AA_post``.
+        :param info_fields: ``(field_id, vcf_type, value)`` run-level fields.
+        """
+        variant.INFO["AA"] = allele
+        variant.INFO["AA_prob"] = self._float_info(prob)
+        if post is not None:
+            variant.INFO["AA_post"] = self._float_info(*(float(v) for v in post))
+        elif variant.INFO.get("AA_post") is not None:
+            del variant.INFO["AA_post"]
+        self._clear_owned_info(variant)
+        for field_id, vcf_type, value in info_fields:
+            variant.INFO[field_id] = self._coerce_info_value(value, vcf_type)
+
+    def _write_from_sites(
+        self,
+        posteriors: Iterable[tuple[Site, Posterior]],
+        *,
+        store_posterior: bool,
+        info: Mapping[str, object] | None,
+        provenance: Mapping[str, object] | None,
+    ) -> int:
+        """Write one annotated record per site.
+
+        The records are buffered in a temporary file until every contig is
+        known, since the header declares the contigs first.
+
+        :return: Number of records written.
+        """
+        import cyvcf2
+
+        columns: dict[str, list[str]] | None = None
+        contigs: dict[str, None] = {}
+        calls: list[tuple[str, float, "list[float] | None"]] = []
+        with tempfile.TemporaryFile("w+") as body:
+            for site, posterior in posteriors:
+                if columns is None:
+                    columns = self._columns(site)
+                alleles, index = self._record_alleles(site)
+                sep = "|" if site.phased else "/"
+                genotypes = [
+                    sep.join(str(index[a]) if a in index else "."
+                             for a in (site.tip_alleles.get(h) for h in haps))
+                    for haps in columns.values()]
+                chrom = str(site.chrom)
+                contigs[chrom] = None
+                body.write("\t".join((
+                    chrom, str(site.pos), ".", alleles[0] if alleles else "N",
+                    ",".join(alleles[1:]) or ".", ".", ".", ".",
+                    *(("GT", *genotypes) if columns else ()))) + "\n")
+                allele, max_prob = self._call(site, posterior)
+                calls.append((allele, max_prob,
+                              self._posterior_vector(posterior)
+                              if store_posterior else None))
+            if columns is None:
+                self._log.warning("%s received no posteriors, so %s holds no "
+                                  "records.", type(self).__name__, self._output)
+                columns = {}
+            header = [
+                "##fileformat=VCFv4.2",
+                *(f"##contig=<ID={c}>" for c in contigs),
+                '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+                "\t".join(("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER",
+                           "INFO", *(("FORMAT", *columns) if columns else ()))),
+            ]
+            staged = self._staged_path(self._output)
+            writer = cyvcf2.Writer.from_string(staged, "\n".join(header) + "\n",
+                                               mode=self._mode())
+            try:
+                info_fields = self._add_headers(writer, info, provenance,
+                                                store_posterior)
+                body.seek(0)
+                for line, (allele, max_prob, post) in zip(body, calls):
+                    variant = writer.variant_from_string(line.rstrip("\n"))
+                    self._annotate(variant, allele, max_prob, post, info_fields)
+                    writer.write_record(variant)
+            except BaseException:
+                writer.close()
+                if os.path.exists(staged):
+                    os.unlink(staged)
+                raise
+            writer.close()
+        self._finish_staged(staged, self._output)
+        self._log.info("Wrote %s annotated sites to %s",
+                       f"{len(calls):,}", self._output)
+        return len(calls)
 
 
 class TskitWriter(Writer):
@@ -1092,11 +1217,15 @@ class TskitWriter(Writer):
 
 
 class ZarrWriter(Writer):
-    """Copy a VCF Zarr (VCZ) store and add the ``variant_AA*`` arrays.
+    """Write a VCF Zarr (VCZ) store with the ``variant_AA*`` arrays.
 
     Follows the `VCF Zarr specification
-    <https://github.com/sgkit-dev/vcf-zarr-spec>`_. The template store is
-    copied to ``output_zarr`` and variant-indexed arrays are added at the root:
+    <https://github.com/sgkit-dev/vcf-zarr-spec>`_. A template store is
+    copied to ``output_zarr``. Without one, each site is written as one
+    variant carrying its alleles and the genotypes of its tips, with
+    ``call_genotype_phased`` from
+    :attr:`Site.phased <ancestree.sites.Site.phased>`. Variant-indexed arrays
+    are added at the root:
     ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
     ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and
     ``variant_AA_post`` (``(n_variants, 4) float32`` posterior over A, C, G, T).
@@ -1108,7 +1237,8 @@ class ZarrWriter(Writer):
     ``info`` go in the root group's ``attrs`` under ``ancestree_provenance``
     and ``ancestree_info``. Only directory-backed stores are supported.
 
-    :param input_zarr: Template VCZ store path.
+    :param input_zarr: Template VCZ store path, or ``None`` to write the
+        variants from the sites.
     :param output_zarr: Destination store path, which must differ from
         ``input_zarr``.
     :param min_confidence: Optional minimum
@@ -1116,8 +1246,9 @@ class ZarrWriter(Writer):
         to commit a MAP allele. Below it ``variant_AA`` gets ``"."``
         (``AA_prob`` still
         records the sub-threshold value). ``None`` (default) disables it.
-    :param samples: Sample columns to write, matched against ``sample_id``.
-        Every array with a ``samples`` dimension is subset, which requires
+    :param samples: Sample columns to write, matched against ``sample_id``,
+        or against the tips and the individuals they belong to. Every array of
+        a template with a ``samples`` dimension is subset, which requires
         every array to carry dimension names. ``None`` (default) writes every
         column. Allele counts such as ``variant_AC`` are copied from the
         template.
@@ -1136,9 +1267,12 @@ class ZarrWriter(Writer):
         if field != "AA_post"
     )
 
+    #: Variants per chunk of a store written from the sites.
+    _CHUNK = 10_000
+
     def __init__(
         self,
-        input_zarr: str | os.PathLike,
+        input_zarr: "str | os.PathLike | None",
         output_zarr: str | os.PathLike,
         *,
         min_confidence: float | None = None,
@@ -1147,7 +1281,7 @@ class ZarrWriter(Writer):
         """Validate that the backend is importable. Defer all I/O to :meth:`write`."""
         self._require_backend(
             "zarr", "`pip install zarr` or `conda install -c conda-forge zarr`")
-        self._input = str(input_zarr)
+        self._input = None if input_zarr is None else str(input_zarr)
         self._init_output(output_zarr, min_confidence, samples)
 
     @staticmethod
@@ -1199,7 +1333,7 @@ class ZarrWriter(Writer):
 
     @staticmethod
     def _create_variant_array(root, name, data, dims, description=None,
-                              variant_chunk=None):
+                              variant_chunk=None, dtype=None):
         """Create (overwriting) a root array holding ``data``.
 
         :param description: Text for the array's ``description`` attribute,
@@ -1207,11 +1341,13 @@ class ZarrWriter(Writer):
             line on the way back out to VCF.
         :param variant_chunk: Chunk length along the variants axis, shared by
             every variant-indexed array in a VCZ store.
+        :param dtype: Stored dtype, or ``None`` for that of ``data``.
         """
         chunks = (int(variant_chunk), *data.shape[1:]) if variant_chunk else None
         with ZarrWriter._string_dtypes_allowed():
-            arr = ZarrWriter._create_array(root, name, data.shape, data.dtype,
-                                           dims, chunks)
+            arr = ZarrWriter._create_array(
+                root, name, data.shape,
+                data.dtype if dtype is None else dtype, dims, chunks)
             arr[:] = data
         if description is not None:
             arr.attrs["description"] = str(description)
@@ -1285,19 +1421,6 @@ class ZarrWriter(Writer):
                     or ())
 
     @staticmethod
-    def _is_tagged(store: str) -> bool:
-        """Whether every array of a store carries dimension names.
-
-        :param store: Local store path.
-        :return: ``False`` where an array's axes cannot be named.
-        """
-        import zarr
-
-        root = zarr.open(store, mode="r")
-        return all(ZarrWriter._dimension_names(root[name])
-                   for name in root.array_keys())
-
-    @staticmethod
     def _reconsolidate(store: str) -> None:
         """Rewrite consolidated metadata, where the store carries any.
 
@@ -1321,7 +1444,7 @@ class ZarrWriter(Writer):
         info: Mapping[str, object] | None = None,
         provenance: Mapping[str, object] | None = None,
     ) -> int:
-        """Copy the template store and add the ``AA`` / ``AA_prob`` arrays.
+        """Write the store with the ``AA`` / ``AA_prob`` arrays.
 
         :param posteriors: Iterable of ``(Site, Posterior)`` pairs. Streamed and
             placed into their template rows by ``(chrom, pos)`` without buffering
@@ -1334,29 +1457,35 @@ class ZarrWriter(Writer):
             group's ``attrs`` under ``ancestree_provenance``.
         :return: Number of variants annotated.
         """
-        import shutil
-        import tempfile
-
         import zarr
 
-        self._refuse_template_overwrite()
+        if self._input is not None:
+            self._refuse_template_overwrite()
         # The build is staged in a sibling temp store and swapped into place
         # once every array is written and the empty-match refusal has passed.
         parent = os.path.dirname(os.path.abspath(self._output)) or "."
         staging = tempfile.mkdtemp(prefix=".ancestree_vcz_", dir=parent)
         work_dir = os.path.join(staging, "store")
-        shutil.copytree(self._input, work_dir)
 
         try:
-            self._subset_samples(work_dir)
-            root = zarr.open(work_dir, mode="r+")
-            n_annotated, n_seen = self._annotate_store(
-                root, posteriors, info, provenance, store_posterior,
-            )
-            if n_annotated == 0 and n_seen:
-                self._refuse_no_matches(
-                    n_seen, f"the variants of {self._input!r}")
-            self._reconsolidate(work_dir)
+            if self._input is None:
+                # The format bio2zarr writes, which zarr v2 writes by default.
+                version = ({"zarr_format": 2} if hasattr(zarr, "create_array")
+                           else {})
+                n_annotated = self._write_from_sites(
+                    zarr.open_group(work_dir, mode="w", **version), posteriors,
+                    info, provenance, store_posterior)
+            else:
+                shutil.copytree(self._input, work_dir)
+                self._subset_samples(work_dir)
+                root = zarr.open(work_dir, mode="r+")
+                n_annotated, n_seen = self._annotate_store(
+                    root, posteriors, info, provenance, store_posterior,
+                )
+                if n_annotated == 0 and n_seen:
+                    self._refuse_no_matches(
+                        n_seen, f"the variants of {self._input!r}")
+                self._reconsolidate(work_dir)
             self._swap_into_place(work_dir, self._output)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
@@ -1375,7 +1504,6 @@ class ZarrWriter(Writer):
         once the swap succeeds. A failed swap is rolled back so the original
         store is never lost.
         """
-        import shutil
 
         if os.path.exists(dst_dir):
             backup = f"{dst_dir}.old-{os.getpid()}"
@@ -1442,6 +1570,20 @@ class ZarrWriter(Writer):
         # Follow the template's chunking along the variants axis.
         variant_chunk = getattr(
             root[ZARR_POSITION_FIELD], "chunks", (None,))[0]
+        self._write_aa_arrays(root, aa, prob, post, variant_chunk)
+        self._write_run_attrs(root, info, provenance)
+        return n_annotated, n_seen
+
+    def _write_aa_arrays(self, root, aa, prob, post, variant_chunk) -> None:
+        """Write the ``variant_AA*`` arrays.
+
+        :param root: The open store.
+        :param aa: Per-variant MAP allele.
+        :param prob: Per-variant MAP probability.
+        :param post: ``(n_variants, len(STATES))`` posterior, or ``None`` to
+            omit ``variant_AA_post``.
+        :param variant_chunk: Chunk length along the variants axis.
+        """
         self._create_variant_array(
             root, ZARR_AA_FIELD, aa, ["variants"],
             description=AA_INFO_FIELDS["AA"]["Description"],
@@ -1460,6 +1602,14 @@ class ZarrWriter(Writer):
         elif ZARR_AA_POST_FIELD in root:
             del root[ZARR_AA_POST_FIELD]
 
+    def _write_run_attrs(self, root, info, provenance) -> None:
+        """Record ``info`` and ``provenance`` in the root ``attrs`` and declare
+        the ``AA`` fields in any stored VCF header.
+
+        :param root: The open store.
+        :param info: Run-level constants, or ``None``.
+        :param provenance: Structured run record, or ``None``.
+        """
         # A run passing no info clears an earlier run's block.
         if info:
             root.attrs["ancestree_info"] = json.loads(
@@ -1479,4 +1629,113 @@ class ZarrWriter(Writer):
                 "#CHROM", addition + "#CHROM", 1,
             ) if "#CHROM" in header else header + addition
 
-        return n_annotated, n_seen
+    def _write_from_sites(
+        self,
+        root,
+        posteriors: Iterable[tuple[Site, Posterior]],
+        info: Mapping[str, object] | None,
+        provenance: Mapping[str, object] | None,
+        store_posterior: bool,
+    ) -> int:
+        """Write one annotated variant per site into an empty store.
+
+        The genotypes are appended a chunk at a time. Missing calls are ``-1``
+        and the slots beyond an individual's ploidy ``-2``. Strings are stored
+        at variable length.
+
+        :param root: The empty group.
+        :return: Number of variants written.
+        """
+        import numpy as np
+
+        columns: dict[str, list[str]] | None = None
+        ploidy = 1
+        contig_index: dict[str, int] = {}
+        pos: list[int] = []
+        contig: list[int] = []
+        alleles: list[list[str]] = []
+        aa: list[str] = []
+        prob: list[float] = []
+        post: list[list[float]] = []
+        genotypes: list[np.ndarray] = []
+        phased: list[bool] = []
+        call_arrays = None
+
+        def flush() -> None:
+            """Append the buffered genotypes."""
+            nonlocal call_arrays
+            if call_arrays is None:
+                n_samples = len(columns or ())
+                shape = (0, n_samples, ploidy)
+                chunks = (self._CHUNK, max(n_samples, 1), ploidy)
+                dims = ["variants", "samples", "ploidy"]
+                call_arrays = (
+                    self._create_array(root, "call_genotype", shape, "i1",
+                                       dims, chunks),
+                    self._create_array(root, "call_genotype_mask", shape,
+                                       bool, dims, chunks),
+                    self._create_array(root, "call_genotype_phased",
+                                       shape[:2], bool, dims[:2], chunks[:2]))
+            if genotypes:
+                gt, mask, ph = call_arrays
+                block = np.stack(genotypes)
+                gt.append(block, axis=0)
+                mask.append(block < 0, axis=0)
+                ph.append(np.repeat(np.asarray(phased)[:, None],
+                                    block.shape[1], axis=1), axis=0)
+                genotypes.clear()
+                phased.clear()
+
+        for site, posterior in posteriors:
+            if columns is None:
+                columns = self._columns(site)
+                ploidy = max((len(h) for h in columns.values()), default=1)
+            record_alleles, index = self._record_alleles(site)
+            row = np.full((len(columns), ploidy), -2, dtype=np.int8)
+            for j, haps in enumerate(columns.values()):
+                for k, h in enumerate(haps):
+                    row[j, k] = index.get(site.tip_alleles.get(h), -1)
+            genotypes.append(row)
+            phased.append(site.phased)
+            chrom = str(site.chrom)
+            contig.append(contig_index.setdefault(chrom, len(contig_index)))
+            pos.append(int(site.pos))
+            alleles.append(record_alleles)
+            allele, max_prob = self._call(site, posterior)
+            aa.append(allele)
+            prob.append(max_prob)
+            if store_posterior:
+                post.append(self._posterior_vector(posterior))
+            if len(genotypes) == self._CHUNK:
+                flush()
+        flush()
+        n = len(pos)
+        if not n:
+            self._log.warning("%s received no posteriors, so %s holds no "
+                              "variants.", type(self).__name__, self._output)
+        width = max((len(a) for a in alleles), default=1)
+        text = str if hasattr(root, "create_array") else object
+        chunk = self._CHUNK
+        for name, data, dims, dtype in (
+                (ZARR_POSITION_FIELD, np.asarray(pos, dtype=np.int32),
+                 ["variants"], None),
+                (ZARR_CONTIG_FIELD, np.asarray(contig, dtype=np.int32),
+                 ["variants"], None),
+                (ZARR_ALLELE_FIELD,
+                 np.array([a + [""] * (width - len(a)) for a in alleles],
+                          dtype=object).reshape(n, width),
+                 ["variants", "alleles"], text),
+                ("contig_id", np.asarray(list(contig_index), dtype=object),
+                 ["contigs"], text),
+                ("sample_id", np.asarray(list(columns or ()), dtype=object),
+                 ["samples"], text)):
+            self._create_variant_array(
+                root, name, data, dims,
+                variant_chunk=chunk if dims[0] == "variants" else None,
+                dtype=dtype)
+        self._write_aa_arrays(
+            root, np.asarray(aa, dtype="U1"), np.asarray(prob, dtype="f4"),
+            np.asarray(post, dtype="f4").reshape(n, len(STATES))
+            if store_posterior else None, chunk)
+        self._write_run_attrs(root, info, provenance)
+        return n

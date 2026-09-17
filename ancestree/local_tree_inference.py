@@ -30,8 +30,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
-import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from itertools import combinations
@@ -56,8 +54,7 @@ from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
 from ancestree.settings import Settings
 from ancestree.sites import (BaseComposition, Site, SiteSource,
-                             SiteTable, _individual_of, _PanelSites,
-                             _path_format)
+                             SiteTable, _PanelSites, _path_format)
 from ancestree._repr import ReprMixin
 
 # Below this many SNPs per block (panel-wide average), a large fraction of
@@ -1475,10 +1472,6 @@ class LocalTreeInference(Inference):
         self.chrom = chrom
         self._segmented = False
         self._announced = False
-        # Contig the posteriors carry, resolved from the source below. Threaded
-        # into the inner ARG (so its sites carry it) and used as the default
-        # template contig, so to_vcf / to_zarr line up with the data.
-        self._chrom: str = "1"
         self._stitched_ts = None  # cached genome-wide TS on the chunked path
         # Retained for the segmented path / provenance. Constructed here rather
         # than defaulted in the signature: models carry mutable state that would
@@ -1585,7 +1578,6 @@ class LocalTreeInference(Inference):
                     "Ignoring %s for a pre-built tree sequence: these "
                     "configure local-tree building, which the supplied "
                     "genealogy has already done.", ", ".join(ignored))
-            self._chrom = self._arg.chrom
             return
 
         explicit_panel = sample_names is not None
@@ -1659,9 +1651,6 @@ class LocalTreeInference(Inference):
             self._source: "Iterable[Site] | SiteSource" = (
                 list(source) if hasattr(source, "__next__") else source
             )
-            first = next(iter(self._source), None)
-            if first is not None:
-                self._chrom = str(first.chrom)
             # One full-panel coverage check up front (per-chunk builders skip
             # it, since a chunk may legitimately not span every sample).
             LocalTreeInference._assert_samples_observed(self._source, self.sample_names)
@@ -1690,13 +1679,11 @@ class LocalTreeInference(Inference):
         _span = self.builder.sequence_length
         self._warn_resolution(requested_bp=_raw_window_bp(window, _n, _span),
                               n_sites=_n, span_bp=_span)
-        if self.builder.sites:
-            self._chrom = str(self.builder.sites[0].chrom)
         self._arg_model = model
         self._arg_kwargs = dict(
             mu=mu, prior=prior,
             base_composition=base_composition, progress=progress,
-            n_workers=n_workers, chrom=self._chrom, focal=focal,
+            n_workers=n_workers, focal=focal,
             ingroup_samples=ingroup_samples, outgroup_samples=outgroup_samples,
             mu_matches_time_units=mu_matches_time_units,
         )
@@ -2858,57 +2845,6 @@ class LocalTreeInference(Inference):
         :param path: Output path. Suffix selects the format.
         """
         self.pairwise_tmrcas().write(path)
-
-    def _dump_template_vcf(
-        self, contig_id: str | None, restrict_samples: bool = False,
-    ) -> str:
-        """Write a temporary template VCF from the sites read, or from a
-        pre-built tree sequence.
-
-        A template from the sites holds their record alleles and the panel's
-        genotypes, and no INFO.
-
-        :param contig_id: Contig label for the template. ``None`` resolves to
-            the contig the posteriors carry.
-        :param restrict_samples: Whether a template from a pre-built tree
-            sequence holds only the samples the inference used. A template
-            from the sites holds only the panel.
-        :return: Path of the temporary file, which the caller unlinks.
-        """
-        if not self._segmented and self.builder is None:
-            contig = contig_id if contig_id is not None else self._chrom
-            return self._point_arg()._dump_template_vcf(contig, restrict_samples)
-        sites = self._source if self._segmented else self.builder.sites
-        label = contig_id if contig_id is not None else self.chrom
-        columns: dict[str, list[str]] = {}
-        for name in self.sample_names:
-            columns.setdefault(_individual_of(name), []).append(name)
-
-        def write(fh) -> None:
-            contigs: dict[str, None] = {}
-            with tempfile.TemporaryFile("w+") as body:
-                for site in sites:
-                    chrom = label if label is not None else site.chrom
-                    contigs[chrom] = None
-                    index = {a: str(i) for i, a in enumerate(site.alleles)}
-                    calls = ["|".join(index.get(site.tip_alleles.get(h), ".")
-                                      for h in haps)
-                             for haps in columns.values()]
-                    body.write("\t".join((
-                        chrom, str(site.pos), ".", site.alleles[0],
-                        ",".join(site.alleles[1:]) or ".", ".", ".", ".",
-                        "GT", *calls)) + "\n")
-                fh.write("##fileformat=VCFv4.2\n")
-                fh.writelines(f"##contig=<ID={c}>\n" for c in contigs)
-                fh.write('##FORMAT=<ID=GT,Number=1,Type=String,'
-                         'Description="Genotype">\n')
-                fh.write("\t".join(("#CHROM", "POS", "ID", "REF", "ALT", "QUAL",
-                                    "FILTER", "INFO", "FORMAT", *columns))
-                         + "\n")
-                body.seek(0)
-                shutil.copyfileobj(body, fh)
-
-        return self._temporary_vcf(write)
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

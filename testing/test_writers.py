@@ -487,17 +487,15 @@ class TestVCFWriterStreamingParity:
 
 
 class TestVCFWriterContigAndWarning:
-    """``ARGBasedInference.to_vcf`` defaults the template contig
-    to the inference's own ``chrom`` (not the literal ``"1"``), and the writer
-    refuses a run in which nothing matched."""
+    """``ARGBasedInference.to_vcf`` writes the inference's own ``chrom``, and
+    the writer refuses a run in which nothing matched."""
 
-    def test_to_vcf_auto_template_uses_inference_chrom(self, hap_ts, tmp_path):
+    def test_to_vcf_uses_inference_chrom(self, hap_ts, tmp_path):
         from ancestree import ARGBasedInference, JC69
 
         inf = ARGBasedInference(hap_ts, JC69(), mu=5e-8, chrom="chr20", progress=False)
         out_vcf = tmp_path / "auto.vcf"
-        n = inf.to_vcf(out_vcf)  # input_vcf=None, so the template is automatic
-        # The template contig follows the posteriors' "chr20", so rows match.
+        n = inf.to_vcf(out_vcf)
         assert n > 0
         recovered = list(cyvcf2.VCF(str(out_vcf)))
         assert recovered, "expected records in the auto-written VCF"
@@ -884,22 +882,20 @@ class TestSiteWithNoReadableAlleleIsNotCalled:
 
 
 class TestRestrictSamples:
-    """Output keeps every input sample unless ``restrict_samples`` is set."""
+    """An annotated file keeps every sample unless ``restrict_samples`` is set.
+    An output written from the sites holds the samples the inference used."""
 
     @staticmethod
-    def _inference():
+    def _inference(**kw):
         return anc.Inference.from_arg(
             tskit.load(QUICKSTART_TREES), mu=5e-8, progress=False,
-            ingroup_samples=ING, outgroup_samples=OUT)
+            **{"ingroup_samples": ING, "outgroup_samples": OUT, **kw})
 
-    @pytest.mark.parametrize("restrict, want", [
-        (False, ["i0", "i1", "i2", "i3", "i4", "i5", "o0", "o1"]),
-        (True, ING + OUT),
-    ])
-    def test_vcf(self, tmp_path, restrict, want):
+    @pytest.mark.parametrize("restrict", [False, True])
+    def test_vcf_from_the_sites_holds_the_panel(self, tmp_path, restrict):
         out = str(tmp_path / "out.vcf")
         self._inference().to_vcf(out, restrict_samples=restrict)
-        assert cyvcf2.VCF(out).samples == want
+        assert cyvcf2.VCF(out).samples == ING + OUT
 
     @pytest.mark.parametrize("restrict, n", [(False, 8), (True, 5)])
     def test_arg(self, tmp_path, restrict, n):
@@ -910,51 +906,33 @@ class TestRestrictSamples:
     def test_zarr_keeps_the_genotypes_of_the_kept_columns(self, tmp_path):
         import zarr
 
-        inference = self._inference()
         full, sub = str(tmp_path / "full.vcz"), str(tmp_path / "sub.vcz")
-        inference.to_zarr(full)
-        inference.to_zarr(sub, input_zarr=full, restrict_samples=True)
+        self._inference(ingroup_samples=None, outgroup_samples=None).to_zarr(full)
+        self._inference().to_zarr(sub, input_zarr=full, restrict_samples=True)
         a, b = zarr.open(full, mode="r"), zarr.open(sub, mode="r")
         names = [str(s) for s in a["sample_id"][:]]
         keep = [names.index(s) for s in ING + OUT]
         assert [str(s) for s in b["sample_id"][:]] == ING + OUT
         np.testing.assert_array_equal(
             b["call_genotype"][:], a["call_genotype"][:][:, keep])
-        np.testing.assert_array_equal(b["variant_AA"][:], a["variant_AA"][:])
+        assert len(a["sample_id"][:]) == 8
 
 
-class TestTemplateColumnNames:
-    """A template written from trees names each column from ``sample_map``."""
-
-    def test_unnamed_samples_keep_the_tskit_default(self):
-        ts = tskit.load(QUICKSTART_TREES)
-        smap = {s: n for s, n in TskitLocalTree.default_sample_map(ts).items()
-                if s in ING + OUT}
-        assert anc.Inference._template_individual_names(ts, smap) == [
-            "i0", "i1", "i2", "i3", "tsk_4", "tsk_5", "o0", "tsk_7"]
-
-    def test_a_diploid_column_takes_the_individual_name(self):
-        ts = tskit.load(DEMO_TREES)
-        smap = TskitLocalTree.default_sample_map(ts)
-        names = anc.Inference._template_individual_names(ts, smap)
-        assert names == ["i0", "i1", "i2", "i3", "o1", "o2", "o3"]
-        half = {"i0_h1": smap["i0_h1"]}
-        assert anc.Inference._template_individual_names(ts, half)[0] == "i0"
-
-    def test_an_explicit_partial_sample_map_restricts_by_name(self, tmp_path):
-        ts = tskit.load(QUICKSTART_TREES)
-        smap = {s: n for s, n in TskitLocalTree.default_sample_map(ts).items()
-                if s in ING + OUT}
-        inf = anc.Inference.from_arg(ts, mu=5e-8, sample_map=smap,
-                                     ingroup_samples=ING,
-                                     outgroup_samples=OUT, progress=False)
-        out = str(tmp_path / "out.vcf")
-        inf.to_vcf(out, restrict_samples=True)
-        assert cyvcf2.VCF(out).samples == ING + OUT
+def test_an_explicit_partial_sample_map_names_the_columns(tmp_path):
+    ts = tskit.load(QUICKSTART_TREES)
+    smap = {s: n for s, n in TskitLocalTree.default_sample_map(ts).items()
+            if s in ING + OUT}
+    inf = anc.Inference.from_arg(ts, mu=5e-8, sample_map=smap,
+                                 ingroup_samples=ING,
+                                 outgroup_samples=OUT, progress=False)
+    out = str(tmp_path / "out.vcf")
+    inf.to_vcf(out)
+    assert cyvcf2.VCF(out).samples == ING + OUT
 
 
 class TestPrebuiltLocalTreeWritesTheInput:
-    """A pre-built tree sequence is written as ARG mode writes it."""
+    """A pre-built tree sequence is written as ARG mode writes it: a ``.trees``
+    output annotates it, a VCF is written from the sites."""
 
     @staticmethod
     def _inference():
@@ -968,16 +946,15 @@ class TestPrebuiltLocalTreeWritesTheInput:
         self._inference().to_arg(out, restrict_samples=restrict)
         assert tskit.load(out).num_samples == n
 
-    @pytest.mark.parametrize("restrict, n", [(False, 8), (True, 5)])
-    def test_vcf(self, tmp_path, restrict, n):
+    def test_vcf(self, tmp_path):
         out = str(tmp_path / "out.vcf")
-        self._inference().to_vcf(out, restrict_samples=restrict)
-        assert len(cyvcf2.VCF(out).samples) == n
+        self._inference().to_vcf(out)
+        assert cyvcf2.VCF(out).samples == ING + OUT
 
 
-def test_unnamed_diploids_restrict_by_node(tmp_path):
-    """Unnamed individuals are restricted by node and keep their unrestricted
-    ``tsk_<j>`` column names."""
+def test_unnamed_samples_are_written_under_their_node_ids(tmp_path):
+    """Samples of unnamed individuals are named by node id, so each is its own
+    column under the name the sample lists use."""
     ts = msprime.sim_ancestry(4, sequence_length=1e4, population_size=1e4,
                               random_seed=1)
     ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
@@ -985,11 +962,9 @@ def test_unnamed_diploids_restrict_by_node(tmp_path):
     inf = anc.Inference.from_arg(ts, mu=5e-8, progress=False,
                                  ingroup_samples=["0", "1", "2", "3"],
                                  outgroup_samples=["6", "7"])
-    full, sub = str(tmp_path / "full.vcf"), str(tmp_path / "sub.vcf")
-    inf.to_vcf(full)
-    inf.to_vcf(sub, restrict_samples=True)
-    assert cyvcf2.VCF(full).samples == ["tsk_0", "tsk_1", "tsk_2", "tsk_3"]
-    assert cyvcf2.VCF(sub).samples == ["tsk_0", "tsk_1", "tsk_3"]
+    out = str(tmp_path / "out.vcf")
+    inf.to_vcf(out)
+    assert cyvcf2.VCF(out).samples == ["0", "1", "2", "3", "6", "7"]
 
 
 @pytest.mark.parametrize("suffix, magic", [
@@ -1070,12 +1045,10 @@ def test_a_store_without_a_suffix_is_a_store(tmp_path):
 
 
 @pytest.mark.parametrize("chunk_size", [None, 25_000])
-def test_a_store_without_dimension_names_templates_from_the_sites(
-        tmp_path, chunk_size):
-    """vcztools cannot export an untagged store, so to_vcf writes the template
-    from the sites read. A template exported from the panel's trees lost the
-    records of sites monomorphic within the panel, whose alleles the trees
-    no longer carry."""
+def test_a_store_to_a_vcf_is_written_from_the_sites(tmp_path, chunk_size):
+    """Every site is a record, under the relabelled contig. A template
+    exported from the panel's trees lost the records of sites monomorphic
+    within the panel, whose alleles the trees no longer carry."""
     from testing._helpers import ts_to_vcz
 
     ts = msprime.sim_ancestry(6, ploidy=1, sequence_length=5e4,
@@ -1102,17 +1075,24 @@ def test_a_store_without_dimension_names_templates_from_the_sites(
     assert all(r.INFO.get("AA") is not None for r in records)
 
 
-def test_only_a_local_store_is_the_zarr_template():
-    """A store named by URL cannot be copied, so the template is built."""
+def test_a_remote_store_is_written_from_the_sites(tmp_path):
+    """A store named by URL cannot be copied, so the store is written from
+    the sites."""
     inf = _remote_inference("https://host/demo.vcz?raw=true")
-    assert inf._input_store_path is None
+    assert inf._output_template(None, "vcz", "out.vcz", False)[0] is None
 
 
-def test_a_remote_vcf_is_refused_as_a_zarr_template(tmp_path):
-    """bio2zarr reads only local files, so a remote VCF asks for a store."""
-    inf = _remote_inference("https://host/demo.vcf.gz?raw=true")
-    with pytest.raises(ValueError, match="Pass input_zarr="):
-        inf.to_zarr(str(tmp_path / "out.vcz"))
+@pytest.mark.parametrize("out, annotated", [("out.vcf", True),
+                                            ("out.vcz", False)])
+def test_a_remote_vcf_is_annotated_only_as_a_vcf(tmp_path, out, annotated):
+    """cyvcf2 reads a remote VCF, so a VCF output annotates it. Any other
+    output is written from the sites, as for a local VCF."""
+    url = "https://host/demo.vcf.gz?raw=true"
+    inf = _remote_inference(url)
+    template, _ = inf._output_template(None, out[-3:], out, False)
+    assert (template == url) is annotated
+    if not annotated:
+        assert inf.to_zarr(str(tmp_path / out)) == len(list(inf.infer()))
 
 
 def test_a_restricted_site_is_written_to_its_own_record(tmp_path):
@@ -1131,3 +1111,84 @@ def test_a_restricted_site_is_written_to_its_own_record(tmp_path):
     assert VCFWriter(str(template), out).write([(site, _post("C", 0.9))]) == 1
     calls = {r.ID: r.INFO.get("AA") for r in cyvcf2.VCF(out)}
     assert calls == {"indel": None, "snp": "C"}
+
+
+class TestWritingFromTheSites:
+    """An output without a file to annotate is written from the sites."""
+
+    PANEL = frozenset({"i0", "i1", "o1"})
+
+    @staticmethod
+    def _sites():
+        from ancestree.sources import CyVCF2Source
+        from testing._helpers import DEMO_VCF
+
+        return list(CyVCF2Source(DEMO_VCF))[:300]
+
+    @pytest.mark.parametrize("suffix", [".vcf.gz", ".vcz"])
+    def test_reading_the_output_gives_back_the_sites(self, tmp_path, suffix):
+        from ancestree.sites import _named
+        from ancestree.sources import CyVCF2Source, VcfZarrSource
+        from ancestree.writers import ZarrWriter
+
+        sites = self._sites()
+        out = str(tmp_path / f"out{suffix}")
+        writer = VCFWriter if suffix == ".vcf.gz" else ZarrWriter
+        writer(None, out, samples=self.PANEL).write(_fake_posteriors(sites))
+        source = (CyVCF2Source if suffix == ".vcf.gz" else VcfZarrSource)(out)
+        kept = [s.restricted_to({n for n in s.tip_alleles
+                                 if _named(n, self.PANEL)}) for s in sites]
+        assert list(source) == kept
+        assert source.samples() == list(kept[0].tip_alleles)
+
+    def test_the_annotations_match_those_of_an_annotated_file(self, tmp_path):
+        """Both strategies write the same record for a site."""
+        from testing._helpers import DEMO_VCF
+
+        pairs = _fake_posteriors(self._sites())
+        annotated, written = str(tmp_path / "a.vcf"), str(tmp_path / "w.vcf")
+        VCFWriter(DEMO_VCF, annotated, samples=self.PANEL).write(pairs)
+        VCFWriter(None, written, samples=self.PANEL).write(pairs)
+
+        def records(path):
+            return [(r.CHROM, r.POS, r.REF, r.ALT, r.genotypes,
+                     r.INFO.get("AA"), r.INFO.get("AA_prob"),
+                     r.INFO.get("AA_post"))
+                    for r in cyvcf2.VCF(path) if r.INFO.get("AA") is not None]
+
+        assert cyvcf2.VCF(annotated).samples == cyvcf2.VCF(written).samples
+        assert records(annotated) == records(written)
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_an_unphased_site_is_written_unphased(self, tmp_path, suffix):
+        import zarr
+
+        from ancestree.writers import ZarrWriter
+
+        tips = {"a_h0": "A", "a_h1": "G", "b_h0": "G", "b_h1": "G"}
+        sites = [Site(chrom="1", pos=p, alleles=("A", "G"), tip_alleles=tips,
+                      phased=phased)
+                 for p, phased in ((1, True), (2, False))]
+        out = str(tmp_path / f"out{suffix}")
+        writer = VCFWriter if suffix == ".vcf" else ZarrWriter
+        writer(None, out).write(_fake_posteriors(sites))
+        if suffix == ".vcf":
+            phases = [[g[-1] for g in r.genotypes] for r in cyvcf2.VCF(out)]
+        else:
+            phases = zarr.open(out, mode="r")["call_genotype_phased"][:].tolist()
+        assert phases == [[True, True], [False, False]]
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_a_failed_write_leaves_nothing_behind(self, tmp_path, suffix):
+        from ancestree.writers import ZarrWriter
+
+        pairs = _fake_posteriors(self._sites())
+
+        def stream():
+            yield pairs[0]
+            raise RuntimeError("stream failed")
+
+        writer = VCFWriter if suffix == ".vcf" else ZarrWriter
+        with pytest.raises(RuntimeError, match="stream failed"):
+            writer(None, str(tmp_path / f"out{suffix}")).write(stream())
+        assert list(tmp_path.iterdir()) == []

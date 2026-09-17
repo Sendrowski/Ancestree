@@ -1671,16 +1671,17 @@ class TestNoOutgroupMode:
             FixedTreeInference([], JC69(), outgroup_samples=[])
 
 
-class TestToVcfTemplate:
-    def test_list_source_without_input_vcf(self, tmp_path):
-        tree = OutgroupLadderTree(["i0"], ["o1", "o2"])
-        site = Site(chrom="1", pos=1, alleles=("A",),
-                    tip_alleles={"o1": "A", "o2": "A"})
-        inf = FixedTreeInference(
-            [site], JC69(), _no_counts(), tree=tree, fit_required=False,
-        )
-        with pytest.raises(ValueError, match="no template VCF available"):
-            inf.to_vcf(tmp_path / "out.vcf")
+def test_a_list_source_is_written_from_the_sites(tmp_path):
+    import cyvcf2
+
+    tree = OutgroupLadderTree(["i0"], ["o1", "o2"])
+    site = Site(chrom="1", pos=1, alleles=("A",),
+                tip_alleles={"x": "A", "o1": "A", "o2": "A"})
+    inf = FixedTreeInference(
+        [site], JC69(), _no_counts(), tree=tree, fit_required=False,
+    )
+    assert inf.to_vcf(tmp_path / "out.vcf") == 1
+    assert cyvcf2.VCF(str(tmp_path / "out.vcf")).samples == ["o1", "o2"]
 
 
 def _fit_with_both_pools_requested():
