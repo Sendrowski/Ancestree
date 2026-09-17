@@ -259,13 +259,8 @@ def test_a_tree_sequence_with_no_matches_is_refused():
         TskitWriter(ts, "unused.trees").write(iter(offered))
 
 
-def test_local_tree_templates_from_its_source_not_its_inference(tmp_path):
-    """The auto-written template must describe the data being annotated.
-
-    Templating from the inferred pseudo-ARG gives whichever alleles
-    ``map_mutations`` retained, which need not be the input's, so the calls
-    whose alleles it does not carry find no row and are dropped.
-    """
+def test_local_tree_annotates_its_source_vcf(tmp_path):
+    """A VCF source is annotated, so every posterior finds its record."""
     import ancestree as anc
 
     vcf = DEMO_VCF

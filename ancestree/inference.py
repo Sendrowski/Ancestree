@@ -16,6 +16,7 @@ All three implement :meth:`Inference.infer() <ancestree.inference.Inference.infe
 """
 import datetime
 import logging
+import math
 import os
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -117,11 +118,10 @@ class Inference(ReprMixin, ABC):
     #: from the modes whose trees are in substitutions per site.
     mu: "float | msprime.RateMap | None" = None
     #: The local VCF Zarr store this inference was constructed from, where it
-    #: was one. The default template for :meth:`Inference.to_zarr`, and through
-    #: its records for :meth:`Inference.to_vcf`.
+    #: was one, which :meth:`Inference.to_zarr` annotates by default.
     _input_store_path: "str | None" = None
-    #: The VCF this inference was constructed from, where it was one. The
-    #: default template for :meth:`Inference.to_vcf`.
+    #: The VCF this inference was constructed from, where it was one, which
+    #: :meth:`Inference.to_vcf` annotates by default.
     _input_vcf_path: "str | None" = None
     #: Set where the caller's correctness depends on scoring in-process,
     #: so the global parallelism switch cannot promote a worker pool.
@@ -516,14 +516,19 @@ class Inference(ReprMixin, ABC):
         :meth:`Inference.to_arg() <ancestree.inference.Inference.to_arg>`. The
         JSON-serialisable record carries ``software``, ``version``, ``mode``
         (``"arg"`` / ``"fixed-tree"`` / ``"local-tree"``), ``parameters`` (the
-        run parameters, any ML-fitted values, and the focal diagnostics once a
-        walk has finished) and a UTC ``timestamp``.
+        run parameters, the ingroup, outgroup and panel samples the run used,
+        any ML-fitted values, and the focal diagnostics once a walk has
+        finished) and a UTC ``timestamp``.
 
         :return: A :class:`~ancestree.readers.Provenance` record.
         """
         from ancestree import __version__
 
-        parameters = self._provenance_parameters()
+        parameters = {
+            **self._provenance_parameters(),
+            "ingroup_samples": list(self._baseline_ingroup_samples()),
+            "outgroup_samples": list(self._baseline_outgroup_samples()),
+        }
         panel = self._panel_samples()
         if panel:
             parameters = {**parameters, "panel_samples": list(panel)}
@@ -1272,6 +1277,14 @@ class Inference(ReprMixin, ABC):
             if isinstance(params, dict):
                 params.update(self._focal_totals)
 
+    def _contig_lengths(self) -> dict[str, int]:
+        """The length of each contig the sites lie on, where the mode knows it.
+
+        :return: ``{contig: length}``, empty for a mode reading no genome
+            length.
+        """
+        return {}
+
     def _output_template(
         self, given: "str | os.PathLike | None", fmt: str,
         output: "str | os.PathLike", restrict_samples: bool,
@@ -1300,7 +1313,7 @@ class Inference(ReprMixin, ABC):
                 "No %s input to annotate, so %s is written from the sites with "
                 "the samples the inference used",
                 "VCF" if fmt == "vcf" else "local VCF Zarr store", output)
-            return None, self._used_samples()
+            return None, frozenset(self._panel_samples()) or None
         return template, self._used_samples() if restrict_samples else None
 
     def to_zarr(
@@ -1352,7 +1365,7 @@ class Inference(ReprMixin, ABC):
             input_zarr, "vcz", output_zarr, restrict_samples)
         return ZarrWriter(
             template, output_zarr, min_confidence=min_confidence,
-            samples=samples,
+            samples=samples, contig_lengths=self._contig_lengths(),
         ).write(
             self._completing(self._posteriors_for_writing(posteriors),
                              provenance, supplied),
@@ -1408,7 +1421,7 @@ class Inference(ReprMixin, ABC):
             input_vcf, "vcf", output_vcf, restrict_samples)
         return VCFWriter(
             template, output_vcf, min_confidence=min_confidence,
-            samples=samples,
+            samples=samples, contig_lengths=self._contig_lengths(),
         ).write(
             self._completing(self._posteriors_for_writing(posteriors),
                              provenance, supplied),
@@ -1598,7 +1611,8 @@ class ARGBasedInference(Inference):
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
         dropped from the tree sequence, or refused where ``sample_map`` names
-        them.
+        them. With only outgroups named, so are the other haplotypes of an
+        outgroup individual.
     :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
         baseline comparison by folded-SFS bin, and defines the ingroup whose
         MRCA ``focal="ingroup_mrca"`` reports at. Defaults to the panel
@@ -1758,10 +1772,6 @@ class ARGBasedInference(Inference):
         if self.focal.is_root:
             return entry
         entry["n_ingroup"] = len(self._ingroup_nodes)
-        if self._ingroup_samples:
-            entry["ingroup_samples"] = list(self._ingroup_samples)
-        if self._outgroup_samples:
-            entry["outgroup_samples"] = list(self._outgroup_samples)
         if self._focal_counts_complete:
             entry.update(self._focal_totals)
         return entry
@@ -2517,6 +2527,10 @@ class ARGBasedInference(Inference):
             return 1 + len(self._draws_rest)
         except TypeError:
             return None
+
+    def _contig_lengths(self) -> dict[str, int]:
+        """The ARG's sequence length, as the length of its contig."""
+        return {self.chrom: math.ceil(self.ts.sequence_length)}
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,
@@ -3792,10 +3806,6 @@ class FixedTreeInference(Inference):
             "ingroup_weight": (type(self.ingroup_weight).__name__
                                if self.ingroup_weight is not None else None),
             "prior": type(self.prior).__name__ if self.prior is not None else None,
-            "ingroup_samples": ([] if self.tree is None
-                                else list(self.tree.ingroup_samples)),
-            "outgroup_samples": ([] if self.tree is None
-                                 else list(self.tree.outgroup_samples)),
             "branch_rates_fitted": self._params_mle is not None,
             "n_outgroups": (
                 0 if self._no_outgroup_mode or self.tree is None
@@ -3948,6 +3958,18 @@ class MajorityOutgroupInference(Inference):
         self.confidence = float(confidence)
         self.ingroup_weight = None
         self.prior = None
+
+    def _baseline_ingroup_samples(self) -> tuple[str, ...]:
+        """The named ingroup samples."""
+        return self.ingroup_samples
+
+    def _baseline_outgroup_samples(self) -> tuple[str, ...]:
+        """The named outgroup samples."""
+        return self.outgroup_samples
+
+    def _panel_samples(self) -> tuple[str, ...]:
+        """No restriction: the panel is every tip of the sites."""
+        return ()
 
     def _used_samples(self) -> "frozenset[str]":
         """The sample columns a restricted output keeps, the named samples and

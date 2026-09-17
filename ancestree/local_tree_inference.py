@@ -1369,7 +1369,8 @@ class LocalTreeInference(Inference):
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
         dropped before the local trees are inferred, or refused where
-        ``sample_names`` names them.
+        ``sample_names`` names them. With only outgroups named, so are the
+        other haplotypes of an outgroup individual.
     :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
         baseline comparison by folded-SFS bin, and defines the ingroup whose
         MRCA ``focal="ingroup_mrca"`` reports at. Defaults to the panel
@@ -2499,7 +2500,7 @@ class LocalTreeInference(Inference):
                 **self.focal.provenance(),
             }
             params.update(self._ensemble_provenance())
-            params.update(self._panel_provenance())
+            params.update(self._map_provenance())
             return params
         if self._ensemble_mode():
             # The configured settings: an ensemble run never scores the plug-in ARG.
@@ -2528,7 +2529,7 @@ class LocalTreeInference(Inference):
                 "n_time_bins": int(b.n_time_bins),
             })
         params.update(self._ensemble_provenance())
-        params.update(self._panel_provenance())
+        params.update(self._map_provenance())
         return params
 
     def _ensemble_mode(self) -> bool:
@@ -2540,19 +2541,15 @@ class LocalTreeInference(Inference):
     #: the Python API, whose maps are summarised from the objects instead.
     _map_sources: "dict[str, str | None]" = {}
 
-    def _panel_provenance(self) -> dict:
-        """Which samples defined the reporting node, and which maps applied.
+    def _map_provenance(self) -> dict:
+        """Which maps applied.
 
         Each map is summarised from the object itself, with its source path
         added where the caller supplied one.
 
-        :return: Provenance entries for the panel and the supplied maps.
+        :return: Provenance entries for the supplied maps.
         """
         out: dict = {}
-        if self._ingroup_samples:
-            out["ingroup_samples"] = list(self._ingroup_samples)
-        if self._outgroup_samples:
-            out["outgroup_samples"] = list(self._outgroup_samples)
         if self.accessibility is not None:
             out["accessibility_intervals"] = len(self.accessibility)
         for name in ("recombination_map", "mutation_map"):
@@ -2845,6 +2842,13 @@ class LocalTreeInference(Inference):
         :param path: Output path. Suffix selects the format.
         """
         self.pairwise_tmrcas().write(path)
+
+    def _contig_lengths(self) -> dict[str, int]:
+        """The contig length of a pre-built tree sequence, as ARG mode reads
+        it. Genotypes carry none."""
+        if self.builder is None and not self._segmented:
+            return self._point_arg()._contig_lengths()
+        return {}
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

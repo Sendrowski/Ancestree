@@ -983,7 +983,7 @@ def test_the_output_format_follows_the_suffix(tmp_path, suffix, magic):
 
 def _remote_inference(path):
     """A local-tree inference over toy sites read from a remote ``path``."""
-    sites, names = toy_sites(range(0, 1000, 20))
+    sites, names = toy_sites(range(20, 1000, 20))
 
     class Remote:
         _path = path
@@ -1125,21 +1125,41 @@ class TestWritingFromTheSites:
 
         return list(CyVCF2Source(DEMO_VCF))[:300]
 
-    @pytest.mark.parametrize("suffix", [".vcf.gz", ".vcz"])
-    def test_reading_the_output_gives_back_the_sites(self, tmp_path, suffix):
+    @staticmethod
+    def _writer(suffix):
+        from ancestree.writers import ZarrWriter
+
+        return ZarrWriter if suffix == ".vcz" else VCFWriter
+
+    @pytest.mark.parametrize("suffix", [".vcf.gz", ".bcf", ".vcz"])
+    def test_reading_the_output_gives_back_the_sites(self, tmp_path, suffix,
+                                                     monkeypatch):
+        """Over two contigs, several store chunks, missing tips and unphased
+        calls."""
+        from dataclasses import replace
+
         from ancestree.sites import _named
         from ancestree.sources import CyVCF2Source, VcfZarrSource
         from ancestree.writers import ZarrWriter
 
-        sites = self._sites()
+        monkeypatch.setattr(ZarrWriter, "_CHUNK", 7)
+        sites = []
+        for k, site in enumerate(self._sites()):
+            tips = {n: a for n, a in site.tip_alleles.items()
+                    if _named(n, self.PANEL)}
+            unphased = frozenset()
+            if k % 5 == 0:
+                tips["i0_h1"] = None
+            if k % 3 == 0 and tips["i1_h0"] == tips["i1_h1"]:
+                unphased = frozenset({"i1"})
+            sites.append(replace(site, chrom="chr1" if k < 150 else "chr2",
+                                 tip_alleles=tips, unphased=unphased))
         out = str(tmp_path / f"out{suffix}")
-        writer = VCFWriter if suffix == ".vcf.gz" else ZarrWriter
-        writer(None, out, samples=self.PANEL).write(_fake_posteriors(sites))
-        source = (CyVCF2Source if suffix == ".vcf.gz" else VcfZarrSource)(out)
-        kept = [s.restricted_to({n for n in s.tip_alleles
-                                 if _named(n, self.PANEL)}) for s in sites]
-        assert list(source) == kept
-        assert source.samples() == list(kept[0].tip_alleles)
+        self._writer(suffix)(None, out).write(
+            _fake_posteriors(sites), store_posterior=suffix != ".bcf")
+        source = (VcfZarrSource if suffix == ".vcz" else CyVCF2Source)(out)
+        assert list(source) == sites
+        assert source.samples() == list(sites[0].tip_alleles)
 
     def test_the_annotations_match_those_of_an_annotated_file(self, tmp_path):
         """Both strategies write the same record for a site."""
@@ -1159,27 +1179,100 @@ class TestWritingFromTheSites:
         assert cyvcf2.VCF(annotated).samples == cyvcf2.VCF(written).samples
         assert records(annotated) == records(written)
 
-    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
-    def test_an_unphased_site_is_written_unphased(self, tmp_path, suffix):
+    def test_the_phase_of_each_call_survives_a_conversion(self, tmp_path):
+        """A phased call keeps its phase beside an unphased one at the same
+        site. One flag per site wrote every call there unphased."""
+        import bio2zarr.vcf as bio2zarr_vcf
         import zarr
 
+        from ancestree.sites import SiteTable
+        from ancestree.sources import CyVCF2Source, VcfZarrSource
         from ancestree.writers import ZarrWriter
 
-        tips = {"a_h0": "A", "a_h1": "G", "b_h0": "G", "b_h1": "G"}
-        sites = [Site(chrom="1", pos=p, alleles=("A", "G"), tip_alleles=tips,
-                      phased=phased)
-                 for p, phased in ((1, True), (2, False))]
-        out = str(tmp_path / f"out{suffix}")
-        writer = VCFWriter if suffix == ".vcf" else ZarrWriter
-        writer(None, out).write(_fake_posteriors(sites))
-        if suffix == ".vcf":
-            phases = [[g[-1] for g in r.genotypes] for r in cyvcf2.VCF(out)]
-        else:
-            phases = zarr.open(out, mode="r")["call_genotype_phased"][:].tolist()
-        assert phases == [[True, True], [False, False]]
+        vcf = tmp_path / "in.vcf"
+        vcf.write_text(
+            "##fileformat=VCFv4.2\n##contig=<ID=1>\n"
+            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
+            "1\t5\t.\tA\tG\t.\tPASS\t.\tGT\t0|1\t1/1\n"
+            "1\t9\t.\tA\tG\t.\tPASS\t.\tGT\t1|0\t./.\n")
+        store = str(tmp_path / "in.vcz")
+        bio2zarr_vcf.convert([str(vcf)], store, show_progress=False)
+        for sites in (list(CyVCF2Source(str(vcf))), list(VcfZarrSource(store))):
+            assert [s.unphased for s in sites] == [frozenset({"b"})] * 2
+            assert list(SiteTable.from_sites(sites)[0:2]) == sites
+        written = str(tmp_path / "out.vcf")
+        VCFWriter(None, written).write(
+            _fake_posteriors(list(VcfZarrSource(store))))
+        records = [line.split("\t")[9:] for line in open(written)
+                   if not line.startswith("#")]
+        assert records == [["0|1", "1/1\n"], ["1|0", "./.\n"]]
+        converted = str(tmp_path / "out.vcz")
+        ZarrWriter(None, converted).write(
+            _fake_posteriors(list(CyVCF2Source(str(vcf)))))
+        phased = zarr.open(converted, mode="r")["call_genotype_phased"][:]
+        assert phased.tolist() == [[True, False], [True, False]]
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
-    def test_a_failed_write_leaves_nothing_behind(self, tmp_path, suffix):
+    def test_a_haploid_beside_a_diploid_is_padded(self, tmp_path, suffix):
+        import zarr
+
+        site = Site(chrom="1", pos=3, alleles=("A", "G"),
+                    tip_alleles={"a_h0": "G", "a_h1": None, "b": "A"})
+        out = str(tmp_path / f"out{suffix}")
+        self._writer(suffix)(None, out).write(_fake_posteriors([site]))
+        if suffix == ".vcf":
+            record = [line for line in open(out) if not line.startswith("#")]
+            assert record[0].rstrip("\n").split("\t")[9:] == ["1|.", "0"]
+        else:
+            genotypes = zarr.open(out, mode="r")["call_genotype"][:]
+            assert genotypes.tolist() == [[[1, -1], [0, -2]]]
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_a_site_before_position_one_is_refused(self, tmp_path, suffix):
+        site = Site(chrom="1", pos=0, alleles=("A",), tip_alleles={"a": "A"})
+        with pytest.raises(ValueError, match="before position 1"):
+            self._writer(suffix)(None, str(tmp_path / f"out{suffix}")).write(
+                _fake_posteriors([site]))
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_a_site_without_alleles_has_reference_dot(self, tmp_path, suffix):
+        """Both writers agree, and vcztools reads the store."""
+        import subprocess
+
+        site = Site(chrom="1", pos=3, alleles=("",), tip_alleles={"a": None})
+        pair = (site, Posterior(tuple(anc.STATES), np.full(4, 0.25)))
+        out = str(tmp_path / f"out{suffix}")
+        self._writer(suffix)(None, out).write([pair])
+        if suffix == ".vcz":
+            result = subprocess.run(["vcztools", "view", "-H", out],
+                                    capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+            out = str(tmp_path / "exported.vcf")
+            with open(out, "w") as fh:
+                fh.write(result.stdout)
+        record = [line for line in open(out) if not line.startswith("#")]
+        assert record[0].split("\t")[3] == "."
+
+    def test_the_arg_declares_its_contig_length(self, tmp_path):
+        import zarr
+
+        inference = TestRestrictSamples._inference()
+        vcf, vcz = str(tmp_path / "out.vcf"), str(tmp_path / "out.vcz")
+        inference.to_vcf(vcf)
+        inference.to_zarr(vcz)
+        assert "##contig=<ID=1,length=50000>" in open(vcf).read()
+        assert zarr.open(vcz, mode="r")["contig_length"][:].tolist() == [50000]
+
+    def test_a_failed_vcf_write_removes_its_partial_file(self, tmp_path):
+        """A header that cannot be written fails after the partial file
+        exists."""
+        with pytest.raises(ValueError, match="reserved"):
+            VCFWriter(None, str(tmp_path / "out.vcf")).write(
+                _fake_posteriors(self._sites()[:3]), info={"prob": 1})
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_failed_store_write_leaves_nothing_behind(self, tmp_path):
         from ancestree.writers import ZarrWriter
 
         pairs = _fake_posteriors(self._sites())
@@ -1188,7 +1281,19 @@ class TestWritingFromTheSites:
             yield pairs[0]
             raise RuntimeError("stream failed")
 
-        writer = VCFWriter if suffix == ".vcf" else ZarrWriter
         with pytest.raises(RuntimeError, match="stream failed"):
-            writer(None, str(tmp_path / f"out{suffix}")).write(stream())
+            ZarrWriter(None, str(tmp_path / "out.vcz")).write(stream())
         assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+def test_a_fixed_tree_on_a_tree_sequence_path_writes_every_site(tmp_path, suffix):
+    """A ``.trees`` path is no file to annotate, so the output is written
+    from the sites."""
+    ts = tskit.load(QUICKSTART_TREES)
+    inference = anc.FixedTreeInference(
+        QUICKSTART_TREES, anc.JC69(), ingroup_samples=ING,
+        outgroup_samples=OUT, fit_required=False, progress=False)
+    out = str(tmp_path / f"out{suffix}")
+    method = inference.to_vcf if suffix == ".vcf" else inference.to_zarr
+    assert method(out) == ts.num_sites

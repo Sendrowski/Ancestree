@@ -88,7 +88,7 @@ def test_a_masked_recombination_interval_is_not_perfect_linkage():
         "perfect linkage across the gap")
 
 
-def test_panel_provenance_reports_map_paths_and_summaries():
+def test_map_provenance_reports_map_paths_and_summaries():
     """A rate map is summarised, and a caller-supplied path recorded."""
     sites, names = toy_sites(range(0, 1000, 20))
     rate_map = msprime.RateMap(position=[0.0, 400.0, 1000.0],
@@ -98,7 +98,7 @@ def test_panel_provenance_reports_map_paths_and_summaries():
                         accessibility=[(0.0, 500.0), (600.0, 1000.0)])
     inf._map_sources = {"recombination_map": "/maps/rec.txt",
                         "accessibility": "/maps/mask.bed"}
-    out = inf._panel_provenance()
+    out = inf._map_provenance()
     assert out["recombination_map_intervals"] == 2
     assert out["recombination_map_mean_rate"] == pytest.approx(
         float(rate_map.mean_rate))

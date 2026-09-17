@@ -1940,7 +1940,7 @@ class TestTheNoOutgroupModeStillRecordsProvenance:
             [site], anc.JC69(), ingroup_samples=["i1", "i2"],
             outgroup_samples=[])
         record = inference.provenance()
-        assert record["parameters"]["ingroup_samples"] == []
+        assert record["parameters"]["ingroup_samples"] == ["i1", "i2"]
         assert record["parameters"]["outgroup_samples"] == []
 
 

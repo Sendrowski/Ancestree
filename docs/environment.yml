@@ -46,5 +46,3 @@ dependencies:
       # PyPI-only: sphinx-paramlinks is not published on conda-forge or
       # bioconda, so listing it as a conda dep makes the whole solve fail.
       - sphinx-paramlinks>=0.6
-      # PyPI-only as well, the VCF to VCF Zarr converter to_zarr() uses.
-      - bio2zarr

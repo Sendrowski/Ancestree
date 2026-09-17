@@ -265,11 +265,11 @@ class Grade:
         :param focal: The :class:`~ancestree.focal.FocalNode`, an anchor
             name, or ``None`` for the ingroup MRCA.
         :param ingroup_samples: Ingroup sample names. ``None`` takes every
-            sample not named as an outgroup.
+            sample whose individual is not named as an outgroup.
         :param outgroup_samples: Outgroup sample names.
         :param panel_samples: The samples the inference used. ``None`` takes
-            the ingroup and outgroups when both are named, and every sample
-            otherwise.
+            the ingroup and outgroups when both are named, and otherwise every
+            sample but the other haplotypes of a named outgroup individual.
         :param sample_map: ``{sample: node}``, interpreted in the node space
             of ``ts`` and not in that of any inference. ``None`` reads the
             individual names of ``ts``.

@@ -376,9 +376,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     output_parent.add_argument(
         "--restrict-samples", action="store_true",
-        help="Write only the samples the inference used, the ingroup and "
-             "outgroups. Default: every sample of the output template. Trees "
-             "inferred from genotypes hold only the used samples.",
+        help="Keep only the ingroup and outgroups in an output annotating "
+             "the input.",
     )
 
     _add_fixed_tree_parser(sub, parents=[verbosity_parent, output_parent])
@@ -422,8 +421,7 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
         "--ingroup", type=_split_csv,
         help=(
             "Comma-separated ingroup sample ids. Needed with "
-            "--focal=ingroup-mrca; defaults to every sample whose individual "
-            "is not in --outgroups."
+            "--focal=ingroup-mrca; defaults to every sample not in --outgroups."
         ),
     )
     p.add_argument(
@@ -512,9 +510,7 @@ def _add_fixed_tree_parser(
     )
     p.add_argument(
         "--samples", type=_split_csv, default=None,
-        help=("Comma-separated subset of VCF samples to read, each in "
-              "--ingroup or --outgroups. Default: every sample in the VCF, "
-              "ignoring those in neither."),
+        help="Comma-separated subset of VCF samples to read (default: all).",
     )
     p.add_argument(
         "--focal", default="ingroup-mrca",
@@ -636,16 +632,14 @@ def _add_fixed_tree_parser(
     )
     p.add_argument(
         "--out", required=True,
-        help="Output VCF (.vcf / .vcf.gz / .vcf.bgz / .bcf) or VCF Zarr store (.vcz, "
-             "which copies + annotates the input .vcz). The .trees format is "
-             "not supported for fixed-tree output.",
+        help="Output VCF (.vcf, .vcf.gz, .vcf.bgz, .bcf) or VCF Zarr store "
+             "(.vcz).",
     )
     p.add_argument(
         "--template-vcf", default=None,
         help=(
-            "VCF / BCF whose records the annotated VCF copies. Defaults to "
-            "--vcf when it is a VCF. Otherwise the output is written from "
-            "the sites."
+            "VCF whose records the output copies. Defaults to --vcf when it "
+            "is a VCF."
         ),
     )
     p.set_defaults(handler=_run_fixed_tree)
@@ -770,10 +764,7 @@ def _add_local_tree_parser(
     p.add_argument(
         "--samples", type=_split_csv, default=None,
         help=(
-            "Comma-separated subset of VCF samples to use as the panel, each "
-            "in --ingroup or --outgroups when both are given (default: all "
-            "samples in the VCF, or the union of --ingroup and --outgroups "
-            "when both are given)."
+            "Comma-separated subset of VCF samples to read (default: all)."
         ),
     )
     p.add_argument(
@@ -900,17 +891,15 @@ def _add_local_tree_parser(
     )
     p.add_argument(
         "--chrom", default=None,
-        help="Contig label of the annotated sites. Defaults to the source's "
-             "own contig. Under another label an output annotating --vcf "
-             "matches none of its records.",
+        help="Contig label of the annotated sites (default: the source's).",
     )
     p.add_argument(
         "--out", required=True,
         help=(
             "Output path. The format is inferred from the extension: "
             "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated VCF, '.vcz' an "
-            "annotated VCF Zarr store copied from the input, and '.trees' an "
-            "annotated tskit tree sequence."
+            "annotated VCF Zarr store and '.trees' an annotated tskit tree "
+            "sequence."
         ),
     )
     p.add_argument(
@@ -984,8 +973,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     template_vcf = args.template_vcf
     if out_is_zarr and template_vcf is not None:
         _log.warning(
-            "fixed-tree: --template-vcf is ignored for a .vcz --out, which "
-            "annotates a .vcz input or is written from the sites"
+            "fixed-tree: --template-vcf is ignored for a .vcz --out"
         )
 
     base_composition = None

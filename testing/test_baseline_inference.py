@@ -400,8 +400,9 @@ def test_the_majority_outgroup_rule_writes_its_named_samples(tmp_path):
     assert cyvcf2.VCF(out).samples == ["i0", "o1"]
 
 
-def test_the_majority_outgroup_rule_is_graded_at_the_arg_root():
-    """The rule resolves no ingroup, so its truth stays at the ARG root."""
+def test_the_majority_outgroup_rule_is_graded_over_its_named_samples():
+    """The ingroup is every sample outside the named outgroups, as in the
+    other modes."""
     import tskit
 
     from ancestree.posterior import Grade
@@ -410,4 +411,6 @@ def test_the_majority_outgroup_rule_is_graded_at_the_arg_root():
     ts = tskit.load(QUICKSTART_TREES)
     rule = MajorityOutgroupInference(
         list(SiteSource.resolve(ts)), ["o0", "o1"], for_comparison_only=True)
-    assert rule.grade(ts) == Grade(rule.infer(), Grade.truth_mapping(ts))
+    assert rule.grade(ts) == Grade(rule.infer(), ts,
+                                   outgroup_samples=["o0", "o1"])
+    assert rule.provenance()["parameters"]["outgroup_samples"] == ["o0", "o1"]

@@ -98,9 +98,57 @@ def test_the_samples_used_are_logged(mode, caplog):
             DEMO_VCF, fit_required=False, n_target_sites=100_000, **kw)
     with caplog.at_level("INFO", logger="ancestree"):
         next(iter(inf.infer()))
+        next(iter(inf.infer()))
     messages = [r.getMessage() for r in caplog.records]
-    assert "Using 2 ingroup sample(s): i0_h0, i1_h0" in messages
-    assert "Using 1 outgroup sample(s): o1_h0" in messages
+    assert messages.count("Using 2 ingroup sample(s): i0_h0, i1_h0") == 1
+    assert messages.count("Using 1 outgroup sample(s): o1_h0") == 1
+
+
+@pytest.mark.parametrize("mode", ["arg", "local_tree", "fixed_tree",
+                                  "majority"])
+def test_the_samples_used_are_recorded(mode):
+    kw = dict(ingroup_samples=["i0"], outgroup_samples=["o1_h0"])
+    if mode == "arg":
+        inf = anc.Inference.from_arg(tskit.load(DEMO_TREES), mu=5e-8,
+                                     focal="panel_root", **kw)
+    elif mode == "local_tree":
+        inf = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8, **kw)
+    elif mode == "fixed_tree":
+        inf = anc.Inference.from_fixed_tree(
+            DEMO_VCF, fit_required=False, n_target_sites=100_000, **kw)
+    else:
+        inf = anc.MajorityOutgroupInference([], for_comparison_only=True, **kw)
+    params = inf.provenance()["parameters"]
+    assert params["ingroup_samples"] == list(inf._baseline_ingroup_samples())
+    assert params["outgroup_samples"] == ["o1_h0"]
+    assert params["ingroup_samples"][0].startswith("i0")
+
+
+def test_reading_an_output_grades_as_the_run_does(tmp_path):
+    """A run at the panel root recorded no ingroup, so reading its output
+    graded at the MRCA of the whole panel."""
+    from ancestree.readers import Reader
+
+    ts = tskit.load(DEMO_TREES)
+    inf = anc.Inference.from_arg(ts, mu=5e-8, ingroup_samples=["i0"],
+                                 focal="panel_root", progress=False)
+    out = tmp_path / "out.trees"
+    inf.to_arg(out)
+    assert Reader(out).grade(ts) == inf.grade(ts)
+
+
+def test_an_output_from_the_sites_holds_only_the_haplotypes_used(tmp_path):
+    """Naming o1_h0 wrote both haplotypes of o1 where the sites carry them."""
+    import zarr
+
+    out = str(tmp_path / "out.vcz")
+    anc.Inference.from_fixed_tree(
+        DEMO_VCF, ingroup_samples=["i0", "i1"], outgroup_samples=["o1_h0"],
+        fit_required=False, n_target_sites=100_000, progress=False,
+    ).to_zarr(out)
+    root = zarr.open(out, mode="r")
+    assert [str(s) for s in root["sample_id"][:]] == ["i0", "i1", "o1"]
+    assert (root["call_genotype"][:, 2, 1] == -2).all()
 
 
 def test_local_tree_panel_is_the_union_of_both_lists():
@@ -139,8 +187,8 @@ def test_a_sample_in_both_lists_raises():
 
 
 def test_local_tree_sites_hold_only_the_panel(tmp_path):
-    """Sites emitted from a store carry only the panel's tips, and to_vcf
-    annotates every record of the store's own template."""
+    """Sites emitted from a store carry only the panel's tips, and a VCF
+    written from them holds every site."""
     import bio2zarr.vcf as bio2zarr_vcf
 
     store = str(tmp_path / "demo.vcz")

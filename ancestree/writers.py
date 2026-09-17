@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+from collections import defaultdict
+from itertools import chain
 import os
 import shutil
 import tempfile
@@ -434,14 +436,18 @@ class Writer(ReprMixin, ABC):
     def _init_output(
         self, output: "str | os.PathLike", min_confidence: float | None,
         samples: "Iterable[str] | None" = None,
+        contig_lengths: "Mapping[str, int] | None" = None,
     ) -> None:
-        """Record the destination, the reporting threshold and the samples.
+        """Record the destination, the reporting threshold, the samples and
+        the contig lengths.
 
         :param output: Destination path.
         :param min_confidence: Calls below this are written as missing.
         :param samples: Sample columns to write, or ``None`` for all of them.
+        :param contig_lengths: Length of each contig, or ``None``.
         """
         self._output = str(output)
+        self._contig_lengths = dict(contig_lengths or {})
         self._min_confidence: float | None = (
             float(min_confidence) if min_confidence is not None else None
         )
@@ -490,15 +496,37 @@ class Writer(ReprMixin, ABC):
         return columns
 
     @staticmethod
-    def _record_alleles(site: Site) -> tuple[list[str], dict[str, int]]:
-        """The alleles of the record written for ``site``, and their indices.
+    def _record(site: Site) -> tuple[int, list[str], dict[str, int]]:
+        """The position and alleles of the record written for ``site``.
 
         :param site: The site written.
-        :return: ``(alleles, index)``, REF first, without the missing-data
-            placeholder a tree sequence appends.
+        :return: ``(pos, alleles, index)``, the alleles REF first without the
+            missing-data placeholder a tree sequence appends, or ``["."]`` for
+            a site with none, and ``index`` numbering them.
+        :raises ValueError: If the site lies before position 1, where no VCF
+            record can.
         """
-        alleles = [a for a in site.alleles if a]
-        return alleles, {a: i for i, a in enumerate(alleles)}
+        pos = int(site.pos)
+        if pos < 1:
+            raise ValueError(
+                f"the site at {site.chrom}:{site.pos} lies before position 1, "
+                f"where no VCF record can. Shift the positions of a 0-based "
+                f"source by one.")
+        alleles = [a for a in site.alleles if a] or ["."]
+        return pos, alleles, {a: i for i, a in enumerate(alleles)}
+
+    @staticmethod
+    def _allele_codes(site: Site, haplotypes, index: Mapping, missing):
+        """Each haplotype's allele at ``site``, coded through ``index``.
+
+        :param site: The site written.
+        :param haplotypes: Tip ids, in column order.
+        :param index: The code of each allele.
+        :param missing: The code of a missing tip.
+        :return: Iterator over the codes, in the order of ``haplotypes``.
+        """
+        table = defaultdict(lambda: missing, index)
+        return map(table.__getitem__, map(site.tip_alleles.get, haplotypes))
 
 
 class VCFWriter(Writer):
@@ -510,8 +538,9 @@ class VCFWriter(Writer):
     looks up the posterior by ``(chrom, pos)`` and, if found, sets the
     ``INFO`` fields. Variants without a matching posterior are
     written unannotated. Without an input VCF, each site is written as one
-    record carrying its alleles and the genotypes of its tips, phased where
-    :attr:`Site.phased <ancestree.sites.Site.phased>` is set.
+    ``PASS`` record carrying its alleles and the genotypes of its tips,
+    unphased for the individuals in
+    :attr:`Site.unphased <ancestree.sites.Site.unphased>`.
 
     The output format follows the extension of ``output_vcf``,
     case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
@@ -531,6 +560,8 @@ class VCFWriter(Writer):
         sample names, or against the tips and the individuals they belong to.
         ``None`` (default) writes every column. ``INFO`` allele counts such as
         ``AC`` and ``AN`` are copied from the template.
+    :param contig_lengths: Length of each contig, declared in the header of a
+        VCF written from the sites. ``None`` (default) declares none.
     :raises ImportError: If ``cyvcf2`` is not installed.
     """
 
@@ -601,13 +632,14 @@ class VCFWriter(Writer):
         *,
         min_confidence: float | None = None,
         samples: "Iterable[str] | None" = None,
+        contig_lengths: "Mapping[str, int] | None" = None,
     ) -> None:
         """Validate that the backend is importable. Defer all I/O to :meth:`write`."""
         self._require_backend(
             "cyvcf2",
             "`pip install cyvcf2` or `conda install -c bioconda cyvcf2`")
         self._input = None if input_vcf is None else str(input_vcf)
-        self._init_output(output_vcf, min_confidence, samples)
+        self._init_output(output_vcf, min_confidence, samples, contig_lengths)
 
     def write(
         self,
@@ -858,25 +890,38 @@ class VCFWriter(Writer):
         """
         import cyvcf2
 
-        columns: dict[str, list[str]] | None = None
+        columns: list[tuple[str, list[str]]] | None = None
         contigs: dict[str, None] = {}
         calls: list[tuple[str, float, "list[float] | None"]] = []
+
+        def separators(unphased) -> list[str]:
+            """What follows each haplotype's code on a record's GT columns."""
+            seps: list[str] = []
+            for individual, haps in columns or ():
+                inner = "/" if individual in unphased else "|"
+                seps += [inner] * (len(haps) - 1) + ["\t"]
+            return seps[:-1] + [""]
+
         with tempfile.TemporaryFile("w+") as body:
             for site, posterior in posteriors:
                 if columns is None:
-                    columns = self._columns(site)
-                alleles, index = self._record_alleles(site)
-                sep = "|" if site.phased else "/"
-                genotypes = [
-                    sep.join(str(index[a]) if a in index else "."
-                             for a in (site.tip_alleles.get(h) for h in haps))
-                    for haps in columns.values()]
+                    columns = list(self._columns(site).items())
+                    haplotypes = [h for _, haps in columns for h in haps]
+                    phased = separators(frozenset())
+                pos, alleles, index = self._record(site)
+                codes = self._allele_codes(
+                    site, haplotypes, {a: str(i) for a, i in index.items()},
+                    ".")
+                seps = separators(site.unphased) if site.unphased else phased
                 chrom = str(site.chrom)
                 contigs[chrom] = None
                 body.write("\t".join((
-                    chrom, str(site.pos), ".", alleles[0] if alleles else "N",
-                    ",".join(alleles[1:]) or ".", ".", ".", ".",
-                    *(("GT", *genotypes) if columns else ()))) + "\n")
+                    chrom, str(pos), ".", alleles[0],
+                    ",".join(alleles[1:]) or ".", ".", "PASS", ".")))
+                if columns:
+                    body.write("\tGT\t")
+                    body.write("".join(chain.from_iterable(zip(codes, seps))))
+                body.write("\n")
                 allele, max_prob = self._call(site, posterior)
                 calls.append((allele, max_prob,
                               self._posterior_vector(posterior)
@@ -884,13 +929,17 @@ class VCFWriter(Writer):
             if columns is None:
                 self._log.warning("%s received no posteriors, so %s holds no "
                                   "records.", type(self).__name__, self._output)
-                columns = {}
+                columns = []
             header = [
                 "##fileformat=VCFv4.2",
-                *(f"##contig=<ID={c}>" for c in contigs),
+                '##FILTER=<ID=PASS,Description="All filters passed">',
+                *(f"##contig=<ID={c},length={self._contig_lengths[c]}>"
+                  if c in self._contig_lengths else f"##contig=<ID={c}>"
+                  for c in contigs),
                 '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
                 "\t".join(("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER",
-                           "INFO", *(("FORMAT", *columns) if columns else ()))),
+                           "INFO", *(("FORMAT", *(c for c, _ in columns))
+                                     if columns else ()))),
             ]
             staged = self._staged_path(self._output)
             writer = cyvcf2.Writer.from_string(staged, "\n".join(header) + "\n",
@@ -1222,10 +1271,11 @@ class ZarrWriter(Writer):
     Follows the `VCF Zarr specification
     <https://github.com/sgkit-dev/vcf-zarr-spec>`_. A template store is
     copied to ``output_zarr``. Without one, each site is written as one
-    variant carrying its alleles and the genotypes of its tips, with
-    ``call_genotype_phased`` from
-    :attr:`Site.phased <ancestree.sites.Site.phased>`. Variant-indexed arrays
-    are added at the root:
+    ``PASS`` variant carrying its alleles and the genotypes of its tips,
+    unphased for the individuals in
+    :attr:`Site.unphased <ancestree.sites.Site.unphased>`, together with the
+    fixed fields and the ``region_index`` ``bio2zarr`` writes. Variant-indexed
+    arrays are added at the root:
     ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
     ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and
     ``variant_AA_post`` (``(n_variants, 4) float32`` posterior over A, C, G, T).
@@ -1252,6 +1302,9 @@ class ZarrWriter(Writer):
         every array to carry dimension names. ``None`` (default) writes every
         column. Allele counts such as ``variant_AC`` are copied from the
         template.
+    :param contig_lengths: Length of each contig, stored as ``contig_length``
+        in a store written from the sites where every contig has one. ``None``
+        (default) stores none.
     :raises ImportError: If ``zarr`` is not installed.
     """
 
@@ -1277,12 +1330,13 @@ class ZarrWriter(Writer):
         *,
         min_confidence: float | None = None,
         samples: "Iterable[str] | None" = None,
+        contig_lengths: "Mapping[str, int] | None" = None,
     ) -> None:
         """Validate that the backend is importable. Defer all I/O to :meth:`write`."""
         self._require_backend(
             "zarr", "`pip install zarr` or `conda install -c conda-forge zarr`")
         self._input = None if input_zarr is None else str(input_zarr)
-        self._init_output(output_zarr, min_confidence, samples)
+        self._init_output(output_zarr, min_confidence, samples, contig_lengths)
 
     @staticmethod
     @contextlib.contextmanager
@@ -1446,9 +1500,10 @@ class ZarrWriter(Writer):
     ) -> int:
         """Write the store with the ``AA`` / ``AA_prob`` arrays.
 
-        :param posteriors: Iterable of ``(Site, Posterior)`` pairs. Streamed and
-            placed into their template rows by ``(chrom, pos)`` without buffering
-            (see ``_row_locator()``). Order-independent and subset-tolerant.
+        :param posteriors: Iterable of ``(Site, Posterior)`` pairs. With a
+            template, streamed into its rows by ``(chrom, pos)`` (see
+            ``_row_locator()``), in any order and for any subset. Without one,
+            written one variant per pair in stream order.
         :param store_posterior: When ``True`` (default), also write the
             ``variant_AA_post`` array holding the whole per-state posterior.
         :param info: Optional run-level constants stored in the root group's
@@ -1551,9 +1606,9 @@ class ZarrWriter(Writer):
         aa = np.full(n_variants, self.AA_UNKNOWN, dtype="U1")
         # VCF-Zarr float32 missing sentinel (htslib bcf_float_missing), which
         # exports as a missing INFO value and is a NaN bit pattern.
-        aa_prob_missing = np.array([0x7F800001], dtype=np.uint32).view("f4")[0]
-        prob = np.full(n_variants, aa_prob_missing, dtype="f4")
-        post = (np.full((n_variants, len(STATES)), aa_prob_missing, dtype="f4")
+        prob = np.full(n_variants, self._float_missing(), dtype="f4")
+        post = (np.full((n_variants, len(STATES)), self._float_missing(),
+                        dtype="f4")
                 if store_posterior else None)
 
         # Place each posterior into its template row as the stream arrives.
@@ -1629,6 +1684,14 @@ class ZarrWriter(Writer):
                 "#CHROM", addition + "#CHROM", 1,
             ) if "#CHROM" in header else header + addition
 
+    @staticmethod
+    def _float_missing():
+        """The VCF-Zarr float32 missing sentinel (htslib ``bcf_float_missing``),
+        which exports as a missing value and is a NaN bit pattern."""
+        import numpy as np
+
+        return np.array([0x7F800001], dtype=np.uint32).view("f4")[0]
+
     def _write_from_sites(
         self,
         root,
@@ -1640,15 +1703,15 @@ class ZarrWriter(Writer):
         """Write one annotated variant per site into an empty store.
 
         The genotypes are appended a chunk at a time. Missing calls are ``-1``
-        and the slots beyond an individual's ploidy ``-2``. Strings are stored
-        at variable length.
+        and the slots beyond an individual's ploidy ``-2``. Alleles, ids,
+        contigs, samples and filters are stored as variable-length strings.
 
         :param root: The empty group.
         :return: Number of variants written.
         """
         import numpy as np
 
-        columns: dict[str, list[str]] | None = None
+        columns: list[tuple[str, list[str]]] | None = None
         ploidy = 1
         contig_index: dict[str, int] = {}
         pos: list[int] = []
@@ -1658,7 +1721,7 @@ class ZarrWriter(Writer):
         prob: list[float] = []
         post: list[list[float]] = []
         genotypes: list[np.ndarray] = []
-        phased: list[bool] = []
+        phased: list[list[bool]] = []
         call_arrays = None
 
         def flush() -> None:
@@ -1681,25 +1744,31 @@ class ZarrWriter(Writer):
                 block = np.stack(genotypes)
                 gt.append(block, axis=0)
                 mask.append(block < 0, axis=0)
-                ph.append(np.repeat(np.asarray(phased)[:, None],
-                                    block.shape[1], axis=1), axis=0)
+                ph.append(np.asarray(phased, dtype=bool).reshape(block.shape[:2]),
+                          axis=0)
                 genotypes.clear()
                 phased.clear()
 
         for site, posterior in posteriors:
             if columns is None:
-                columns = self._columns(site)
-                ploidy = max((len(h) for h in columns.values()), default=1)
-            record_alleles, index = self._record_alleles(site)
-            row = np.full((len(columns), ploidy), -2, dtype=np.int8)
-            for j, haps in enumerate(columns.values()):
-                for k, h in enumerate(haps):
-                    row[j, k] = index.get(site.tip_alleles.get(h), -1)
-            genotypes.append(row)
-            phased.append(site.phased)
+                columns = list(self._columns(site).items())
+                ploidy = max((len(h) for _, h in columns), default=1)
+                haplotypes = [h for _, haps in columns for h in haps]
+                slots = np.asarray([j * ploidy + k
+                                    for j, (_, haps) in enumerate(columns)
+                                    for k in range(len(haps))], dtype=np.intp)
+                all_phased = [True] * len(columns)
+            site_pos, record_alleles, index = self._record(site)
+            row = np.full(len(columns) * ploidy, -2, dtype=np.int8)
+            row[slots] = np.fromiter(
+                self._allele_codes(site, haplotypes, index, -1),
+                dtype=np.int8, count=len(haplotypes))
+            genotypes.append(row.reshape(len(columns), ploidy))
+            phased.append([c not in site.unphased for c, _ in columns]
+                          if site.unphased else all_phased)
             chrom = str(site.chrom)
             contig.append(contig_index.setdefault(chrom, len(contig_index)))
-            pos.append(int(site.pos))
+            pos.append(site_pos)
             alleles.append(record_alleles)
             allele, max_prob = self._call(site, posterior)
             aa.append(allele)
@@ -1713,22 +1782,48 @@ class ZarrWriter(Writer):
         if not n:
             self._log.warning("%s received no posteriors, so %s holds no "
                               "variants.", type(self).__name__, self._output)
-        width = max((len(a) for a in alleles), default=1)
-        text = str if hasattr(root, "create_array") else object
         chunk = self._CHUNK
-        for name, data, dims, dtype in (
-                (ZARR_POSITION_FIELD, np.asarray(pos, dtype=np.int32),
-                 ["variants"], None),
-                (ZARR_CONTIG_FIELD, np.asarray(contig, dtype=np.int32),
-                 ["variants"], None),
-                (ZARR_ALLELE_FIELD,
-                 np.array([a + [""] * (width - len(a)) for a in alleles],
-                          dtype=object).reshape(n, width),
-                 ["variants", "alleles"], text),
-                ("contig_id", np.asarray(list(contig_index), dtype=object),
-                 ["contigs"], text),
-                ("sample_id", np.asarray(list(columns or ()), dtype=object),
-                 ["samples"], text)):
+        # vcztools reads no alleles axis narrower than a REF and one ALT.
+        width = max([2, *(len(a) for a in alleles)])
+        text = str if hasattr(root, "create_array") else object
+        positions = np.asarray(pos, dtype=np.int32)
+        contigs = np.asarray(contig, dtype=np.int32)
+        lengths = np.asarray([len(a[0]) for a in alleles],
+                             dtype=np.int32)
+        contig_ids = list(contig_index)
+        variant_arrays = [
+            (ZARR_POSITION_FIELD, positions, ["variants"], None),
+            (ZARR_CONTIG_FIELD, contigs, ["variants"], None),
+            (ZARR_ALLELE_FIELD,
+             np.array([a + [""] * (width - len(a)) for a in alleles],
+                      dtype=object).reshape(n, width),
+             ["variants", "alleles"], text),
+            ("variant_length", lengths, ["variants"], None),
+            ("variant_id", np.full(n, ".", dtype=object), ["variants"], text),
+            ("variant_id_mask", np.ones(n, dtype=bool), ["variants"], None),
+            ("variant_quality", np.full(n, self._float_missing(), dtype="f4"),
+             ["variants"], None),
+            ("variant_filter", np.ones((n, 1), dtype=bool),
+             ["variants", "filters"], None),
+        ]
+        other_arrays = [
+            ("contig_id", np.asarray(contig_ids, dtype=object), ["contigs"],
+             text),
+            ("sample_id", np.asarray([c for c, _ in columns or ()],
+                                     dtype=object), ["samples"], text),
+            ("filter_id", np.asarray(["PASS"], dtype=object), ["filters"], text),
+            ("filter_description",
+             np.asarray(["All filters passed"], dtype=object), ["filters"],
+             text),
+            ("region_index", self._region_index(positions, contigs, lengths),
+             ["region_index_values", "region_index_fields"], None),
+        ]
+        if contig_ids and all(c in self._contig_lengths for c in contig_ids):
+            other_arrays.append((
+                "contig_length",
+                np.asarray([self._contig_lengths[c] for c in contig_ids],
+                           dtype=np.int64), ["contigs"], None))
+        for name, data, dims, dtype in variant_arrays + other_arrays:
             self._create_variant_array(
                 root, name, data, dims,
                 variant_chunk=chunk if dims[0] == "variants" else None,
@@ -1737,5 +1832,29 @@ class ZarrWriter(Writer):
             root, np.asarray(aa, dtype="U1"), np.asarray(prob, dtype="f4"),
             np.asarray(post, dtype="f4").reshape(n, len(STATES))
             if store_posterior else None, chunk)
+        root.attrs["vcf_zarr_version"] = "0.5"
         self._write_run_attrs(root, info, provenance)
         return n
+
+    def _region_index(self, positions, contigs, lengths):
+        """The ``region_index`` table ``bio2zarr`` writes, over variant chunks
+        of :attr:`_CHUNK`.
+
+        :param positions: Per-variant position.
+        :param contigs: Per-variant contig index.
+        :param lengths: Per-variant REF length.
+        :return: ``(n_rows, 6) int32`` rows of chunk, contig, first position,
+            last position, largest end and number of variants, one per run of
+            a contig within a chunk.
+        """
+        import numpy as np
+
+        rows = []
+        for k, lo in enumerate(range(0, positions.size, self._CHUNK)):
+            c = contigs[lo:lo + self._CHUNK]
+            p = positions[lo:lo + self._CHUNK]
+            end = p + lengths[lo:lo + self._CHUNK] - 1
+            starts = np.flatnonzero(np.diff(c, prepend=-1))
+            for a, b in zip(starts, [*starts[1:], c.size]):
+                rows.append((k, c[a], p[a], p[b - 1], end[a:b].max(), b - a))
+        return np.asarray(rows, dtype=np.int32).reshape(-1, 6)

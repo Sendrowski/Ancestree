@@ -729,7 +729,7 @@ def test_provenance_of_an_unchunked_ensemble_run():
     assert params["n_ensemble"] == 3
     assert params["ensemble_seed"] == 5
     assert params["member_chunk"] == 2
-    assert params["outgroup_samples"] == ["h3"]
+    assert inf.provenance()["parameters"]["outgroup_samples"] == ["h3"]
     assert params["focal"] == "ingroup_mrca"
 
 
@@ -1087,10 +1087,8 @@ def test_to_arg_writes_pseudo_arg(tmp_path):
     assert all(s.ancestral_state in STATES for s in annotated.sites())
 
 
-@pytest.mark.parametrize("chunk_size", ["10mb", None])
 @pytest.mark.parametrize("name", ["panel.vcf.gz", "panel.gvcf.gz"])
-def test_a_vcf_source_is_its_own_template(tmp_path, chunk_size, name):
-    """Any path read as a VCF is the template, whatever its suffix."""
+def test_a_vcf_source_is_annotated_whatever_its_suffix(tmp_path, name):
     import shutil
 
     from testing._helpers import DEMO_VCF
@@ -1098,8 +1096,7 @@ def test_a_vcf_source_is_its_own_template(tmp_path, chunk_size, name):
     path = str(tmp_path / name)
     shutil.copy(DEMO_VCF, path)
     inf = LocalTreeInference(path, mu=5e-8, rec_rate=1e-8,
-                             sequence_length=1e6, chunk_size=chunk_size,
-                             progress=False)
+                             sequence_length=1e6, progress=False)
     assert inf._output_template(None, "vcf", "out.vcf", False) == (path, None)
 
 

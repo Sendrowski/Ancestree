@@ -40,7 +40,7 @@ jobs:
           path: ${{ env.NUMBA_CACHE_DIR }}
           key: numba-${{ runner.os }}-${{ hashFiles('ancestree/_jit_kernel.py', 'ancestree/_smc_kernel.py') }}
       - name: Install ancestree + test deps
-        # ``[all]`` pulls the optional cyvcf2 / zarr / newick / bio2zarr backends
+        # ``[all]`` pulls the optional cyvcf2 / zarr / newick / msprime / matplotlib backends
         # (manylinux wheels on Linux), so every source / writer path is exercised.
         # The test dependencies come from the ``dev`` group in pyproject.toml,
         # which is where they are declared.

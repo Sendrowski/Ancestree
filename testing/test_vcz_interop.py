@@ -11,7 +11,7 @@ approximation):
     the ``AA`` / ``AA_prob`` ``INFO`` fields derived from the added arrays.
 
 ``bio2zarr`` (Python API, no ``bgzip`` / ``tabix`` binaries needed) and the ``vcztools``
-console script are pulled in by the ``zarr`` extra and the dev/CI environment. This module
+console script come from the ``dev`` dependency group and the dev environment. This module
 uses them directly and is meant to run there, so it is not guarded against their absence.
 """
 from __future__ import annotations
@@ -160,16 +160,14 @@ def _all_aa_called(vcz_path) -> tuple[int, int]:
     return len(body), called
 
 
-# --- default template: valid zarr output from non-zarr sources, no template needed ----
+# --- stores written from the sites -------------------------------------------------
 #
-# to_zarr without an input_zarr builds a VCZ template from the mode's source (the source
-# VCF, or the tree sequence dumped to VCF) via bio2zarr, then annotates it. These drive
-# the two non-zarr sources (ARG and VCF) end to end with no template supplied, and confirm
-# vcztools reads every site's AA back, i.e. the synthesized template aligned by (chrom, pos)
-# and nothing was dropped.
+# to_zarr without a store input writes one variant per site. These drive the two
+# non-zarr sources (ARG and VCF) end to end, and confirm vcztools reads every site's
+# AA back.
 
-def test_arg_source_default_template(tmp_path):
-    """ARGBasedInference (tskit source), to_zarr with no template -> vcztools reads it."""
+def test_arg_source_to_zarr_is_written_from_the_sites(tmp_path):
+    """ARGBasedInference (tskit source), to_zarr -> vcztools reads every site."""
     ts = msprime.sim_ancestry(
         samples=6, sequence_length=2e4, recombination_rate=1e-8,
         population_size=1e4, random_seed=3,
@@ -186,8 +184,8 @@ def test_arg_source_default_template(tmp_path):
     assert n_called == ts.num_sites
 
 
-def test_vcf_source_default_template(tmp_path):
-    """FixedTreeInference (VCF source), to_zarr with no template -> vcztools reads it."""
+def test_vcf_source_to_zarr_is_written_from_the_sites(tmp_path):
+    """FixedTreeInference (VCF source), to_zarr -> vcztools reads every site."""
     ts = msprime.sim_ancestry(
         samples=6, ploidy=1, sequence_length=2e4, recombination_rate=1e-8,
         population_size=1e4, random_seed=5,
@@ -212,7 +210,7 @@ def test_vcf_source_default_template(tmp_path):
 
 
 class TestToZarrReusesAZarrSource:
-    """A local .vcz source is the default to_zarr template."""
+    """A local .vcz source is the store to_zarr annotates by default."""
 
     def test_a_store_source_needs_no_explicit_template(self, tmp_path):
         import bio2zarr.vcf as bio2zarr_vcf
@@ -229,10 +227,28 @@ class TestToZarrReusesAZarrSource:
             store, JC69(), n_target_sites=100_000,
             ingroup_samples=names[:6], outgroup_samples=names[6:])
         inf.fit()
-        assert inf.to_zarr(str(tmp_path / "out.vcz")) > 0
+        out = str(tmp_path / "out.vcz")
+        assert inf.to_zarr(out) == ts.num_sites
+        root = zarr.open(out, mode="r")
+        assert root.attrs["source"].startswith("bio2zarr")
+        assert [str(s) for s in root["sample_id"][:]] == names
 
 
-# ---------------------------------------------------- to_zarr template guard
+def test_a_store_written_from_the_sites_answers_vcztools_queries(tmp_path):
+    """Query, region and target commands need the fixed fields and the
+    region index a store written from the sites carries."""
+    out = str(tmp_path / "out.vcz")
+    anc.Inference.from_arg(tskit.load(QUICKSTART_TREES), mu=5e-8,
+                           progress=False).to_zarr(out)
+    for command in (["query", "-f", "%CHROM %POS %AA\n"],
+                    ["view", "-H", "-r", "1:1000-5000"],
+                    ["view", "-H", "-t", "1:1000-5000"]):
+        result = subprocess.run(["vcztools", *command, out],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip()
+
+
 def test_to_zarr_without_sites_writes_an_empty_store(tmp_path):
     inf = MajorityOutgroupInference([], [], for_comparison_only=True)
     out = str(tmp_path / "out.vcz")

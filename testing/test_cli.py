@@ -393,8 +393,7 @@ class TestArgSubcommandE2E:
 
 @pytest.mark.filterwarnings("ignore::Warning:zarr")
 def test_arg_writes_a_vcz_store(tiny_ts, tiny_trees_path, tmp_path, caplog):
-    """``arg --out x.vcz`` builds a template from the tree sequence and
-    annotates every site."""
+    """``arg --out x.vcz`` writes every site from the tree sequence."""
     import zarr
 
     out = tmp_path / "annot.vcz"
@@ -652,8 +651,8 @@ class TestFixedTreeHandler:
 
     def test_vcz_output_ignores_the_template_vcf(
             self, ladder_panel, tmp_path, caplog):
-        """A ``.vcz`` destination is built from the input, and a supplied
-        ``--template-vcf`` is reported as ignored."""
+        """A ``.vcz`` destination is written from the sites of a VCF input,
+        and a supplied ``--template-vcf`` is reported as ignored."""
         import zarr
 
         vcf, _vcz, nwk, alleles, _gt = ladder_panel
