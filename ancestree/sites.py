@@ -4,6 +4,8 @@ A :class:`~ancestree.sites.Site` is the unit the likelihood engine consumes:
 a position with observed alleles at named samples, and an optional handle to
 the local tree the inference orchestrator resolves later.
 """
+import hashlib
+import math
 import os
 from abc import ABC, abstractmethod
 import re
@@ -208,7 +210,8 @@ class Site:
 
 
 def _path_format(path: "str | os.PathLike") -> "str | None":
-    """The format a path names by its suffix.
+    """The format a path names by its suffix, a local directory being a VCF
+    Zarr store whatever its name.
 
     A URL's query and fragment are ignored, so ``https://host/x.vcf.gz?raw=true``
     names a VCF.
@@ -222,6 +225,8 @@ def _path_format(path: "str | os.PathLike") -> "str | None":
     text = str(path)
     if "://" in text:
         text = urlsplit(text).path
+    elif os.path.isdir(text):
+        return "vcz"
     text = text.rstrip("/").lower()
     if text.endswith(".trees"):
         return "trees"
@@ -1140,6 +1145,8 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     #: Whether the unphased-genotype notice has been emitted.
     _noted_unphased: bool = False
     _phase_seed: int = 0
+    #: Haplotypes read per sample.
+    _ploidy: int = 1
     #: Whether a record carrying more haplotypes than the resolved ploidy has
     #: been reported.
     _warned_ploidy_truncated: bool = False
@@ -1183,7 +1190,9 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         caller can iterate it more than once. Each ``__iter__`` re-reads from
         the store, keeping peak memory bounded.
 
-        - ``list`` / :class:`~ancestree.sites.SiteSource` → returned as-is.
+        - :class:`~ancestree.sites.SiteSource` or any other iterable of
+          :class:`~ancestree.sites.Site` → returned as-is, a one-shot iterator
+          materialised as a list.
         - ``str`` / ``os.PathLike`` ending in ``.trees`` →
           :class:`~ancestree.sources.TskitSource`, ``.vcz`` →
           :class:`~ancestree.sources.VcfZarrSource`. Else
@@ -1193,7 +1202,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
 
         :param source: A :class:`~ancestree.sites.SiteSource`, a path
             (VCF / BCF / VCZ / ``.trees``), a :class:`tskit.TreeSequence`, or a
-            ``list[Site]``.
+            iterable of :class:`~ancestree.sites.Site`.
         :param sample_filter: Forwarded to the VCF / VCZ source.
         :param chrom_filter: Forwarded to the VCF / VCZ source.
         :param ploidy: Forwarded to :class:`~ancestree.sources.CyVCF2Source`.
@@ -1236,22 +1245,99 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
             if ploidy is not None:
                 kwargs["ploidy"] = ploidy
             return CyVCF2Source(source, **kwargs)
-        try:
-            import tskit
-            if isinstance(source, tskit.TreeSequence):
-                from ancestree.sources import TskitSource
-                cls._refuse_unsupported_filters(
-                    "a tree sequence", sample_filter, chrom_filter,
-                    ploidy, phased, phase_seed)
-                return TskitSource(source)
-        except ImportError:  # pragma: no cover, tskit is a hard dep
-            pass
+        import tskit
+
+        if isinstance(source, tskit.TreeSequence):
+            from ancestree.sources import TskitSource
+            cls._refuse_unsupported_filters(
+                "a tree sequence", sample_filter, chrom_filter,
+                ploidy, phased, phase_seed)
+            return TskitSource(source)
+        if hasattr(source, "__iter__"):
+            cls._refuse_unsupported_filters(
+                "a pre-built site source", sample_filter, chrom_filter,
+                ploidy, phased, phase_seed)
+            return list(source) if hasattr(source, "__next__") else source
         raise TypeError(
             f"unsupported source type "
             f"{type(source).__name__!r}. Expected "
             f"a path str/PathLike, a SiteSource, a tskit.TreeSequence, "
-            f"or a list[Site]."
+            f"or an iterable of Site."
         )
+
+    @staticmethod
+    def _phase_permutation(seed: int, pos: int, sample: str, ploidy: int) -> list[int]:
+        """Draw a haplotype order for one unphased genotype.
+
+        The 64-bit key is unranked into an ordering through the factorial
+        number system, in integer arithmetic alone, so the draw is uniform
+        over the ``ploidy!`` orderings to within the bias of reducing 64
+        bits modulo ``ploidy!``, below ``1e-14`` for any ploidy up to eight.
+        The key is derived from the record's position, the sample name and
+        the ploidy, so the ordering is stable across passes and filters and
+        reproducible across runs and platforms.
+
+        :param seed: The source's ``phase_seed``.
+        :param pos: The record's position.
+        :param sample: Name of the sample in the panel.
+        :param ploidy: Haplotypes carried by the genotype.
+        :return: Source position of each haplotype, a permutation of
+            ``range(ploidy)``.
+        """
+        digest = hashlib.blake2b(str(sample).encode(), digest_size=8)
+        key = (int(seed) ^ (int(pos) * 0x9E3779B97F4A7C15)
+               ^ (int(ploidy) * 0xD6E8FEB86659FD93)
+               ^ (int.from_bytes(digest.digest(), "big")
+                  * 0xBF58476D1CE4E5B9)) & 0xFFFFFFFFFFFFFFFF
+        key = ((key ^ (key >> 30)) * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
+        key = ((key ^ (key >> 27)) * 0x94D049BB133111EB) & 0xFFFFFFFFFFFFFFFF
+        rank = (key ^ (key >> 31)) % math.factorial(ploidy)
+        pool = list(range(ploidy))
+        order: list[int] = []
+        for k in range(ploidy, 0, -1):
+            rank, j = divmod(rank, k)
+            order.append(pool.pop(j))
+        return order
+
+    @staticmethod
+    def _snp_alleles(raw: "Iterable[str | None]"):
+        """A record's alleles upper-cased, and the SNP alleles among them.
+
+        An entry a record does not carry keeps its slot, so the genotype
+        indices stay aligned with the record.
+
+        :param raw: The record's alleles, REF first, with ``None`` in the slot
+            of an allele the record does not carry.
+        :return: ``(alleles, site_alleles)``, or ``None`` where the record is
+            not a SNP: it carries no reference allele, or an allele outside
+            :data:`~ancestree.STATES`.
+        """
+        alleles = tuple((a.upper() if a else None) for a in raw)
+        site_alleles = tuple(a for a in alleles if a)
+        if not site_alleles or alleles[0] is None:
+            return None
+        if not all(len(a) == 1 and a in STATES for a in site_alleles):
+            return None
+        return alleles, site_alleles
+
+    def _phase_order(self, sample: str, pos: int,
+                     called: "Iterable[int]") -> "list[int] | None":
+        """The haplotype order of one unphased call.
+
+        A call whose alleles all agree reads the same in every order, so only
+        a heterozygote is randomised.
+
+        :param sample: The sample the call belongs to.
+        :param pos: The record's position, which seeds the permutation.
+        :param called: The called allele indices, missing ones excluded.
+        :return: Source position of each haplotype, or ``None`` to keep the
+            written order.
+        """
+        if len({int(a) for a in called}) <= 1:
+            return None
+        self._note_unphased_once()
+        return self._phase_permutation(
+            self._phase_seed, pos, sample, self._ploidy)
 
     def _note_unphased_once(self) -> None:
         """Report, once, that haplotype assignment is being drawn."""

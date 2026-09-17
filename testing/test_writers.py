@@ -24,7 +24,7 @@ from ancestree.sites import Site
 from ancestree.sources import TskitSource
 from ancestree.trees import TskitLocalTree
 from ancestree.writers import TskitWriter, VCFWriter
-from testing._helpers import DEMO_TREES, QUICKSTART_TREES, toy_sites
+from testing._helpers import DEMO_TREES, QUICKSTART_TREES, post, toy_sites
 
 #: The quickstart panel's ingroup and outgroup, leaving i4, i5 and o1 in neither.
 ING = ["i0", "i1", "i2", "i3"]
@@ -55,16 +55,6 @@ def _fake_posteriors(sites: list[Site]) -> list[tuple[Site, Posterior]]:
         values[0] = 0.85
         pairs.append((site, Posterior(alleles=tuple(site.alleles), values=values)))
     return pairs
-
-
-def _post(map_allele: str, p: float) -> Posterior:
-    """A 4-state posterior peaked at ``map_allele`` with mass ``p``."""
-    alleles = ("A", "C", "G", "T")
-    rest = (1.0 - p) / 3.0
-    return Posterior(
-        alleles=alleles,
-        values=np.array([p if a == map_allele else rest for a in alleles]),
-    )
 
 
 class TestVCFWriter:
@@ -176,7 +166,7 @@ class TestReservedInfoKeys:
         site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
         with pytest.raises(ValueError, match="reserved INFO field"):
             VCFWriter(str(template), out).write(
-                iter([(site, _post("A", 0.9))]), info={key: 3.5},
+                iter([(site, post("A", 0.9))]), info={key: 3.5},
             )
 
 
@@ -352,7 +342,7 @@ class TestTskitWriterAllMissingSite:
         # No edges, so every sample is isolated and decodes to missing.
         input_ts = _one_site_tree_sequence(with_edges=False)
         site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
-        TskitWriter(input_ts, out).write(iter([(site, _post("T", 0.95))]))
+        TskitWriter(input_ts, out).write(iter([(site, post("T", 0.95))]))
         written = tskit.load(out)
         assert written.site(0).ancestral_state == "T"
         assert written.num_mutations == 0
@@ -366,7 +356,7 @@ class TestBlankedTreesSiteReadsBackUncalled:
         input_ts = _one_site_tree_sequence(with_edges=True)
         site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
         TskitWriter(input_ts, out, min_confidence=0.9).write(
-            iter([(site, _post("A", 0.4))])
+            iter([(site, post("A", 0.4))])
         )
         annotation = Reader(out).head(1)[0]
         assert annotation.aa is None
@@ -377,7 +367,7 @@ class TestBlankedTreesSiteReadsBackUncalled:
         input_ts = _one_site_tree_sequence(with_edges=True)
         site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
         TskitWriter(input_ts, out, min_confidence=0.5).write(
-            iter([(site, _post("A", 0.95))])
+            iter([(site, post("A", 0.95))])
         )
         assert Reader(out).head(1)[0].aa == "A"
 
@@ -933,7 +923,7 @@ def test_a_relabelled_local_tree_run_refuses_to_annotate_its_input(tmp_path):
 
     inference = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
                                    chrom="chrX", progress=False)
-    with pytest.raises(ValueError, match="cannot rename the sites"):
+    with pytest.raises(ValueError, match="renames the sites of contig"):
         inference.to_vcf(str(tmp_path / "out.vcf"))
     same = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8, chrom="chr1",
                               sequence_length=2e5, chunk_size=None,
@@ -1148,7 +1138,7 @@ def test_a_restricted_site_is_written_to_its_own_record(tmp_path):
     site = Site(chrom="chr1", pos=5, alleles=("C", "A"),
                 tip_alleles={"a": "C", "b": "A"}).restricted_to({"a"})
     out = str(tmp_path / "out.vcf")
-    assert VCFWriter(str(template), out).write([(site, _post("C", 0.9))]) == 1
+    assert VCFWriter(str(template), out).write([(site, post("C", 0.9))]) == 1
     calls = {r.ID: r.INFO.get("AA") for r in cyvcf2.VCF(out)}
     assert calls == {"indel": None, "snp": "C"}
 
@@ -1510,3 +1500,36 @@ def test_a_fixed_tree_on_a_tree_sequence_path_writes_every_site(tmp_path, suffix
     out = str(tmp_path / f"out{suffix}")
     method = inference.to_vcf if suffix == ".vcf" else inference.to_zarr
     assert method(out) == ts.num_sites
+
+
+class TestASiteWhoseTipsAreAllMissingIsBlanked:
+    """A site with no readable tip leaves every tip marginalised, so its
+    posterior is the prior and its MAP allele is an artefact of the tie-break.
+    The writers report it as unknown rather than as an assignment."""
+
+    @staticmethod
+    def _sites():
+        return [
+            Site(chrom="1", pos=10, alleles=("A", "C"),
+                 tip_alleles={"s0": "A", "s1": "C"}),
+            Site(chrom="1", pos=20, alleles=("A", "C"),
+                 tip_alleles={"s0": None, "s1": None}),
+        ]
+
+    def test_the_vcf_writer_blanks_it(self, tmp_path):
+        out = tmp_path / "blank.vcf"
+        sites = self._sites()
+        VCFWriter(None, str(out)).write(
+            (s, post("A", 0.9)) for s in sites)
+        aa = {v.POS: v.INFO.get("AA") for v in cyvcf2.VCF(str(out))}
+        assert aa[10] == "A"
+        assert aa[20] == VCFWriter.AA_UNKNOWN
+
+    def test_a_site_carrying_one_read_tip_is_kept(self, tmp_path):
+        """One readable tip is enough for the posterior to carry data."""
+        out = tmp_path / "one.vcf"
+        site = Site(chrom="1", pos=30, alleles=("A", "C"),
+                    tip_alleles={"s0": "A", "s1": None})
+        VCFWriter(None, str(out)).write([(site, post("A", 0.9))])
+        aa = {v.POS: v.INFO.get("AA") for v in cyvcf2.VCF(str(out))}
+        assert aa[30] == "A"

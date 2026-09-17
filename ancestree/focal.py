@@ -59,8 +59,9 @@ class FocalNode:
         ancestor of the supplied ingroup samples, whose state is the ingroup's
         ancestral allele; ``"panel_root"`` for the most recent common ancestor
         of the whole panel, which is deeper whenever outgroups are present.
-        With no outgroups declared the ingroup comprises the whole panel and
-        the two anchors coincide.
+        With neither ingroup nor outgroups declared the ingroup comprises the
+        whole panel and the two anchors coincide. Naming only the ingroup
+        makes the remaining samples outgroups.
     :param fraction: Position along the path from the anchor to the root, as a
         fraction in ``[0, 1]``. ``0`` is the anchor itself. Scale-free, so it
         means the same thing in every mode and across datasets.

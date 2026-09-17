@@ -86,15 +86,3 @@ def test_a_chunk_size_that_is_not_a_width_is_rejected(spec):
         build_parser().parse_args(
             ["local-tree", "--vcf", "in.vcf", "--out", "out.vcf",
              "--mu", "1e-8", "--chunk-size", spec])
-
-
-def test_from_local_tree_defaults_match_constructor():
-    from ancestree.inference import Inference
-    from ancestree.local_tree_inference import LocalTreeInference
-
-    wrapper = inspect.signature(Inference.from_local_tree).parameters
-    ctor = inspect.signature(LocalTreeInference.__init__).parameters
-    assert wrapper["window"].default == "8snp"
-    assert wrapper["block_size"].default is None
-    assert wrapper["window"].default == ctor["window"].default
-    assert wrapper["block_size"].default == ctor["block_size"].default

@@ -378,8 +378,9 @@ class AdaptiveIngroupWeight(IngroupWeight):
     which are also the neutral-coalescent truth, so the fitted weight converges
     to Kingman on large neutral data.
 
-    :param ingroup_samples: Sample ids for the ingroup haplotypes, matching
-        the keys used in :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`.
+    :param ingroup_samples: Sample ids for the ingroup haplotypes, or the
+        individuals they belong to, whose haplotype count an inference sizes
+        the weight by.
     :param n_runs: Independent L-BFGS-B starts per bin. Default ``4``.
     :param seed: Seed for the multistart sampling. Default ``0``.
     :param min_bin_n_sites: Weighted sites per fittable bin below which
@@ -392,7 +393,7 @@ class AdaptiveIngroupWeight(IngroupWeight):
         ``min(n_ingroup, 11)``. Sites with ``n_called < subsample_size`` take
         the count-proportional Kingman weight.
     :raises ValueError: If ``ingroup_samples`` is empty, or
-        ``subsample_size`` is < 2 or > ``n_ingroup``.
+        ``subsample_size`` is < 2 or exceeds the ingroup's haplotypes.
     """
 
     @property
@@ -449,26 +450,45 @@ class AdaptiveIngroupWeight(IngroupWeight):
         self.min_bin_n_sites = int(min_bin_n_sites)
         self.parallelize = bool(parallelize)
 
-        if subsample_size is None:
-            # A one-haplotype ingroup resolves to 1 and never fits a bin.
-            self.subsample_size = min(self.n_ingroup, 11)
-            self._subsample_size_was_default = True
-        else:
-            ss = int(subsample_size)
-            if ss < 2 or ss > self.n_ingroup:
-                raise ValueError(
-                    f"subsample_size must be in [2, n_ingroup={self.n_ingroup}]; "
-                    f"got {ss}"
-                )
-            self.subsample_size = ss
-            self._subsample_size_was_default = False
+        self._subsample_size_was_default = subsample_size is None
+        if subsample_size is not None and int(subsample_size) < 2:
+            raise ValueError(
+                f"subsample_size must be at least 2; got {subsample_size}")
+        self.subsample_size = (
+            int(subsample_size) if subsample_size is not None else 0)
+        self.fitted: bool = False
+        self._bind_haplotype_count(self.n_ingroup, check=False)
 
-        # Per-bin π_j = P(major ancestral | minor count = j, sample size = subsample_size).
-        # Default to Kingman until a fit runs.
-        self._pi: dict[int, float] = self._kingman_default()
         self._n_sites_per_bin: dict[int, float] = {}
         self._n_sites_fallback_kingman: int = 0
-        self.fitted: bool = False
+
+    def _bind_haplotype_count(self, n: int, *, check: bool = True) -> None:
+        """Size the weight to ``n`` ingroup haplotypes.
+
+        An inference passes the count its ids resolve to in the panel, so an
+        ingroup named per individual is sized by its haplotypes. A default
+        ``subsample_size`` follows as ``min(n, 11)``.
+
+        A fitted weight keeps its size. Until a fit, the per-bin ``π_j`` are
+        the Kingman values ``(n_sub - j) / n_sub``.
+
+        :param n: Number of ingroup haplotypes.
+        :param check: Whether to refuse an explicit ``subsample_size`` above
+            ``n``.
+        :raises ValueError: If ``check`` is set and ``subsample_size`` exceeds
+            ``n``.
+        """
+        if self.fitted:
+            return
+        self.n_ingroup = int(n)
+        if self._subsample_size_was_default:
+            # A one-haplotype ingroup resolves to 1 and never fits a bin.
+            self.subsample_size = min(self.n_ingroup, 11)
+        elif check and self.subsample_size > self.n_ingroup:
+            raise ValueError(
+                f"subsample_size must be in [2, n_ingroup={self.n_ingroup}]; "
+                f"got {self.subsample_size}")
+        self._pi = self._kingman_default()
 
     def _kingman_default(self) -> dict[int, float]:
         """Per-bin Kingman closed form ``(n_sub - j) / n_sub`` as the pre-fit baseline."""

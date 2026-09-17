@@ -17,57 +17,13 @@ from ancestree import (
     HKY,
     OutgroupLadderTree,
     JC69,
-    STATES,
     Site,
     TskitLocalTree,
 )
 from ancestree.priors import KingmanIngroupWeight
 from ancestree.settings import Settings
 from ancestree.sites import SiteSource
-from testing._helpers import no_counts as _no_counts
-
-
-def _simulate_sites(
-    tree: OutgroupLadderTree,
-    model: JC69,
-    n_sites: int,
-    *,
-    seed: int,
-) -> list[Site]:
-    """Sample N polymorphic-or-monomorphic Sites from the tree.
-
-    For each site: draw a root state uniformly, then top-down sample each
-    branch's child state from ``model.transition_probs(branch_length)``.
-    Record the resulting outgroup tip alleles into a :class:`Site`.
-    """
-    rng = np.random.default_rng(seed)
-
-    # Precompute per-branch transition matrices (root has no branch).
-    P_by_node = {
-        node: model.transition_probs(tree.branch_length(node))
-        for node in tree.postorder() if node != tree.root
-    }
-
-    # Top-down walk via a stack (no recursion, preorder by parent then children).
-    sites: list[Site] = []
-    for i in range(n_sites):
-        state_at: dict[int, int] = {tree.root: int(rng.integers(0, 4))}
-        stack = [tree.root]
-        while stack:
-            parent = stack.pop()
-            for child in tree.children(parent):
-                state_at[child] = int(rng.choice(4, p=P_by_node[child][state_at[parent]]))
-                stack.append(child)
-        tip_alleles = {
-            sid: STATES[state_at[tree.tip_for_sample(sid)]]
-            for sid in tree.outgroup_samples
-        }
-        sites.append(Site(
-            chrom="1", pos=i + 1,
-            alleles=tuple(sorted(set(tip_alleles.values()))),
-            tip_alleles=tip_alleles,
-        ))
-    return sites
+from testing._helpers import no_counts as _no_counts, simulate_tree_sites
 
 
 # ------------------------------------------------------------------- construction
@@ -188,7 +144,7 @@ class TestFitRecovery2Outgroups:
         # probabilities under reversibility + stationary prior).
         tree = OutgroupLadderTree(ingroup, outgroup)
         tree.set_params(np.array([0.0, true_sum / 2, true_sum / 2]))
-        sites = _simulate_sites(tree, model, n_sites, seed=seed)
+        sites = simulate_tree_sites(tree, model, n_sites, seed=seed)
         tree.set_params(np.full(tree.n_params, 0.05))
 
         inf = FixedTreeInference(
@@ -222,48 +178,6 @@ class TestFitRecovery2Outgroups:
 # ---------------------------------------------------------- HKY fit recovery
 
 
-def _simulate_sites_with_pi(
-    tree: OutgroupLadderTree,
-    model,
-    n_sites: int,
-    *,
-    pi,
-    seed: int,
-) -> list[Site]:
-    """Simulator that respects a non-uniform stationary ``pi``.
-
-    Root state drawn from ``pi`` (the equilibrium). Branches propagate via
-    ``model.transition_probs(branch_length, pi=pi)``. Mirrors
-    :func:`_simulate_sites` but passes ``pi`` to the kernel so HKY/F81
-    samples match what the MLE will be fitting under.
-    """
-    rng = np.random.default_rng(seed)
-    pi_arr = np.asarray(pi, dtype=float)
-    P_by_node = {
-        node: model.transition_probs(tree.branch_length(node), pi=pi_arr)
-        for node in tree.postorder() if node != tree.root
-    }
-    sites: list[Site] = []
-    for i in range(n_sites):
-        state_at: dict[int, int] = {tree.root: int(rng.choice(4, p=pi_arr))}
-        stack = [tree.root]
-        while stack:
-            parent = stack.pop()
-            for child in tree.children(parent):
-                state_at[child] = int(rng.choice(4, p=P_by_node[child][state_at[parent]]))
-                stack.append(child)
-        tip_alleles = {
-            sid: STATES[state_at[tree.tip_for_sample(sid)]]
-            for sid in tree.outgroup_samples
-        }
-        sites.append(Site(
-            chrom="1", pos=i + 1,
-            alleles=tuple(sorted(set(tip_alleles.values()))),
-            tip_alleles=tip_alleles,
-        ))
-    return sites
-
-
 class TestFitRecoveryHKY3Outgroups:
     """3-outgroup HKY fit: every branch rate ``K_1..K_4`` AND the
     transition/transversion ratio ``kappa`` should recover from a
@@ -293,7 +207,7 @@ class TestFitRecoveryHKY3Outgroups:
         tree = OutgroupLadderTree(ingroup, outgroup)
         # Set ladder with K_0 = 0 then K_1..K_4 from the test's true_K.
         tree.set_params(np.array([0.0] + list(true_K)))
-        sites = _simulate_sites_with_pi(
+        sites = simulate_tree_sites(
             tree, truth_model, n_sites, pi=pi, seed=seed,
         )
         # Reset branch rates so the MLE starts from a neutral seed.
@@ -374,7 +288,7 @@ class TestInfer:
     def test_posteriors_sum_to_one(self):
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, JC69(), 100, seed=11)
+        sites = simulate_tree_sites(tree, JC69(), 100, seed=11)
         inf = FixedTreeInference(
             sites, JC69(), _no_counts(), tree=tree,
             n_target_sites=len(sites),
@@ -387,7 +301,7 @@ class TestInfer:
     def test_infer_emits_one_per_site(self):
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, JC69(), 50, seed=3)
+        sites = simulate_tree_sites(tree, JC69(), 50, seed=3)
         inf = FixedTreeInference(
             sites, JC69(), _no_counts(), tree=tree,
             n_target_sites=len(sites),
@@ -416,7 +330,7 @@ class TestNonMonotoneDivergenceWarning:
         outgroup = ["o_close", "o_far"]
         truth_tree = OutgroupLadderTree(ingroup, outgroup)
         truth_tree.set_params(np.array([0.0, 0.175, 0.175]))
-        sites = _simulate_sites(truth_tree, JC69(), 1000, seed=51)
+        sites = simulate_tree_sites(truth_tree, JC69(), 1000, seed=51)
         tree = OutgroupLadderTree(ingroup, outgroup)
         inf = FixedTreeInference(
             sites, JC69(), _no_counts(), tree=tree,
@@ -449,7 +363,7 @@ class TestRedundantOutgroupWarning:
     def test_no_warning_on_diverged_outgroups(self, caplog):
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.10, 0.10]))
-        sites = _simulate_sites(tree, JC69(), 500, seed=99)
+        sites = simulate_tree_sites(tree, JC69(), 500, seed=99)
         with caplog.at_level(logging.WARNING):
             FixedTreeInference(
                 sites, JC69(), _no_counts(), tree=tree,
@@ -477,49 +391,6 @@ class TestRedundantOutgroupWarning:
 # ----------------------------------------------------------- auto outgroup order
 
 
-def _simulate_sites_with_ingroup(
-    tree: OutgroupLadderTree,
-    model: JC69,
-    n_sites: int,
-    ingroup_branch_length: float,
-    *,
-    seed: int,
-) -> list[Site]:
-    """Same as `_simulate_sites` but also draws an ingroup haplotype per site
-    by mutating the root state down a single ``ingroup_branch_length`` branch.
-    Ingroup tip alleles are stored under the names in ``tree.ingroup_samples``.
-    """
-    rng = np.random.default_rng(seed)
-    P_by_node = {
-        node: model.transition_probs(tree.branch_length(node))
-        for node in tree.postorder() if node != tree.root
-    }
-    P_ingroup = model.transition_probs(ingroup_branch_length)
-    sites: list[Site] = []
-    for i in range(n_sites):
-        root_state = int(rng.integers(0, 4))
-        state_at: dict[int, int] = {tree.root: root_state}
-        stack = [tree.root]
-        while stack:
-            parent = stack.pop()
-            for child in tree.children(parent):
-                state_at[child] = int(rng.choice(4, p=P_by_node[child][state_at[parent]]))
-                stack.append(child)
-        tip_alleles: dict[str, str | None] = {
-            sid: STATES[state_at[tree.tip_for_sample(sid)]]
-            for sid in tree.outgroup_samples
-        }
-        for sid in tree.ingroup_samples:
-            ingroup_state = int(rng.choice(4, p=P_ingroup[root_state]))
-            tip_alleles[sid] = STATES[ingroup_state]
-        sites.append(Site(
-            chrom="1", pos=i + 1,
-            alleles=tuple(sorted(set(v for v in tip_alleles.values() if v))),
-            tip_alleles=tip_alleles,
-        ))
-    return sites
-
-
 class TestAutoOutgroupOrder:
     def test_orders_3outgroups_closest_first(self):
         """3-outgroup truth: O_close (K=0.02), O_mid (K=0.10), O_far (K=0.30).
@@ -531,7 +402,7 @@ class TestAutoOutgroupOrder:
         # External params for n=3: (K_1, K_2, K_3, K_4) map to
         # n_1→O_close, n_1→n_2, n_2→O_mid, n_2→O_far.
         truth_tree.set_params(np.array([0.0, 0.02, 0.03, 0.10, 0.30]))
-        sites = _simulate_sites_with_ingroup(
+        sites = simulate_tree_sites(
             truth_tree, JC69(), n_sites=2000,
             ingroup_branch_length=0.005, seed=17,
         )
@@ -598,7 +469,7 @@ class TestFixedParams:
             0.0, 0.005, 0.012, 0.018, 0.025,
         )
         tree.set_params(np.array([true_K0, true_K1, true_K2, true_K3, true_K4]))
-        sites = _simulate_sites(tree, JC69(), 2000, seed=33)
+        sites = simulate_tree_sites(tree, JC69(), 2000, seed=33)
         tree.set_params(np.full(tree.n_params, 0.05))
         # Fix K1 at truth so K2's recovery is meaningful.
         inf = FixedTreeInference(
@@ -627,7 +498,7 @@ class TestMultistart:
     def test_multistart_finds_at_least_as_good_as_single(self):
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, JC69(), 600, seed=51)
+        sites = simulate_tree_sites(tree, JC69(), 600, seed=51)
         tree.set_params(np.full(tree.n_params, 0.1))  # K1, K2
 
         single = FixedTreeInference(
@@ -654,7 +525,7 @@ class TestMultistart:
     def test_parallel_matches_sequential(self):
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, JC69(), 400, seed=77)
+        sites = simulate_tree_sites(tree, JC69(), 400, seed=77)
         tree.set_params(np.full(tree.n_params, 0.1))  # K1, K2
 
         seq = FixedTreeInference(
@@ -684,7 +555,7 @@ class TestMultistart:
         """
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, JC69(), 500, seed=63)
+        sites = simulate_tree_sites(tree, JC69(), 500, seed=63)
 
         def fit():
             t = OutgroupLadderTree(["i1"], ["o1", "o2"])
@@ -715,7 +586,7 @@ class TestSubstitutionModel:
         # Simulate under K2 (kappa=2), fit with K2, verify no crash and
         # MLE log-likelihood is finite. Strict recovery vs JC69 is not
         # the point here, exercising the model interface is.
-        sites = _simulate_sites(tree, K2(kappa=2.0), 400, seed=88)
+        sites = simulate_tree_sites(tree, K2(kappa=2.0), 400, seed=88)
         tree.set_params(np.full(tree.n_params, 0.1))  # K1, K2
         inf = FixedTreeInference(
             sites, K2(kappa=2.0), _no_counts(), tree=tree,
@@ -749,7 +620,7 @@ class TestFitKappa:
         ingroup = [f"i{i}" for i in range(10)]
         tree = OutgroupLadderTree(ingroup, ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, K2(kappa=4.0), 600, seed=12)
+        sites = simulate_tree_sites(tree, K2(kappa=4.0), 600, seed=12)
         tree.set_params(np.full(tree.n_params, 0.1))  # K1, K2
         model = K2(kappa=2.0, fit_kappa=True)
         inf = FixedTreeInference(
@@ -774,7 +645,7 @@ class TestFitLogging:
     def test_logs_mle_summary_at_info(self, caplog):
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
         tree.set_params(np.array([0.0, 0.09, 0.09]))
-        sites = _simulate_sites(tree, JC69(), 300, seed=23)
+        sites = simulate_tree_sites(tree, JC69(), 300, seed=23)
         # Reset before fit so the optimiser does not start at truth.
         tree.set_params(np.full(tree.n_params, 0.05))
         inf = FixedTreeInference(
@@ -800,7 +671,7 @@ class TestFitLogging:
     def test_silenceable_via_setLevel(self, caplog):
         """Caller opts out: setLevel(WARNING) on the ancestree logger."""
         tree = OutgroupLadderTree(["i1"], ["o1", "o2"])
-        sites = _simulate_sites(tree, JC69(), 200, seed=5)
+        sites = simulate_tree_sites(tree, JC69(), 200, seed=5)
         inf = FixedTreeInference(
             sites, JC69(), _no_counts(), tree=tree,
             n_target_sites=len(sites),
@@ -1988,7 +1859,7 @@ def test_provenance_reports_an_ascertained_composition_as_empirical():
 
 
 def test_fixed_tree_needs_names_or_a_ladder():
-    with pytest.raises(ValueError, match="ingroup_samples and outgroup_samples"):
+    with pytest.raises(ValueError, match="outgroup_samples is required"):
         FixedTreeInference([], JC69(), _no_counts(), ingroup_samples=["i1"])
 
 
@@ -2118,3 +1989,82 @@ class TestRunParallelFallbacks:
             self._check(inf)
         assert any("running the 2 starts serially" in r.message
                    for r in caplog.records)
+
+
+class TestNoOutgroupModeResolvesTheIngroupByIndividual:
+    """The monomorphic-ingroup override reads the ingroup the way the rest of
+    the mode does, so naming an individual and naming its haplotypes give the
+    same answer. Reading ``tip_alleles`` by exact id instead made an ingroup
+    named per individual miss the override, and with a non-Kingman weight the
+    two spellings differed by 0.75 at a monomorphic site."""
+
+    @staticmethod
+    def _sites():
+        return [
+            anc.Site(chrom="1", pos=10, alleles=("A", "C"),
+                     tip_alleles={f"i{i}_h{h}": "A"
+                                  for i in range(3) for h in (0, 1)}),
+            anc.Site(chrom="1", pos=20, alleles=("A", "C"),
+                     tip_alleles={f"i{i}_h{h}": ("A" if i else "C")
+                                  for i in range(3) for h in (0, 1)}),
+        ]
+
+    @staticmethod
+    def _posteriors(ingroup):
+        from ancestree.priors import NoIngroupWeight
+
+        inf = FixedTreeInference(
+            TestNoOutgroupModeResolvesTheIngroupByIndividual._sites(),
+            JC69(), _no_counts(), ingroup_samples=ingroup,
+            outgroup_samples=[], ingroup_weight=NoIngroupWeight(),
+            fit_required=False, progress=False)
+        return {int(s.pos): np.asarray(p.values) for s, p in inf.infer()}
+
+    def test_the_two_spellings_agree(self):
+        by_individual = self._posteriors([f"i{i}" for i in range(3)])
+        by_haplotype = self._posteriors(
+            [f"i{i}_h{h}" for i in range(3) for h in (0, 1)])
+        for pos in by_haplotype:
+            np.testing.assert_allclose(
+                by_individual[pos], by_haplotype[pos], rtol=0, atol=0,
+                err_msg=f"the spellings disagree at position {pos}")
+
+    def test_a_monomorphic_ingroup_reports_its_own_allele(self):
+        """The override is what makes the monomorphic site a point mass, so an
+        agreement between the two spellings on a uniform posterior would prove
+        nothing."""
+        post = self._posteriors([f"i{i}" for i in range(3)])
+        assert post[10][anc.STATE_INDEX["A"]] == pytest.approx(1.0)
+
+
+class TestAnUnfittedRunFitsOnWrite:
+    """``summary`` and ``grade`` fit on demand, so writing does too: the
+    writers went through ``infer()`` directly and raised instead."""
+
+    @staticmethod
+    def _inference():
+        return _fixed_tree(_ladder_sites(4), n_starts=1)
+
+    def test_to_vcf_fits_first(self, tmp_path):
+        inf = self._inference()
+        assert inf._params_mle is None
+        n = inf.to_vcf(str(tmp_path / "out.vcf"))
+        assert n > 0
+        assert inf._params_mle is not None
+
+    def test_supplied_posteriors_are_written_unfitted(self, tmp_path):
+        """Posteriors passed in were scored elsewhere, so nothing is fitted."""
+        inf = self._inference()
+        site = anc.Site(chrom="1", pos=5, alleles=("A", "C"),
+                        tip_alleles={"i1": "A", "o1": "C", "o2": "C"})
+        n = inf.to_vcf(str(tmp_path / "given.vcf"),
+                       posteriors=[(site, _post_a())])
+        assert n == 1
+        assert inf._params_mle is None
+
+
+def _post_a():
+    from ancestree.posterior import Posterior
+
+    return Posterior(alleles=("A", "C", "G", "T"),
+                     values=np.array([0.7, 0.1, 0.1, 0.1]))

@@ -18,8 +18,12 @@ Writes a JSON dump plus a markdown summary. Both committed under
 """
 import json
 import math
+import sys
 from pathlib import Path
 from collections import defaultdict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _entropy_bits  # noqa: E402
 
 
 try:
@@ -40,15 +44,6 @@ except NameError:
 
 
 STATES = ("A", "C", "G", "T")
-
-
-def _entropy_bits(probs: list[float]) -> float:
-    """Shannon entropy in bits. Safe on zero-probability bins."""
-    s = 0.0
-    for p in probs:
-        if p > 0:
-            s -= p * math.log2(p)
-    return s
 
 
 def _brier(site: dict) -> float:

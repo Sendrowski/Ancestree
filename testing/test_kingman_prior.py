@@ -19,52 +19,7 @@ from ancestree import (
 from ancestree.priors import IngroupWeight, _fit_pi_bin
 from ancestree.settings import Settings
 
-from testing._helpers import no_counts as _no_counts, panel_site, panel_ts
-
-
-def _simulate_sites_with_ingroup_sfs(
-    tree: OutgroupLadderTree,
-    model: JC69,
-    n_sites: int,
-    *,
-    ingroup_branch_length: float,
-    seed: int,
-) -> list[Site]:
-    """Simulate sites where each ingroup haplotype is an independent draw
-    from a JC69 branch of length ``ingroup_branch_length`` rooted at the
-    inference root I. Produces realistic-looking ingroup SFS variation
-    (close to neutral Kingman SFS) and outgroup tip patterns under the
-    tree's branch rates.
-    """
-    rng = np.random.default_rng(seed)
-    P_by_node = {
-        node: model.transition_probs(tree.branch_length(node))
-        for node in tree.postorder() if node != tree.root
-    }
-    P_ingroup = model.transition_probs(ingroup_branch_length)
-    sites: list[Site] = []
-    for i in range(n_sites):
-        root_state = int(rng.integers(0, 4))
-        state_at: dict[int, int] = {tree.root: root_state}
-        stack = [tree.root]
-        while stack:
-            parent = stack.pop()
-            for child in tree.children(parent):
-                state_at[child] = int(rng.choice(4, p=P_by_node[child][state_at[parent]]))
-                stack.append(child)
-        tip_alleles: dict[str, str | None] = {
-            sid: STATES[state_at[tree.tip_for_sample(sid)]]
-            for sid in tree.outgroup_samples
-        }
-        for sid in tree.ingroup_samples:
-            ingroup_state = int(rng.choice(4, p=P_ingroup[root_state]))
-            tip_alleles[sid] = STATES[ingroup_state]
-        sites.append(Site(
-            chrom="1", pos=i + 1,
-            alleles=tuple(sorted({v for v in tip_alleles.values() if v})),
-            tip_alleles=tip_alleles,
-        ))
-    return sites
+from testing._helpers import no_counts as _no_counts, panel_site, panel_ts, simulate_tree_sites
 
 
 # ----------------------------------------------------------------- prior class
@@ -261,31 +216,8 @@ class TestAdaptiveFit:
         truth_tree = OutgroupLadderTree(ingroup, outgroup)
         truth_tree.set_params(np.array([0.0, 0.05, 0.05]))
 
-        rng = np.random.default_rng(33)
-        P = {n: JC69().transition_probs(truth_tree.branch_length(n))
-             for n in truth_tree.postorder() if n != truth_tree.root}
-        P_ingroup = JC69().transition_probs(0.05)
-        sites: list[Site] = []
-        for i in range(1500):
-            root = int(rng.integers(0, 4))
-            state = {truth_tree.root: root}
-            stack = [truth_tree.root]
-            while stack:
-                p_node = stack.pop()
-                for c in truth_tree.children(p_node):
-                    state[c] = int(rng.choice(4, p=P[c][state[p_node]]))
-                    stack.append(c)
-            tip_alleles = {
-                sid: STATES[state[truth_tree.tip_for_sample(sid)]]
-                for sid in outgroup
-            }
-            for sid in ingroup:
-                tip_alleles[sid] = STATES[int(rng.choice(4, p=P_ingroup[root]))]
-            sites.append(Site(
-                chrom="1", pos=i + 1,
-                alleles=tuple(sorted({v for v in tip_alleles.values() if v})),
-                tip_alleles=tip_alleles,
-            ))
+        sites = simulate_tree_sites(truth_tree, JC69(), 1500,
+                                    ingroup_branch_length=0.05, seed=33)
 
         tree = OutgroupLadderTree(ingroup, outgroup)
         adaptive = AdaptiveIngroupWeight(ingroup, n_runs=2, seed=7)
@@ -335,7 +267,7 @@ class TestAdaptiveUnstablePiWarning:
         outgroup = ["o1", "o2"]
         truth_tree = OutgroupLadderTree(ingroup, outgroup)
         truth_tree.set_params(np.array([0.0, 0.05, 0.05]))
-        sites = _simulate_sites_with_ingroup_sfs(
+        sites = simulate_tree_sites(
             truth_tree, JC69(), 100,
             ingroup_branch_length=0.05, seed=11,
         )
@@ -350,7 +282,7 @@ class TestAdaptiveUnstablePiWarning:
         outgroup = ["o1", "o2"]
         truth_tree = OutgroupLadderTree(ingroup, outgroup)
         truth_tree.set_params(np.array([0.0, 0.05, 0.05]))
-        sites = _simulate_sites_with_ingroup_sfs(
+        sites = simulate_tree_sites(
             truth_tree, JC69(), 100,
             ingroup_branch_length=0.05, seed=11,
         )
@@ -396,7 +328,7 @@ class TestAdaptiveParallelMatchesSequential:
         truth_tree = OutgroupLadderTree(ingroup, outgroup)
         truth_tree.set_params(np.array([0.0, 0.025, 0.025]))
 
-        sites = _simulate_sites_with_ingroup_sfs(
+        sites = simulate_tree_sites(
             truth_tree, JC69(), 600,
             ingroup_branch_length=0.05, seed=99,
         )
@@ -452,13 +384,15 @@ class TestSubsampleSizeDefault:
         assert prior.subsample_size == 8
 
     def test_explicit_too_large_raises(self):
+        """The ceiling is the haplotype count an inference binds, which an
+        ingroup named per individual only resolves at construction."""
+        weight = AdaptiveIngroupWeight(
+            [f"i{i}" for i in range(10)], subsample_size=20)
         with pytest.raises(ValueError, match=r"subsample_size must be in"):
-            AdaptiveIngroupWeight(
-                [f"i{i}" for i in range(10)], subsample_size=20,
-            )
+            weight._bind_haplotype_count(10)
 
     def test_explicit_too_small_raises(self):
-        with pytest.raises(ValueError, match=r"subsample_size must be in"):
+        with pytest.raises(ValueError, match=r"subsample_size must be at least 2"):
             AdaptiveIngroupWeight(
                 [f"i{i}" for i in range(10)], subsample_size=1,
             )

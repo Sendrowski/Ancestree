@@ -64,13 +64,12 @@ def test_a_non_positive_width_is_rejected_by_the_shared_parser(spec):
 @pytest.mark.parametrize("spec", ["8snps", "1gb"])
 def test_a_malformed_window_lists_the_snp_form(spec):
     """``window`` and ``block_size`` take ``"<N>snp"``, so the error lists it."""
-    from ancestree.local_tree_inference import (_raw_window_bp,
-                                                _resolve_block_spec)
+    from ancestree.local_tree_inference import _width_bp
 
     with pytest.raises(ValueError, match=r"window must be.*'<N>snp'"):
-        _raw_window_bp(spec, 60, 1e5)
+        _width_bp(spec, 60, 1e5, name="window")
     with pytest.raises(ValueError, match=r"block_size must be.*'<N>snp'"):
-        _resolve_block_spec(spec, 60, 1e5)
+        _width_bp(spec, 60, 1e5, name="block_size")
 
 
 def test_parse_bp_accepts_a_bp_suffix():
@@ -80,24 +79,19 @@ def test_parse_bp_accepts_a_bp_suffix():
 
 
 @pytest.mark.parametrize("spec", ["xsnp", "0snp", "-3snp"])
-def test_raw_window_bp_rejects_a_malformed_snp_spec(spec):
-    """A non-numeric or non-positive ``"<N>snp"`` window is refused."""
+def test_width_bp_rejects_a_malformed_snp_spec(spec):
+    """A non-numeric or non-positive ``"<N>snp"`` width is refused."""
     with pytest.raises(ValueError, match="window must be"):
-        lti._raw_window_bp(spec, 100, 10_000.0)
-
-
-def test_resolve_block_spec_snp_form_scales_with_density():
-    """A ``"<N>snp"`` block is N sites' worth of span at the mean density."""
-    assert lti._resolve_block_spec("4snp", 100, 10_000.0) == 400
-    assert lti._resolve_block_spec("1snp", 0, 0.0) == 1
-    assert lti._resolve_block_spec("300bp", 100, 10_000.0) == 300
-
-
-@pytest.mark.parametrize("spec", ["xsnp", "0snp"])
-def test_resolve_block_spec_rejects_a_malformed_snp_spec(spec):
-    """A non-numeric or non-positive ``"<N>snp"`` block is refused."""
+        lti._width_bp(spec, 100, 10_000.0, name="window")
     with pytest.raises(ValueError, match="block_size must be"):
-        lti._resolve_block_spec(spec, 100, 10_000.0)
+        lti._width_bp(spec, 100, 10_000.0, name="block_size")
+
+
+def test_width_bp_snp_form_scales_with_density():
+    """A ``"<N>snp"`` width is N sites' worth of span at the mean density."""
+    assert lti._width_bp("4snp", 100, 10_000.0, name="block_size") == 400
+    assert lti._width_bp("1snp", 0, 0.0, name="block_size") == 1
+    assert lti._width_bp("300bp", 100, 10_000.0, name="block_size") == 300
 
 
 def test_builder_resolves_a_snp_block_spec():
@@ -461,3 +455,38 @@ class TestTheSegmentBuilderCarriesTheMapAtItsOwnCoordinates:
                     f"segment at {origin} reads {got} at local {local} where "
                     f"the global map holds {want}")
         assert n_segments > 1
+
+
+class TestTheDefaultBlockDividesTheWindow:
+    """A window is snapped up to a whole number of blocks, so a default block
+    that does not divide the requested width inflates the window. Sizing the
+    block from the block count instead keeps the window at the request and the
+    HMM at several emission units per output tree."""
+
+    @pytest.mark.parametrize("n_sites,span", [(390, 40_000.0), (1_000, 1e6),
+                                              (57, 12_345.0), (7, 900.0)])
+    def test_the_window_is_not_inflated(self, n_sites, span):
+        """The block is sized from the block count, so the whole number of
+        blocks lands within one base pair per block of the requested width.
+        A block sized independently of the window leaves the snap to round
+        the width up by most of a block."""
+        requested = lti._width_bp("8snp", n_sites, span, name="window")
+        block = lti._default_block_bp(n_sites, span, requested)
+        window = lti.LocalTreeBuilder._snap_to_block(requested, block)
+        assert window % block == 0
+        n_blocks = window // block
+        assert window - requested < n_blocks, (
+            f"a {requested} bp window resolved to {window} bp over "
+            f"{n_blocks} block(s) of {block} bp")
+
+    @pytest.mark.parametrize("n_sites,span", [(390, 40_000.0), (1_000, 1e6)])
+    def test_the_window_holds_several_blocks(self, n_sites, span):
+        """One block per window leaves the pairwise HMM a single emission."""
+        requested = lti._width_bp("8snp", n_sites, span, name="window")
+        block = lti._default_block_bp(n_sites, span, requested)
+        window = lti.LocalTreeBuilder._snap_to_block(requested, block)
+        assert window // block >= 2
+
+    def test_an_explicit_block_still_snaps_the_window_up(self):
+        """Only the default block is sized to the window."""
+        assert lti.LocalTreeBuilder._snap_to_block(2500, 1000) == 3000

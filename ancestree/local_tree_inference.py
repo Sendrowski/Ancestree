@@ -11,10 +11,12 @@ The two main public classes, backed by the lower-level
   :meth:`LocalTreeBuilder.write() <ancestree.local_tree_inference.LocalTreeBuilder.write>`
   dumps a ``.trees`` file that can be fed straight to
   :class:`~ancestree.inference.ARGBasedInference`.
-- :class:`~ancestree.local_tree_inference.LocalTreeInference`, a thin convenience wrapper that builds
-  the trees from genotypes via :class:`~ancestree.local_tree_inference.LocalTreeBuilder` and delegates
-  the per-site ancestral-allele posterior to
-  :class:`~ancestree.inference.ARGBasedInference`. Implements the
+- :class:`~ancestree.local_tree_inference.LocalTreeInference`, which builds the
+  trees from genotypes via :class:`~ancestree.local_tree_inference.LocalTreeBuilder`
+  and scores the per-site ancestral-allele posterior over an ensemble of drawn
+  genealogies, or on the single plug-in genealogy through
+  :class:`~ancestree.inference.ARGBasedInference` when the ensemble is off.
+  Implements the
   :class:`~ancestree.inference.Inference` contract
   (:meth:`Inference.infer() <ancestree.inference.Inference.infer>` yields
   ``(Site, Posterior)``).
@@ -112,29 +114,28 @@ def _parse_bp(spec: "int | str", *, name: str = "length",
     return bp
 
 
-def _raw_window_bp(window: "int | str", n_sites: int, span_bp: float,
-                   *, name: str = "window") -> int:
-    """Pre-clamp window width in bp. An ``"<N>snp"`` spec is N sites' worth of
-    span at the data's mean SNP density. A bp / int spec is its parsed width.
-    Used to size the default ``block_size`` relative to the window and to detect
-    a window floored to an explicit, coarser block.
+def _width_bp(spec: "int | str", n_sites: int, span_bp: float,
+              *, name: str) -> int:
+    """A window or block width in bp. An ``"<N>snp"`` spec is N sites' worth
+    of span at the data's mean SNP density. A bp / int spec is its parsed
+    width.
 
-    :param window: The window spec.
+    :param spec: The width spec.
     :param n_sites: Sites the density is taken over.
     :param span_bp: Span the density is taken over.
     :param name: Parameter the spec was given for, named in the error message.
     :return: The width in base pairs.
-    :raises ValueError: If ``window`` is not one of the accepted forms.
+    :raises ValueError: If ``spec`` is not one of the accepted forms.
     """
-    if isinstance(window, str) and window.strip().lower().endswith("snp"):
+    if isinstance(spec, str) and spec.strip().lower().endswith("snp"):
         try:
-            n_target = int(window.strip().lower()[:-3])
+            n_target = int(spec.strip().lower()[:-3])
         except ValueError:
-            raise _length_spec_error(name, window, snp=True) from None
+            raise _length_spec_error(name, spec, snp=True) from None
         if n_target <= 0:
-            raise _length_spec_error(name, window, snp=True)
+            raise _length_spec_error(name, spec, snp=True)
         return max(1, int(round(n_target * span_bp / max(1, n_sites))))
-    return _parse_bp(window, name=name, snp=True)
+    return _parse_bp(spec, name=name, snp=True)
 
 
 # Target SNPs per HMM emission block when ``block_size`` is left unset. A block
@@ -144,37 +145,14 @@ _DEFAULT_BLOCK_SNPS = 4.0
 
 
 def _default_block_bp(n_sites: int, span_bp: float, window_bp: int) -> int:
-    """Density-adaptive default block width in bp: ~``_DEFAULT_BLOCK_SNPS`` SNPs
-    at the data's mean density, capped at the window (a block is never coarser
-    than its tree) and floored at 1 bp.
+    """Density-adaptive default block width in bp: about
+    ``_DEFAULT_BLOCK_SNPS`` SNPs at the data's mean density, sized so a whole
+    number of blocks spans the window exactly, never coarser than the window
+    and at least 1 bp.
     """
-    bp_per_snp = span_bp / max(1, n_sites)
-    target = int(round(_DEFAULT_BLOCK_SNPS * bp_per_snp))
-    return max(1, min(int(window_bp), target))
-
-
-def _resolve_block_spec(block: "int | str", n_sites: int, span_bp: float,
-                        *, name: str = "block_size") -> int:
-    """Resolve an explicit ``block_size`` to bp. A ``"<N>snp"`` spec is N SNPs'
-    worth of span at the data's mean density (the natural, density-invariant unit
-    for a block, matching the default). A bp / int spec is its parsed width.
-
-    :param block: The block spec.
-    :param n_sites: Sites the density is taken over.
-    :param span_bp: Span the density is taken over.
-    :param name: Parameter the spec was given for, named in the error message.
-    :return: The width in base pairs.
-    :raises ValueError: If ``block`` is not one of the accepted forms.
-    """
-    if isinstance(block, str) and block.strip().lower().endswith("snp"):
-        try:
-            n = int(block.strip().lower()[:-3])
-        except ValueError:
-            raise _length_spec_error(name, block, snp=True) from None
-        if n <= 0:
-            raise _length_spec_error(name, block, snp=True)
-        return max(1, int(round(n * span_bp / max(1, n_sites))))
-    return _parse_bp(block, name=name, snp=True)
+    target = _DEFAULT_BLOCK_SNPS * span_bp / max(1, n_sites)
+    n_blocks = max(1, int(round(window_bp / max(target, 1.0))))
+    return max(1, -(-int(window_bp) // n_blocks))
 
 
 # Set by LocalTreeInference._infer_segmented just before forking the segment
@@ -769,16 +747,8 @@ class LocalTreeBuilder(ReprMixin):
         if len(self.sample_names) < 2:
             raise ValueError(f"need >= 2 samples, got {len(self.sample_names)}")
         self.sequence_length = float(sequence_length)
-        raw = _raw_window_bp(window, len(self.sites), self.sequence_length)
-        if block_size is None:
-            # Size the block to a few SNPs' worth of span (well below the window),
-            # so the HMM emits several blocks per tree.
-            self.block_size = _default_block_bp(
-                len(self.sites), self.sequence_length, raw)
-        else:
-            self.block_size = _resolve_block_spec(
-                block_size, len(self.sites), self.sequence_length)
-        self.window_bp = self._snap_to_block(raw, self.block_size)
+        _, self.block_size, self.window_bp = self._resolve_widths(
+            window, block_size, len(self.sites), self.sequence_length)
         self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
         if self.time_grid is not None:
             n_time_bins = self.time_grid.size - 1
@@ -816,10 +786,28 @@ class LocalTreeBuilder(ReprMixin):
             yield site
 
     @staticmethod
+    def _resolve_widths(window, block_size, n_sites: int,
+                        span_bp: float) -> tuple[int, int, int]:
+        """The requested window, the block and the window the HMM uses, in bp.
+
+        :param window: The window spec.
+        :param block_size: The block spec, or ``None`` for the default.
+        :param n_sites: Sites the density is taken over.
+        :param span_bp: Span the density is taken over.
+        :return: ``(requested, block, window)``, the window rounded up to a
+            whole number of blocks.
+        """
+        requested = _width_bp(window, n_sites, span_bp, name="window")
+        block = (_default_block_bp(n_sites, span_bp, requested)
+                 if block_size is None
+                 else _width_bp(block_size, n_sites, span_bp, name="block_size"))
+        return requested, block, LocalTreeBuilder._snap_to_block(requested, block)
+
+    @staticmethod
     def _snap_to_block(window_bp: int, block_size: int) -> int:
         """Round a window width up to a whole number of blocks.
 
-        :param window_bp: Pre-clamp width from :func:`_raw_window_bp`.
+        :param window_bp: The requested width.
         :param block_size: Block width in base pairs.
         :return: The window width the HMM uses, at least one block.
         """
@@ -1268,9 +1256,10 @@ class LocalTreeBuilder(ReprMixin):
 class LocalTreeInference(Inference):
     """Infer ancestral alleles from genotypes via inferred local trees.
 
-    Convenience over :class:`~ancestree.local_tree_inference.LocalTreeBuilder` +
-    :class:`~ancestree.inference.ARGBasedInference`: it builds the local trees
-    from genotypes and delegates the per-site posterior to
+    Builds the local trees from genotypes with
+    :class:`~ancestree.local_tree_inference.LocalTreeBuilder` and scores each
+    site over an ensemble of genealogies drawn from the HMM posterior. With
+    ``n_ensemble=None`` it scores the single plug-in genealogy through
     :class:`~ancestree.inference.ARGBasedInference`.
 
     .. code-block:: python
@@ -1303,9 +1292,10 @@ class LocalTreeInference(Inference):
         building from :class:`~ancestree.sites.Site` records. Read from the
         source for a VCF / BCF / VCZ path, a tree sequence or a
         :class:`~ancestree.sites.SiteSource`.
-    :param sequence_length: Region length in bp. Required unless ``chunk_size``
-        is set (the chunked path derives it per segment) or ``source`` is a
-        tree sequence, whose own length it defaults to.
+    :param sequence_length: Region length in bp, which the local-tree windows
+        tile as ``[0, L)``. Give it whenever it is known: under ``chunk_size``
+        it is what lays one window grid over the whole region and not one per
+        segment. Defaults to a tree-sequence source's own length.
     :param window: Local-tree window spec (the primary resolution parameter). See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
     :param block_size: HMM emission block width: int / bp string / ``"<N>snp"``;
@@ -1432,6 +1422,11 @@ class LocalTreeInference(Inference):
         mu: float | None = None,
         rec_rate: float | None = None,
         sample_names: Sequence[str] | None = None,
+        sample_filter: Sequence[str] | None = None,
+        chrom_filter: str | None = None,
+        ploidy: int | None = None,
+        phased: bool | None = None,
+        phase_seed: int | None = None,
         sequence_length: float | None = None,
         window: "int | str" = "8snp",
         block_size: "int | str | None" = None,
@@ -1447,13 +1442,12 @@ class LocalTreeInference(Inference):
         ensemble_seed: int = 0,
         member_chunk: int = 8,
         recombination_map=None,
-        accessibility: "Sequence[tuple[float, float]] | None" = None,
+        accessibility=None,
         mutation_map=None,
         outgroup_samples: Sequence[str] | None = None,
         ingroup_samples: Sequence[str] | None = None,
         baseline_check: bool = False,
         focal: "FocalNode | str | None" = None,
-        mu_matches_time_units: bool = False,
         chrom: str | None = None,
     ) -> None:
         import tskit
@@ -1487,11 +1481,11 @@ class LocalTreeInference(Inference):
             raise ValueError(f"n_workers must be >= 1; got {n_workers}")
         self.n_workers = int(n_workers)
         self.progress = bool(progress)
-        self.recombination_map = recombination_map
-        self.accessibility = (
-            list(accessibility) if accessibility is not None else None
-        )
-        self.mutation_map = mutation_map
+        self._map_paths: dict[str, str] = {}
+        self.recombination_map = self._load_map(
+            recombination_map, "recombination_map")
+        self.accessibility = self._load_map(accessibility, "accessibility")
+        self.mutation_map = self._load_map(mutation_map, "mutation_map")
         self.n_ensemble = None if n_ensemble is None else int(n_ensemble)
         self.ensemble_seed = int(ensemble_seed)
         self.member_chunk = int(member_chunk)
@@ -1508,29 +1502,23 @@ class LocalTreeInference(Inference):
         self.focal = FocalNode.parse(focal)
         self._note_unnamed_ingroup()
 
-        if (isinstance(source, (str, os.PathLike))
-                and _path_format(source) == "trees"):
-            source = tskit.load(str(source))
-        if isinstance(source, tskit.TreeSequence):
+        from ancestree.sources import TskitSource
+
+        source = SiteSource.resolve(
+            source, sample_filter=sample_filter, chrom_filter=chrom_filter,
+            ploidy=ploidy, phased=phased, phase_seed=phase_seed)
+        if isinstance(source, TskitSource):
             self._log.warning(
                 "LocalTreeInference infers local trees from the genotypes of "
                 "the tree sequence and ignores its genealogy, which "
                 "Inference.from_arg() scores directly.")
-            from ancestree.sources import TskitSource
-
             if sequence_length is None:
-                sequence_length = source.sequence_length
-            source = TskitSource(source)
+                sequence_length = source._ts.sequence_length
+        if ingroup_samples and outgroup_samples:
+            self._check_filter_labelled(sample_filter, ingroup_samples,
+                                        outgroup_samples)
 
         explicit_panel = sample_names is not None
-        if isinstance(source, (str, os.PathLike)):
-            # VCF / BCF / VCZ path → read genotypes.
-            from ancestree.sources import CyVCF2Source, VcfZarrSource
-            source = (
-                VcfZarrSource(source)
-                if _path_format(source) == "vcz"
-                else CyVCF2Source(source)
-            )
         if sample_names is None and callable(getattr(source, "samples", None)):
             sample_names = list(source.samples())
         self._set_input_paths(source)
@@ -1583,9 +1571,7 @@ class LocalTreeInference(Inference):
             # malformed spec is reported without a streaming pre-pass. A
             # "<N>snp" spec resolves against the real density later.
             self._chunk_size = _parse_bp(chunk_size, name="chunk_size")
-            _raw_window_bp(window, 1, 1.0)
-            if block_size is not None:
-                _resolve_block_spec(block_size, 1, 1.0)
+            LocalTreeBuilder._resolve_widths(window, block_size, 1, 1.0)
             if not (isinstance(halo, str) and halo.strip().lower() == "auto"):
                 _parse_bp(halo, name="halo")
             # Keep the source for streaming. Only a one-shot iterator is
@@ -1607,19 +1593,22 @@ class LocalTreeInference(Inference):
                 "the chunked path, which derives it per segment)"
             )
         self._log_start()
+        if hasattr(source, "__next__"):
+            source = list(source)
+        first = next(iter(source), None)
+        maps = self._maps_on(str(first.chrom)) if first is not None else {}
         self.builder = LocalTreeBuilder(
             source, mu=mu, rec_rate=rec_rate, sample_names=self.sample_names,
             sequence_length=sequence_length, window=window,
             block_size=block_size, n_time_bins=n_time_bins,
-            time_grid=time_grid,
-            recombination_map=recombination_map,
-            accessibility=accessibility, mutation_map=mutation_map,
+            time_grid=time_grid, **maps,
         )
         # The builder resolved a tracked (None) block_size from the SNP density.
         self.block_size = self.builder.block_size
         _n = len(self.builder.sites)
         _span = self.builder.sequence_length
-        self._warn_resolution(requested_bp=_raw_window_bp(window, _n, _span),
+        self._warn_resolution(requested_bp=_width_bp(window, _n, _span,
+                                                     name="window"),
                               n_sites=_n, span_bp=_span)
         self._arg_model = model
         self._arg_kwargs = dict(
@@ -1627,7 +1616,6 @@ class LocalTreeInference(Inference):
             base_composition=base_composition, progress=progress,
             n_workers=n_workers, focal=focal,
             ingroup_samples=ingroup_samples, outgroup_samples=outgroup_samples,
-            mu_matches_time_units=mu_matches_time_units,
         )
 
     def _point_arg(self) -> "ARGBasedInference":
@@ -1661,20 +1649,9 @@ class LocalTreeInference(Inference):
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` for every site, in genomic order."""
         self._log_start()
-        pairs = self._infer_impl()
-        if self.chrom is not None:
-            pairs = self._relabelled(pairs)
-        yield from self._with_baseline_check(pairs)
+        yield from self._with_baseline_check(self._emitted(self._infer_impl()))
         if self._arg is not None:
-            self._add_segment_counts((
-                self._arg._n_ingroup_non_monophyletic,
-                self._arg._n_focal_multiroot_fallback,
-                self._arg._n_uniform_fallback,
-                self._arg._n_ingroup_monomorphic,
-                self._arg._n_uncoalesced_segments,
-                self._arg._n_unrepresentable_sites,
-                self._arg._n_unrepresentable_tips,
-            ))
+            self._add_counts(self._arg._diagnostic_counts())
         self._log_uniform_fallback_summary()
 
     def _infer_impl(self) -> Iterator[tuple[Site, Posterior]]:
@@ -1751,14 +1728,6 @@ class LocalTreeInference(Inference):
         self._add_builder_unrepresentable()
         for row, site in enumerate(sites):
             yield site, Posterior(tuple(STATES), post[row])
-
-    def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        """The resolved outgroup ids."""
-        return self._resolved_outgroups
-
-    def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        """The resolved ingroup ids."""
-        return self._resolved_ingroup
 
     # ----------------------------------------------------- chunked build path
     def _warn_resolution(self, *, requested_bp, n_sites, span_bp) -> None:
@@ -1843,13 +1812,8 @@ class LocalTreeInference(Inference):
         if declared:
             span = max(span, int(declared))
 
-        requested = _raw_window_bp(w, n_sites, span)
-        if self.block_size is None:
-            # Fine block (~a few SNPs), several blocks per tree: see
-            # _default_block_bp.
-            self.block_size = _default_block_bp(n_sites, span, requested)
-        elif not isinstance(self.block_size, int):
-            self.block_size = _resolve_block_spec(self.block_size, n_sites, span)
+        requested, self.block_size, self._wbp = LocalTreeBuilder._resolve_widths(
+            w, self.block_size, n_sites, span)
         chunk = getattr(self, "_chunk_size", None)
         if chunk is not None and chunk < self.block_size:
             self._log.warning(
@@ -1859,7 +1823,6 @@ class LocalTreeInference(Inference):
                 "one HMM pass per block",
                 chunk, self.block_size)
             self._chunk_size = self.block_size
-        self._wbp = LocalTreeBuilder._snap_to_block(requested, self.block_size)
         self._warn_resolution(requested_bp=requested, n_sites=n_sites,
                               span_bp=span)
 
@@ -1955,6 +1918,41 @@ class LocalTreeInference(Inference):
         if cur is not None:
             yield from flush(buf, core_lo)
 
+    def _load_map(self, value, name: str):
+        """A map as passed, read from its file where a path is given.
+
+        :param value: A map, a ``{contig: map}`` dict, a file path, or
+            ``None``.
+        :param name: The parameter: ``recombination_map`` reads a HapMap file,
+            ``accessibility`` a BED file and ``mutation_map`` a bedGraph, the
+            last two one entry per contig.
+        :return: The map, per contig where read from a BED or bedGraph file.
+        """
+        if not isinstance(value, (str, os.PathLike)):
+            return list(value) if name == "accessibility" and isinstance(
+                value, (list, tuple)) else value
+        from ancestree._maps import MapFiles
+
+        self._map_paths[name] = str(value)
+        if name == "recombination_map":
+            return MapFiles.read_hapmap(value)
+        if name == "accessibility":
+            return MapFiles.read_bed(value)
+        return MapFiles.read_bedgraph(value, default_rate=float(self.mu))
+
+    def _maps_on(self, contig: str) -> dict:
+        """The recombination map, accessibility mask and mutation map for
+        ``contig``.
+
+        :param contig: The contig of the sites.
+        :return: ``{parameter: map}``, each ``None`` where unset.
+        """
+        from ancestree._maps import MapFiles
+
+        return {name: MapFiles.on_contig(getattr(self, name), contig, name)
+                for name in ("recombination_map", "accessibility",
+                             "mutation_map")}
+
     def _slice_map(self, rate_map, origin: int, span: int):
         """Sub-map over ``[origin, origin+span)`` shifted to a local ``0``.
 
@@ -1974,12 +1972,19 @@ class LocalTreeInference(Inference):
             return None
         return rate_map.slice(left=float(origin), right=right, trim=True)
 
-    def _slice_accessibility(self, origin: int, span: int):
-        """Accessible intervals intersected with the segment, shifted to 0."""
-        if self.accessibility is None:
+    @staticmethod
+    def _slice_accessibility(accessibility, origin: int, span: int):
+        """Accessible intervals intersected with the segment, shifted to 0.
+
+        :param accessibility: The contig's intervals, or ``None``.
+        :param origin: Left edge of the segment, in base pairs.
+        :param span: Segment width, in base pairs.
+        :return: The shifted intervals, or ``None`` when unset.
+        """
+        if accessibility is None:
             return None
         out: list[tuple[float, float]] = []
-        for a0, a1 in self.accessibility:
+        for a0, a1 in accessibility:
             lo = max(float(a0), float(origin))
             hi = min(float(a1), float(origin + span))
             if hi > lo:
@@ -2019,15 +2024,18 @@ class LocalTreeInference(Inference):
         """
         seg, _core_lo, _core_hi, origin, span = work_unit
         shifted = [replace(s, pos=int(s.pos - origin)) for s in seg]
+        maps = self._maps_on(str(seg[0].chrom))
         builder = LocalTreeBuilder(
             shifted, mu=self.mu, rec_rate=self.rec_rate,
             sample_names=self.sample_names, sequence_length=span,
             window=self._wbp, block_size=self.block_size,
             n_time_bins=self.n_time_bins,
             time_grid=self.time_grid,
-            recombination_map=self._slice_map(self.recombination_map, origin, span),
-            accessibility=self._slice_accessibility(origin, span),
-            mutation_map=self._slice_map(self.mutation_map, origin, span),
+            recombination_map=self._slice_map(
+                maps["recombination_map"], origin, span),
+            accessibility=self._slice_accessibility(
+                maps["accessibility"], origin, span),
+            mutation_map=self._slice_map(maps["mutation_map"], origin, span),
             validate_coverage=False,
             # A window overlapping this core is clipped to the segment's axis.
             window_anchor=([
@@ -2325,7 +2333,7 @@ class LocalTreeInference(Inference):
                         # imap streams work-units to workers in genomic order.
                         for seg_out, counts in pool.imap(
                                 _segment_worker, self._segments_with_bar()):
-                            self._add_segment_counts(counts)
+                            self._add_counts(counts)
                             for orig, values in seg_out:
                                 yield orig, Posterior(alleles=states, values=values)
                 finally:
@@ -2338,7 +2346,7 @@ class LocalTreeInference(Inference):
             )
         for wu in self._segments_with_bar():
             seg_out, counts = self._process_segment(wu)
-            self._add_segment_counts(counts)
+            self._add_counts(counts)
             for orig, values in seg_out:
                 yield orig, Posterior(alleles=states, values=values)
 
@@ -2352,24 +2360,6 @@ class LocalTreeInference(Inference):
                  if end and self._chunk_size else None)
         return tqdm(segments, total=total, desc="LocalTreeInference",
                     unit=" segments", disable=Settings.disable_pbar)
-
-    def _add_segment_counts(self, counts) -> None:
-        """Roll one segment's diagnostic counts into the run totals.
-
-        Every count sums: a segment reports on the core rows it emits, and
-        the cores partition the panel, so each site is tallied once.
-
-        :param counts: The 7-tuple :meth:`_process_segment` returns.
-        """
-        (non_mono, multiroot, uniform, ingroup_mono, uncoalesced,
-         unrep_sites, unrep_tips) = counts
-        self._n_ingroup_non_monophyletic += int(non_mono)
-        self._n_focal_multiroot_fallback += int(multiroot)
-        self._n_uniform_fallback += int(uniform)
-        self._n_ingroup_monomorphic += int(ingroup_mono)
-        self._n_uncoalesced_segments += int(uncoalesced)
-        self._n_unrepresentable_sites += int(unrep_sites)
-        self._n_unrepresentable_tips += int(unrep_tips)
 
     def _site_counts_before(self) -> tuple[int, int, int]:
         """The per-site counters, read before a segment tallies its core rows.
@@ -2386,7 +2376,7 @@ class LocalTreeInference(Inference):
         """One segment's per-site tallies, taken off the live counters.
 
         The segment reports them to the parent, which rolls them in through
-        :meth:`_add_segment_counts`.
+        :meth:`~ancestree.inference.Inference._add_counts`.
 
         :param before: The reading :meth:`_site_counts_before` returned.
         :return: ``(n_ingroup_monomorphic, n_unrepresentable_sites,
@@ -2408,86 +2398,62 @@ class LocalTreeInference(Inference):
         size, time bins), and in ensemble mode the member count, seed and
         chunk.
         """
+        params: dict[str, object] = {
+            "model": self._model_name(self.model),
+            "prior": type(self.prior).__name__ if self.prior is not None
+            else "StationaryPrior",
+            "mu": float(self.mu) if isinstance(self.mu, float) else "variable",
+            "rec_rate": float(self.rec_rate),
+            **self._model_provenance(),
+            "window": self.window,
+            "n_time_bins": int(self.n_time_bins),
+            **self.focal.provenance(),
+        }
         if self._segmented:
             self._resolve_segmentation_params()
-            params: dict[str, object] = {
-                "model": self._model_name(self.model),
-                "prior": type(self.prior).__name__ if self.prior is not None
-                else "StationaryPrior",
-                "mu": float(self.mu) if isinstance(self.mu, float) else "variable",
-                "rec_rate": float(self.rec_rate),
-                **self._model_provenance(),
+            params.update({
                 # The configured spec (None is density-adaptive).
                 "block_size": self.block_size,
-                "window": self.window,
                 "halo": self._halo,
-                "n_time_bins": int(self.n_time_bins),
                 "chunk_size": int(self._chunk_size),
-                # The width the run used, which is the spec snapped up to a
-                # whole number of blocks, not the spec itself.
+                # The spec snapped up to a whole number of blocks.
                 "window_bp": int(self._wbp),
-                # The configured focal node: the inner ARG is per segment.
-                **self.focal.provenance(),
-            }
-            params.update(self._ensemble_provenance())
-            params.update(self._map_provenance())
-            return params
-        if self._ensemble_mode():
-            # The configured settings: an ensemble run never scores the plug-in ARG.
-            params: dict[str, object] = {
-                "model": self._model_name(self.model),
-                "prior": type(self.prior).__name__ if self.prior is not None
-                else "StationaryPrior",
-                "mu": float(self.mu) if isinstance(self.mu, float) else "variable",
-                **self.focal.provenance(),
-            }
-        else:
-            arg = self._point_arg()
-            mu = arg.mu
-            params = {
-                "model": self._model_name(arg.model),
-                "prior": type(arg.prior).__name__,
-                "mu": float(mu) if isinstance(mu, float) else "variable",
-                **arg._focal_provenance(),
-            }
-        b = self.builder
-        if b is not None:
-            params.update({
-                "rec_rate": float(b.rec_rate),
-                "window_bp": int(b.window_bp),
-                "block_size": int(b.block_size),
-                "n_time_bins": int(b.n_time_bins),
             })
+        else:
+            params.update({"block_size": int(self.builder.block_size),
+                           "window_bp": int(self.builder.window_bp)})
+        if self._arg is not None:
+            params.update(self._arg._focal_provenance())
         params.update(self._ensemble_provenance())
         params.update(self._map_provenance())
         return params
 
     def _ensemble_mode(self) -> bool:
         """Whether this run marginalises over an ensemble."""
-        return self.n_ensemble is not None and self.window is not None
-
-    #: Where each map came from, set by the command line, which holds the
-    #: paths the library itself never sees. Empty for a run driven through
-    #: the Python API, whose maps are summarised from the objects instead.
-    _map_sources: "dict[str, str | None]" = {}
+        return self.n_ensemble is not None
 
     def _map_provenance(self) -> dict:
         """Which maps applied.
 
-        Each map is summarised from the object itself, with its source path
-        added where the caller supplied one.
+        Each map is summarised from the object itself, per contig where it
+        was given per contig, with the file it was read from.
 
         :return: Provenance entries for the supplied maps.
         """
         out: dict = {}
-        if self.accessibility is not None:
-            out["accessibility_intervals"] = len(self.accessibility)
+        mask = self.accessibility
+        if mask is not None:
+            per_contig = mask.values() if isinstance(mask, dict) else [mask]
+            out["accessibility_intervals"] = sum(len(m) for m in per_contig)
         for name in ("recombination_map", "mutation_map"):
-            out.update(self._rate_map_provenance(name, getattr(self, name, None)))
-        for name in ("recombination_map", "mutation_map", "accessibility"):
-            src = (getattr(self, "_map_sources", None) or {}).get(name)
-            if src is not None:
-                out[f"{name}_path"] = str(src)
+            value = getattr(self, name)
+            if isinstance(value, dict):
+                out[f"{name}_contigs"] = len(value)
+                out[f"{name}_intervals"] = sum(len(m.rate) for m in value.values())
+            else:
+                out.update(self._rate_map_provenance(name, value))
+        out.update({f"{name}_path": path
+                    for name, path in self._map_paths.items()})
         return out
 
     @staticmethod
@@ -2773,23 +2739,30 @@ class LocalTreeInference(Inference):
         return ({self.chrom: next(iter(lengths.values()))}
                 if len(lengths) == 1 else {})
 
-    def _relabelled(self, pairs):
-        """``pairs`` with every site on contig ``chrom``.
+    def _emitted(self, pairs):
+        """``pairs`` as this mode reports them: without the tree handle of a
+        tree-sequence source, which the inferred trees do not share, and on
+        contig ``chrom`` where set.
 
         :param pairs: The ``(Site, Posterior)`` stream.
-        :return: Generator over the relabelled pairs.
-        :raises ValueError: If the sites lie on more than one contig.
+        :return: Generator over the reported pairs.
+        :raises ValueError: If ``chrom`` is set and the sites lie on more than
+            one contig.
         """
         first = None
         for site, posterior in pairs:
-            if first is None:
-                first = site.chrom
-            elif site.chrom != first:
-                raise ValueError(
-                    f"chrom={self.chrom!r} would put the sites of contigs "
-                    f"{first!r} and {site.chrom!r} on one contig. Leave chrom "
-                    f"unset for a source spanning several contigs.")
-            yield replace(site, chrom=self.chrom), posterior
+            if self.chrom is not None:
+                if first is None:
+                    first = site.chrom
+                elif site.chrom != first:
+                    raise ValueError(
+                        f"chrom={self.chrom!r} would put the sites of contigs "
+                        f"{first!r} and {site.chrom!r} on one contig. Leave "
+                        f"chrom unset for a source spanning several contigs.")
+                site = replace(site, chrom=self.chrom, local_tree_handle=None)
+            elif site.local_tree_handle is not None:
+                site = replace(site, local_tree_handle=None)
+            yield site, posterior
 
     def _output_template(self, given, fmt, output, restrict_samples):
         """As :meth:`Inference._output_template`, refusing a relabelled run.
@@ -2800,39 +2773,22 @@ class LocalTreeInference(Inference):
         :param restrict_samples: Whether an annotated file keeps only the
             samples the inference used.
         :return: ``(template, samples)``.
-        :raises ValueError: If ``chrom`` names no contig of the file the output
-            annotates, whose records keep their own contig names.
+        :raises ValueError: If ``chrom`` renames the sites of an output that
+            annotates a file, whose records keep their own contig names.
         """
         template, samples = super()._output_template(
             given, fmt, output, restrict_samples)
-        if (template is not None and self.chrom is not None
-                and self.chrom not in self._contigs_of(template, fmt)):
+        if template is None or self.chrom is None:
+            return template, samples
+        sites = self._source if self._segmented else self.builder.sites
+        first = next(iter(sites), None)
+        if first is not None and str(first.chrom) != self.chrom:
             raise ValueError(
-                f"chrom={self.chrom!r} cannot rename the sites of {output}, "
-                f"which annotates {template} under its own contig names. Write "
-                f"an output of another format, or leave chrom unset.")
+                f"chrom={self.chrom!r} renames the sites of contig "
+                f"{first.chrom!r}, so {output} cannot annotate {template}, "
+                f"whose records keep their own contig names. Write an output "
+                f"of another format, or leave chrom unset.")
         return template, samples
-
-    @staticmethod
-    def _contigs_of(path: str, fmt: str) -> list[str]:
-        """The contigs a VCF header or a store declares.
-
-        :param path: The VCF or store.
-        :param fmt: ``"vcf"`` or ``"vcz"``.
-        :return: The contig names.
-        """
-        if fmt == "vcf":
-            import cyvcf2
-
-            vcf = cyvcf2.VCF(path)
-            try:
-                return list(vcf.seqnames)
-            finally:
-                vcf.close()
-        import zarr
-
-        return [SiteSource._decode(c)
-                for c in zarr.open(path, mode="r")["contig_id"][:]]
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

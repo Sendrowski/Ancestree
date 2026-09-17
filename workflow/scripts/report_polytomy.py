@@ -13,6 +13,11 @@ Or via snakemake (the rule's ``input`` expand()s over the threshold list)::
     snakemake -j 1 results/reports/polytomy.md
 """
 import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _load  # noqa: E402
 
 
 try:
@@ -31,11 +36,6 @@ except NameError:
         "rec_rate": 1e-8, "pop_size": 1e4, "seed": 42,
         "thresholds": thresholds,
     }
-
-
-def _load(path: str) -> dict:
-    with open(path) as f:
-        return json.load(f)
 
 
 # Load per-threshold infer outputs. Sort by threshold for the table order.

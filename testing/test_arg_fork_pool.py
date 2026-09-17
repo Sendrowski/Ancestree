@@ -346,10 +346,11 @@ def test_chunk_worker_reproduces_the_serial_walk(small_ts, monkeypatch):
     inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
     serial = [(s.pos, p.values) for s, p in inf.infer()]
     monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", inf)
-    results, *counts = _arg_infer_chunk_worker((0, small_ts.num_trees))
+    results, counts = _arg_infer_chunk_worker((0, small_ts.num_trees))
     assert [(s.pos, v.tolist()) for s, v in results] == \
         [(pos, v.tolist()) for pos, v in serial]
-    assert len(counts) == 7 and all(isinstance(c, int) for c in counts)
+    assert len(counts) == len(ARGBasedInference._COUNTERS)
+    assert all(isinstance(c, int) for c in counts)
 
 
 def test_infer_range_over_an_empty_window_yields_nothing(small_ts):
@@ -432,3 +433,23 @@ def test_fork_pool_with_fewer_chunks_than_its_window(few_trees_ts, monkeypatch):
     assert [pos for pos, _ in got] == [pos for pos, _ in expected]
     for (_, a), (_, b) in zip(got, expected):
         np.testing.assert_array_equal(a, b)
+
+
+def test_the_pool_totals_land_in_the_counter_they_were_raised_in(small_ts,
+                                                                 monkeypatch):
+    """The worker reports its counters positionally, so the parent has to read
+    them in the order they were written. A worker and a consumer that disagree
+    on the order attribute each tally to the wrong diagnostic, which no total
+    and no length check exposes.
+    """
+    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", inf)
+    _results, counts = _arg_infer_chunk_worker((0, small_ts.num_trees))
+    # Distinct values, so a permuted order cannot go unnoticed.
+    counts = tuple(range(1, len(ARGBasedInference._COUNTERS) + 1))
+    parent = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    parent._reset_counts()
+    parent._add_counts(counts)
+    assert parent._diagnostic_counts() == counts
+    for name, value in zip(ARGBasedInference._COUNTERS, counts):
+        assert getattr(parent, name) == value, f"{name} took another's tally"

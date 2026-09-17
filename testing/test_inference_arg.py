@@ -391,36 +391,37 @@ def test_infer_site_agrees_with_infer_on_an_empirical_composition():
         np.testing.assert_allclose(one, batch[int(site.pos)], rtol=0, atol=0)
 
 
-def test_the_wrappers_do_not_drift_from_the_constructors():
+def test_the_wrappers_forward_every_constructor_argument(small_ts):
     """``from_*`` must offer what the constructor offers, on the same terms.
 
-    Each wrapper mirrors the constructor parameter by parameter, so a
-    parameter added to one and not the other disappears from the
-    documented entry point: from_fixed_tree defaulted baseline_check to
-    False while the constructor and its own docstring said True, and
-    from_arg omitted mu_matches_time_units entirely, so an uncalibrated ARG
-    could not be scored through it at all.
+    A wrapper that respells the signature drops a parameter from the
+    documented entry point: from_fixed_tree defaulted baseline_check to False
+    while the constructor and its own docstring said True, and from_arg
+    omitted mu_matches_time_units entirely, so an uncalibrated ARG could not
+    be scored through it at all.
     """
     import inspect
 
-    from ancestree import ARGBasedInference, FixedTreeInference, Inference
+    from ancestree import FixedTreeInference, Inference, OutgroupLadderTree
 
-    for wrapper, constructor, skip in (
-        (Inference.from_arg, ARGBasedInference.__init__, {"ts", "self"}),
-        (Inference.from_fixed_tree, FixedTreeInference.__init__,
-         {"source", "self"}),
-    ):
-        want = inspect.signature(constructor).parameters
-        got = inspect.signature(wrapper).parameters
-        for name, parameter in want.items():
-            if name in skip or name in ("cls", "args", "kwargs"):
-                continue
-            if parameter.default is inspect.Parameter.empty:
-                continue
-            assert name in got, f"{wrapper.__name__} drops {name}"
-            assert got[name].default == parameter.default, (
-                f"{wrapper.__name__} defaults {name} to {got[name].default}, "
-                f"the constructor to {parameter.default}")
+    for wrapper in (Inference.from_arg, Inference.from_fixed_tree):
+        kinds = [p.kind
+                 for p in inspect.signature(wrapper).parameters.values()]
+        assert kinds == [inspect.Parameter.VAR_POSITIONAL,
+                         inspect.Parameter.VAR_KEYWORD], (
+            f"{wrapper.__name__} respells the constructor signature")
+
+    inference = Inference.from_arg(small_ts, JC69(), mu=1e-8, progress=False)
+    assert isinstance(inference, ARGBasedInference)
+    assert inference.mu == 1e-8
+
+    fixed = Inference.from_fixed_tree(
+        [], JC69(), tree=OutgroupLadderTree(["i1"], ["o1", "o2"]),
+        fit_required=False, progress=False)
+    assert isinstance(fixed, FixedTreeInference)
+    default = inspect.signature(
+        FixedTreeInference.__init__).parameters["baseline_check"].default
+    assert fixed.baseline_check is default
 
 
 class TestTheAlphabetIsCheckedOverTheTreeSequence:

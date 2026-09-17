@@ -13,8 +13,12 @@ Standalone use::
 """
 import json
 import math
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _load  # noqa: E402
 
 
 try:
@@ -29,11 +33,6 @@ except NameError:
     out_json = "results/reports/caterpillar.json"
     out_md = "results/reports/caterpillar.md"
     sim_config = {}
-
-
-def _load(path: str) -> dict:
-    with open(path) as f:
-        return json.load(f)
 
 
 ladder = _load(in_ladder)

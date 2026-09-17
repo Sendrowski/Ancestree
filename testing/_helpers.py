@@ -59,6 +59,61 @@ def post(map_allele: str, p: float) -> Posterior:
     return Posterior(alleles=alleles, values=values)
 
 
+def simulate_tree_sites(tree, model, n_sites: int, *, seed: int, pi=None,
+                        ingroup_branch_length: float | None = None) -> list[Site]:
+    """Sample sites top-down on an outgroup ladder tree.
+
+    Per site the root state is drawn, then each child state from
+    ``model.transition_probs`` of its branch in stack order, then one state per
+    ingroup sample from the root state down a branch of
+    ``ingroup_branch_length``.
+
+    :param tree: The :class:`~ancestree.OutgroupLadderTree`.
+    :param model: The substitution model.
+    :param n_sites: Number of sites, at positions ``1`` to ``n_sites`` on contig ``1``.
+    :param seed: Generator seed.
+    :param pi: Root distribution, also passed to the kernel. ``None`` draws the
+        root uniformly and calls the kernel without ``pi``.
+    :param ingroup_branch_length: Branch length to each ingroup tip. ``None``
+        leaves the ingroup unobserved.
+    :return: The sites.
+    """
+    import numpy as np
+
+    from ancestree import STATES
+
+    rng = np.random.default_rng(seed)
+    kw = {} if pi is None else {"pi": np.asarray(pi, dtype=float)}
+    P_by_node = {
+        node: model.transition_probs(tree.branch_length(node), **kw)
+        for node in tree.postorder() if node != tree.root
+    }
+    P_ingroup = (None if ingroup_branch_length is None
+                 else model.transition_probs(ingroup_branch_length))
+    sites: list[Site] = []
+    for i in range(n_sites):
+        root_state = (int(rng.integers(0, 4)) if pi is None
+                      else int(rng.choice(4, p=kw["pi"])))
+        state_at = {tree.root: root_state}
+        stack = [tree.root]
+        while stack:
+            parent = stack.pop()
+            for child in tree.children(parent):
+                state_at[child] = int(rng.choice(4, p=P_by_node[child][state_at[parent]]))
+                stack.append(child)
+        tip_alleles = {
+            sid: STATES[state_at[tree.tip_for_sample(sid)]]
+            for sid in tree.outgroup_samples
+        }
+        if P_ingroup is not None:
+            for sid in tree.ingroup_samples:
+                tip_alleles[sid] = STATES[int(rng.choice(4, p=P_ingroup[root_state]))]
+        sites.append(Site(chrom="1", pos=i + 1,
+                          alleles=tuple(sorted(set(tip_alleles.values()))),
+                          tip_alleles=tip_alleles))
+    return sites
+
+
 def write_vcz(
     path,
     *,

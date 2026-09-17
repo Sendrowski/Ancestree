@@ -13,16 +13,22 @@ format, each yielding sites in file order and reporting the panel it found:
 :class:`~ancestree.sources.VcfZarrSource`. Only the :mod:`tskit` path is needed
 for a bare install, and the VCF and Zarr backends are imported on first use.
 Every haplotype is a separate tip, so a diploid sample ``S`` appears as ``S_h0``
-and ``S_h1``, and those are the names to give when naming ingroup and outgroup
-samples.
+and ``S_h1``. Either a haplotype name or the individual's own name may be given
+when naming ingroup and outgroup samples, an individual standing for all of its
+haplotypes.
 
-A :class:`~ancestree.writers.Writer` takes the opposite direction.
-:class:`~ancestree.writers.VCFWriter`, :class:`~ancestree.writers.TskitWriter`
-and :class:`~ancestree.writers.ZarrWriter` each copy their input store and
-record the MAP ancestral allele alongside its posterior, so the output holds the
-same variants in the same order, together with a record of the run that produced
-them. :class:`~ancestree.readers.Reader` inverts that, dispatching on the path's
-suffix to recover both the per-site annotations, as
+A :class:`~ancestree.writers.Writer` writes the result back out: each site's MAP
+ancestral allele, its posterior, and a record of the run. Where the input file
+is already in the format being written, a VCF annotated as a VCF or a store
+annotated as a store, :class:`~ancestree.writers.VCFWriter` and
+:class:`~ancestree.writers.ZarrWriter` copy that file and add the annotations to
+its records. Where it is not, they write one record per site, carrying the
+site's alleles and the genotypes of the panel.
+:class:`~ancestree.writers.TskitWriter` writes the tree sequence the run
+scored.
+
+:class:`~ancestree.readers.Reader` reads an annotated file back, dispatching on
+the path's suffix to recover the per-site annotations, as
 :class:`~ancestree.readers.Annotation` records, and the run's
 :class:`~ancestree.readers.Provenance`.
 

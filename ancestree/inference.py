@@ -154,195 +154,66 @@ class Inference(ReprMixin, ABC):
     #: Whether the ingroup and outgroup samples have been logged.
     _logged_panel: bool = False
 
+    #: The diagnostic counters a walk accumulates, in the order
+    #: :meth:`_diagnostic_counts` reports and :meth:`_add_counts` consumes.
+    _COUNTERS: tuple[str, ...] = (
+        "_n_ingroup_non_monophyletic", "_n_focal_multiroot_fallback",
+        "_n_uniform_fallback", "_n_ingroup_monomorphic",
+        "_n_uncoalesced_segments", "_n_unrepresentable_sites",
+        "_n_unrepresentable_tips",
+    )
+
     #: Inference-mode tag recorded in :meth:`provenance`. The model-based
     #: modes override it (``"arg"`` / ``"fixed-tree"`` / ``"local-tree"``);
     #: the rule-based baselines keep ``"unknown"``.
     _MODE: str = "unknown"
 
-    @classmethod
-    def from_arg(
-        cls,
-        source: "tskit.TreeSequence | str | os.PathLike",
-        model: "SubstitutionModel | None" = None,
-        *,
-        mu: "float | msprime.RateMap | None" = None,
-        base_composition: "BaseComposition | None" = None,
-        prior: "StationaryPrior | None" = None,
-        chrom: str = "1",
-        sample_map: Mapping[str, int] | None = None,
-        progress: bool = True,
-        n_workers: int = 1,
-        outgroup_samples: Sequence[str] | None = None,
-        ingroup_samples: Sequence[str] | None = None,
-        focal: "FocalNode | str | None" = None,
-        baseline_check: bool = False,
-        mu_matches_time_units: bool = False,
-    ) -> "ARGBasedInference":
-        """Build an :class:`~ancestree.inference.ARGBasedInference` from a :class:`tskit.TreeSequence`.
+    @staticmethod
+    def from_arg(*args, **kwargs) -> "ARGBasedInference":
+        """Build an :class:`~ancestree.inference.ARGBasedInference` from a
+        :class:`tskit.TreeSequence`, taking that constructor's arguments.
 
-        A discoverable entry point alongside :meth:`from_fixed_tree` and
-        :meth:`from_local_tree`. See the constructor for the parameters.
-
-        :return: A configured :class:`~ancestree.inference.ARGBasedInference` instance.
+        :return: The inference.
         """
-        return ARGBasedInference(
-            source,
-            model if model is not None else JC69(),
-            mu=mu,
-            base_composition=base_composition,
-            prior=prior,
-            chrom=chrom,
-            sample_map=sample_map,
-            progress=progress,
-            n_workers=n_workers,
-            outgroup_samples=outgroup_samples,
-            ingroup_samples=ingroup_samples,
-            focal=focal,
-            baseline_check=baseline_check,
-            mu_matches_time_units=mu_matches_time_units,
-        )
+        return ARGBasedInference(*args, **kwargs)
 
-    @classmethod
-    def from_fixed_tree(
-        cls,
-        source: "str | os.PathLike | SiteSource | tskit.TreeSequence | Sequence[Site]",
-        model: "SubstitutionModel | None" = None,
-        base_composition: "BaseComposition | None" = None,
-        *,
-        tree: "OutgroupLadderTree | None" = None,
-        ingroup_samples: Sequence[str] | None = None,
-        outgroup_samples: Sequence[str] | None = None,
-        n_target_sites: int | None = None,
-        sample_filter: Sequence[str] | None = None,
-        chrom_filter: str | None = None,
-        ploidy: int | None = None,
-        initial_rates: "np.ndarray | None" = None,
-        bounds: tuple[float, float] = (1e-9, 10.0),
-        progress: bool = True,
-        outgroup_similarity_threshold: float = 0.01,
-        fixed_params: "Mapping[str, float] | None" = None,
-        n_starts: int = 10,
-        parallelize: bool = False,
-        n_workers: int | None = None,
-        seed: int = 42,
-        ingroup_weight: "IngroupWeight | None" = None,
-        prior: "StationaryPrior | None" = None,
-        focal: "FocalNode | str | None" = None,
-        fit_required: bool = True,
-        baseline_check: bool = True,
-        subsample_size: int | None = None,
-        stream: bool | None = None,
-    ) -> "FixedTreeInference":
-        """Build a :class:`~ancestree.inference.FixedTreeInference` (fixed-tree / outgroup-ladder mode).
+    @staticmethod
+    def from_fixed_tree(*args, **kwargs) -> "FixedTreeInference":
+        """Build a :class:`~ancestree.inference.FixedTreeInference`
+        (outgroup-ladder mode), taking that constructor's arguments.
 
-        A discoverable entry point alongside :meth:`from_arg`. Builds the
-        outgroup-ladder topology from the supplied names. See the constructor
-        for the parameters.
-
-        :return: A configured :class:`~ancestree.inference.FixedTreeInference` instance.
+        :return: The inference.
         """
-        return FixedTreeInference(
-            source,
-            model if model is not None else JC69(),
-            base_composition,
-            tree=tree,
-            ingroup_samples=ingroup_samples,
-            outgroup_samples=outgroup_samples,
-            n_target_sites=n_target_sites,
-            sample_filter=sample_filter,
-            chrom_filter=chrom_filter,
-            ploidy=ploidy,
-            initial_rates=initial_rates,
-            bounds=bounds,
-            progress=progress,
-            outgroup_similarity_threshold=outgroup_similarity_threshold,
-            focal=focal,
-            fixed_params=fixed_params,
-            n_starts=n_starts,
-            parallelize=parallelize,
-            n_workers=n_workers,
-            seed=seed,
-            ingroup_weight=ingroup_weight,
-            prior=prior,
-            fit_required=fit_required,
-            baseline_check=baseline_check,
-            subsample_size=subsample_size,
-            stream=stream,
-        )
+        return FixedTreeInference(*args, **kwargs)
 
-    @classmethod
-    def from_local_tree(
-        cls,
-        source,
-        model: "SubstitutionModel | None" = None,
-        *,
-        mu: float | None = None,
-        rec_rate: float | None = None,
-        sample_names: Sequence[str] | None = None,
-        sequence_length: float | None = None,
-        window: "int | str" = "8snp",
-        block_size: "int | str | None" = None,
-        n_time_bins: int = 32,
-        prior: "StationaryPrior | None" = None,
-        base_composition: "BaseComposition | None" = None,
-        progress: bool = True,
-        n_workers: int = 1,
-        chunk_size: "int | str | None" = "10mb",
-        halo: "int | str" = "auto",
-        recombination_map=None,
-        accessibility: "Sequence[tuple[float, float]] | None" = None,
-        mutation_map=None,
-        outgroup_samples: Sequence[str] | None = None,
-        ingroup_samples: Sequence[str] | None = None,
-        focal: "FocalNode | str | None" = None,
-        baseline_check: bool = False,
-        n_ensemble: "int | None" = 64,
-        ensemble_seed: int = 0,
-        member_chunk: int = 8,
-        mu_matches_time_units: bool = False,
-        time_grid: "np.ndarray | None" = None,
-        chrom: str | None = None,
-    ) -> "LocalTreeInference":
-        """Build a :class:`~ancestree.local_tree_inference.LocalTreeInference`.
+    @staticmethod
+    def from_local_tree(*args, **kwargs) -> "LocalTreeInference":
+        """Build a :class:`~ancestree.local_tree_inference.LocalTreeInference`
+        from genotypes, taking that constructor's arguments.
 
-        A discoverable entry point alongside :meth:`from_arg` and
-        :meth:`from_fixed_tree` for the VCF-only inferred-local-tree mode. See
-        the constructor for the parameters.
-
-        :return: A configured
-            :class:`~ancestree.local_tree_inference.LocalTreeInference` instance.
+        :return: The inference.
         """
         from ancestree.local_tree_inference import LocalTreeInference
-        return LocalTreeInference(
-            source,
-            model if model is not None else JC69(),
-            mu=mu,
-            rec_rate=rec_rate,
-            sample_names=sample_names,
-            sequence_length=sequence_length,
-            window=window,
-            block_size=block_size,
-            n_time_bins=n_time_bins,
-            prior=prior,
-            base_composition=base_composition,
-            progress=progress,
-            n_workers=n_workers,
-            chunk_size=chunk_size,
-            halo=halo,
-            recombination_map=recombination_map,
-            accessibility=accessibility,
-            mutation_map=mutation_map,
-            outgroup_samples=outgroup_samples,
-            ingroup_samples=ingroup_samples,
-            focal=focal,
-            baseline_check=baseline_check,
-            n_ensemble=n_ensemble,
-            ensemble_seed=ensemble_seed,
-            member_chunk=member_chunk,
-            mu_matches_time_units=mu_matches_time_units,
-            time_grid=time_grid,
-            chrom=chrom,
-        )
+
+        return LocalTreeInference(*args, **kwargs)
+
+    def _diagnostic_counts(self) -> tuple[int, ...]:
+        """This walk's diagnostic counters, in :attr:`_COUNTERS` order."""
+        return tuple(int(getattr(self, name)) for name in self._COUNTERS)
+
+    def _reset_counts(self) -> None:
+        """Zero every diagnostic counter, for a per-chunk or per-draw walk."""
+        for name in self._COUNTERS:
+            setattr(self, name, 0)
+
+    def _add_counts(self, counts: "Sequence[int]") -> None:
+        """Roll one walk's diagnostic counters into these.
+
+        :param counts: The counts in :attr:`_COUNTERS` order, as
+            :meth:`_diagnostic_counts` reports them.
+        """
+        for name, value in zip(self._COUNTERS, counts):
+            setattr(self, name, getattr(self, name) + int(value))
 
     def _log_uniform_fallback_summary(self) -> None:
         """Emit one warning summarising uniform-posterior fallbacks, if any.
@@ -393,6 +264,16 @@ class Inference(ReprMixin, ABC):
         self._publish_focal_totals()
         self._n_ingroup_non_monophyletic = 0
         self._n_focal_multiroot_fallback = 0
+
+    def _focal_totals_entry(self) -> dict:
+        """The end-of-walk focal tallies.
+
+        :return: The tallies, empty until the walk publishes them and at a
+            focal node that is the tree's own root.
+        """
+        if self.focal.is_root or not self._focal_counts_complete:
+            return {}
+        return dict(self._focal_totals)
 
     def _publish_focal_totals(self) -> None:
         """Record the finished walk's focal diagnostics for the provenance.
@@ -537,8 +418,7 @@ class Inference(ReprMixin, ABC):
             parameters = {**parameters, "panel_samples": list(panel)}
         # The same merge the writers apply once the walk has finished, so the
         # record returned here and the record written agree.
-        if self._focal_counts_complete and not self.focal.is_root:
-            parameters = {**parameters, **self._focal_totals}
+        parameters = {**parameters, **self._focal_totals_entry()}
         return Provenance(
             software="ancestree",
             version=__version__,
@@ -828,6 +708,11 @@ class Inference(ReprMixin, ABC):
     #: over the same sites and INFO-logs the MAP agreement as a consistency check.
     baseline_check: bool = False
 
+    #: The panel lists :meth:`_resolve_panel` fills in, empty in a mode that
+    #: names neither.
+    _resolved_ingroup: tuple[str, ...] = ()
+    _resolved_outgroups: tuple[str, ...] = ()
+
     #: Cap on sites buffered for the baseline comparison so the check stays
     #: bounded in memory under streaming inference over whole genomes. Beyond
     #: it the agreement is reported over the leading sample.
@@ -835,12 +720,12 @@ class Inference(ReprMixin, ABC):
 
     def _baseline_outgroup_samples(self) -> tuple[str, ...]:
         """The resolved outgroup ids, or ``()`` for a mode without outgroups."""
-        return ()
+        return self._resolved_outgroups
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
         """The resolved ingroup ids, or ``()`` for a mode without an
         ingroup."""
-        return ()
+        return self._resolved_ingroup
 
     def _check_time_units(self, ts,
                           mu_matches_time_units: bool = False) -> None:
@@ -922,8 +807,8 @@ class Inference(ReprMixin, ABC):
         if dropped:
             self._log.info("Ignoring %d sample(s) that %s", len(dropped),
                            _NEITHER if self._ingroup_samples else _SIBLING)
-        self._resolved_ingroup: tuple[str, ...] = tuple(ingroup)
-        self._resolved_outgroups: tuple[str, ...] = tuple(outgroups)
+        self._resolved_ingroup = tuple(ingroup)
+        self._resolved_outgroups = tuple(outgroups)
         return tuple(panel)
 
     def _with_baseline_check(
@@ -1301,12 +1186,13 @@ class Inference(ReprMixin, ABC):
         :return: Generator over ``stream``.
         """
         yield from stream
-        if not (self._focal_counts_complete and not self.focal.is_root):
+        totals = self._focal_totals_entry()
+        if not totals:
             return
         for record in records:
             params = record.get("parameters") if record else None
             if isinstance(params, dict):
-                params.update(self._focal_totals)
+                params.update(totals)
 
     def _contig_lengths(self) -> dict[str, int]:
         """The length of each contig a tree sequence or a local input declares.
@@ -1530,8 +1416,12 @@ class Inference(ReprMixin, ABC):
         )
 
     def _posteriors_for_writing(self, posteriors):
-        """``posteriors`` as given, or a fresh :meth:`infer` stream."""
-        return posteriors if posteriors is not None else self.infer()
+        """``posteriors`` as given, or a fresh :meth:`infer` stream, fitting
+        first as :meth:`summary` and :meth:`grade` do."""
+        if posteriors is not None:
+            return posteriors
+        self._ensure_fitted()
+        return self.infer()
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,
@@ -1574,28 +1464,12 @@ def _arg_infer_chunk_worker(
             "set in the parent; fork did not propagate module globals."
         )
     start, stop = chunk
-    # Per-chunk counters.
-    inference._n_uniform_fallback = 0
-    inference._n_ingroup_non_monophyletic = 0
-    inference._n_focal_multiroot_fallback = 0
-    inference._n_ingroup_monomorphic = 0
-    inference._n_uncoalesced_segments = 0
-    inference._n_unrepresentable_sites = 0
-    inference._n_unrepresentable_tips = 0
+    inference._reset_counts()
     results = [
         (site, np.asarray(post.values))
         for site, post in inference._infer_range(start, stop, show_progress=False)
     ]
-    return (
-        results,
-        inference._n_uniform_fallback,
-        inference._n_ingroup_non_monophyletic,
-        inference._n_focal_multiroot_fallback,
-        inference._n_ingroup_monomorphic,
-        inference._n_uncoalesced_segments,
-        inference._n_unrepresentable_sites,
-        inference._n_unrepresentable_tips,
-    )
+    return results, inference._diagnostic_counts()
 
 
 # Floor for a rate-map mu that integrates to zero over a local tree's span:
@@ -1816,15 +1690,8 @@ class ARGBasedInference(Inference):
         if self.focal.is_root:
             return entry
         entry["n_ingroup"] = len(self._ingroup_nodes)
-        if self._focal_counts_complete:
-            entry.update(self._focal_totals)
+        entry.update(self._focal_totals_entry())
         return entry
-
-    def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        return self._resolved_outgroups
-
-    def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        return self._resolved_ingroup
 
     def _infer_marginalised(self):
         """Per-site posteriors marginalised over an ARG posterior sample.
@@ -1948,13 +1815,7 @@ class ARGBasedInference(Inference):
         clone.baseline_check = False
         # Fresh counters per draw. The parent sums the genealogy-level ones
         # and tallies the per-site ones over the sites the merge emits.
-        clone._n_ingroup_non_monophyletic = 0
-        clone._n_focal_multiroot_fallback = 0
-        clone._n_uncoalesced_segments = 0
-        clone._n_uniform_fallback = 0
-        clone._n_ingroup_monomorphic = 0
-        clone._n_unrepresentable_sites = 0
-        clone._n_unrepresentable_tips = 0
+        clone._reset_counts()
         clone._focal_counts_complete = False
         return clone
 
@@ -2393,20 +2254,12 @@ class ARGBasedInference(Inference):
                     in_flight.append(
                         pool.apply_async(_arg_infer_chunk_worker, (nxt,)))
                 while in_flight:
-                    (chunk_results, n_fallback, n_non_mono, n_multi,
-                     n_mono, n_uncoal, n_unrep_sites,
-                     n_unrep_tips) = in_flight.popleft().get()
+                    chunk_results, counts = in_flight.popleft().get()
                     nxt = next(remaining, None)
                     if nxt is not None:
                         in_flight.append(
                             pool.apply_async(_arg_infer_chunk_worker, (nxt,)))
-                    self._n_ingroup_non_monophyletic += int(n_non_mono)
-                    self._n_focal_multiroot_fallback += int(n_multi)
-                    self._n_uniform_fallback += int(n_fallback)
-                    self._n_ingroup_monomorphic += int(n_mono)
-                    self._n_uncoalesced_segments += int(n_uncoal)
-                    self._n_unrepresentable_sites += int(n_unrep_sites)
-                    self._n_unrepresentable_tips += int(n_unrep_tips)
+                    self._add_counts(counts)
                     for site, values in chunk_results:
                         yield site, Posterior(alleles=states, values=values)
                     del chunk_results
@@ -2669,8 +2522,8 @@ class FixedTreeInference(Inference):
         parameters after the tree-rate MLE.
     :param prior: Optional root :class:`~ancestree.priors.StationaryPrior`.
         An :class:`~ancestree.priors.IngroupWeight` here raises
-        :class:`TypeError`. ``None`` (default) applies the model's stationary
-        vector, or the empirical π when the composition carries counts.
+        :class:`TypeError`. ``None`` (default) applies the π of a composition
+        carrying per-base counts, and is uniform otherwise.
     :param outgroup_similarity_threshold: Warn when an outgroup pair differs
         at fewer than this fraction of jointly-observed polymorphic sites,
         since the fit then collapses their branch rates. Default ``0.01``.
@@ -2816,12 +2669,15 @@ class FixedTreeInference(Inference):
         elif tree is not None:
             actual_tree = tree
         else:
-            if ingroup_samples is None or outgroup_samples is None:
+            if outgroup_samples is None:
                 raise ValueError(
-                    "FixedTreeInference: ingroup_samples and outgroup_samples "
-                    "are required to build the OutgroupLadderTree (or pass a "
-                    "pre-built one via tree=)."
-                )
+                    "FixedTreeInference: outgroup_samples is required to build "
+                    "the OutgroupLadderTree (or pass a pre-built one via "
+                    "tree=).")
+            if ingroup_samples is None:
+                ingroup_samples = self.default_ingroup(
+                    self._stream_source if self._streaming else actual_sites,
+                    outgroup_samples)
             actual_tree = OutgroupLadderTree(ingroup_samples, outgroup_samples)
 
         self.tree = actual_tree
@@ -2975,8 +2831,6 @@ class FixedTreeInference(Inference):
             model,
             base_composition=self.base_composition,
         )
-        # With prior=None the root prior is the empirical pi where counts were
-        # supplied, else the model's stationary vector.
         from ancestree.models import _PiModel
 
         if (isinstance(model, _PiModel)
@@ -3115,6 +2969,8 @@ class FixedTreeInference(Inference):
         :return: The resolved sub-sample size.
         """
         n_in_resolve = self._ingroup_haplotype_count()
+        if n_in_resolve and hasattr(ingroup_weight, "_bind_haplotype_count"):
+            ingroup_weight._bind_haplotype_count(n_in_resolve)
         if subsample_size is not None:
             resolved = int(subsample_size)
             if resolved < 2:
@@ -3259,6 +3115,32 @@ class FixedTreeInference(Inference):
             self.fit()
 
     @staticmethod
+    def default_ingroup(source, outgroup_samples: Sequence[str], *,
+                        sample_filter: Sequence[str] | None = None) -> list[str]:
+        """The ingroup a run naming only ``outgroup_samples`` uses: every panel
+        haplotype whose individual is not an outgroup, as in the other modes.
+
+        :param source: The site data, as the constructor accepts it.
+        :param outgroup_samples: The outgroup ids.
+        :param sample_filter: Individuals a path source is restricted to.
+        :return: The ingroup haplotype ids, in panel order.
+        :raises ValueError: If an outgroup is absent from the panel, or the
+            outgroups account for every haplotype.
+        """
+        source = SiteSource.resolve(source, sample_filter=sample_filter)
+        if isinstance(source, SiteSource):
+            panel = list(source.samples())
+        else:
+            first = next(iter(source), None)
+            panel = list(first.tip_alleles) if first is not None else []
+        _, ingroup, _, _ = _resolve_panel(panel, (), outgroup_samples)
+        if not ingroup:
+            raise ValueError(
+                f"the outgroups {list(outgroup_samples)[:5]} account for every "
+                f"sample of the panel, leaving no ingroup. Name ingroup_samples.")
+        return ingroup
+
+    @staticmethod
     def _check_samples_present(outgroup_samples, sites, source=None,
                                ingroup_samples=None) -> None:
         """Reject named ids that appear on no site.
@@ -3304,7 +3186,9 @@ class FixedTreeInference(Inference):
             raise ValueError(
                 f"{len(missing_out) + len(missing_in)} named sample(s) are "
                 f"absent from the source panel: "
-                f"{FixedTreeInference._name_missing(missing_out, missing_in)}."
+                f"{FixedTreeInference._name_missing(missing_out, missing_in)}. "
+                f"A diploid is split into '<name>_h0' / '<name>_h1', and an "
+                f"outgroup is one ladder tip, so name one haplotype."
             )
         individuals: set = set()
         for site in sites:
@@ -3325,9 +3209,9 @@ class FixedTreeInference(Inference):
                 f"{len(missing_out) + len(missing_in)} named sample(s) appear "
                 f"on no site: "
                 f"{FixedTreeInference._name_missing(missing_out, missing_in)}. "
-                f"Sites carry ids like {example}. A VCF source splits each "
-                f"diploid into '<name>_h0' / '<name>_h1', so the individual's "
-                f"own name matches no outgroup tip."
+                f"Sites carry ids like {example}. A diploid is split into "
+                f"'<name>_h0' / '<name>_h1', and an outgroup is one ladder tip, "
+                f"so name one haplotype."
             )
 
     @staticmethod
@@ -3690,13 +3574,10 @@ class FixedTreeInference(Inference):
             state_index = STATE_INDEX
             ingroup = self._ingroup_samples_no_out
             for k, site in enumerate(self.sites):
-                alleles = {site.tip_alleles.get(s) for s in ingroup}
-                alleles.discard(None)
-                if len(alleles) == 1:
-                    j = state_index.get(next(iter(alleles)))
-                    if j is not None:
-                        post[k] = 0.0
-                        post[k, j] = 1.0
+                counts = site.count_alleles(ingroup)
+                if len(counts) == 1:
+                    post[k] = 0.0
+                    post[k, state_index[next(iter(counts))]] = 1.0
                 yield site, Posterior(alleles=states, values=post[k])
             return
         if self._params_mle is None and self.fit_required:

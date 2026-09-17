@@ -245,18 +245,21 @@ class Writer(ReprMixin, ABC):
     def _call(self, site: Site, posterior: Posterior) -> tuple[str, float]:
         """The MAP allele to write, and its probability.
 
-        A site carrying no A/C/G/T allele leaves every tip marginalised, so
-        its posterior is the prior and its MAP allele is an artefact of the
-        tie-break. Such a site is written as :attr:`AA_UNKNOWN`.
+        A site carrying no A/C/G/T allele, or whose tips are all missing,
+        leaves every tip marginalised, so its posterior is the prior and its
+        MAP allele is an artefact of the tie-break. Such a site is written as
+        :attr:`AA_UNKNOWN`.
 
         :param site: The site the posterior was scored at.
         :param posterior: The site's :class:`~ancestree.posterior.Posterior`.
         :return: ``(allele, max_prob)``, the allele replaced by
             :attr:`AA_UNKNOWN` below ``min_confidence`` or where the site
-            carries no allele the model can read.
+            carries no allele or tip the model can read.
         """
         max_prob = float(posterior.max_prob)
-        if not site.has_representable_allele:
+        if not site.has_representable_allele or (
+                site.tip_alleles
+                and not any(map(Site.canonical, site.tip_alleles.values()))):
             return self.AA_UNKNOWN, max_prob
         if self._min_confidence is not None and max_prob < self._min_confidence:
             return self.AA_UNKNOWN, max_prob
@@ -565,8 +568,10 @@ class VCFWriter(Writer):
     written unannotated. Without an input VCF, each site is written as one
     ``PASS`` record carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
-    :attr:`Site.unphased <ancestree.sites.Site.unphased>`. A haploid call
-    among diploid ones is written as a diploid call missing its second allele.
+    :attr:`Site.unphased <ancestree.sites.Site.unphased>`. Each haplotype
+    fills the slot its ``_h<k>`` suffix names and an unfilled slot is written
+    missing, so a lone ``S_h1`` gives ``.|1``. A tip carrying no suffix is a
+    haploid call, written as ``1``.
 
     The output format follows the extension of ``output_vcf``,
     case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
@@ -1300,8 +1305,10 @@ class ZarrWriter(Writer):
     ``PASS`` variant carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`, together with the
-    fixed fields and the ``region_index`` ``bio2zarr`` writes. A haploid call
-    among diploid ones is written as a diploid call missing its second allele.
+    fixed fields and the ``region_index`` ``bio2zarr`` writes. Each haplotype
+    fills the slot its ``_h<k>`` suffix names, an unfilled slot is written
+    missing, and a tip carrying no suffix is a haploid call, padded to the
+    row width with the ``-2`` fill.
     Variant-indexed arrays are added at the root:
     ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
     ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and

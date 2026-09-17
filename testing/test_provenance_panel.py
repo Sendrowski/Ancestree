@@ -91,3 +91,37 @@ def test_panel_root_run_adds_no_focal_totals_to_a_supplied_record(small_ts, tmp_
                             focal="panel_root")
     inf.to_arg(str(tmp_path / "root.trees"), provenance=record)
     assert record["parameters"] == {"note": 1}
+
+
+def test_every_mode_records_the_panel_it_used(small_ts):
+    """ARG mode records the ingroup and outgroups it resolved, as local-tree
+    mode does, so a reader can grade an annotated output without being told
+    the panel again."""
+    names = [f"n{i}" for i in range(small_ts.num_samples)]
+    inf = ARGBasedInference(
+        small_ts, JC69(), mu=1e-8, progress=False,
+        sample_map={n: i for i, n in enumerate(names)},
+        outgroup_samples=names[-1:])
+    p = inf.provenance()["parameters"]
+    assert p["outgroup_samples"] == names[-1:]
+    assert p["ingroup_samples"] == names[:-1]
+    assert p["panel_samples"] == names
+
+
+def test_an_unchunked_run_records_the_model_parameters():
+    """The model's own parameters and the base composition are recorded on
+    every path, not only the chunked one."""
+    ts = tskit.load(TREES)
+    sites = list(anc.TskitSource(ts))
+    composition = BaseComposition(counts={"A": 30, "C": 20, "G": 20, "T": 30})
+    params = {}
+    for chunk_size in (None, 50_000):
+        inf = anc.Inference.from_local_tree(
+            sites, model=anc.HKY(kappa=4.0), mu=5e-8, rec_rate=1e-8,
+            sample_names=ING + OUT, sequence_length=float(ts.sequence_length),
+            base_composition=composition, ingroup_samples=ING,
+            outgroup_samples=OUT, chunk_size=chunk_size, progress=False)
+        params[chunk_size] = inf._provenance_parameters()
+    for key in ("model_kappa", "base_composition_pi"):
+        assert key in params[None], f"{key} missing from the unchunked record"
+        assert key in params[50_000], f"{key} missing from the chunked record"

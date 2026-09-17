@@ -23,12 +23,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from ancestree._repr import ReprMixin
+from ancestree.sites import Site
 
 if TYPE_CHECKING:
     import tskit
     from ancestree.focal import FocalNode
     from ancestree.posterior import Posterior
-    from ancestree.sites import Site
 
 
 class Tree(ReprMixin, ABC):
@@ -925,7 +925,8 @@ class OutgroupLadderTree(Tree):
 
         :param sites: Polymorphic :class:`~ancestree.sites.Site` records carrying ingroup
             tip alleles.
-        :param ingroup_samples: Ids of ingroup haplotypes.
+        :param ingroup_samples: Ids of ingroup haplotypes, or of the
+            individuals they belong to.
         :param outgroup_samples: Ids of outgroup haplotypes in any order.
         :return: ``outgroup_samples`` reordered closest-first.
         :raises ValueError: If no Site carries any ingroup tip allele,
@@ -937,15 +938,10 @@ class OutgroupLadderTree(Tree):
         majority_per_site: list[str | None] = []
         any_ingroup_seen = False
         for site in sites:
-            ingroup_alleles = [
-                a for sid in ingroup_samples
-                if (a := site.tip_alleles.get(sid)) is not None
-            ]
-            if ingroup_alleles:
+            counts = site.count_alleles(ingroup_samples)
+            if counts:
                 any_ingroup_seen = True
-                majority_per_site.append(
-                    Counter(ingroup_alleles).most_common(1)[0][0],
-                )
+                majority_per_site.append(counts.most_common(1)[0][0])
             else:
                 majority_per_site.append(None)
         if not any_ingroup_seen:
@@ -963,7 +959,7 @@ class OutgroupLadderTree(Tree):
             for site, majority in zip(sites, majority_per_site):
                 if majority is None:
                     continue
-                og_allele = site.tip_alleles.get(og)
+                og_allele = Site.canonical(site.tip_alleles.get(og))
                 if og_allele is None:
                     continue
                 n_obs += 1

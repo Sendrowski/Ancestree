@@ -1,14 +1,12 @@
 """Unit tests for the pure ``ancestree.cli`` helpers (model / prior factories,
-logging setup, the BED / bedGraph parsers, the empirical composition tally,
-the ``--debug`` probe and the entry points around :func:`ancestree.cli.main`).
-These exercise the argument-plumbing branches without running any inference,
-so they stay fast.
+logging setup, the empirical composition tally, the ``--debug`` probe and the
+entry points around :func:`ancestree.cli.main`). These exercise the
+argument-plumbing branches without running any inference, so they stay fast.
 """
 import logging
 import runpy
 import sys
 
-import msprime
 import numpy as np
 import pytest
 
@@ -20,9 +18,6 @@ from ancestree.cli import (
     _configure_logging,
     _debug_requested,
     _empirical_composition,
-    _import_msprime,
-    _read_bed_intervals,
-    _read_ratemap_bedgraph,
     _warn_model_defaults,
     main,
 )
@@ -162,6 +157,21 @@ class TestEmpiricalComposition:
         np.testing.assert_allclose(bc.pi, pi, rtol=1e-9)
         assert bc.kappa_estimate == pytest.approx(kappa)
 
+    @pytest.mark.parametrize("which", ["vcf", "vcz"])
+    def test_the_tally_follows_the_sample_filter(self, ladder_panel, which):
+        """The composition calibrates the run, so it is tallied over the
+        samples the run reads and not over every column of the file."""
+        vcf, vcz, _nwk, alleles, gt = ladder_panel
+        path = vcf if which == "vcf" else vcz
+        kept = ["i0", "i1"]
+        bc = _empirical_composition(str(path), None, kept)
+        pi, kappa = self._expected(alleles, gt[:, :2], len(alleles))
+        np.testing.assert_allclose(bc.pi, pi, rtol=1e-9)
+        assert bc.kappa_estimate == pytest.approx(kappa)
+        assert not np.allclose(
+            bc.pi, self._expected(alleles, gt, len(alleles))[0]), (
+            "the filtered tally matches the tally over every sample")
+
     def test_max_sites_caps_the_tally(self, ladder_panel):
         vcf, _vcz, _nwk, alleles, gt = ladder_panel
         bc = _empirical_composition(str(vcf), 40)
@@ -183,103 +193,6 @@ class TestConfigureLogging:
     def test_default_sets_info(self):
         _configure_logging(verbosity=0, quiet=False)
         assert logging.getLogger("ancestree").level == logging.INFO
-
-
-class TestReadBedIntervals:
-    def test_parses_and_skips_noise(self, tmp_path):
-        bed = tmp_path / "mask.bed"
-        bed.write_text(
-            "# a comment\n"
-            "track name=foo\n"
-            "browser dense\n"
-            "chr1\t100\t200\n"
-            "chr1\t300\t450\n"
-            "too short\n"  # < 3 fields -> skipped
-            "\n"
-        )
-        assert _read_bed_intervals(str(bed)) == [(100.0, 200.0), (300.0, 450.0)]
-
-
-class TestReadRatemapBedgraph:
-    def test_fills_gaps_and_sorts(self, tmp_path):
-        # Out-of-order rows with a gap before the first interval. The gap
-        # (and the [0, first_start) prefix) must be filled with default_rate.
-        bg = tmp_path / "rates.bedgraph"
-        bg.write_text(
-            "# header\n"
-            "chr1\t300\t400\t2e-8\n"
-            "chr1\t100\t200\t1e-8\n"
-        )
-        rm = _read_ratemap_bedgraph(str(bg), default_rate=5e-9)
-        assert rm.position[0] == 0.0
-        assert rm.position[-1] == 400.0
-        # interval rates appear in sorted order, gaps carry the default
-        assert 1e-8 in rm.rate and 2e-8 in rm.rate and 5e-9 in rm.rate
-
-    def test_no_usable_intervals_raises(self, tmp_path):
-        bg = tmp_path / "empty.bedgraph"
-        bg.write_text("# only a comment\nchr1\t10\n")  # second row too short
-        with pytest.raises(SystemExit, match="no usable intervals"):
-            _read_ratemap_bedgraph(str(bg), default_rate=1e-8)
-
-    def test_overlap_and_zero_length(self, tmp_path):
-        # An overlapping interval (start < current frontier → clipped) and a
-        # zero-length interval (end <= start after clip → skipped).
-        bg = tmp_path / "r.bedgraph"
-        bg.write_text(
-            "chr1\t0\t200\t1e-8\n"
-            "chr1\t100\t300\t2e-8\n"  # overlaps [0,200): clipped to start at 200
-            "chr1\t300\t300\t9e-8\n"  # zero-length: skipped
-        )
-        rm = _read_ratemap_bedgraph(str(bg), default_rate=5e-9)
-        assert rm.position[0] == 0.0
-        assert rm.position[-1] == 300.0
-
-
-class TestMutationMapGapRate:
-    """``--mutation-map`` gaps are filled with a real rate, not NaN.
-
-    ``--mu`` defaults to ``None`` at the CLI (the API supplies the fallback and
-    warns), so the gap-filling rate has to resolve to ``DEFAULT_MU`` here:
-    msprime turns a ``None`` rate into ``NaN``, which would silently poison
-    every site in the gap.
-    """
-
-    def _bedgraph(self, tmp_path):
-        # A deliberate gap over [0, 100): the map starts at 100.
-        p = tmp_path / "mu.bedGraph"
-        p.write_text("1\t100\t200\t2e-8\n")
-        return str(p)
-
-    def test_gap_uses_default_mu_when_mu_omitted(self, tmp_path):
-        import numpy as np
-
-        from ancestree import DEFAULT_MU
-        from ancestree.cli import _read_ratemap_bedgraph
-
-        rm = _read_ratemap_bedgraph(self._bedgraph(tmp_path), default_rate=DEFAULT_MU)
-        assert not np.isnan(rm.rate).any()
-        assert rm.rate[0] == pytest.approx(DEFAULT_MU)
-
-    def test_none_default_rate_would_be_nan(self, tmp_path):
-        """A ``None`` default rate must be resolved before it reaches the map."""
-        import numpy as np
-
-        from ancestree.cli import _read_ratemap_bedgraph
-
-        rm = _read_ratemap_bedgraph(self._bedgraph(tmp_path), default_rate=None)
-        assert np.isnan(rm.rate[0])
-
-
-def test_import_msprime_names_the_extra(monkeypatch):
-    """A missing ``msprime`` exits with the install hint."""
-    monkeypatch.setitem(sys.modules, "msprime", None)
-    with pytest.raises(SystemExit, match=r"pip install ancestree\[maps\]"):
-        _import_msprime()
-
-
-def test_import_msprime_returns_the_module():
-    assert _import_msprime() is msprime
 
 
 class TestLocalTreeOmitsFitToggles:

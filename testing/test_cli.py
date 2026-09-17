@@ -12,7 +12,6 @@ Two layers of coverage:
 """
 from __future__ import annotations
 import argparse
-import json
 import logging
 
 
@@ -31,8 +30,9 @@ from ancestree.cli import (
 )
 from ancestree.inference import _individual_of
 from ancestree.priors import NoIngroupWeight
+from ancestree.readers import Reader
 from ancestree.settings import Settings
-from ancestree.writers import PROVENANCE_HEADER, VCF_PROVENANCE_MARKER
+from ancestree.writers import PROVENANCE_HEADER
 
 from testing._helpers import ladder_panel, write_skeleton_vcf
 from testing._helpers import DEMO_TREES, DEMO_VCF, QUICKSTART_TREES
@@ -61,14 +61,6 @@ def tiny_trees_path(tiny_ts, tmp_path_factory):
     p = tmp_path_factory.mktemp("cli_trees") / "tiny.trees"
     tiny_ts.dump(str(p))
     return p
-
-
-def _vcf_provenance(path) -> dict:
-    """The provenance record an annotated VCF carries in its header."""
-    for line in path.read_text().splitlines():
-        if line.startswith(VCF_PROVENANCE_MARKER):
-            return json.loads(line[len(VCF_PROVENANCE_MARKER):])
-    raise AssertionError(f"no provenance header in {path}")
 
 
 def _aa_calls(path) -> list[str]:
@@ -397,12 +389,12 @@ def test_arg_writes_a_vcz_store(tiny_ts, tiny_trees_path, tmp_path, caplog):
     import zarr
 
     out = tmp_path / "annot.vcz"
-    with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+    with caplog.at_level(logging.INFO, logger="ancestree"):
         code = run(["arg", "--trees", str(tiny_trees_path), "--mu", "1e-7",
                     "--out", str(out)])
     assert code == 0
     messages = [r.getMessage() for r in caplog.records]
-    assert any(m == f"arg: wrote {tiny_ts.num_sites} annotated records to {out}"
+    assert any(m == f"Wrote {tiny_ts.num_sites:,} annotated sites to {out}"
                for m in messages)
     root = zarr.open(str(out), mode="r")
     aa = [str(a) for a in root["variant_AA"][:]]
@@ -551,7 +543,7 @@ class TestFixedTreeHandler:
         assert code == 0
         messages = [r.getMessage() for r in caplog.records]
         assert any("Kingman values are used instead" in m for m in messages)
-        prov = _vcf_provenance(out)
+        prov = Reader(out).provenance()
         assert prov["parameters"]["branch_rates_fitted"] is False
 
     def test_ingroup_is_derived_from_the_panel(
@@ -566,7 +558,7 @@ class TestFixedTreeHandler:
         assert code == 0
         messages = [r.getMessage() for r in caplog.records]
         assert "Using 2 ingroup sample(s): i0, i1" in messages
-        assert _vcf_provenance(out)["parameters"]["ingroup_samples"] == ["i0", "i1"]
+        assert Reader(out).provenance()["parameters"]["ingroup_samples"] == ["i0", "i1"]
 
     def test_outgroups_alone_build_the_ladder_and_fit(
             self, ladder_panel, tmp_path, caplog):
@@ -587,7 +579,7 @@ class TestFixedTreeHandler:
         messages = [r.getMessage() for r in caplog.records]
         assert any("Model F81 runs with uniform base frequencies" in m
                    for m in messages)
-        params = _vcf_provenance(out)["parameters"]
+        params = Reader(out).provenance()["parameters"]
         assert params["branch_rates_fitted"] is True
         assert params["outgroup_samples"] == ["o1", "o2"]
         assert set(params["fitted"]) >= {"K1", "K2"}
@@ -657,7 +649,7 @@ class TestFixedTreeHandler:
 
         vcf, _vcz, nwk, alleles, _gt = ladder_panel
         out = tmp_path / "annot.vcz"
-        with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+        with caplog.at_level(logging.INFO, logger="ancestree"):
             code = run([
                 "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
                 "--ingroup", "i0,i1", "--outgroups", "o1,o2",
@@ -667,7 +659,7 @@ class TestFixedTreeHandler:
         messages = [r.getMessage() for r in caplog.records]
         assert any("--template-vcf is ignored for a .vcz --out" in m
                    for m in messages)
-        assert any(m == f"Wrote {len(alleles)} annotated variants to {out}"
+        assert any(m == f"Wrote {len(alleles):,} annotated sites to {out}"
                    for m in messages)
         root = zarr.open(str(out), mode="r")
         aa = [str(a) for a in root["variant_AA"][:]]
@@ -857,7 +849,7 @@ def test_recombination_map_reaches_the_inference(tmp_path):
         "--window", "10snp", "--block-size", "1000", "--out", str(out),
     ])
     assert code == 0
-    params = _vcf_provenance(out)["parameters"]
+    params = Reader(out).provenance()["parameters"]
     assert params["recombination_map_path"] == str(hapmap)
     calls = _aa_calls(out)
     assert len(calls) == ts.num_sites
@@ -934,9 +926,10 @@ class TestDerivedIngroup:
         return DEMO_VCF
 
     def test_excludes_every_haplotype_of_a_named_outgroup_individual(self):
-        from ancestree.cli import _derive_ingroup
+        from ancestree.inference import FixedTreeInference
 
-        derived = _derive_ingroup(self._demo(), ["o1_h0", "o2_h0", "o3_h0"])
+        derived = FixedTreeInference.default_ingroup(
+            self._demo(), ["o1_h0", "o2_h0", "o3_h0"])
         # o1_h1 / o2_h1 / o3_h1 must not leak in: naming one haplotype of an
         # outgroup individual withholds the individual.
         assert derived == [
@@ -945,18 +938,18 @@ class TestDerivedIngroup:
         ]
 
     def test_ids_without_a_haplotype_suffix_pass_through(self):
-        from ancestree.cli import _individual_of
+        from ancestree.sites import _individual_of
 
         assert _individual_of("o1_h0") == "o1"
         assert _individual_of("plain") == "plain"
         assert _individual_of("s_h12") == "s"
 
     def test_all_samples_excluded_is_an_error(self):
-        from ancestree.cli import _derive_ingroup
+        from ancestree.inference import FixedTreeInference
 
         every = [f"{name}_h0" for name in ("i0", "i1", "i2", "i3", "o1", "o2", "o3")]
-        with pytest.raises(SystemExit, match="no ingroup"):
-            _derive_ingroup(self._demo(), every)
+        with pytest.raises(ValueError, match="no ingroup"):
+            FixedTreeInference.default_ingroup(self._demo(), every)
 
     def test_explicit_ingroup_still_parses(self):
         from ancestree.cli import build_parser
@@ -997,19 +990,20 @@ class TestDerivedIngroupFollowsThePanel:
         return str(p)
 
     def test_the_ingroup_is_confined_to_the_panel(self, tmp_path):
-        from ancestree.cli import _derive_ingroup
+        from ancestree.inference import FixedTreeInference
 
         panel = ["i0", "i1", "o0", "o1"]
-        ingroup = _derive_ingroup(self._vcf(tmp_path), ["o0", "o1"],
-                                  sample_filter=panel)
+        ingroup = FixedTreeInference.default_ingroup(
+            self._vcf(tmp_path), ["o0", "o1"], sample_filter=panel)
         assert ingroup, "no ingroup derived"
         outside = [h for h in ingroup if h.split("_h")[0] not in panel]
         assert not outside, f"ingroup names haplotypes outside the panel: {outside}"
 
     def test_an_unfiltered_run_keeps_every_non_outgroup(self, tmp_path):
-        from ancestree.cli import _derive_ingroup
+        from ancestree.inference import FixedTreeInference
 
-        ingroup = _derive_ingroup(self._vcf(tmp_path), ["o0", "o1"])
+        ingroup = FixedTreeInference.default_ingroup(
+            self._vcf(tmp_path), ["o0", "o1"])
         assert len(ingroup) == 6
 
 
@@ -1185,6 +1179,6 @@ def test_local_tree_samples_select_individuals(tmp_path):
     out = tmp_path / "annot.vcf"
     assert run([*base, "--samples", "i0,i1,o1", "--outgroups", "o1_h0",
                 "--out", str(out)]) == 0
-    with pytest.raises(ValueError, match="in --samples"):
+    with pytest.raises(ValueError, match="in sample_filter"):
         run([*base, "--samples", "i0,i1,o1", "--ingroup", "i0",
              "--outgroups", "o1_h0", "--out", str(out)])

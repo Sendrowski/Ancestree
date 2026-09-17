@@ -14,6 +14,8 @@ the curve measures where the ancestral state is best recovered rather than how
 far the estimate drifts from one fixed reference.
 """
 import json
+import sys
+from pathlib import Path
 
 import numpy as np
 import tskit
@@ -21,6 +23,9 @@ import tskit
 import ancestree as anc
 from ancestree.focal import FocalNode
 from ancestree.models import JC69
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _panel, _truth_at  # noqa: E402
 
 try:  # snakemake execution
     TREES = snakemake.input.trees
@@ -36,55 +41,6 @@ except NameError:  # direct execution
     N_OUTS = [1, 3, 10]
     MODES = ["fixed_tree", "arg", "local_tree"]
     MU = 1.25e-8
-
-
-def _panel(ts, n_out):
-    """Ingroup nodes and an outgroup subset spread across split depths."""
-    name = {p.id: (p.metadata or {}).get("name") for p in ts.populations()}
-    ingroup = [int(n) for n in ts.samples()
-               if name[ts.node(int(n)).population] == "ingroup"]
-    outgroups = [int(n) for n in ts.samples()
-                 if str(name[ts.node(int(n)).population]).startswith("outgroup")]
-    outgroups.sort(key=lambda n: int(name[ts.node(n).population].split("_")[1]))
-    if n_out >= len(outgroups):
-        chosen = outgroups
-    else:
-        index = np.linspace(0, len(outgroups) - 1, n_out).round().astype(int)
-        chosen = [outgroups[i] for i in dict.fromkeys(index)]
-    return ingroup, chosen
-
-
-def _truth_at(tree, site, node, height=0.0):
-    """Simulated state at a point ``height`` above ``node``.
-
-    A mutation sits at a time on the branch above its own node, so one on the
-    very edge being split may fall either side of the point. Reading the state
-    at the node below would quantise the truth to nodes while the estimate
-    moves continuously, so compare times rather than topology alone.
-
-    :param tree: The local tree covering the site.
-    :param site: The :class:`tskit.Site` carrying the mutations.
-    :param node: Node immediately below the point.
-    :param height: Distance above ``node``, in the tree's own time units.
-    :return: The simulated state at that point.
-    """
-    point_time = tree.time(node) + height
-    state, best = site.ancestral_state, np.inf
-    for mutation in site.mutations:
-        on_path = (mutation.node == node
-                   or tree.is_descendant(node, mutation.node))
-        if not on_path:
-            continue
-        # Prefer the mutation's own time. Fall back to its node's when the
-        # simulation left it unknown.
-        time = float(mutation.time)
-        if np.isnan(time):
-            time = tree.time(mutation.node)
-        if time <= point_time:
-            continue  # below the point: the point predates it
-        if time < best:
-            best, state = time, mutation.derived_state
-    return state
 
 
 def _focal_point(tree, ingroup_nodes, fraction):
@@ -161,9 +117,8 @@ def _prepared(mode, ts, names, ing_nodes, samples):
     if mode == "arg":
         return ts
     if mode == "local_tree":
-        # Genotypes, not the simulated tree sequence: a tree sequence takes
-        # LocalTreeInference's pre-built branch, which scores it as an ARG
-        # without running the HMM.
+        # The genotypes of the simulated tree sequence, which is what
+        # local-tree mode reads.
         source = _GenotypeSource(ts, names, samples)
         return anc.LocalTreeInference(
             source, JC69(), mu=MU, rec_rate=1e-8,

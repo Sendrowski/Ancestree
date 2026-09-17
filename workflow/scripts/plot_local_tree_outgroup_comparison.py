@@ -28,7 +28,7 @@ import matplotlib.lines as mlines  # noqa: E402
 
 import sys  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _local_tree_scan import draw_scan_panel  # noqa: E402
+from _local_tree_scan import _win_int, draw_scan_panel  # noqa: E402
 
 try:
     which = str(snakemake.params.which)  # type: ignore[name-defined]
@@ -44,10 +44,6 @@ except NameError:
     gen_jsons = ["results/data/local_tree_genealogy_og1.json",
                  "results/data/local_tree_genealogy_og3.json"]
     out_pdf = f"results/reports/bench_local_tree_{which}_outgroups.pdf"
-
-
-def _win_int(w):
-    return int(str(w).replace("snp", ""))
 
 
 wbs = [json.loads(Path(p).read_text()) for p in window_jsons]

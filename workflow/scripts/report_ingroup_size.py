@@ -24,8 +24,12 @@ Standalone use::
 import json
 import math
 import statistics as stats
+import sys
 from pathlib import Path
 from collections import defaultdict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _entropy_bits, _mean_std  # noqa: E402
 
 # Hypergeometric down-projection: subsample n_ingroup → REFERENCE_N to make
 # per-bin accuracy comparable across different n_ingroup values. Only applies
@@ -84,15 +88,6 @@ except NameError:
     out_json = "results/reports/ingroup_size.json"
     out_md = "results/reports/ingroup_size.md"
     sim_config = {}
-
-
-def _entropy_bits(probs: list[float]) -> float:
-    """Shannon entropy in bits. Safe on zero-probability bins."""
-    s = 0.0
-    for p in probs:
-        if p > 0:
-            s -= p * math.log2(p)
-    return s
 
 
 # Per-cell aggregation: one entry per (n_ingroup, seed).
@@ -227,16 +222,6 @@ for path in inputs:
 
 # Aggregate across seeds, per n_ingroup. Mean ± std.
 n_ingroups: list[int] = sorted({n for (n, _) in per_cell.keys()})
-
-
-def _mean_std(values: list[float]) -> tuple[float, float]:
-    """Return ``(mean, std)``. Std=0 for a single sample, NaN if empty."""
-    vals = [v for v in values if not math.isnan(v)]
-    if not vals:
-        return float("nan"), float("nan")
-    if len(vals) == 1:
-        return vals[0], 0.0
-    return stats.mean(vals), stats.stdev(vals)
 
 
 summary: dict[int, dict] = {}

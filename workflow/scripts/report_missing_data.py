@@ -11,8 +11,12 @@ Standalone use::
 import json
 import math
 import statistics as stats
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _entropy_bits, _mean_std  # noqa: E402
 
 
 try:
@@ -25,25 +29,6 @@ except NameError:
     out_json = "results/reports/missing_data.json"
     out_md = "results/reports/missing_data.md"
     sim_config = {}
-
-
-def _entropy_bits(probs: list[float]) -> float:
-    """Shannon entropy in bits. Safe on zero-probability bins."""
-    s = 0.0
-    for p in probs:
-        if p > 0:
-            s -= p * math.log2(p)
-    return s
-
-
-def _mean_std(values: list[float]) -> tuple[float, float]:
-    """Return ``(mean, std)``. Std=0 for a single sample, NaN if empty."""
-    vals = [v for v in values if not math.isnan(v)]
-    if not vals:
-        return float("nan"), float("nan")
-    if len(vals) == 1:
-        return vals[0], 0.0
-    return stats.mean(vals), stats.stdev(vals)
 
 
 # Per-cell aggregation: one entry per (missing_frac, seed).

@@ -35,15 +35,23 @@ produced, so the ``fraction = 0`` column is directly comparable with the
 Emits the same row schema as that scan, under the mode name ``local_tree_ens``.
 """
 import json
-from itertools import combinations
+import sys
+from pathlib import Path
 
 import numpy as np
 import tskit
 
 import ancestree as anc
+from ancestree._ensemble import (
+    S_STATES, SegmentEnsemble, ffbs_paths, pack_base_all, paths_to_condensed,
+    reroot_all, score_ensemble, upgma_batch,
+)
 from ancestree.focal import FocalNode
 from ancestree.models import JC69
 from ancestree.sites import Site
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _panel, _truth_at  # noqa: E402
 
 try:  # snakemake execution
     TREES = snakemake.input.trees
@@ -75,60 +83,6 @@ except NameError:  # direct execution
     #: Members held in memory at once. The transition matrices dominate.
     MEMBER_CHUNK = 8
     SEED = 1000
-
-# The sampler and its compiled kernels now live in the package. This scan
-# drives them rather than carrying its own copy.
-from ancestree._ensemble import (  # noqa: E402
-    S_STATES, ffbs_paths, hmm_forward_ckpt, pack_base_all, paths_to_condensed,
-    reroot_all, score_ensemble, upgma_batch,
-)
-
-
-def _panel(ts, n_out):
-    """Ingroup nodes and an outgroup subset spread across split depths.
-
-    :param ts: The simulated tree sequence.
-    :param n_out: Number of outgroups to retain.
-    :return: ``(ingroup_nodes, outgroup_nodes)``.
-    """
-    name = {p.id: (p.metadata or {}).get("name") for p in ts.populations()}
-    ingroup = [int(n) for n in ts.samples()
-               if name[ts.node(int(n)).population] == "ingroup"]
-    outgroups = [int(n) for n in ts.samples()
-                 if str(name[ts.node(int(n)).population]).startswith("outgroup")]
-    outgroups.sort(key=lambda n: int(name[ts.node(n).population].split("_")[1]))
-    if n_out >= len(outgroups):
-        chosen = outgroups
-    else:
-        index = np.linspace(0, len(outgroups) - 1, n_out).round().astype(int)
-        chosen = [outgroups[i] for i in dict.fromkeys(index)]
-    return ingroup, chosen
-
-
-def _truth_at(tree, site, node, height=0.0):
-    """Simulated state at a point ``height`` above ``node``.
-
-    :param tree: The local tree covering the site.
-    :param site: The :class:`tskit.Site` carrying the mutations.
-    :param node: Node immediately below the point.
-    :param height: Distance above ``node``, in the tree's own time units.
-    :return: The simulated state at that point.
-    """
-    point_time = tree.time(node) + height
-    state, best = site.ancestral_state, np.inf
-    for mutation in site.mutations:
-        on_path = (mutation.node == node
-                   or tree.is_descendant(node, mutation.node))
-        if not on_path:
-            continue
-        time = float(mutation.time)
-        if np.isnan(time):
-            time = tree.time(mutation.node)
-        if time <= point_time:
-            continue
-        if time < best:
-            best, state = time, mutation.derived_state
-    return state
 
 
 class _GenotypeSource(anc.SiteSource):
@@ -234,9 +188,9 @@ class EnsembleFocalScan:
 
     # -------------------------------------------------------------- HMM
     def build_hmm(self):
-        """Segment the panel, run the forward pass, and keep the point estimate.
+        """Segment the panel, build its ensemble, and keep the point estimate.
 
-        :return: ``None``. Fills the HMM attributes and the window index.
+        :return: ``None``. Fills :attr:`ensemble` and the point estimate.
         """
         inference = anc.LocalTreeInference(
             _GenotypeSource(self.ts, self.names, self.samples), self.model,
@@ -260,83 +214,20 @@ class EnsembleFocalScan:
             raise ValueError("the ensemble path assumes a plain uniform map")
         self.builder = builder
 
-        genotypes, _pos0, block_of_site, n_blocks = builder._genotype_matrix()
-        intervals = builder._window_intervals()
-        self.intervals = intervals
-
-        from ancestree.local_tree_inference import PairwiseCoalescentHMM
-        hmm = PairwiseCoalescentHMM(
-            self.n_hap, mu=builder.mu, rec_rate=builder.rec_rate,
-            block_size=builder.block_size, n_time_bins=builder.n_time_bins)
-        pairs = list(combinations(range(self.n_hap), 2))
-        counts = np.zeros((len(pairs), n_blocks), dtype=np.int64)
-        for p, (a, b) in enumerate(pairs):
-            ga, gb = genotypes[:, a], genotypes[:, b]
-            differ = (ga != gb) & (ga >= 0) & (gb >= 0)
-            if differ.any():
-                np.add.at(counts[p], block_of_site[differ], 1)
-        edges, t_rep = hmm._calibrate_time_grid(counts)
-        # Per-block (n_blocks, T), the shape the kernels index as
-        # lam[k, i] and r[k + 1, i]. This path rejects non-uniform maps above,
-        # so every block carries the same rate and the broadcast is exactly
-        # what SegmentEnsemble builds with trivial block geometry.
-        lam = np.repeat((2.0 * hmm.mu * hmm.block_size * t_rep)[None, :],
-                        n_blocks, axis=0)
-        log_lam = np.log(np.clip(lam, 1e-300, None))
-        r = np.exp(-np.repeat(
-            (2.0 * hmm.rec_rate * hmm.block_size * t_rep)[None, :],
-            n_blocks, axis=0))
-        t_bar = counts.mean(axis=1) / (2.0 * hmm.mu * hmm.block_size)
-        prior = np.stack([hmm._coalescent_prior(edges, t_bar[p])
-                          for p in range(len(pairs))])
-
-        self.alpha = np.empty((len(pairs), n_blocks, hmm.n_time_bins),
-                              dtype=np.float32)
-        # stride=1 checkpoints every block, so alpha_ck IS the full forward
-        # matrix, bit-for-bit what the removed hmm_forward stored.
-        esc = np.ones(counts.shape, np.float64)
-        hmm_forward_ckpt(counts, lam, log_lam, r, prior, esc, 1, self.alpha)
-        self.hmm_r, self.hmm_pi, self.t_rep = r, prior, t_rep
-        self.log_lo = np.log10(edges[:-1])
-        self.log_w = np.log10(edges[1:]) - self.log_lo
-        self.edge_lo = edges[:-1].copy()
-        self.edge_hi = edges[1:].copy()
-        self.t_bar = np.asarray(t_bar, np.float64)
-        self.hmm_counts, self.hmm_lam, self.hmm_log_lam = counts, lam, log_lam
-        self.hmm_esc = esc
-        self.n_blocks = n_blocks
-        # Keyed by column index: this panel is passed positionally throughout.
-        self.pair_key = np.arange(len(pairs), dtype=np.uint64)
-
-        # Windows carrying at least one site, and the site rows in each.
-        # By containing interval, not positions // window_bp: _window_intervals
-        # tiles a segment into round(seg_len / window_bp) equal windows, so the
-        # real step is only window_bp when the segment divides evenly, and the
-        # two drift apart near window edges (see SegmentEnsemble.__init__).
-        _edges = np.array([lo for lo, _ in intervals] + [intervals[-1][1]],
-                          dtype=float)
-        win_of_site = np.clip(
-            np.searchsorted(_edges, self.positions, side="right") - 1,
-            0, len(intervals) - 1).astype(np.int64)
-        self.needed = np.unique(win_of_site)
-        order = np.argsort(win_of_site, kind="stable")
-        self.row_idx = order.astype(np.int64)
-        counts_per_win = np.bincount(
-            np.searchsorted(self.needed, win_of_site[order]),
-            minlength=len(self.needed))
-        self.row_off = np.zeros(len(self.needed) + 1, dtype=np.int64)
-        self.row_off[1:] = np.cumsum(counts_per_win)
+        self.ensemble = SegmentEnsemble(builder, self.model, self.n_hap,
+                                        range(self.n_ing))
+        # The window index addresses rows of the panel's own site table.
+        if not np.array_equal(self.ensemble.positions, self.positions):
+            raise ValueError("the segment's sites differ from the panel's")
 
         # The point estimate the non-marginalised mode scores.
+        genotypes, _pos0, block_of_site, n_blocks = builder._genotype_matrix()
         block_t = builder._pairwise_block_tmrcas(
             genotypes, block_of_site, n_blocks)
-        bounds = [builder._blocks_for_window(l, r_, n_blocks)
-                  for l, r_ in intervals]
-        self.blk_lo = np.array([b0 for b0, _ in bounds], dtype=np.int64)
-        self.blk_hi = np.array([b1 for _, b1 in bounds], dtype=np.int64)
+        ens = self.ensemble
         self.point_condensed = np.ascontiguousarray(np.stack(
-            [block_t[:, b0:b1].mean(axis=1) for b0, b1 in
-             (bounds[w] for w in self.needed)]))
+            [block_t[:, ens.blk_lo[w]:ens.blk_hi[w]].mean(axis=1)
+             for w in ens.needed]))
 
     # ------------------------------------------------------------ truth
     def truth_tables(self, fractions):
@@ -414,7 +305,8 @@ class EnsembleFocalScan:
                        root.reshape(M * W))
             score_ensemble(branch_t, lam, V, Vinv,
                            pidx, poi, cofs, cflat, root, sample_dense,
-                           self.tip_states, self.row_off, self.row_idx,
+                           self.tip_states, self.ensemble.row_off,
+                           self.ensemble.row_idx,
                            nslot, S_STATES, out)
             yield fi, out
 
@@ -468,7 +360,8 @@ class EnsembleFocalScan:
             of shapes ``(F, n_sites, 4)``, ``(F, n_subsets, n_sites, 4)`` and
             ``(F, n_sites, 4)``.
         """
-        W = len(self.needed)
+        ens = self.ensemble
+        W = len(ens.needed)
         M = self.member_chunk
         n_frac = len(fractions)
         acc, ref = self._new_accumulator(n_frac, self.n_subsets)
@@ -486,24 +379,24 @@ class EnsembleFocalScan:
         del point_arrays, point_out
         progress("point estimate scored")
 
-        P = self.alpha.shape[0]
+        P = ens.alpha_ck.shape[0]
         draws = np.empty((M, W, P))
-        path = np.empty((M, P, self.n_blocks), dtype=np.int8)
+        path = np.empty((M, P, ens.n_blocks), dtype=np.int8)
         per_subset = self.n_members // self.n_subsets
         for start in range(0, self.n_members, M):
-            ffbs_paths(self.hmm_counts, self.hmm_lam, self.hmm_log_lam,
-                       self.alpha, 1, self.n_blocks, self.hmm_r, self.hmm_pi,
-                       self.hmm_esc, self.seed + start, self.pair_key, path)
-            paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
-                               self.needed,
-                               self.blk_lo, self.blk_hi, 0, self.pair_key,
-                               self.seed, start, draws)
+            ffbs_paths(ens.hmm_counts, ens.hmm_lam, ens.hmm_log_lam,
+                       ens.alpha_ck, ens.ckpt_stride, ens.n_blocks, ens.hmm_r,
+                       ens.hmm_pi, ens.hmm_esc, self.seed + start, ens.pair_key,
+                       path)
+            paths_to_condensed(path, ens.edge_lo, ens.edge_hi, ens.t_bar,
+                               ens.needed, ens.blk_lo, ens.blk_hi, 0,
+                               ens.pair_key, self.seed, start, draws)
             sub = start // per_subset
             for fi, res in self._score_chunk(draws, fractions, out, arrays):
                 self._accumulate(res, acc[fi, sub], ref[fi, sub])
             progress(f"members {start}-{start + M - 1} scored")
-        del arrays, out, draws, path
-        self.alpha = None
+        del arrays, out, draws, path, ens
+        self.ensemble = None
 
         subset_post = np.empty((n_frac, self.n_subsets, self.n_sites, S_STATES))
         full = np.empty((n_frac, self.n_sites, S_STATES))
@@ -562,8 +455,8 @@ def main() -> None:
     print(f"n_out={n_out}: {scan.n_hap} haplotypes, {scan.n_sites} sites",
           flush=True)
     scan.build_hmm()
-    print(f"n_out={n_out}: {len(scan.needed)} windows, "
-          f"alpha {scan.alpha.nbytes / 1e9:.2f} GB", flush=True)
+    print(f"n_out={n_out}: {len(scan.ensemble.needed)} windows, "
+          f"alpha {scan.ensemble.alpha_ck.nbytes / 1e9:.2f} GB", flush=True)
     moving, at_mrca, at_root = scan.truth_tables(FRACTIONS)
     print(f"n_out={n_out}: truth tables built", flush=True)
 

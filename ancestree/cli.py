@@ -36,12 +36,12 @@ import argparse
 import inspect
 import logging
 import sys
-from typing import Sequence, cast
+from typing import Sequence
 
-from ancestree import DEFAULT_MU, __version__
+from ancestree import __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
-from ancestree.sites import _individual_of, _path_format
+from ancestree.sites import _path_format
 
 __all__ = ["main", "build_parser", "run"]
 
@@ -126,39 +126,6 @@ def _warn_ignored(args, pairs) -> None:
                          attr.replace("_", "-"), reason)
 
 
-def _derive_ingroup(vcf_path: str, outgroups: Sequence[str],
-                    sample_filter: "Sequence[str] | None" = None) -> list[str]:
-    """Every haplotype whose individual is not named in ``outgroups``.
-
-    Exclusion is per individual: naming ``o1_h0`` as an outgroup also
-    withholds ``o1_h1``, keeping outgroup material out of the ingroup.
-
-    :param vcf_path: VCF / BCF / VCZ path whose sample list defines the panel.
-    :param outgroups: Outgroup ids as given on the command line.
-    :param sample_filter: The panel the run is restricted to, so the ingroup
-        names only haplotypes the inference will read.
-    :return: Ingroup haplotype ids, in the panel's own order.
-    :raises SystemExit: If no ingroup haplotype remains.
-    """
-    from ancestree.sources import CyVCF2Source, VcfZarrSource
-
-    source_cls = VcfZarrSource if _path_format(vcf_path) == "vcz" else CyVCF2Source
-    excluded = {_individual_of(o) for o in outgroups}
-    kept = ({_individual_of(s) for s in sample_filter}
-            if sample_filter else None)
-    ingroup = [
-        s for s in source_cls(vcf_path).samples()
-        if _individual_of(s) not in excluded
-        and (kept is None or _individual_of(s) in kept)
-    ]
-    if not ingroup:
-        raise SystemExit(
-            f"fixed-tree: --outgroups accounts for every sample in "
-            f"{vcf_path!r}, leaving no ingroup. Pass --ingroup explicitly."
-        )
-    return ingroup
-
-
 def _build_model(name: str, *, fit_kappa: bool, fit_rates: bool, kappa: float | None = None):
     """Instantiate a :class:`~ancestree.models.SubstitutionModel` by short name.
 
@@ -192,20 +159,21 @@ def _build_model(name: str, *, fit_kappa: bool, fit_rates: bool, kappa: float | 
     )
 
 
-def _empirical_composition(vcf: str, max_sites: int | None):
+def _empirical_composition(vcf: str, max_sites: int | None,
+                           sample_filter: "Sequence[str] | None" = None):
     """Derive the base composition from the input variants.
 
     :param vcf: VCF / BCF / VCZ path to read.
     :param max_sites: Cap on the sites tallied. ``None`` reads all of them.
+    :param sample_filter: Individuals the run reads, or ``None`` for all.
     :return: A :class:`~ancestree.sites.BaseComposition` carrying empirical
         ``pi`` and the Ts/Tv ratio behind
         :attr:`BaseComposition.kappa_estimate
         <ancestree.sites.BaseComposition.kappa_estimate>`.
     """
-    from ancestree.sites import BaseComposition
-    from ancestree.sources import CyVCF2Source, VcfZarrSource
+    from ancestree.sites import BaseComposition, SiteSource
 
-    source = VcfZarrSource(vcf) if _path_format(vcf) == "vcz" else CyVCF2Source(vcf)
+    source = SiteSource.resolve(vcf, sample_filter=sample_filter)
     return BaseComposition.from_polymorphic_sites(source, max_sites=max_sites)
 
 
@@ -257,7 +225,7 @@ def _build_prior(name: str, *, model):
     """Instantiate the prior on the state at the reporting node.
 
     :param name: ``composition`` defers to the base composition the inference
-        derives from the data. ``uniform`` overrides it with a flat prior over
+        carries, uniform when it has none. ``uniform`` is a flat prior over
         the alphabet.
     :param model: Substitution model, for the alphabet size.
     :return: A :class:`~ancestree.priors.StationaryPrior`, or ``None`` to let
@@ -380,9 +348,43 @@ def build_parser() -> argparse.ArgumentParser:
              "the input.",
     )
 
-    _add_fixed_tree_parser(sub, parents=[verbosity_parent, output_parent])
-    _add_arg_parser(sub, parents=[verbosity_parent, output_parent])
-    _add_local_tree_parser(sub, parents=[verbosity_parent, output_parent])
+    # Flags a VCF-reading subcommand shares.
+    panel_parent = argparse.ArgumentParser(add_help=False)
+    panel_parent.add_argument(
+        "--samples", type=_split_csv, default=None,
+        help="Comma-separated subset of VCF samples to read (default: all).",
+    )
+
+    # Flags a subcommand scoring a genealogy shares.
+    genealogy_parent = argparse.ArgumentParser(add_help=False)
+    genealogy_parent.add_argument(
+        "--mu", type=float, default=None,
+        help="Per-site per-generation mutation rate, which scales branch "
+             "lengths into expected substitutions. Defaults to 1e-8 with a "
+             "warning. That is a human / great-ape figure, so pass your "
+             "species' rate.",
+    )
+    genealogy_parent.add_argument(
+        "--prior", default="composition", choices=["composition", "uniform"],
+        help="Prior on the state at the reporting node: the model's "
+             "stationary distribution, uniform without a base composition, or "
+             "uniform. Default: composition.",
+    )
+    genealogy_parent.add_argument(
+        "--out", required=True,
+        help="Output path. The format is inferred from the extension: "
+             "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated "
+             "VCF, '.vcz' an annotated VCF Zarr store and '.trees' an "
+             "annotated tskit tree sequence.",
+    )
+
+    _add_fixed_tree_parser(
+        sub, parents=[verbosity_parent, output_parent, panel_parent])
+    _add_arg_parser(
+        sub, parents=[verbosity_parent, output_parent, genealogy_parent])
+    _add_local_tree_parser(
+        sub, parents=[verbosity_parent, output_parent, panel_parent,
+                      genealogy_parent])
     return parser
 
 
@@ -504,13 +506,10 @@ def _add_fixed_tree_parser(
         help="EST-SFS-style: ML-fit a fixed outgroup-ladder tree on a VCF.",
         description=(
             "ML-fit branch rates on an OutgroupLadderTree built from "
-            "--species-tree, then emit per-site posteriors at the focal node, "
-            "the ingroup MRCA by default, as an annotated VCF."
+            "--outgroups, or take a dated --species-tree as given, then write "
+            "per-site posteriors at the focal node, the ingroup MRCA by "
+            "default, as an annotated VCF or VCF Zarr store."
         ),
-    )
-    p.add_argument(
-        "--samples", type=_split_csv, default=None,
-        help="Comma-separated subset of VCF samples to read (default: all).",
     )
     p.add_argument(
         "--focal", default="ingroup-mrca",
@@ -583,9 +582,9 @@ def _add_fixed_tree_parser(
     )
     p.add_argument(
         "--prior", default="composition", choices=["composition", "uniform"],
-        help="Prior on the state at the reporting node: the base composition "
-             "of the data, or uniform over the alphabet. Default: "
-             "composition.",
+        help="Prior on the state at the reporting node: the base composition, "
+             "uniform without per-base counts, which --empirical-composition "
+             "does not supply, or uniform. Default: composition.",
     )
     p.add_argument(
         "--n-starts", type=int, metavar="N",
@@ -657,9 +656,9 @@ def _add_arg_parser(
         parents=parents or [],
         help="PolarBEAR-style: per-site ARG-local-tree inference on a .trees file.",
         description=(
-            "Walk a tskit tree sequence and emit per-site posteriors over "
-            "the local ARG root state. Outgroups are optional; the local "
-            "ARG topology supplies the genealogical signal."
+            "Walk a tskit tree sequence and write per-site posteriors at the "
+            "focal node, the ingroup MRCA by default. Outgroups are optional, "
+            "the local ARG topology supplying the genealogical signal."
         ),
     )
     p.add_argument(
@@ -668,15 +667,6 @@ def _add_arg_parser(
              "per-site posterior over them, which is how a posterior sample "
              "of genealogies (an MCMC chain) is consumed; the draw count is "
              "recorded in the output provenance.",
-    )
-    p.add_argument(
-        "--mu", type=float, default=None,
-        help=(
-            "Per-site per-generation mutation rate, which scales branch "
-            "lengths from generations into expected substitutions. Defaults "
-            "to 1e-8 with a warning; that is a human / great-ape figure, so "
-            "pass your species' rate."
-        ),
     )
     p.add_argument(
         "--mu-matches-time-units", action="store_true",
@@ -690,15 +680,6 @@ def _add_arg_parser(
     )
     _add_model_args(p, fit_flags=False)
     p.add_argument(
-        "--prior", default="composition", choices=["composition", "uniform"],
-        help=(
-            "Prior on the state at the reporting node: the base composition "
-            "of the data, or uniform over the alphabet. The ingroup weights "
-            "(kingman / adaptive) are fixed-tree only and are selected with "
-            "--ingroup-weight. Default: composition."
-        ),
-    )
-    p.add_argument(
         "--chrom", default=_lib_default(ARGBasedInference, "chrom"),
         help="Contig label of the annotated sites. Default: %(default)s.",
     )
@@ -709,15 +690,6 @@ def _add_arg_parser(
              "Default: %(default)s.",
     )
     _add_focal_args(p)
-    p.add_argument(
-        "--out", required=True,
-        help=(
-            "Output path. The format is inferred from the extension: "
-            "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated VCF, '.vcz' an "
-            "annotated VCF Zarr store, and '.trees' an annotated tskit tree "
-            "sequence."
-        ),
-    )
     p.set_defaults(handler=_run_arg)
 
 
@@ -734,9 +706,9 @@ def _add_local_tree_parser(
         help="VCF-only: infer per-window local trees from genotypes, then infer ancestral alleles.",
         description=(
             "Infer a dated local tree per genomic window from genotypes alone "
-            "(pairwise-coalescent HMM + per-window UPGMA) and emit per-site "
-            "posteriors over the local-tree root state. No outgroups and no "
-            "input ARG are required."
+            "(pairwise-coalescent HMM + per-window UPGMA) and write per-site "
+            "posteriors at the focal node, the ingroup MRCA by default. No "
+            "outgroups and no input ARG are required."
         ),
     )
     p.add_argument(
@@ -757,15 +729,9 @@ def _add_local_tree_parser(
               "--no-phased randomises that order per site."),
     )
     p.add_argument(
-        "--phase-seed", type=int, default=None,
+        "--phase-seed", type=int, default=0,
         help=("Seed for the per-site haplotype-order randomisation applied to "
               "unphased heterozygotes. Default: %(default)s."),
-    )
-    p.add_argument(
-        "--samples", type=_split_csv, default=None,
-        help=(
-            "Comma-separated subset of VCF samples to read (default: all)."
-        ),
     )
     p.add_argument(
         "--sequence-length", type=float, default=None,
@@ -780,9 +746,8 @@ def _add_local_tree_parser(
         help=("Process the genome in chunks of this size (bp int or '5mb') to "
               "bound memory and enable parallelism: contigs are independent and "
               "long contigs are sliced with a halo overlap. The input is "
-              "streamed (must be position-sorted) and --sequence-length is "
-              "then derived per segment. Pass 'none' to build the whole "
-              "input as one region. Default: %(default)s."),
+              "streamed and must be position-sorted. Pass 'none' to build "
+              "the whole input as one region. Default: %(default)s."),
     )
     p.add_argument(
         "--halo", default=_lib_default(LocalTreeInference, "halo"),
@@ -797,12 +762,6 @@ def _add_local_tree_parser(
         help=("Fork-pool workers. With --chunk-size, fans whole segments across "
               "the pool (peak memory ~ n_workers x chunk-size). "
               "Default: %(default)s."),
-    )
-    p.add_argument(
-        "--mu", type=float, default=None,
-        help="Per-site per-generation mutation rate. Defaults to 1e-8 with a "
-             "warning; that is a human / great-ape figure, so pass your "
-             "species' rate.",
     )
     p.add_argument(
         "--rec-rate", type=float, default=None,
@@ -851,7 +810,8 @@ def _add_local_tree_parser(
         default=_lib_default(LocalTreeInference, "member_chunk"),
         help="Genealogies drawn and scored at once. Peak memory is set by "
              "this and not by --ensemble-size, so lower it on wide panels. "
-             "--ensemble-size must be a whole number of chunks. Default: %(default)s.",
+             "A value that does not divide --ensemble-size is lowered to its "
+             "largest divisor. Default: %(default)s.",
     )
     p.add_argument(
         "--ensemble-seed", type=int, metavar="SEED",
@@ -884,23 +844,8 @@ def _add_local_tree_parser(
     )
     _add_model_args(p, fit_flags=False)
     p.add_argument(
-        "--prior", default="composition", choices=["composition", "uniform"],
-        help="Prior on the state at the reporting node: the base "
-             "composition of the data, or uniform over the alphabet. "
-             "Default: composition.",
-    )
-    p.add_argument(
         "--chrom", default=None,
         help="Contig label of the annotated sites (default: the source's).",
-    )
-    p.add_argument(
-        "--out", required=True,
-        help=(
-            "Output path. The format is inferred from the extension: "
-            "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated VCF, '.vcz' an "
-            "annotated VCF Zarr store and '.trees' an annotated tskit tree "
-            "sequence."
-        ),
     )
     p.add_argument(
         "--out-trees", default=None,
@@ -909,6 +854,52 @@ def _add_local_tree_parser(
     )
     _add_focal_args(p)
     p.set_defaults(handler=_run_local_tree)
+
+
+def _out_format(args, command: str, allowed: "tuple[str, ...]") -> str:
+    """The output format ``--out`` names, refused before the run when the
+    subcommand cannot write it.
+
+    :param args: Parsed argparse namespace, read for ``out``.
+    :param command: The subcommand, named in the error.
+    :param allowed: Formats the subcommand accepts, named in the error.
+    :return: One of ``"vcf"``, ``"vcz"`` and ``"trees"``.
+    :raises SystemExit: If ``--out`` has an unsupported extension.
+    """
+    out_format = _path_format(args.out)
+    if out_format not in allowed:
+        suffixes = {"vcf": ".vcf, .vcf.gz, .vcf.bgz, .bcf",
+                    "vcz": ".vcz", "trees": ".trees"}
+        parts = [suffixes[f] for f in allowed]
+        named = ", ".join(parts[:-1]) + f" or {parts[-1]}"
+        hint = ("" if out_format != "trees" else
+                " The .trees format is only valid under the `arg` and "
+                "`local-tree` subcommands.")
+        raise SystemExit(
+            f"{command} --out must end with {named} (got {args.out!r}).{hint}")
+    return out_format
+
+
+def _write_output(inference, args, out_format: str, **kwargs) -> int:
+    """Write the annotated output in ``out_format``.
+
+    :param inference: The inference to write from.
+    :param args: Parsed argparse namespace, read for ``out`` and the shared
+        output flags.
+    :param out_format: The format :func:`_out_format` resolved.
+    :param kwargs: Extra keyword arguments for a VCF output.
+    :return: Process exit code (0 on success).
+    """
+    common = dict(store_posterior=not args.no_posterior,
+                  min_confidence=args.min_confidence,
+                  restrict_samples=args.restrict_samples)
+    if out_format == "trees":
+        inference.to_arg(args.out, **common)
+    elif out_format == "vcz":
+        inference.to_zarr(args.out, **common)
+    else:
+        inference.to_vcf(args.out, **common, **kwargs)
+    return 0
 
 
 # ---------------------------------------------------------------------------- handlers
@@ -937,26 +928,17 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         ("max_calibration_sites", not args.empirical_composition,
          "without --empirical-composition"),
     ])
+    out_format = _out_format(args, "fixed-tree", ("vcf", "vcz"))
     if st and args.ingroup_weight == "adaptive":
         _log.warning(
             "--ingroup-weight adaptive with --species-tree: its per-bin fit "
             "runs inside fit(), which --species-tree skips, so the Kingman "
             "values are used instead")
-    out_format = _path_format(args.out)
-    out_is_zarr = out_format == "vcz"
-    if out_format not in ("vcf", "vcz"):
-        raise SystemExit(
-            f"fixed-tree --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, or .vcz "
-            f"(got {args.out!r}). The .trees format is only valid under "
-            f"the `arg` and `local-tree` subcommands."
-        )
     from ancestree.inference import FixedTreeInference
     from ancestree.trees import OutgroupLadderTree
 
-    ingroup = args.ingroup
-    if not ingroup:
-        ingroup = _derive_ingroup(args.vcf, args.outgroups,
-                                  sample_filter=(args.samples or None))
+    ingroup = args.ingroup or FixedTreeInference.default_ingroup(
+        args.vcf, args.outgroups, sample_filter=args.samples or None)
 
     # Build the ladder first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
     # taken as closest-first and the rates are fitted.
@@ -971,14 +953,15 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         tree = OutgroupLadderTree(ingroup, args.outgroups)
 
     template_vcf = args.template_vcf
-    if out_is_zarr and template_vcf is not None:
+    if out_format == "vcz" and template_vcf is not None:
         _log.warning(
             "fixed-tree: --template-vcf is ignored for a .vcz --out"
         )
 
     base_composition = None
     if args.empirical_composition:
-        base_composition = _empirical_composition(args.vcf, args.max_calibration_sites)
+        base_composition = _empirical_composition(
+            args.vcf, args.max_calibration_sites, args.samples or None)
         pi = ", ".join(f"{x:.3f}" for x in base_composition.pi)
         _log.info(
             "Empirical base composition pi = (%s), kappa = %.3f",
@@ -1026,18 +1009,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     if args.species_tree is None:
         inference.fit()  # ML branch rates. Skipped when a dated tree is given
 
-    if out_is_zarr:
-        n = inference.to_zarr(args.out, store_posterior=not args.no_posterior,
-                              min_confidence=args.min_confidence,
-                              restrict_samples=args.restrict_samples)
-        _log.info("Wrote %d annotated variants to %s", n, args.out)
-    else:
-        n = inference.to_vcf(args.out, input_vcf=template_vcf,
-                             store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence,
-                             restrict_samples=args.restrict_samples)
-        _log.info("Wrote %d annotated records to %s", n, args.out)
-    return 0
+    return _write_output(inference, args, out_format, input_vcf=template_vcf)
 
 
 def _run_arg(args: argparse.Namespace) -> int:
@@ -1051,6 +1023,7 @@ def _run_arg(args: argparse.Namespace) -> int:
     :return: Process exit code (0 on success).
     :raises SystemExit: If ``--out`` has an unsupported extension.
     """
+    out_format = _out_format(args, "arg", ("vcf", "vcz", "trees"))
     from ancestree.inference import ARGBasedInference
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
@@ -1071,121 +1044,13 @@ def _run_arg(args: argparse.Namespace) -> int:
         outgroup_samples=args.outgroups,
     )
 
-    out_format = _path_format(args.out)
-    if out_format == "trees":
-        n = inference.to_arg(args.out,
-                             store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence,
-                             restrict_samples=args.restrict_samples)
-        _log.info(
-            "arg: wrote %d annotated sites to %s", n, args.out,
-        )
-        return 0
-    if out_format == "vcf":
-        n = inference.to_vcf(args.out, store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence,
-                             restrict_samples=args.restrict_samples)
-        _log.info(
-            "arg: wrote %d annotated records to %s", n, args.out,
-        )
-        return 0
-    if out_format == "vcz":
-        n = inference.to_zarr(args.out,
-                              store_posterior=not args.no_posterior,
-                              min_confidence=args.min_confidence,
-                              restrict_samples=args.restrict_samples)
-        _log.info(
-            "arg: wrote %d annotated records to %s", n, args.out,
-        )
-        return 0
-    raise SystemExit(
-        f"arg --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, .vcz, or .trees "
-        f"(got {args.out!r})."
-    )
-
-
-def _read_bed_intervals(path: str) -> list[tuple[float, float]]:
-    """Read half-open ``(start, end)`` bp intervals from a BED file.
-
-    Columns beyond the first three (chrom, start, end) are ignored. ``track``,
-    ``browser``, comment lines and blanks are skipped. Coordinates are taken
-    verbatim (BED is 0-based half-open), pooled across contigs: the
-    local-tree accessibility mask is applied per segment, so the contig column
-    is not needed here.
-    """
-    intervals: list[tuple[float, float]] = []
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith(("#", "track", "browser")):
-                continue
-            f = line.split()
-            if len(f) < 3:
-                continue
-            intervals.append((float(f[1]), float(f[2])))
-    return intervals
-
-
-def _import_msprime():
-    """Import ``msprime`` (the ``maps`` extra) or exit with a clear message."""
-    try:
-        import msprime
-    except ImportError as e:
-        raise SystemExit(
-            "the --recombination-map / --mutation-map options require msprime; "
-            "install it with `pip install ancestree[maps]`."
-        ) from e
-    return msprime
-
-
-def _read_ratemap_bedgraph(path: str, default_rate: float):
-    """Build an :class:`msprime.RateMap` from a 4-column bedGraph (chrom, start,
-    end, rate).
-
-    Rows are sorted and assumed non-overlapping. Any gap (including a prefix
-    before the first interval) is filled with ``default_rate``, so the map
-    covers ``[0, last_end]`` contiguously. The contig column is ignored (the
-    map is applied per segment by position, as for the recombination map).
-
-    :raises SystemExit: If msprime is not installed, or the file yields no
-        usable interval.
-    """
-    msprime = _import_msprime()
-
-    intervals: list[tuple[float, float, float]] = []
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith(("#", "track", "browser")):
-                continue
-            f = line.split()
-            if len(f) < 4:
-                continue
-            intervals.append((float(f[1]), float(f[2]), float(f[3])))
-    intervals.sort()
-    position: list[float] = [0.0]
-    rate: list[float] = []
-    for start, end, r in intervals:
-        cur = position[-1]
-        if start < cur:  # overlap: clip to current frontier
-            start = cur
-        if end <= start:
-            continue
-        if start > cur:  # gap before this interval
-            position.append(start)
-            rate.append(default_rate)
-        position.append(end)
-        rate.append(r)
-    if len(position) < 2:
-        raise SystemExit(f"--mutation-map: no usable intervals in {path}")
-    return msprime.RateMap(position=position, rate=rate)
+    return _write_output(inference, args, out_format)
 
 
 def _run_local_tree(args: argparse.Namespace) -> int:
     """Execute the ``local-tree`` subcommand.
 
-    Builds a :class:`~ancestree.sites.SiteSource` from the genotype VCF,
-    infers per-window local trees via
+    Infers per-window local trees from the genotype VCF via
     :class:`~ancestree.local_tree_inference.LocalTreeInference`, and writes an
     annotated VCF, VCF-Zarr (``.vcz``), or ``.trees`` file based on the
     ``--out`` extension.
@@ -1205,49 +1070,20 @@ def _run_local_tree(args: argparse.Namespace) -> int:
          "inside the kernel: pass --chunk-size or --no-ensemble to fan out"),
         ("member_chunk", no_ens, "with --no-ensemble"),
     ])
-    out_format = _path_format(args.out)
-    if out_format is None:
-        raise SystemExit(
-            f"local-tree --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, .vcz, or "
-            f".trees (got {args.out!r})."
-        )
+    out_format = _out_format(args, "local-tree", ("vcf", "vcz", "trees"))
     from ancestree.local_tree_inference import LocalTreeInference
-
-    from ancestree.sites import SiteSource
-    source = cast(SiteSource, SiteSource.resolve(
-        args.vcf, sample_filter=(args.samples or None),
-        ploidy=args.ploidy, phased=args.phased, phase_seed=args.phase_seed,
-    ))
-    if args.ingroup and args.outgroups:
-        from ancestree.inference import Inference
-
-        Inference._check_filter_labelled(args.samples, args.ingroup,
-                                         args.outgroups, chosen_by="--samples")
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
     _warn_model_defaults("local-tree", args.model)
     prior = _build_prior(args.prior, model=model)
     focal = _build_focal(args)
 
-    recombination_map = None
-    if args.recombination_map is not None:
-        recombination_map = _import_msprime().RateMap.read_hapmap(args.recombination_map)
-    accessibility = (
-        _read_bed_intervals(args.accessibility)
-        if args.accessibility is not None else None
-    )
-    mutation_map = (
-        # Gaps are filled with the same rate the inference would fall back to.
-        # args.mu is None unless given, and msprime turns a None rate into NaN.
-        _read_ratemap_bedgraph(
-            args.mutation_map,
-            default_rate=args.mu if args.mu is not None else DEFAULT_MU,
-        )
-        if args.mutation_map is not None else None
-    )
-
     inference = LocalTreeInference(
-        source, model,
+        args.vcf, model,
+        sample_filter=args.samples or None,
+        ploidy=args.ploidy,
+        phased=args.phased,
+        phase_seed=args.phase_seed,
         mu=args.mu,
         rec_rate=args.rec_rate,
         sequence_length=args.sequence_length,
@@ -1261,21 +1097,14 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         n_workers=args.n_workers,
         chunk_size=args.chunk_size,
         halo=args.halo,
-        recombination_map=recombination_map,
-        accessibility=accessibility,
-        mutation_map=mutation_map,
+        recombination_map=args.recombination_map,
+        accessibility=args.accessibility,
+        mutation_map=args.mutation_map,
         focal=focal,
         ingroup_samples=args.ingroup,
         outgroup_samples=args.outgroups,
         chrom=args.chrom,
     )
-    # The library receives RateMap objects, so the paths they came from are
-    # recorded here or lost.
-    inference._map_sources = {
-        "recombination_map": args.recombination_map,
-        "mutation_map": args.mutation_map,
-        "accessibility": args.accessibility,
-    }
 
     # Optional side artifact: the un-annotated reconstructed local-tree
     # sequence. On the chunked path this stitches the per-segment builds into
@@ -1291,27 +1120,7 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         inference.point_tree_sequence().dump(args.out_trees)
         _log.info("Wrote the reconstructed local trees to %s",
                   args.out_trees)
-    if out_format == "trees":
-        n = inference.to_arg(args.out,
-                             store_posterior=not args.no_posterior,
-                             min_confidence=args.min_confidence,
-                             restrict_samples=args.restrict_samples)
-        _log.info("Wrote %d annotated sites to %s", n, args.out)
-    elif out_format == "vcz":
-        n = inference.to_zarr(args.out,
-                              store_posterior=not args.no_posterior,
-                              min_confidence=args.min_confidence,
-                              restrict_samples=args.restrict_samples)
-        _log.info("Wrote %d annotated variants to %s", n, args.out)
-    else:
-        n = inference.to_vcf(
-            args.out,
-            store_posterior=not args.no_posterior,
-            min_confidence=args.min_confidence,
-            restrict_samples=args.restrict_samples,
-        )
-        _log.info("Wrote %d annotated records to %s", n, args.out)
-    return 0
+    return _write_output(inference, args, out_format)
 
 
 # ---------------------------------------------------------------------------- entry point

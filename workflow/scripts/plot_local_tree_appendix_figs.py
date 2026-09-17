@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _local_tree_scan import draw_scan_panel  # noqa: E402
+from _local_tree_scan import _win_int, draw_scan_panel  # noqa: E402
 
 try:
     in_window = snakemake.input.window  # type: ignore[name-defined]
@@ -30,11 +30,6 @@ except NameError:
     in_genealogy = "results/reports/local_tree_genealogy.json"
     out_acc_pdf = "results/reports/bench_local_tree_window_accuracy.pdf"
     out_gen_pdf = "results/reports/bench_local_tree_genealogy.pdf"
-
-
-
-def _win_int(w):
-    return int(str(w).replace("snp", ""))
 
 
 # ------------------------------------------------ window size + robustness

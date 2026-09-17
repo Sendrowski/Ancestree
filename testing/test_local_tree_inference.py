@@ -724,7 +724,8 @@ def test_provenance_of_an_unchunked_ensemble_run():
 
 
 def test_provenance_of_an_unchunked_plug_in_run():
-    """The plug-in record reads model, prior and focal from the point ARG."""
+    """The plug-in record reads model, prior and the resolved widths without
+    running the HMM, and picks up the point ARG's focal tallies after a run."""
     sites, names = toy_sites(range(0, 1000, 20))
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
     params = inf._provenance_parameters()
@@ -734,7 +735,10 @@ def test_provenance_of_an_unchunked_plug_in_run():
     assert params["window_bp"] == 200
     assert params["block_size"] == 50
     assert "n_ensemble" not in params
+    assert inf._arg is None, "reading the provenance built the plug-in ARG"
+    list(inf.infer())
     assert inf._arg is not None
+    assert inf._provenance_parameters()["focal"] == "ingroup_mrca"
 
 
 # --------------------------------------------------------- HMM correctness
@@ -2639,3 +2643,43 @@ class TestUnrepresentableAllelesReachTheLocalTreeSummary:
             sites, JC69(), chunk_size=1000, halo=500, **kw))
         assert built[:2] == (len(sites), 12), "fixture preconditions"
         assert built == chunked
+
+
+class TestTheReportedSitesCarryNoForeignTreeHandle:
+    """A tree-sequence source tags each site with the tree it came from. The
+    genealogy this mode scores is its own, so the handle would point a writer
+    at a tree that never held the site."""
+
+    @staticmethod
+    def _sites_with_handles():
+        from dataclasses import replace
+
+        sites, names = toy_sites(range(0, 1000, 20))
+        return [replace(s, local_tree_handle=float(i))
+                for i, s in enumerate(sites)], names
+
+    def test_the_handle_is_dropped(self):
+        sites, names = self._sites_with_handles()
+        assert all(s.local_tree_handle is not None for s in sites)
+        inf = toy_inference(sites, names, n_ensemble=None,
+                            sequence_length=1000.0)
+        assert all(s.local_tree_handle is None for s, _ in inf.infer())
+
+    def test_a_relabelled_run_drops_it_too(self):
+        sites, names = self._sites_with_handles()
+        inf = toy_inference(sites, names, n_ensemble=None,
+                            sequence_length=1000.0, chrom="chrX")
+        emitted = [s for s, _ in inf.infer()]
+        assert all(s.local_tree_handle is None for s in emitted)
+        assert {s.chrom for s in emitted} == {"chrX"}
+
+
+def test_a_relabelled_run_refuses_a_source_spanning_several_contigs():
+    """One label cannot stand for two contigs: the positions would collide.
+    The chunked path is the one that reads several contigs at all."""
+    first, names = toy_sites(range(0, 500, 20), chrom="chr1")
+    second, _ = toy_sites(range(0, 500, 20), chrom="chr2")
+    inf = toy_chunked_inference(first + second, names, n_ensemble=None,
+                                chunk_size=1000, chrom="chrX")
+    with pytest.raises(ValueError, match="would put the sites of contigs"):
+        list(inf.infer())

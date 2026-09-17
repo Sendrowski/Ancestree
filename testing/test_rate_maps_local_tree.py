@@ -96,8 +96,8 @@ def test_map_provenance_reports_map_paths_and_summaries():
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0,
                         recombination_map=rate_map,
                         accessibility=[(0.0, 500.0), (600.0, 1000.0)])
-    inf._map_sources = {"recombination_map": "/maps/rec.txt",
-                        "accessibility": "/maps/mask.bed"}
+    inf._map_paths = {"recombination_map": "/maps/rec.txt",
+                      "accessibility": "/maps/mask.bed"}
     out = inf._map_provenance()
     assert out["recombination_map_intervals"] == 2
     assert out["recombination_map_mean_rate"] == pytest.approx(

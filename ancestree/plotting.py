@@ -38,7 +38,8 @@ def _require_matplotlib():
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "drawing needs matplotlib, which is not a dependency of "
-            "ancestree; install it with `pip install ancestree[plotting]` or "
+            "ancestree; install it with `pip install "
+            "\"ancestree-popgen[plotting]\"` or "
             "`pip install matplotlib`"
         ) from exc
     return plt

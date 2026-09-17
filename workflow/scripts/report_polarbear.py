@@ -13,11 +13,16 @@ Or via snakemake::
     snakemake -j 1 results/reports/polarbear_agreement.md
 """
 import json
+import sys
+from pathlib import Path
 
 import numpy as np
 import tskit
 
 from ancestree import STATE_INDEX, STATES
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _report_common import _fmt_diff, _fmt_rate, _fmt_secs  # noqa: E402
 
 
 try:
@@ -213,10 +218,7 @@ with open(out_json, "w") as f:
 print(f"Wrote {out_json}", flush=True)
 
 
-def _fmt_rate(x): return "—" if x is None else f"{x:.4f} ({100*x:.2f}%)"
-def _fmt_diff(x): return "—" if x is None else f"{x:.3e}"
 def _fmt_meanprob(x): return "—" if x is None else f"{x:.4f}"
-def _fmt_secs(x): return "—" if x is None else f"{x:.3f}"
 
 
 cfg = report["config"]

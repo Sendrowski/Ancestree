@@ -7,13 +7,12 @@ dependencies are optional.
 
 Sample names and ploidy: every haplotype is a separate tip, so a diploid
 sample ``S`` in a VCF or VCZ store appears as two samples, ``S_h0`` and
-``S_h1``. Use those names when specifying ingroup and outgroup samples.
-Haploid input keeps the original name.
+``S_h1``. Either name may be given when specifying ingroup and outgroup
+samples, the individual standing for all of its haplotypes. Haploid input
+keeps the original name.
 """
 from __future__ import annotations
 
-import hashlib
-import math
 import os
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
@@ -21,7 +20,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ancestree import STATES
 from ancestree.sites import Site, SiteSource
 
 #: The ``Site.unphased`` of a site whose calls were all read phased.
@@ -200,41 +198,6 @@ class CyVCF2Source(SiteSource):
     :raises KeyError: If ``sample_filter`` names samples absent from the VCF.
     """
 
-    @staticmethod
-    def _phase_permutation(seed: int, pos: int, sample: str, ploidy: int) -> list[int]:
-        """Draw a haplotype order for one unphased genotype.
-
-        The 64-bit key is unranked into an ordering through the factorial
-        number system, in integer arithmetic alone, so the draw is uniform
-        over the ``ploidy!`` orderings to within the bias of reducing 64
-        bits modulo ``ploidy!``, below ``1e-14`` for any ploidy up to eight.
-        The key is derived from the record's position, the sample name and
-        the ploidy, so the ordering is stable across passes and filters and
-        reproducible across runs and platforms.
-
-        :param seed: The source's ``phase_seed``.
-        :param pos: The record's position.
-        :param sample: Name of the sample in the panel.
-        :param ploidy: Haplotypes carried by the genotype.
-        :return: Source position of each haplotype, a permutation of
-            ``range(ploidy)``.
-        """
-        digest = hashlib.blake2b(str(sample).encode(), digest_size=8)
-        key = (int(seed) ^ (int(pos) * 0x9E3779B97F4A7C15)
-               ^ (int(ploidy) * 0xD6E8FEB86659FD93)
-               ^ (int.from_bytes(digest.digest(), "big")
-                  * 0xBF58476D1CE4E5B9)) & 0xFFFFFFFFFFFFFFFF
-        key = ((key ^ (key >> 30)) * 0xBF58476D1CE4E5B9) & 0xFFFFFFFFFFFFFFFF
-        key = ((key ^ (key >> 27)) * 0x94D049BB133111EB) & 0xFFFFFFFFFFFFFFFF
-        rank = (key ^ (key >> 31)) % math.factorial(ploidy)
-        pool = list(range(ploidy))
-        order: list[int] = []
-        for k in range(ploidy, 0, -1):
-            rank, j = divmod(rank, k)
-            order.append(pool.pop(j))
-        return order
-
-
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
@@ -369,15 +332,11 @@ class CyVCF2Source(SiteSource):
                     self._warn_split_multiallelic(variant.CHROM, variant.POS)
                     warned_split = True
                 prev_key = key
-                # Upper-case soft-masked alleles. An absent entry keeps its
-                # slot, so the genotype indices stay aligned with the record.
-                ref = variant.REF.upper() if variant.REF else None
-                alts = [(a.upper() if a else None) for a in (variant.ALT or [])]
-                all_alleles: list[str | None] = [ref, *alts]
-                site_alleles = [a for a in all_alleles if a]
-                if ref is None or not all(
-                        len(a) == 1 and a in STATES for a in site_alleles):
+                decoded = self._snp_alleles(
+                    [variant.REF, *(variant.ALT or [])])
+                if decoded is None:
                     continue
+                all_alleles, site_alleles = decoded
 
                 genotypes = variant.genotypes  # indices + a phase flag
                 tip_alleles: dict[str, str | None] = {}
@@ -390,12 +349,9 @@ class CyVCF2Source(SiteSource):
                             else bool(call[-1])
                         if not phased:
                             unphased.add(sample)
-                            called = [int(a) for a in call[:-1] if int(a) >= 0]
-                            if len(set(called)) > 1:
-                                self._note_unphased_once()
-                                order = CyVCF2Source._phase_permutation(
-                                    self._phase_seed, int(variant.POS), sample,
-                                    self._ploidy)
+                            order = self._phase_order(
+                                sample, int(variant.POS),
+                                (int(a) for a in call[:-1] if int(a) >= 0))
                     if call is not None and len(call) - 1 > self._ploidy:
                         self._warn_ploidy_truncated(
                             str(variant.CHROM), int(variant.POS),
@@ -411,7 +367,7 @@ class CyVCF2Source(SiteSource):
                 yield Site(
                     chrom=str(variant.CHROM),
                     pos=int(variant.POS),
-                    alleles=tuple(site_alleles),
+                    alleles=site_alleles,
                     tip_alleles=tip_alleles,
                     unphased=_interned(unphased, seen_unphased),
                 )
@@ -583,13 +539,8 @@ class VcfZarrSource(SiteSource):
                 if phased_arr is not None else None)
 
             for i in range(end - start):
-                # Upper-case soft-masked alleles. An absent entry keeps its
-                # slot, so the genotype indices stay aligned with the record.
-                raw_alleles: tuple[str | None, ...] = tuple(
-                    (a.upper() if a else None)
-                    for a in (self._decode(x) for x in alleles_batch[i])
-                )
-                site_alleles = tuple(a for a in raw_alleles if a)
+                decoded = self._snp_alleles(
+                    self._decode(x) for x in alleles_batch[i])
                 chrom = self._contig_ids[int(contig_batch[i])]
                 if self._chrom_filter is not None and chrom != self._chrom_filter:
                     continue
@@ -601,11 +552,9 @@ class VcfZarrSource(SiteSource):
                     self._warn_split_multiallelic(*pos_key)
                     warned_split = True
                 prev_pos_key = pos_key
-                # A record carrying no reference allele is not a SNP.
-                if not site_alleles or raw_alleles[0] is None:
+                if decoded is None:
                     continue
-                if not all(len(a) == 1 and a in STATES for a in site_alleles):
-                    continue
+                raw_alleles, site_alleles = decoded
 
                 tip_alleles: dict[str, str | None] = {}
                 gt_row = gt_batch[i]  # (n_kept_samples, ploidy)
@@ -618,12 +567,10 @@ class VcfZarrSource(SiteSource):
                     order: Sequence[int] = range(self._ploidy)
                     if ph_row is not None and not bool(ph_row[s_idx]):
                         unphased.add(name)
-                        called = [int(a) for a in gt_row[s_idx] if int(a) >= 0]
-                        if len(set(called)) > 1:
-                            self._note_unphased_once()
-                            order = CyVCF2Source._phase_permutation(
-                                self._phase_seed, int(pos_batch[i]),
-                                name, self._ploidy)
+                        order = self._phase_order(
+                            name, int(pos_batch[i]),
+                            (int(a) for a in gt_row[s_idx] if int(a) >= 0)
+                        ) or order
                     for h, src in enumerate(order):
                         allele_idx = int(gt_row[s_idx, src])
                         key = name if self._ploidy == 1 else f"{name}_h{h}"

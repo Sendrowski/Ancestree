@@ -21,7 +21,7 @@ from ancestree import (
     Site,
 )
 
-from testing._helpers import no_counts as _no_counts
+from testing._helpers import no_counts as _no_counts, simulate_tree_sites
 
 
 # ---------------------------------------------------------- F81 rate matrix
@@ -350,42 +350,6 @@ class TestFreeParams:
 # ---------------------------------------------------------- MLE recovery
 
 
-def _simulate_outgroup_sites(
-    tree, model, n_sites: int, *, pi: np.ndarray, seed: int,
-) -> list[Site]:
-    """Top-down sample tip alleles from ``model`` on ``tree`` (stationary root).
-
-    Branch-length scaling lives on the tree. ``pi`` is the per-data base
-    composition fed into ``model.Q(pi=...)`` / ``transition_probs``.
-    """
-    rng = np.random.default_rng(seed)
-    P_by_node = {
-        node: model.transition_probs(tree.branch_length(node), pi=pi)
-        for node in tree.postorder() if node != tree.root
-    }
-    sites: list[Site] = []
-    for i in range(n_sites):
-        state_at: dict[int, int] = {tree.root: int(rng.choice(4, p=pi))}
-        stack = [tree.root]
-        while stack:
-            parent = stack.pop()
-            for child in tree.children(parent):
-                state_at[child] = int(
-                    rng.choice(4, p=P_by_node[child][state_at[parent]])
-                )
-                stack.append(child)
-        tip_alleles = {
-            sid: STATES[state_at[tree.tip_for_sample(sid)]]
-            for sid in tree.outgroup_samples
-        }
-        sites.append(Site(
-            chrom="1", pos=i + 1,
-            alleles=tuple(sorted(set(tip_alleles.values()))),
-            tip_alleles=tip_alleles,
-        ))
-    return sites
-
-
 class TestHKYMLERecovery:
     def test_kappa_mle_recovers_within_25pct(self):
         ingroup = [f"i{i}" for i in range(10)]
@@ -393,7 +357,7 @@ class TestHKYMLERecovery:
         tree.set_params(np.array([0.0, 0.10, 0.10]))  # K1, K2 (Kdeep/2 each)
         true_kappa = 5.0
         pi = np.full(4, 0.25)
-        sites = _simulate_outgroup_sites(
+        sites = simulate_tree_sites(
             tree, HKY(kappa=true_kappa), 800, pi=pi, seed=17,
         )
         tree.set_params(np.full(tree.n_params, 0.1))  # K1, K2

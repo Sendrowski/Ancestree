@@ -101,14 +101,13 @@ def _ingroup(ts):
             if name[ts.node(int(n)).population] == "ingroup"]
 
 
-def _deepen_floor(builder, node_pairs, scale):
+def _deepen_floor(builder, scale):
     """The segment's own calibrated grid, with its floor divided by ``scale``.
 
     Calibration is per segment and stays that way: only the floor moves, and
     bins are added rather than widened, so the step is the calibrated one.
 
     :param builder: The segment's :class:`LocalTreeBuilder`.
-    :param node_pairs: Panel pairs, to size the count matrix.
     :param scale: Factor to lower the floor by. ``1.0`` returns ``None``.
     :return: Bin edges in generations, or ``None`` to leave calibration alone.
     """
@@ -116,19 +115,15 @@ def _deepen_floor(builder, node_pairs, scale):
         return None
     from ancestree.local_tree_inference import PairwiseCoalescentHMM
     g, _pos, block_of_site, n_blocks = builder._genotype_matrix()
-    counts = np.zeros((len(node_pairs), n_blocks))
-    for p, (i, j) in enumerate(combinations(range(g.shape[1]), 2)):
-        ga, gb = g[:, i], g[:, j]
-        differ = (ga != gb) & (ga >= 0) & (gb >= 0)
-        if differ.any():
-            np.add.at(counts[p], block_of_site[differ], 1)
     hmm = PairwiseCoalescentHMM(
         g.shape[1], mu=builder.mu, rec_rate=builder.rec_rate,
         block_size=builder.block_size, n_time_bins=builder.n_time_bins)
+    counts, _called = hmm._pair_block_counts(g, block_of_site, n_blocks)
     edges, _ = hmm._calibrate_time_grid(counts)
     step = np.log10(edges[1] / edges[0])
-    # Calibration puts the floor at median(per-pair mean crude TMRCA) / 100,
-    # clamped at 10 generations; dividing by a further 10 makes it / 1000.
+    # Calibration puts the floor at the median over pairs of each pair's mean
+    # crude TMRCA divided by 200, clamped at 10 generations. The clamp holds
+    # for the lowered floor too.
     lo = max(edges[0] / scale, 10.0)
     n = int(round(np.log10(edges[-1] / lo) / step))
     return np.geomspace(lo, edges[-1], n + 1)
@@ -248,7 +243,7 @@ def main() -> None:
         # owns; the halo either side is shared with its neighbour.
         _seg, core_lo, core_hi, origin, _span = work_unit
         builder = inference._segment_builder(work_unit)
-        builder.time_grid = _deepen_floor(builder, node_pairs, FLOOR_SCALE)
+        builder.time_grid = _deepen_floor(builder, FLOOR_SCALE)
         ens = SegmentEnsemble(builder, model, n_hap, None)
         intervals = builder._window_intervals()
         edges = origin + np.array(

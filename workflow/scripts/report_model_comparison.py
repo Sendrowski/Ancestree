@@ -31,6 +31,7 @@ import msprime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _msprime_substitution_units import substitutions_per_mutation  # noqa: E402
+from _report_common import _entropy_bits  # noqa: E402
 
 
 try:
@@ -53,14 +54,6 @@ except NameError:
 
 MODEL_ORDER = ["jc69", "k2", "f81", "hky", "gtr"]
 MODE_ORDER = ["arg", "vcf"]
-
-
-def _entropy_bits(probs: list[float]) -> float:
-    s = 0.0
-    for p in probs:
-        if p > 0:
-            s -= p * math.log2(p)
-    return s
 
 
 # {(model, mode): cell_summary}

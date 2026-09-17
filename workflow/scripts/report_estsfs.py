@@ -25,6 +25,7 @@ from ancestree import GTR, STATE_INDEX, STATES
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _msprime_substitution_units import substitutions_per_mutation  # noqa: E402
+from _report_common import _fmt_diff, _fmt_rate, _fmt_secs  # noqa: E402
 
 
 try:
@@ -411,9 +412,6 @@ print(f"Wrote {out_json}", flush=True)
 
 # ------------------------------------------------------------------- markdown
 
-def _fmt_rate(x): return "—" if x is None else f"{x:.4f} ({100*x:.2f}%)"
-def _fmt_diff(x): return "—" if x is None else f"{x:.3e}"
-def _fmt_secs(x): return "—" if x is None else f"{x:.3f}"
 def _fmt_div(div):
     if div is None:
         return "—"
