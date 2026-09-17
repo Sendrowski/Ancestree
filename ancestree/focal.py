@@ -205,7 +205,12 @@ class FocalNode:
 
     @staticmethod
     def spans_roots(tree, ingroup_nodes) -> bool:
-        """Whether the ingroup has no common ancestor in ``tree``."""
+        """Whether the ingroup has no common ancestor in ``tree``.
+
+        :param tree: The :class:`tskit.Tree` to search.
+        :param ingroup_nodes: Sample node ids making up the ingroup.
+        :return: ``True`` where they fall under several roots.
+        """
         import tskit
 
         return bool(tree.num_roots > 1 and ingroup_nodes is not None

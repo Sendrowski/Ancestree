@@ -101,8 +101,8 @@ def test_a_sample_in_both_lists_raises():
 
 
 def test_local_tree_sites_hold_only_the_panel(tmp_path):
-    """Sites emitted from a store carry only the panel's tips and alleles, so
-    a template written from the inferred trees takes every posterior."""
+    """Sites emitted from a store carry only the panel's tips, and to_vcf
+    annotates every record of the store's own template."""
     import bio2zarr.vcf as bio2zarr_vcf
 
     store = str(tmp_path / "demo.vcz")

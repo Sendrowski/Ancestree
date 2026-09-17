@@ -21,7 +21,7 @@ import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -119,9 +119,8 @@ class Inference(ReprMixin, ABC):
     #: from the modes whose trees are in substitutions per site.
     mu: "float | msprime.RateMap | None" = None
     #: The local VCF Zarr store this inference was constructed from, where it
-    #: was one.
-    #: A template for :meth:`Inference.to_zarr`, never for
-    #: :meth:`Inference.to_vcf`, which hands its template to htslib.
+    #: was one. The default template for :meth:`Inference.to_zarr`, and through
+    #: its records for :meth:`Inference.to_vcf`.
     _input_store_path: "str | None" = None
     #: The VCF this inference was constructed from, where it was one. The
     #: default template for :meth:`Inference.to_vcf`.
@@ -675,20 +674,22 @@ class Inference(ReprMixin, ABC):
     def _set_input_paths(self, source) -> None:
         """Take the file a source was read from as the default template.
 
-        A local VCF Zarr store templates :meth:`to_zarr`, and any other path
-        but a tree sequence templates :meth:`to_vcf`, as
-        :meth:`SiteSource.resolve() <ancestree.sites.SiteSource.resolve>`
-        reads it as a VCF.
+        A local directory is a VCF Zarr store, the template of
+        :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`.
+        Any other path naming neither a store nor a tree sequence is a VCF,
+        the template of
+        :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`.
 
         :param source: A path, or a source carrying the path it read.
         """
         path = (str(source) if isinstance(source, (str, os.PathLike))
                 else getattr(source, "_path", None))
         fmt = _path_format(path) if path is not None else None
+        store = path is not None and os.path.isdir(path)
+        self._input_store_path = path if store else None
         self._input_vcf_path = (
-            path if path is not None and fmt not in ("vcz", "trees") else None)
-        self._input_store_path = (
-            path if fmt == "vcz" and os.path.isdir(path) else None)
+            path if path is not None and not store
+            and fmt not in ("vcz", "trees") else None)
 
     def _panel_samples(self) -> tuple[str, ...]:
         """The resolved ingroup and outgroup sample ids."""
@@ -884,8 +885,7 @@ class Inference(ReprMixin, ABC):
     def _resolve_panel(
         self, panel: "Iterable[str]", *, explicit: bool,
     ) -> tuple[str, ...]:
-        """Resolve the panel, and the ingroup and outgroups within it
-        (:func:`ancestree.sites._resolve_panel`).
+        """Resolve the panel, and the ingroup and outgroups within it.
 
         Sets ``_resolved_ingroup`` and ``_resolved_outgroups``.
 
@@ -1054,7 +1054,7 @@ class Inference(ReprMixin, ABC):
             run and does not change it. Pass the same filter as the
             inference's source to score exactly what was inferred.
         :param focal: The node of a tree-sequence truth at which the true
-            allele is read, resolved over this run's ingroup and outgroup
+            allele is read, resolved over this run's panel, ingroup and outgroup
             samples. Defaults to the ingroup's most recent common ancestor,
             whichever node this run reports at.
         :param sample_map: ``{sample: node}`` mapping this run's sample names
@@ -1063,7 +1063,7 @@ class Inference(ReprMixin, ABC):
             ``None`` reads the individual names of the truth, falling back to
             node ids as strings.
         :return: A :class:`~ancestree.posterior.Grade`.
-        :raises ValueError: If this run's ingroup matches no sample of a
+        :raises ValueError: If one of this run's samples matches no sample of a
             tree-sequence truth
             (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
         """
@@ -1453,7 +1453,7 @@ class Inference(ReprMixin, ABC):
 
         :param output_vcf: Where to write the annotated output.
         :param input_vcf: Optional template VCF path. Defaults to the
-            mode-specific template (see above).
+            template described above.
         :param info: Optional run-level constants threaded into the VCF
             header / per-record ``AA_<key>`` fields (see
             :class:`~ancestree.writers.VCFWriter`).
@@ -1466,8 +1466,7 @@ class Inference(ReprMixin, ABC):
             inference's own contig
             (:paramref:`ARGBasedInference.chrom <ancestree.inference.ARGBasedInference.chrom>`), so the
             template's ``CHROM`` matches the chrom the posteriors carry and
-            the annotation actually lands. Ignored when the template is the
-            VCF the inference was built from.
+            the annotation actually lands.
         :param store_posterior: When ``True`` (default), also record the
             whole per-state posterior in the ``AA_post`` ``INFO`` field.
         :param posteriors: Stored ``(Site, Posterior)`` pairs to write, as
@@ -1511,7 +1510,8 @@ class Inference(ReprMixin, ABC):
         self, contig_id: str | None, restrict_samples: bool = False,
     ) -> "tuple[str, bool, frozenset[str] | None]":
         """The VCF this inference was constructed from, the records of its VCF
-        Zarr store, or else a temporary VCF written from the mode's trees.
+        Zarr store where every array carries dimension names, or else a
+        temporary VCF written from the mode's trees.
 
         :param contig_id: Contig label for a written template, or ``None`` for
             the mode's own.
@@ -1525,7 +1525,10 @@ class Inference(ReprMixin, ABC):
         samples = self._used_samples() if restrict_samples else None
         if self._input_vcf_path is not None:
             return self._input_vcf_path, False, samples
-        if self._input_store_path is not None:
+        from ancestree.writers import ZarrWriter
+
+        if (self._input_store_path is not None
+                and ZarrWriter._is_tagged(self._input_store_path)):
             return self._vcf_from_store(self._input_store_path), True, samples
         return self._dump_template_vcf(contig_id, restrict_samples), True, None
 
@@ -1576,8 +1579,7 @@ class Inference(ReprMixin, ABC):
         are keyed on.
 
         :param ts: The tree sequence to write.
-        :param names: Its sample column names
-            (:meth:`_template_individual_names`).
+        :param names: Its sample column names.
         :param contig: Contig label of every record.
         :return: Path of the temporary file, which the caller unlinks.
         """
@@ -2716,7 +2718,7 @@ class ARGBasedInference(Inference):
         panel, to a temporary template VCF.
 
         :param contig_id: Contig label for the template. ``None`` resolves to
-            :attr:`chrom`.
+            :paramref:`ARGBasedInference.chrom <ancestree.inference.ARGBasedInference.chrom>`.
         :param restrict_samples: Whether to write the restricted tree sequence.
         :return: Path of the temporary file, which the caller unlinks.
         """
@@ -2734,9 +2736,13 @@ class ARGBasedInference(Inference):
         """The source ARG. Its sites receive the annotated ancestral states.
 
         :param restrict_samples: Whether to hold only the panel.
-        :return: The supplied tree sequence, or the one restricted to the panel.
+        :return: The supplied tree sequence, or the one restricted to the panel
+            with its node ids kept, so its samples keep their names.
         """
-        return self.ts if restrict_samples else self._input_ts
+        if not restrict_samples:
+            return self._input_ts
+        return TskitLocalTree.restrict(self._input_ts, self._panel_map,
+                                       keep_node_ids=True)[0]
 
 
 class FixedTreeInference(Inference):

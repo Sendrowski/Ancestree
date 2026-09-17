@@ -39,6 +39,6 @@ dependencies:
   - pip:
       - newick
       - bio2zarr   # VCF -> VCZ, to build the interop fixture
-      - vcztools   # reads VCZ back, for the writer interop test
+      - vcztools   # to_vcf template from a VCZ source, and the writer interop test
       - sfsutils-popgen   # parses the AA / AA_prob annotations, for the interop test
       - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)

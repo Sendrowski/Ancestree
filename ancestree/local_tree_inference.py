@@ -2875,9 +2875,14 @@ class LocalTreeInference(Inference):
     def _source_tree_sequence(
         self, restrict_samples: bool = False,
     ) -> "tskit.TreeSequence":
-        """The local-tree sequence annotated by :meth:`to_arg`: the pre-built or
-        plug-in genealogy as ARG mode resolves it, or the chunked stitch from
-        :meth:`point_tree_sequence`, which holds only the panel.
+        """The local-tree sequence that
+        :meth:`LocalTreeInference.to_arg() <ancestree.local_tree_inference.LocalTreeInference.to_arg>`
+        annotates.
+
+        A pre-built or plug-in genealogy is resolved as ARG mode resolves it.
+        On the chunked path it is the stitch from
+        :meth:`LocalTreeInference.point_tree_sequence() <ancestree.local_tree_inference.LocalTreeInference.point_tree_sequence>`,
+        which holds only the panel.
 
         :param restrict_samples: Whether to hold only the samples the
             inference used.

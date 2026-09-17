@@ -81,7 +81,8 @@ dev = [
     "zarr>=3.1",
     "newick>=1.9",
     "bio2zarr[vcf]>=0.2",
-    # Test-only VCZ->VCF decoder, used to read back the stores the writer produces.
+    # VCZ->VCF decoder: the to_vcf template of a store source, and the reader of
+    # the stores the writer produces.
     "vcztools>=0.2",
     # Test-only downstream consumer of the AA / AA_prob annotations.
     "sfsutils-popgen>=1.0",

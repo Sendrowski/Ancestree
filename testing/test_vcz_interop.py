@@ -212,7 +212,7 @@ def test_vcf_source_default_template(tmp_path):
 
 
 class TestToZarrReusesAZarrSource:
-    """A .vcz source is a template for to_zarr, never for to_vcf."""
+    """A local .vcz source is the default to_zarr template."""
 
     def test_a_store_source_needs_no_explicit_template(self, tmp_path):
         import bio2zarr.vcf as bio2zarr_vcf

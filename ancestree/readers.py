@@ -293,7 +293,7 @@ class Reader(ReprMixin):
             sequence's own node space. ``None`` reads the individual names of
             the truth, falling back to node ids as strings.
         :return: A :class:`~ancestree.posterior.Grade`.
-        :raises ValueError: If the provenance names an ingroup that matches no
+        :raises ValueError: If a sample recorded in the provenance matches no
             sample of a tree-sequence truth, or if ``filter`` counts
             genotypes the file does not carry.
         """

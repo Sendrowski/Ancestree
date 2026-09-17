@@ -285,7 +285,8 @@ class TskitLocalTree(Tree):
 
     @staticmethod
     def restrict(
-        ts: "tskit.TreeSequence", sample_map: Mapping[str, int],
+        ts: "tskit.TreeSequence", sample_map: Mapping[str, int], *,
+        keep_node_ids: bool = False,
     ) -> "tuple[tskit.TreeSequence, dict[str, int]]":
         """``ts`` simplified to the nodes of ``sample_map``, every site kept.
 
@@ -294,16 +295,21 @@ class TskitLocalTree(Tree):
 
         :param ts: The tree sequence to restrict.
         :param sample_map: ``{name: node}`` for the samples to keep.
-        :return: The restricted tree sequence and ``sample_map`` renumbered to
+        :param keep_node_ids: Keep every node id, so the kept samples keep
+            their node-derived names.
+        :return: The restricted tree sequence and ``sample_map`` numbered in
             it, or both unchanged when ``sample_map`` covers every sample.
         """
         nodes = sorted(int(n) for n in sample_map.values())
         if len(nodes) >= ts.num_samples:
             return ts, dict(sample_map)
+        restricted = ts.simplify(samples=nodes, filter_sites=False,
+                                 filter_nodes=not keep_node_ids,
+                                 record_provenance=False)
+        if keep_node_ids:
+            return restricted, dict(sample_map)
         rank = {n: i for i, n in enumerate(nodes)}
-        return (ts.simplify(samples=nodes, filter_sites=False,
-                            record_provenance=False),
-                {s: rank[int(n)] for s, n in sample_map.items()})
+        return restricted, {s: rank[int(n)] for s, n in sample_map.items()}
 
     @staticmethod
     def default_sample_map(ts: "tskit.TreeSequence") -> dict[str, int]:

@@ -901,10 +901,10 @@ def _add_local_tree_parser(
     )
     p.add_argument(
         "--chrom", default=None,
-        help="Contig label for the auto-written template VCF, used only when "
-             "--vcf is a VCZ store and --out is a VCF. VCF input is templated "
-             "from itself and keeps its own contig names. Defaults to the "
-             "source's own contig.",
+        help="Contig label for a template VCF written from the inferred trees, "
+             "used only when --out is a VCF and --vcf is neither a VCF nor a "
+             "local VCZ store readable by vcztools, both of which template "
+             "from their own records. Defaults to the source's own contig.",
     )
     p.add_argument(
         "--out", required=True,
@@ -938,8 +938,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
 
     :param args: Parsed argparse namespace from :func:`build_parser`.
     :return: Process exit code (0 on success).
-    :raises SystemExit: If ``--out`` has an unsupported extension, or if a
-        ``.vcz`` input is given for VCF output without ``--template-vcf``.
+    :raises SystemExit: If ``--out`` has an unsupported extension.
     """
     st = args.species_tree is not None
     _warn_ignored(args, [
@@ -988,8 +987,6 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     else:
         tree = OutgroupLadderTree(ingroup, args.outgroups)
 
-    # VCF output needs a VCF/BCF template, which a .vcz input cannot supply.
-    # Resolved first, so a missing template fails early.
     template_vcf = args.template_vcf
     if out_is_zarr and template_vcf is not None:
         _log.warning(

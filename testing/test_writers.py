@@ -1025,6 +1025,55 @@ def _remote_inference(path):
                               chunk_size=None, n_ensemble=None, progress=False)
 
 
+def test_a_restricted_arg_keeps_its_sample_names(tmp_path):
+    """Samples named after their node ids keep those names in a restricted
+    ``.trees`` output, matching the provenance and the VCF columns."""
+    ts = msprime.sim_ancestry(8, ploidy=1, sequence_length=1e4,
+                              population_size=1e4, random_seed=1)
+    ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
+                               random_seed=2)
+    inf = anc.Inference.from_arg(ts, mu=5e-8, progress=False,
+                                 ingroup_samples=["0", "1", "2", "3"],
+                                 outgroup_samples=["6", "7"])
+    out = tmp_path / "out.trees"
+    inf.to_arg(out, restrict_samples=True)
+    names = TskitLocalTree.default_sample_map(tskit.load(out))
+    assert list(names) == ["0", "1", "2", "3", "6", "7"]
+
+
+def test_a_store_without_a_suffix_is_a_store(tmp_path):
+    import bio2zarr.vcf as bio2zarr_vcf
+
+    from ancestree.sources import VcfZarrSource
+    from testing._helpers import DEMO_VCF
+
+    store = str(tmp_path / "panel_store")
+    bio2zarr_vcf.convert([DEMO_VCF], store, show_progress=False)
+    inf = LocalTreeInference(VcfZarrSource(store), mu=5e-8, rec_rate=1e-8,
+                             sequence_length=2e5, chunk_size=None,
+                             n_ensemble=None, progress=False)
+    assert (inf._input_store_path, inf._input_vcf_path) == (store, None)
+
+
+def test_a_store_without_dimension_names_templates_from_the_trees(tmp_path):
+    """vcztools cannot export an untagged store, so to_vcf exports the trees."""
+    from testing._helpers import ts_to_vcz
+
+    ts = msprime.sim_ancestry(6, ploidy=1, sequence_length=5e4,
+                              population_size=1e4, recombination_rate=1e-8,
+                              random_seed=2)
+    ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
+                               random_seed=2)
+    store = str(tmp_path / "snps.vcz")
+    names = ts_to_vcz(ts, store)
+    inf = LocalTreeInference(store, mu=1.25e-8, rec_rate=1e-8,
+                             sequence_length=ts.sequence_length,
+                             chunk_size=None, n_ensemble=None, progress=False)
+    out = str(tmp_path / "out.vcf")
+    assert inf.to_vcf(out) > 0
+    assert cyvcf2.VCF(out).samples == names
+
+
 def test_only_a_local_store_is_the_zarr_template():
     """A store named by URL cannot be copied, so the template is built."""
     inf = _remote_inference("https://host/demo.vcz?raw=true")

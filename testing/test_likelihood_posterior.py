@@ -293,17 +293,17 @@ class TestGradingReadsTheScoredPanel:
     OUT = ["o0"]
 
     def test_samples_in_neither_list_are_dropped(self):
+        """The panel i0, o0 has a root below the ARG root, so dropping the
+        other samples moves the truth."""
         ts = tskit.load(QUICKSTART_TREES)
+        lists = dict(ingroup_samples=["i0"], outgroup_samples=["o0"])
         full = anc.TskitLocalTree.default_sample_map(ts)
         small, small_map = anc.TskitLocalTree.restrict(
-            ts, {s: full[s] for s in self.ING + self.OUT})
-        got = Grade.truth_at_focal(ts, "panel_root", ingroup_samples=self.ING,
-                                   outgroup_samples=self.OUT)
-        want = Grade.truth_at_focal(small, "panel_root",
-                                    ingroup_samples=self.ING,
-                                    outgroup_samples=self.OUT,
-                                    sample_map=small_map)
-        assert got == want
+            ts, {s: full[s] for s in ("i0", "o0")})
+        got = Grade.truth_at_focal(ts, "panel_root", **lists)
+        want = Grade.truth_at_focal(small, "panel_root", sample_map=small_map,
+                                    **lists)
+        assert got == want != Grade.truth_at_focal(ts, "panel_root")
 
     def test_names_match_by_individual(self):
         from testing._helpers import DEMO_TREES
@@ -319,12 +319,12 @@ class TestGradingReadsTheScoredPanel:
 
     def test_a_tip_focal_node_is_read_at_the_scored_root(self):
         """A single-haplotype ingroup puts the focal node on a tip, so the run
-        reads at the root of the restricted tree, whose state includes the
-        mutations that restriction moves onto it."""
+        reads at the root of the restricted tree, not at the ARG root."""
         ts = tskit.load(QUICKSTART_TREES)
-        lists = dict(ingroup_samples=["i0"], outgroup_samples=["i1", "i2"])
-        assert (Grade.truth_at_focal(ts, "ingroup_mrca", **lists)
-                == Grade.truth_at_focal(ts, "panel_root", **lists))
+        lists = dict(ingroup_samples=["i0"], outgroup_samples=["o0"])
+        at_tip = Grade.truth_at_focal(ts, "ingroup_mrca", **lists)
+        assert at_tip == Grade.truth_at_focal(ts, "panel_root", **lists)
+        assert at_tip != Grade.truth_at_focal(ts, "panel_root")
 
     @pytest.mark.parametrize("focal", [
         "ingroup_mrca", "panel_root", anc.FocalNode("ingroup_mrca", fraction=0.5),
@@ -357,9 +357,10 @@ class TestGradingReadsTheScoredPanel:
     def test_a_partial_sample_map_is_graded_on_its_panel(self):
         ts = tskit.load(QUICKSTART_TREES)
         full = anc.TskitLocalTree.default_sample_map(ts)
-        sub = {s: full[s] for s in self.ING}
+        sub = {s: full[s] for s in ("i0", "o0")}
         inf = anc.Inference.from_arg(ts, mu=5e-8, focal="panel_root",
                                      sample_map=sub, progress=False)
         small, small_map = anc.TskitLocalTree.restrict(ts, sub)
         truth = Grade.truth_at_focal(small, "panel_root", sample_map=small_map)
+        assert truth != Grade.truth_at_focal(ts, "panel_root")
         assert inf.grade(ts) == Grade(inf.infer(), truth)

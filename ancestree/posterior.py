@@ -148,8 +148,8 @@ class Grade:
         nodes of a tree-sequence truth, interpreted in the truth tree
         sequence's own node space and not in that of any inference. ``None``
         reads the individual names of the tree sequence.
-    :raises ValueError: If the named ingroup matches no sample of a
-        tree-sequence truth (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
+    :raises ValueError: If a named sample matches no sample of a
+        tree-sequence truth, or is named in both lists (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
     """
 
     __slots__ = ("map_recovery", "brier", "n_sites")

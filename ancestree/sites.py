@@ -12,7 +12,7 @@ from collections import Counter
 #: Trailing per-haplotype suffix a VCF reader appends.
 _HAP_SUFFIX = re.compile(r"_h\d+$")
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -196,8 +196,6 @@ class Site:
         :param names: Tip ids to keep.
         :return: A copy, whose ``alleles`` stay the record's.
         """
-        from dataclasses import replace
-
         return replace(self, tip_alleles={
             n: a for n, a in self.tip_alleles.items() if n in names})
 
@@ -322,7 +320,8 @@ def _resolve_panel(
     dropped: list[str] = []
     if ins and outs:
         dropped = _unlabelled(panel, ins | outs, chosen_by=chosen_by)
-        panel = [s for s in panel if s not in set(dropped)]
+        gone = set(dropped)
+        panel = [s for s in panel if s not in gone]
     if ins:
         members = [s for s in panel if _named(s, ins)]
     else:

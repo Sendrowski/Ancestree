@@ -1235,12 +1235,8 @@ class ZarrWriter(Writer):
             return
         keep = set(kept)
         index = np.asarray([i for i, n in enumerate(names) if n in keep])
-        dims_of = {
-            name: list(root[name].attrs.get("_ARRAY_DIMENSIONS")
-                       or getattr(getattr(root[name], "metadata", None),
-                                  "dimension_names", None)
-                       or ())
-            for name in root.array_keys()}
+        dims_of = {name: self._dimension_names(root[name])
+                   for name in root.array_keys()}
         untagged = sorted(name for name, dims in dims_of.items() if not dims)
         if untagged:
             raise ValueError(
@@ -1279,6 +1275,27 @@ class ZarrWriter(Writer):
                     lines[i] = "\t".join(
                         fields[:9] + [f for f in fields[9:] if f in keep])
             root.attrs["vcf_header"] = "\n".join(lines)
+
+    @staticmethod
+    def _dimension_names(array) -> list[str]:
+        """The VCZ dimension names of a zarr array, empty where it has none."""
+        return list(array.attrs.get("_ARRAY_DIMENSIONS")
+                    or getattr(getattr(array, "metadata", None),
+                               "dimension_names", None)
+                    or ())
+
+    @staticmethod
+    def _is_tagged(store: str) -> bool:
+        """Whether every array of a store carries dimension names.
+
+        :param store: Local store path.
+        :return: ``False`` where an array's axes cannot be named.
+        """
+        import zarr
+
+        root = zarr.open(store, mode="r")
+        return all(ZarrWriter._dimension_names(root[name])
+                   for name in root.array_keys())
 
     @staticmethod
     def _reconsolidate(store: str) -> None:
