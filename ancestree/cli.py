@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import logging
+import os
 import sys
 from typing import Sequence, cast
 
@@ -422,7 +423,8 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
         "--ingroup", type=_split_csv,
         help=(
             "Comma-separated ingroup sample ids. Needed with "
-            "--focal=ingroup-mrca; defaults to every sample not in --outgroups."
+            "--focal=ingroup-mrca; defaults to every sample whose individual "
+            "is not in --outgroups."
         ),
     )
     p.add_argument(
@@ -643,7 +645,9 @@ def _add_fixed_tree_parser(
         "--template-vcf", default=None,
         help=(
             "VCF / BCF used as the header and record template for the "
-            "annotated output. Defaults to the records of --vcf."
+            "annotated output. Defaults to the records of --vcf, and is "
+            "required for a remote VCZ store or one whose arrays lack "
+            "dimension names."
         ),
     )
     p.set_defaults(handler=_run_fixed_tree)
@@ -901,10 +905,10 @@ def _add_local_tree_parser(
     )
     p.add_argument(
         "--chrom", default=None,
-        help="Contig label for a template VCF written from the inferred trees, "
-             "used only when --out is a VCF and --vcf is neither a VCF nor a "
-             "local VCZ store readable by vcztools, both of which template "
-             "from their own records. Defaults to the source's own contig.",
+        help="Contig label of the annotated sites. Defaults to the source's "
+             "own contig. Another label matches only a template written from "
+             "the sites, as for a remote VCZ --vcf or one whose arrays lack "
+             "dimension names.",
     )
     p.add_argument(
         "--out", required=True,
@@ -955,13 +959,23 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             "--ingroup-weight adaptive with --species-tree: its per-bin fit "
             "runs inside fit(), which --species-tree skips, so the Kingman "
             "values are used instead")
-    out_is_zarr = _path_format(args.out) == "vcz"
-    if not (_path_format(args.out) == "vcf" or out_is_zarr):
+    out_format = _path_format(args.out)
+    out_is_zarr = out_format == "vcz"
+    if out_format not in ("vcf", "vcz"):
         raise SystemExit(
             f"fixed-tree --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, or .vcz "
             f"(got {args.out!r}). The .trees format is only valid under "
             f"the `arg` and `local-tree` subcommands."
         )
+    if out_format == "vcf" and args.template_vcf is None \
+            and _path_format(args.vcf) == "vcz":
+        from ancestree.writers import ZarrWriter
+
+        if not (os.path.isdir(args.vcf) and ZarrWriter._is_tagged(args.vcf)):
+            raise SystemExit(
+                f"fixed-tree: {args.vcf!r} is remote or its arrays lack "
+                f"dimension names, so its records cannot template a VCF "
+                f"--out. Pass --template-vcf.")
     from ancestree.inference import FixedTreeInference
     from ancestree.trees import OutgroupLadderTree
 
@@ -969,11 +983,6 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     if not ingroup:
         ingroup = _derive_ingroup(args.vcf, args.outgroups,
                                   sample_filter=(args.samples or None))
-        _log.info(
-            "fixed-tree: --ingroup not given; using the %s haplotype(s) whose "
-            "individual is not an outgroup: %s",
-            len(ingroup), ",".join(ingroup),
-        )
 
     # Build the ladder first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
     # taken as closest-first and the rates are fitted.
@@ -1094,7 +1103,8 @@ def _run_arg(args: argparse.Namespace) -> int:
         outgroup_samples=args.outgroups,
     )
 
-    if _path_format(args.out) == "trees":
+    out_format = _path_format(args.out)
+    if out_format == "trees":
         n = inference.to_arg(args.out,
                              store_posterior=not args.no_posterior,
                              min_confidence=args.min_confidence,
@@ -1103,7 +1113,7 @@ def _run_arg(args: argparse.Namespace) -> int:
             "arg: wrote %d annotated sites to %s", n, args.out,
         )
         return 0
-    if _path_format(args.out) == "vcf":
+    if out_format == "vcf":
         n = inference.to_vcf(args.out, contig_id=args.chrom,
                              store_posterior=not args.no_posterior,
                              min_confidence=args.min_confidence,
@@ -1112,7 +1122,7 @@ def _run_arg(args: argparse.Namespace) -> int:
             "arg: wrote %d annotated records to %s", n, args.out,
         )
         return 0
-    if _path_format(args.out) == "vcz":
+    if out_format == "vcz":
         n = inference.to_zarr(args.out,
                               store_posterior=not args.no_posterior,
                               min_confidence=args.min_confidence,
@@ -1228,10 +1238,8 @@ def _run_local_tree(args: argparse.Namespace) -> int:
          "inside the kernel: pass --chunk-size or --no-ensemble to fan out"),
         ("member_chunk", no_ens, "with --no-ensemble"),
     ])
-    out_is_vcf = _path_format(args.out) == "vcf"
-    out_is_trees = _path_format(args.out) == "trees"
-    out_is_zarr = _path_format(args.out) == "vcz"
-    if not (out_is_vcf or out_is_trees or out_is_zarr):
+    out_format = _path_format(args.out)
+    if out_format is None:
         raise SystemExit(
             f"local-tree --out must end with .vcf, .vcf.gz, .vcf.bgz, .bcf, .vcz, or "
             f".trees (got {args.out!r})."
@@ -1291,6 +1299,7 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         focal=focal,
         ingroup_samples=args.ingroup,
         outgroup_samples=args.outgroups,
+        chrom=args.chrom,
     )
     # The library receives RateMap objects, so the paths they came from are
     # recorded here or lost.
@@ -1314,13 +1323,13 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         inference.point_tree_sequence().dump(args.out_trees)
         _log.info("Wrote the reconstructed local trees to %s",
                   args.out_trees)
-    if out_is_trees:
+    if out_format == "trees":
         n = inference.to_arg(args.out,
                              store_posterior=not args.no_posterior,
                              min_confidence=args.min_confidence,
                              restrict_samples=args.restrict_samples)
         _log.info("Wrote %d annotated sites to %s", n, args.out)
-    elif out_is_zarr:
+    elif out_format == "vcz":
         n = inference.to_zarr(args.out,
                               store_posterior=not args.no_posterior,
                               min_confidence=args.min_confidence,

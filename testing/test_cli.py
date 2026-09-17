@@ -559,14 +559,14 @@ class TestFixedTreeHandler:
             self, ladder_panel, tmp_path, caplog):
         vcf, _vcz, nwk, _alleles, _gt = ladder_panel
         out = tmp_path / "annot.vcf"
-        with caplog.at_level(logging.INFO, logger="ancestree.cli"):
+        with caplog.at_level(logging.INFO, logger="ancestree"):
             code = run([
                 "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
                 "--outgroups", "o1,o2", "--out", str(out),
             ])
         assert code == 0
         messages = [r.getMessage() for r in caplog.records]
-        assert any("--ingroup not given" in m and "i0,i1" in m for m in messages)
+        assert "Using 2 ingroup sample(s): i0, i1" in messages
         assert _vcf_provenance(out)["parameters"]["ingroup_samples"] == ["i0", "i1"]
 
     def test_outgroups_alone_build_the_ladder_and_fit(
@@ -649,6 +649,15 @@ class TestFixedTreeHandler:
             assert fitted_model.kappa == pytest.approx(
                 expected.kappa_estimate if seeded else _lib_default(type(fitted_model), "kappa"))
         assert len(_aa_calls(out)) == len(alleles)
+
+    def test_an_untagged_vcz_needs_a_template_for_vcf_output(
+            self, ladder_panel, tmp_path):
+        """The refusal comes before the fit, and names --template-vcf."""
+        _vcf, vcz, nwk, _alleles, _gt = ladder_panel
+        with pytest.raises(SystemExit, match="Pass --template-vcf"):
+            run(["fixed-tree", "--vcf", str(vcz), "--outgroups", "o1,o2",
+                 "--n-target-sites", "1000", "--out",
+                 str(tmp_path / "annot.vcf")])
 
     def test_vcz_output_ignores_the_template_vcf(
             self, ladder_panel, tmp_path, caplog):

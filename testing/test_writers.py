@@ -976,9 +976,8 @@ class TestPrebuiltLocalTreeWritesTheInput:
 
 
 def test_unnamed_diploids_restrict_by_node(tmp_path):
-    """Individuals without name metadata take tskit's column names, which no
-    sample name matches, so a restricted template is written from the
-    restricted tree sequence, its columns keeping their unrestricted names."""
+    """Unnamed individuals are restricted by node and keep their unrestricted
+    ``tsk_<j>`` column names."""
     ts = msprime.sim_ancestry(4, sequence_length=1e4, population_size=1e4,
                               random_seed=1)
     ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
@@ -1041,6 +1040,21 @@ def test_a_restricted_arg_keeps_its_sample_names(tmp_path):
     assert list(names) == ["0", "1", "2", "3", "6", "7"]
 
 
+def test_a_restricted_arg_keeps_the_haplotype_names_of_a_split_individual(
+        tmp_path):
+    """A diploid of which one haplotype is kept read back under the bare
+    individual name, which the run's own sample lists do not match."""
+    inf = anc.Inference.from_arg(DEMO_TREES, mu=5e-8, progress=False,
+                                 ingroup_samples=["i0", "i1_h0"],
+                                 outgroup_samples=["o1_h1"])
+    out = tmp_path / "out.trees"
+    inf.to_arg(out, restrict_samples=True)
+    names = TskitLocalTree.default_sample_map(tskit.load(out))
+    assert list(names) == ["i0_h0", "i0_h1", "i1_h0", "o1_h1"]
+    anc.Inference.from_arg(str(out), mu=5e-8, ingroup_samples=["i0", "i1_h0"],
+                           outgroup_samples=["o1_h1"])
+
+
 def test_a_store_without_a_suffix_is_a_store(tmp_path):
     import bio2zarr.vcf as bio2zarr_vcf
 
@@ -1055,8 +1069,13 @@ def test_a_store_without_a_suffix_is_a_store(tmp_path):
     assert (inf._input_store_path, inf._input_vcf_path) == (store, None)
 
 
-def test_a_store_without_dimension_names_templates_from_the_trees(tmp_path):
-    """vcztools cannot export an untagged store, so to_vcf exports the trees."""
+@pytest.mark.parametrize("chunk_size", [None, 25_000])
+def test_a_store_without_dimension_names_templates_from_the_sites(
+        tmp_path, chunk_size):
+    """vcztools cannot export an untagged store, so to_vcf writes the template
+    from the sites read. A template exported from the panel's trees lost the
+    records of sites monomorphic within the panel, whose alleles the trees
+    no longer carry."""
     from testing._helpers import ts_to_vcz
 
     ts = msprime.sim_ancestry(6, ploidy=1, sequence_length=5e4,
@@ -1065,13 +1084,22 @@ def test_a_store_without_dimension_names_templates_from_the_trees(tmp_path):
     ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
                                random_seed=2)
     store = str(tmp_path / "snps.vcz")
-    names = ts_to_vcz(ts, store)
+    ts_to_vcz(ts, store)
     inf = LocalTreeInference(store, mu=1.25e-8, rec_rate=1e-8,
                              sequence_length=ts.sequence_length,
-                             chunk_size=None, n_ensemble=None, progress=False)
+                             ingroup_samples=["n0", "n1", "n2"],
+                             outgroup_samples=["n3"], chrom="chrX",
+                             chunk_size=chunk_size, n_ensemble=None,
+                             progress=False)
+    res = list(inf.infer())
+    panel = {"n0", "n1", "n2", "n3"}
+    assert any(len({s.tip_alleles[n] for n in panel}) == 1 for s, _ in res)
     out = str(tmp_path / "out.vcf")
-    assert inf.to_vcf(out) > 0
-    assert cyvcf2.VCF(out).samples == names
+    assert inf.to_vcf(out, posteriors=res) == len(res) == ts.num_sites
+    records = list(cyvcf2.VCF(out))
+    assert cyvcf2.VCF(out).samples == ["n0", "n1", "n2", "n3"]
+    assert {r.CHROM for r in records} == {"chrX"}
+    assert all(r.INFO.get("AA") is not None for r in records)
 
 
 def test_only_a_local_store_is_the_zarr_template():

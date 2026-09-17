@@ -138,8 +138,8 @@ class Grade:
         Defaults to the ingroup's most recent common ancestor, whichever
         node the posteriors were reported at.
     :param ingroup_samples: Ingroup sample names resolving ``focal`` in a
-        tree-sequence truth. Defaults to every sample not named as an
-        outgroup.
+        tree-sequence truth. Defaults to every sample whose individual is
+        not named as an outgroup.
     :param outgroup_samples: Outgroup sample names resolving ``focal`` in a
         tree-sequence truth.
     :param panel_samples: The samples the inference used, to which a
@@ -285,8 +285,9 @@ class Grade:
         if sample_map is None:
             sample_map = TskitLocalTree.default_sample_map(ts)
         known = _by_individual(sample_map)
-        absent = [s for s in (*(panel_samples or ()), *(ingroup_samples or ()),
-                              *(outgroup_samples or ())) if s not in known]
+        absent = list(dict.fromkeys(
+            s for s in (*(panel_samples or ()), *(ingroup_samples or ()),
+                        *(outgroup_samples or ())) if s not in known))
         if absent:
             raise ValueError(
                 f"{len(absent)} sample(s) match no sample of the truth: "

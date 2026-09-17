@@ -290,15 +290,13 @@ class TskitLocalTree(Tree):
     ) -> "tuple[tskit.TreeSequence, dict[str, int]]":
         """``ts`` simplified to the nodes of ``sample_map``, every site kept.
 
-        The retained nodes are renumbered in their original order, so tree
-        sequences sharing sample node ids restrict identically.
-
         :param ts: The tree sequence to restrict.
         :param sample_map: ``{name: node}`` for the samples to keep.
         :param keep_node_ids: Keep every node id, so the kept samples keep
-            their node-derived names.
-        :return: The restricted tree sequence and ``sample_map`` numbered in
-            it, or both unchanged when ``sample_map`` covers every sample.
+            their names. Otherwise the kept nodes are renumbered in their
+            original order.
+        :return: The restricted tree sequence and ``sample_map`` in its
+            numbering, both unchanged where ``sample_map`` covers every sample.
         """
         nodes = sorted(int(n) for n in sample_map.values())
         if len(nodes) >= ts.num_samples:
@@ -331,10 +329,11 @@ class TskitLocalTree(Tree):
         ``name`` key in its metadata, else ``None``, leaving the caller
         free to fall back on the default ``str(node_id)`` naming.
 
-        An individual owning more than one sample node (e.g. a diploid)
-        gets one entry per haplotype, named ``{name}_h0`` / ``{name}_h1``
-        / …, matching the haplotype naming the VCF / VCF-Zarr sources use,
-        so the same diploid panel reads identically across all sources.
+        An individual owning more than one node (e.g. a diploid) gets one
+        entry per sample node, named ``{name}_h<k>`` by the node's place
+        among the individual's nodes, matching the haplotype naming the VCF /
+        VCF-Zarr sources use, so the same diploid panel reads identically
+        across all sources.
 
         :param ts: The source tree sequence.
         :return: ``{name: node_id}`` per haplotype, or ``None`` if any
@@ -342,26 +341,19 @@ class TskitLocalTree(Tree):
         :raises ValueError: If two distinct individuals yield the same
             haplotype key, i.e. their ``name`` metadata is not unique.
         """
-        nodes_per_individual: dict[int, int] = {}
+        out: dict[str, int] = {}
         for s in ts.samples():
             ind = ts.node(int(s)).individual
             if ind < 0:
                 return None
-            nodes_per_individual[ind] = nodes_per_individual.get(ind, 0) + 1
-        out: dict[str, int] = {}
-        seen: dict[int, int] = {}
-        for s in ts.samples():
-            ind = ts.node(int(s)).individual
-            meta = ts.individual(ind).metadata or {}
+            individual = ts.individual(ind)
+            meta = individual.metadata or {}
             name = meta.get("name") if isinstance(meta, dict) else None
             if not name:
                 return None
-            if nodes_per_individual[ind] == 1:
-                key = str(name)
-            else:
-                h = seen.get(ind, 0)
-                seen[ind] = h + 1
-                key = f"{name}_h{h}"
+            nodes = list(individual.nodes)
+            key = (str(name) if len(nodes) == 1
+                   else f"{name}_h{nodes.index(int(s))}")
             if key in out:
                 raise ValueError(
                     f"duplicate haplotype name {key!r} from distinct individuals "

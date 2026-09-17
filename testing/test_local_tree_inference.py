@@ -1127,25 +1127,24 @@ def test_default_template_vcf_dumps_the_inferred_trees(monkeypatch, tmp_path):
 
 
 def test_default_template_vcf_removes_the_partial_file_on_failure(monkeypatch, tmp_path):
-    """A failing write of the stitched chunked trees leaves no temporary
-    template behind."""
+    """A template write that fails part-way leaves no temporary file behind."""
     sites, names = toy_sites(range(0, 1000, 20))
     inf = toy_chunked_inference(sites, names, n_ensemble=None,
                                 sequence_length=1000.0)
-    inf.point_tree_sequence()
 
-    def _boom(*args, **kwargs):
-        raise RuntimeError("no trees today")
+    def _boom():
+        yield sites[0]
+        raise RuntimeError("no sites today")
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    monkeypatch.setattr(tskit.TreeSequence, "write_vcf", _boom)
-    with pytest.raises(RuntimeError, match="no trees today"):
+    monkeypatch.setattr(inf, "_source", _boom())
+    with pytest.raises(RuntimeError, match="no sites today"):
         inf._default_template_vcf("chr1")
     assert list(tmp_path.iterdir()) == []
 
 
 def test_to_vcf_from_sites_annotates_every_record(tmp_path):
-    """``to_vcf`` on a sites source templates from the trees and annotates."""
+    """``to_vcf`` on a sites source templates from the sites and annotates."""
     import cyvcf2
     sites, names = toy_sites(range(20, 1000, 20), chrom="chr7")
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)

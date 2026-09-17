@@ -2,7 +2,7 @@
 
 With both lists named, a sample in neither is dropped, or raises when the
 caller chose the panel explicitly. With one list named, the other is the rest
-of the panel.
+of the panel, less the other haplotypes of an outgroup individual.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import tskit
 import ancestree as anc
 from ancestree.local_tree_inference import LocalTreeInference
 from ancestree.trees import TskitLocalTree
-from testing._helpers import DEMO_VCF, QUICKSTART_TREES
+from testing._helpers import DEMO_TREES, DEMO_VCF, QUICKSTART_TREES
 
 ING = ["i0", "i1", "i2", "i3"]
 OUT = ["o0"]
@@ -63,6 +63,44 @@ def test_ingroup_alone_makes_the_rest_outgroups():
     inf = anc.Inference.from_arg(tskit.load(QUICKSTART_TREES), mu=5e-8,
                                  ingroup_samples=ING)
     assert inf._baseline_outgroup_samples() == ("i4", "i5", "o0", "o1")
+
+
+def test_the_other_haplotypes_of_an_outgroup_individual_are_dropped():
+    """Naming one haplotype of an individual as an outgroup put the other
+    into the derived ingroup."""
+    inf = anc.Inference.from_arg(tskit.load(DEMO_TREES), mu=5e-8,
+                                 outgroup_samples=["o1_h0", "o2"])
+    assert inf._baseline_ingroup_samples() == (
+        "i0_h0", "i0_h1", "i1_h0", "i1_h1", "i2_h0", "i2_h1", "i3_h0",
+        "i3_h1", "o3_h0", "o3_h1")
+    assert "o1_h1" not in inf.sample_map
+    lt = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
+                            outgroup_samples=["o1_h0"], progress=False)
+    assert "o1_h1" not in lt.sample_names
+    smap = TskitLocalTree.default_sample_map(tskit.load(DEMO_TREES))
+    with pytest.raises(ValueError, match="in neither"):
+        anc.Inference.from_arg(tskit.load(DEMO_TREES), mu=5e-8,
+                               sample_map=smap, outgroup_samples=["o1_h0"])
+
+
+@pytest.mark.parametrize("mode", ["arg", "local_tree", "fixed_tree"])
+def test_the_samples_used_are_logged(mode, caplog):
+    kw = dict(ingroup_samples=["i0_h0", "i1_h0"],
+              outgroup_samples=["o1_h0"], progress=False)
+    if mode == "arg":
+        inf = anc.Inference.from_arg(tskit.load(DEMO_TREES), mu=5e-8, **kw)
+    elif mode == "local_tree":
+        inf = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
+                                 sequence_length=2e5, chunk_size=None,
+                                 n_ensemble=None, **kw)
+    else:
+        inf = anc.Inference.from_fixed_tree(
+            DEMO_VCF, fit_required=False, n_target_sites=100_000, **kw)
+    with caplog.at_level("INFO", logger="ancestree"):
+        next(iter(inf.infer()))
+    messages = [r.getMessage() for r in caplog.records]
+    assert "Using 2 ingroup sample(s): i0_h0, i1_h0" in messages
+    assert "Using 1 outgroup sample(s): o1_h0" in messages
 
 
 def test_local_tree_panel_is_the_union_of_both_lists():

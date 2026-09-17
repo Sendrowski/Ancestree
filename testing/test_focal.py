@@ -1426,6 +1426,14 @@ class TestPanelRootOnAMultiRootTree:
             Grade.truth_at_focal(ts, "panel_root",
                                  ingroup_samples=["absent0", "absent1"])
 
+    def test_a_name_in_several_lists_is_reported_once(self):
+        from ancestree.posterior import Grade
+
+        ts = self._forest(join_the_roots=True)
+        with pytest.raises(ValueError, match=r"^1 sample\(s\) .*\['absent'\],"):
+            Grade.truth_at_focal(ts, "panel_root", ingroup_samples=["absent"],
+                                 panel_samples=["absent"])
+
 
 def test_the_rank_shortcut_matches_the_pairwise_fold_across_roots():
     """The two ``_mrca`` paths agree on a tree whose samples span several

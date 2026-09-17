@@ -296,7 +296,8 @@ def _resolve_panel(
     """The panel, and the ingroup and outgroups within it.
 
     With both lists named the panel is their union. With one named, the other
-    is the rest of the panel. Names match a haplotype id or its individual.
+    is the rest of the panel, except that the other haplotypes of an outgroup
+    individual are dropped. Names match a haplotype id or its individual.
 
     :param panel: Sample ids, in panel order.
     :param ingroup: Named ingroup ids, possibly none.
@@ -320,8 +321,13 @@ def _resolve_panel(
     dropped: list[str] = []
     if ins and outs:
         dropped = _unlabelled(panel, ins | outs, chosen_by=chosen_by)
-        gone = set(dropped)
-        panel = [s for s in panel if s not in gone]
+    elif outs:
+        split = {_individual_of(s) for s in panel if _named(s, outs)}
+        dropped = _unlabelled(
+            (s for s in panel if _individual_of(s) in split), outs,
+            chosen_by=chosen_by)
+    gone = set(dropped)
+    panel = [s for s in panel if s not in gone]
     if ins:
         members = [s for s in panel if _named(s, ins)]
     else:

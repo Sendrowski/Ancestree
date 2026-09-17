@@ -1,4 +1,6 @@
 INFO:ancestree.ARGBasedInference: Inferring the ancestral allele at 224 sites over 29 local trees from the ARG
+INFO:ancestree.ARGBasedInference: Using 6 ingroup sample(s): i0, i1, i2, i3, i4, i5
+INFO:ancestree.ARGBasedInference: Using 2 outgroup sample(s): o0, o1
 ARGBasedInference: 100%|██████████| 29/29 [--:--<--:--, --trees/s]
 WARNING:ancestree.ARGBasedInference: 106 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup's own allele is the answer.
 INFO:ancestree.ARGBasedInference: Focal node: reported at the ingroup_mrca; 4 tree(s) where the ingroup is not monophyletic, so its MRCA subtends outgroup tips

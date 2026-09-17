@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import tempfile
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations
 from typing import TYPE_CHECKING
 
@@ -54,7 +56,8 @@ from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
 from ancestree.settings import Settings
 from ancestree.sites import (BaseComposition, Site, SiteSource,
-                             SiteTable, _PanelSites, _path_format)
+                             SiteTable, _individual_of, _PanelSites,
+                             _path_format)
 from ancestree._repr import ReprMixin
 
 # Below this many SNPs per block (panel-wide average), a large fraction of
@@ -1372,8 +1375,8 @@ class LocalTreeInference(Inference):
         ``sample_names`` names them.
     :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
         baseline comparison by folded-SFS bin, and defines the ingroup whose
-        MRCA ``focal="ingroup_mrca"`` reports at. Defaults to all non-outgroup
-        panel samples.
+        MRCA ``focal="ingroup_mrca"`` reports at. Defaults to the panel
+        samples whose individual is not an outgroup.
     :param focal: Node to report the posterior at, forwarded to the underlying
         :class:`~ancestree.inference.ARGBasedInference`. ``None`` (default) is
         the ingroup MRCA.
@@ -1381,6 +1384,8 @@ class LocalTreeInference(Inference):
         rule (:class:`~ancestree.inference.MajorityOutgroupInference`) as a
         consistency check. Off by default. Set ``True`` together with
         ``outgroup_samples`` or ``ingroup_samples`` to enable.
+    :param chrom: Contig label of every emitted site. ``None`` keeps the
+        source's own, or ``"1"`` for a pre-built tree sequence.
     :raises ValueError: If ``member_chunk``, ``n_ensemble`` or ``n_workers`` is
         below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
         ``sample_names`` is needed and absent, if a named sample is absent
@@ -1454,6 +1459,7 @@ class LocalTreeInference(Inference):
         baseline_check: bool = False,
         focal: "FocalNode | str | None" = None,
         mu_matches_time_units: bool = False,
+        chrom: str | None = None,
     ) -> None:
         import tskit
 
@@ -1466,6 +1472,7 @@ class LocalTreeInference(Inference):
             )
         self.builder: LocalTreeBuilder | None = None
         self._arg: ARGBasedInference | None = None
+        self.chrom = chrom
         self._segmented = False
         self._announced = False
         # Contig the posteriors carry, resolved from the source below. Threaded
@@ -1527,6 +1534,7 @@ class LocalTreeInference(Inference):
                 n_workers=n_workers, focal=focal,
                 ingroup_samples=ingroup_samples, outgroup_samples=outgroup_samples,
                 mu_matches_time_units=mu_matches_time_units,
+                **({} if chrom is None else {"chrom": chrom}),
             )
             self._arg._quiet = True  # parent does the user-facing logging
             # The genotype path sets these. On the pre-built path take them from
@@ -1730,7 +1738,11 @@ class LocalTreeInference(Inference):
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` for every site, in genomic order."""
         self._log_start()
-        yield from self._with_baseline_check(self._infer_impl())
+        pairs = self._infer_impl()
+        if self.chrom is not None:
+            pairs = ((replace(site, chrom=self.chrom), post)
+                     for site, post in pairs)
+        yield from self._with_baseline_check(pairs)
         if self._arg is not None:
             self._add_segment_counts((
                 self._arg._n_ingroup_non_monophyletic,
@@ -2087,7 +2099,6 @@ class LocalTreeInference(Inference):
         tracks the segment span. The recombination / mutation / accessibility
         maps are sliced to the segment and shifted likewise.
         """
-        from dataclasses import replace
         seg, _core_lo, _core_hi, origin, span = work_unit
         shifted = [replace(s, pos=int(s.pos - origin)) for s in seg]
         builder = LocalTreeBuilder(
@@ -2851,26 +2862,53 @@ class LocalTreeInference(Inference):
     def _dump_template_vcf(
         self, contig_id: str | None, restrict_samples: bool = False,
     ) -> str:
-        """Dump the local-tree sequence to a temporary template VCF.
+        """Write a temporary template VCF from the sites read, or from a
+        pre-built tree sequence.
 
-        On the chunked path the template is the genome-wide stitch of the
-        per-segment builds, which holds only the panel.
+        A template from the sites holds their record alleles and the panel's
+        genotypes, and no INFO.
 
-        :param contig_id: Contig label for the auto-written template. ``None``
-            resolves to the source contig the posteriors carry, so the template
-            ``CHROM`` matches and the annotation lands.
-        :param restrict_samples: Whether the template holds only the samples
-            the inference used.
+        :param contig_id: Contig label for the template. ``None`` resolves to
+            the contig the posteriors carry.
+        :param restrict_samples: Whether a template from a pre-built tree
+            sequence holds only the samples the inference used. A template
+            from the sites holds only the panel.
         :return: Path of the temporary file, which the caller unlinks.
-        :raises NotImplementedError: On the chunked path with a multi-contig source.
         """
-        contig = contig_id if contig_id is not None else self._chrom
-        if not self._segmented:
+        if not self._segmented and self.builder is None:
+            contig = contig_id if contig_id is not None else self._chrom
             return self._point_arg()._dump_template_vcf(contig, restrict_samples)
-        ts = self.point_tree_sequence()
-        names = self._template_individual_names(
-            ts, dict(zip(self.sample_names or (), ts.samples())))
-        return self._write_template_vcf(ts, names, contig)
+        sites = self._source if self._segmented else self.builder.sites
+        label = contig_id if contig_id is not None else self.chrom
+        columns: dict[str, list[str]] = {}
+        for name in self.sample_names:
+            columns.setdefault(_individual_of(name), []).append(name)
+
+        def write(fh) -> None:
+            contigs: dict[str, None] = {}
+            with tempfile.TemporaryFile("w+") as body:
+                for site in sites:
+                    chrom = label if label is not None else site.chrom
+                    contigs[chrom] = None
+                    index = {a: str(i) for i, a in enumerate(site.alleles)}
+                    calls = ["|".join(index.get(site.tip_alleles.get(h), ".")
+                                      for h in haps)
+                             for haps in columns.values()]
+                    body.write("\t".join((
+                        chrom, str(site.pos), ".", site.alleles[0],
+                        ",".join(site.alleles[1:]) or ".", ".", ".", ".",
+                        "GT", *calls)) + "\n")
+                fh.write("##fileformat=VCFv4.2\n")
+                fh.writelines(f"##contig=<ID={c}>\n" for c in contigs)
+                fh.write('##FORMAT=<ID=GT,Number=1,Type=String,'
+                         'Description="Genotype">\n')
+                fh.write("\t".join(("#CHROM", "POS", "ID", "REF", "ALT", "QUAL",
+                                    "FILTER", "INFO", "FORMAT", *columns))
+                         + "\n")
+                body.seek(0)
+                shutil.copyfileobj(body, fh)
+
+        return self._temporary_vcf(write)
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

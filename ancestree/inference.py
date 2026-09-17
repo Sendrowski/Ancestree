@@ -150,6 +150,8 @@ class Inference(ReprMixin, ABC):
     _sample_filter: "Sequence[str] | None" = None
     #: Whether the empty-source warning has already been emitted.
     _warned_no_sites: bool = False
+    #: Whether the ingroup and outgroup samples have been logged.
+    _logged_panel: bool = False
 
     #: Inference-mode tag recorded in :meth:`provenance`. The model-based
     #: modes override it (``"arg"`` / ``"fixed-tree"`` / ``"local-tree"``);
@@ -298,6 +300,7 @@ class Inference(ReprMixin, ABC):
         member_chunk: int = 8,
         mu_matches_time_units: bool = False,
         time_grid: "np.ndarray | None" = None,
+        chrom: str | None = None,
     ) -> "LocalTreeInference":
         """Build a :class:`~ancestree.local_tree_inference.LocalTreeInference`.
 
@@ -337,6 +340,7 @@ class Inference(ReprMixin, ABC):
             member_chunk=member_chunk,
             mu_matches_time_units=mu_matches_time_units,
             time_grid=time_grid,
+            chrom=chrom,
         )
 
     def _log_uniform_fallback_summary(self) -> None:
@@ -701,6 +705,17 @@ class Inference(ReprMixin, ABC):
         and their individuals."""
         return _by_individual(self._panel_samples())
 
+    def _log_panel(self) -> None:
+        """Log the ingroup and outgroup samples the inference uses, once."""
+        if self._logged_panel:
+            return
+        self._logged_panel = True
+        for label, samples in (("ingroup", self._baseline_ingroup_samples()),
+                               ("outgroup", self._baseline_outgroup_samples())):
+            if samples:
+                self._log.info("Using %d %s sample(s): %s", len(samples),
+                               label, ", ".join(samples))
+
     def _note_unnamed_ingroup(self) -> None:
         """Report that an unnamed ingroup is the whole panel.
 
@@ -922,6 +937,8 @@ class Inference(ReprMixin, ABC):
         :param inner: The mode's own per-site posterior generator.
         :return: The same ``(Site, Posterior)`` stream, unchanged.
         """
+        if not self._quiet:
+            self._log_panel()
         want = (
             self.baseline_check
             and not self._quiet
@@ -1335,7 +1352,7 @@ class Inference(ReprMixin, ABC):
         :raises ImportError: If a template must be built but ``bio2zarr`` is
             not installed.
         :raises ValueError: If no template is available and the mode has no
-            source to build one from.
+            local source to build one from.
         """
         from ancestree.writers import ZarrWriter
         supplied, provenance = provenance, self._resolve_provenance(
@@ -1378,7 +1395,8 @@ class Inference(ReprMixin, ABC):
             being the sample columns to write or ``None`` for all. The caller
             removes ``cleanup_dir`` once the store has been consumed.
         :raises ImportError: If ``bio2zarr`` is not installed.
-        :raises ValueError: If the mode has no source to build a template from.
+        :raises ValueError: If the mode has no local source to build a
+            template from.
         """
         # Resolved ahead of the bio2zarr import, so a mode with no source fails
         # with a ValueError.
@@ -1479,6 +1497,8 @@ class Inference(ReprMixin, ABC):
             of the template.
         :return: Number of records annotated.
         :raises ValueError: If no template VCF is available.
+        :raises ImportError: If the template is read from a VCF Zarr store and
+            ``vcztools`` is not installed.
         """
         from ancestree.writers import VCFWriter
         supplied, provenance = provenance, self._resolve_provenance(
@@ -1570,22 +1590,6 @@ class Inference(ReprMixin, ABC):
             "input_vcf=<path> to to_vcf() or input_zarr=<path> to to_zarr(), "
             "or construct the inference from a VCF path."
         )
-
-    @staticmethod
-    def _write_template_vcf(ts, names, contig: str) -> str:
-        """Write ``ts`` to a temporary template VCF.
-
-        Positions are truncated to ``int(site.pos)``, the position the sites
-        are keyed on.
-
-        :param ts: The tree sequence to write.
-        :param names: Its sample column names.
-        :param contig: Contig label of every record.
-        :return: Path of the temporary file, which the caller unlinks.
-        """
-        return Inference._temporary_vcf(lambda fh: ts.write_vcf(
-            fh, contig_id=contig, individual_names=names,
-            position_transform=lambda p: np.floor(np.asarray(p)).astype(int)))
 
     @staticmethod
     def _temporary_vcf(write) -> str:
@@ -1792,8 +1796,8 @@ class ARGBasedInference(Inference):
         them.
     :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
         baseline comparison by folded-SFS bin, and defines the ingroup whose
-        MRCA ``focal="ingroup_mrca"`` reports at. Defaults to all non-outgroup
-        panel samples.
+        MRCA ``focal="ingroup_mrca"`` reports at. Defaults to the panel
+        samples whose individual is not an outgroup.
     :param focal: Node to report the posterior at, as a
         :class:`~ancestree.focal.FocalNode` or an anchor name. ``None``
         (default) is the ingroup MRCA, and ``"panel_root"`` the deepest
@@ -2642,8 +2646,6 @@ class ARGBasedInference(Inference):
             tree's own root (the default) or when the ingroup spans several
             roots and no MRCA exists.
         """
-        from ancestree.focal import FocalNode
-
         if self.focal.is_root:
             return None
         if FocalNode.spans_roots(tree, self._ingroup_nodes):
@@ -2728,7 +2730,10 @@ class ARGBasedInference(Inference):
         names = self._template_individual_names(
             self._input_ts, self._input_sample_map, nodes)
         ts = self.ts if restrict_samples else self._input_ts
-        return self._write_template_vcf(ts, names, contig)
+        # Positions are truncated to int(site.pos), the key sites are matched on.
+        return self._temporary_vcf(lambda fh: ts.write_vcf(
+            fh, contig_id=contig, individual_names=names,
+            position_transform=lambda p: np.floor(np.asarray(p)).astype(int)))
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

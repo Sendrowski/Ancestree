@@ -289,7 +289,6 @@ class TestGradeAgainstADifferentlyNamedTruth:
 class TestGradingReadsTheScoredPanel:
     """The truth is read on the tree sequence the inference scored."""
 
-    ING = ["i0", "i1", "i2", "i3"]
     OUT = ["o0"]
 
     def test_samples_in_neither_list_are_dropped(self):

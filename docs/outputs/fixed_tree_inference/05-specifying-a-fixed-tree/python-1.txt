@@ -1,4 +1,6 @@
 INFO:ancestree.TskitSource: Reading variants from a tree sequence (224 sites, 8 samples)
+INFO:ancestree.FixedTreeInference: Using 6 ingroup sample(s): i0, i1, i2, i3, i4, i5
+INFO:ancestree.FixedTreeInference: Using 2 outgroup sample(s): o0, o1
 INFO:ancestree.FixedTreeInference: Inferring the ancestral allele at 224 site(s) on the fitted outgroup ladder
 FixedTreeInference: 100%|██████████| 224/224 [--:--<--:--, --sites/s]
 INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.540 on 224 polymorphic sites; largest disagreement at SFS bin 0 (0.028); SFS bin 3 (1.000)
