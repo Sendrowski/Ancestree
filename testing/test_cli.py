@@ -1171,3 +1171,20 @@ def test_no_progress_disables_the_progress_bar(tiny_trees_path, tmp_path, monkey
     assert code == 0
     assert Settings.disable_pbar is True
     assert out.exists()
+
+
+def test_local_tree_samples_select_individuals(tmp_path):
+    """--samples names individuals, so an outgroup named by one haplotype
+    drops its sibling as without --samples. The panel check refused o1_h1,
+    which --samples cannot leave out."""
+    from testing._helpers import DEMO_VCF
+
+    base = ["local-tree", "--vcf", DEMO_VCF, "--mu", "5e-8",
+            "--rec-rate", "1e-8", "--sequence-length", "200000",
+            "--chunk-size", "none", "--no-ensemble"]
+    out = tmp_path / "annot.vcf"
+    assert run([*base, "--samples", "i0,i1,o1", "--outgroups", "o1_h0",
+                "--out", str(out)]) == 0
+    with pytest.raises(ValueError, match="in --samples"):
+        run([*base, "--samples", "i0,i1,o1", "--ingroup", "i0",
+             "--outgroups", "o1_h0", "--out", str(out)])

@@ -287,10 +287,9 @@ def test_builder_writes_self_contained_trees(tmp_path, caplog):
     assert sum(1 for _ in arg.infer()) == len(sites)
 
 
-def test_prebuilt_tree_sequence_infer():
-    """LocalTreeInference over a pre-built, genotype-baked tree sequence
-    polarises without rebuilding, and infer() does not depend on attributes
-    only the genotype-building path sets (sample_names / window)."""
+def test_a_tree_sequence_is_read_for_its_genotypes(caplog):
+    """Local trees are inferred from the genotypes of a tree sequence, whose
+    genealogy was scored as given, so no local-tree estimate came back."""
     ts = _sim(samples=8, length=100_000, seed=13)
     nm = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
     names = [nm[int(s)] for s in ts.samples()]
@@ -300,15 +299,17 @@ def test_prebuilt_tree_sequence_infer():
         sequence_length=ts.sequence_length,
     )
     baked = builder.to_tree_sequence()  # bake_genotypes default -> self-describing
-    lti = LocalTreeInference(baked, JC69(), mu=1.25e-8,
-                              progress=False)
-    # sample names recovered from the ARG
+    with caplog.at_level("WARNING", logger="ancestree"):
+        lti = LocalTreeInference(baked, JC69(), mu=1.25e-8, rec_rate=1e-8,
+                                 chunk_size=None, n_ensemble=None,
+                                 progress=False)
+    assert any("from_arg" in r.getMessage() for r in caplog.records)
+    assert lti.builder is not None
     assert set(lti.sample_names) == set(names)
-    # infer() streams a posterior per baked site (would AttributeError before)
     assert sum(1 for _ in lti.infer()) == len(sites)
 
 
-class TestLocalTreeReprOnPrebuiltInput:
+class TestLocalTreeReprOnTreeSequenceInput:
 
     def test_repr_does_not_raise(self):
         tables = tskit.TableCollection(sequence_length=100.0)
@@ -562,8 +563,7 @@ def test_local_tree_non_default_contig(tmp_path, chunk_size):
 # ----------------------------------------------------- pairwise-TMRCA export
 def test_pairwise_tmrcas_export(tmp_path):
     """`pairwise_tmrcas()` returns a labelled (n_pairs, n_blocks) matrix and
-    writes it to .npz / .csv / .tsv. The cached matrix is shared with
-    `to_tree_sequence`."""
+    writes it to .npz / .csv / .tsv."""
     import csv
     ts = _sim(samples=6, length=120_000, seed=7)
     nm = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
@@ -613,7 +613,7 @@ def test_pairwise_tmrcas_export(tmp_path):
 
 
 def test_pairwise_tmrcas_unavailable_paths(tmp_path):
-    """`pairwise_tmrcas()` errors clearly on the chunked and pre-built paths."""
+    """`pairwise_tmrcas()` gives the same matrix for one and several chunks."""
     ts = _sim(samples=6, length=120_000, seed=7)
     nm = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
     names = [nm[int(s)] for s in ts.samples()]
@@ -638,16 +638,6 @@ def test_pairwise_tmrcas_unavailable_paths(tmp_path):
     assert many.pairs == one.pairs
     assert many.tmrca.shape[0] == one.tmrca.shape[0]
     assert np.all(np.diff(many.block_midpoints) > 0)
-
-    builder = LocalTreeBuilder(
-        sites, mu=1.25e-8, rec_rate=1e-8, sample_names=names,
-        sequence_length=ts.sequence_length, window="20kb", block_size=1000,
-    )
-    tpath = tmp_path / "local.trees"
-    builder.write(tpath)
-    prebuilt = LocalTreeInference(tpath, JC69(), mu=1.25e-8, progress=False)
-    with pytest.raises(NotImplementedError, match="pre-built"):
-        prebuilt.pairwise_tmrcas()
 
 
 def test_run_to_run_determinism():

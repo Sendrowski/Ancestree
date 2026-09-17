@@ -1,8 +1,8 @@
-"""Tests for :class:`VCFWriter` and :class:`TskitWriter`, and for the samples
-and templates the inferences write through them.
+"""Tests for :class:`VCFWriter`, :class:`ZarrWriter` and :class:`TskitWriter`,
+and for the samples and files the inferences annotate or write from the sites.
 
 Round-trip pattern: build a small site stream, manufacture matching
-posteriors, write, and re-read the output (cyvcf2 / tskit) to confirm
+posteriors, write, and re-read the output (cyvcf2 / zarr / tskit) to confirm
 ``AA`` / ``AA_prob`` and ``site.ancestral_state`` / metadata land
 where expected.
 """
@@ -408,13 +408,9 @@ class TestTskitWriterPositionCollision:
 
 
 class TestVCFWriterStreamingParity:
-    """The streaming two-pass writer must match the buffered path byte-for-byte.
-
-    ``VCFWriter.write`` streams posteriors into template rows (bounded memory)
-    for a re-openable file template, falling back to buffering only for a
-    non-seekable stdin/pipe template. The two paths must produce identical
-    output, including for multiallelic-split records that share ``(CHROM, POS)``.
-    """
+    """The two-pass writer streams posteriors into template rows, keeping
+    each multiallelic-split record that shares ``(CHROM, POS)`` on its own
+    call."""
 
     def _write_multiallelic_vcf(self, path):
         # Two records at the same CHROM/POS (a multiallelic site split across
@@ -931,18 +927,53 @@ def test_an_explicit_partial_sample_map_names_the_columns(tmp_path):
 
 
 def test_a_relabelled_local_tree_run_refuses_to_annotate_its_input(tmp_path):
-    """The renamed sites would match no record of the input."""
+    """The renamed sites would match no record of the input, while the
+    input's own contig name renames nothing."""
     from testing._helpers import DEMO_VCF
 
     inference = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
                                    chrom="chrX", progress=False)
-    with pytest.raises(ValueError, match="renames the sites"):
+    with pytest.raises(ValueError, match="cannot rename the sites"):
         inference.to_vcf(str(tmp_path / "out.vcf"))
+    same = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8, chrom="chr1",
+                              sequence_length=2e5, chunk_size=None,
+                              n_ensemble=None, progress=False)
+    res = list(same.infer())
+    assert same.to_vcf(str(tmp_path / "same.vcf"), posteriors=res) == len(res)
 
 
-class TestPrebuiltLocalTreeWritesTheInput:
-    """A pre-built tree sequence is written as ARG mode writes it: a ``.trees``
-    output annotates it, a VCF is written from the sites."""
+def test_a_relabel_keeps_the_contig_length_of_a_single_contig(tmp_path):
+    import bio2zarr.vcf as bio2zarr_vcf
+
+    ts = tskit.load(QUICKSTART_TREES)
+    vcf, store = str(tmp_path / "in.vcf"), str(tmp_path / "in.vcz")
+    with open(vcf, "w") as fh:
+        ts.write_vcf(fh, position_transform="legacy",
+                     individual_names=ING + ["i4", "i5"] + OUT + ["o1"])
+    bio2zarr_vcf.convert([vcf], store, show_progress=False)
+    inference = LocalTreeInference(store, mu=5e-8, rec_rate=1e-8, chrom="X",
+                                   sequence_length=ts.sequence_length,
+                                   chunk_size=None, n_ensemble=None,
+                                   progress=False)
+    out = str(tmp_path / "out.vcf")
+    inference.to_vcf(out)
+    assert "##contig=<ID=X,length=50000>" in open(out).read()
+
+
+def test_a_relabel_refuses_a_source_spanning_several_contigs():
+    """Every site would land on one contig, positions repeating."""
+    from testing._helpers import toy_chunked_inference, toy_sites
+
+    first, names = toy_sites(range(0, 1000, 20), chrom="1")
+    second, _ = toy_sites(range(0, 1000, 20), chrom="2")
+    inference = toy_chunked_inference(first + second, names,
+                                      n_ensemble=None, chrom="X")
+    with pytest.raises(ValueError, match="on one contig"):
+        list(inference.infer())
+
+
+class TestALocalTreeRunOnATreeSequence:
+    """Local trees inferred from a tree sequence's genotypes hold the panel."""
 
     @staticmethod
     def _inference():
@@ -950,11 +981,10 @@ class TestPrebuiltLocalTreeWritesTheInput:
                                   ingroup_samples=ING, outgroup_samples=OUT,
                                   progress=False)
 
-    @pytest.mark.parametrize("restrict, n", [(False, 8), (True, 5)])
-    def test_arg(self, tmp_path, restrict, n):
+    def test_arg(self, tmp_path):
         out = tmp_path / "out.trees"
-        self._inference().to_arg(out, restrict_samples=restrict)
-        assert tskit.load(out).num_samples == n
+        self._inference().to_arg(out)
+        assert tskit.load(out).num_samples == 5
 
     def test_vcf(self, tmp_path):
         out = str(tmp_path / "out.vcf")
@@ -1227,6 +1257,53 @@ class TestWritingFromTheSites:
         assert phased.tolist() == [[True, False], [True, False]]
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_the_missing_allele_of_a_tree_sequence_is_dropped(self, tmp_path,
+                                                             suffix):
+        """tskit appends None for missing data. Keeping it in the record's
+        alleles crashed the write."""
+        from ancestree.sources import CyVCF2Source, VcfZarrSource
+
+        site = Site(chrom="1", pos=3, alleles=("A", "G", None),
+                    tip_alleles={"a": "G", "b": None})
+        pair = (site, Posterior(tuple(anc.STATES), np.array([.7, .1, .1, .1])))
+        out = str(tmp_path / f"out{suffix}")
+        self._writer(suffix)(None, out).write([pair])
+        source = (VcfZarrSource if suffix == ".vcz" else CyVCF2Source)(out)
+        back = next(iter(source))
+        assert back.alleles == ("A", "G")
+        assert back.tip_alleles == {"a": "G", "b": None}
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_an_empty_stream_keeps_its_sample_columns(self, tmp_path, suffix):
+        import zarr
+
+        out = str(tmp_path / f"out{suffix}")
+        self._writer(suffix)(None, out, samples=["a_h0", "a_h1", "b"]).write([])
+        if suffix == ".vcf":
+            assert cyvcf2.VCF(out).samples == ["a", "b"]
+        else:
+            assert list(zarr.open(out, mode="r")["sample_id"][:]) == ["a", "b"]
+
+    def test_a_contig_length_is_stored_only_when_every_contig_has_one(
+            self, tmp_path):
+        import zarr
+
+        from ancestree.writers import ZarrWriter
+
+        sites = [Site(chrom=c, pos=5, alleles=("A",), tip_alleles={"a": "A"})
+                 for c in ("chr1", "chr2")]
+        lengths = {"chr1": 2000}
+        vcf, vcz = str(tmp_path / "out.vcf"), str(tmp_path / "out.vcz")
+        VCFWriter(None, vcf, contig_lengths=lengths).write(
+            _fake_posteriors(sites))
+        ZarrWriter(None, vcz, contig_lengths=lengths).write(
+            _fake_posteriors(sites))
+        header = open(vcf).read()
+        assert "##contig=<ID=chr1,length=2000>" in header
+        assert "##contig=<ID=chr2>" in header
+        assert "contig_length" not in zarr.open(vcz, mode="r")
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
     def test_a_haploid_beside_a_diploid_is_padded(self, tmp_path, suffix):
         import zarr
 
@@ -1238,8 +1315,10 @@ class TestWritingFromTheSites:
             record = [line for line in open(out) if not line.startswith("#")]
             assert record[0].rstrip("\n").split("\t")[9:] == ["1|.", "0"]
         else:
-            genotypes = zarr.open(out, mode="r")["call_genotype"][:]
-            assert genotypes.tolist() == [[[1, -1], [0, -2]]]
+            root = zarr.open(out, mode="r")
+            assert root["call_genotype"][:].tolist() == [[[1, -1], [0, -2]]]
+            assert root["call_genotype_mask"][:].tolist() == [
+                [[False, True], [False, True]]]
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
     def test_a_site_before_position_one_is_refused(self, tmp_path, suffix):
@@ -1267,12 +1346,18 @@ class TestWritingFromTheSites:
         record = [line for line in open(out) if not line.startswith("#")]
         assert record[0].split("\t")[3] == "."
 
-    @pytest.mark.parametrize("mode", ["arg", "prebuilt_local_tree"])
+    @pytest.mark.parametrize("mode", ["arg", "local_tree", "fixed_tree"])
     def test_a_tree_sequence_declares_its_contig_length(self, tmp_path, mode):
         import zarr
 
-        inference = (TestRestrictSamples._inference() if mode == "arg"
-                     else TestPrebuiltLocalTreeWritesTheInput._inference())
+        if mode == "arg":
+            inference = TestRestrictSamples._inference()
+        elif mode == "local_tree":
+            inference = TestALocalTreeRunOnATreeSequence._inference()
+        else:
+            inference = anc.FixedTreeInference(
+                QUICKSTART_TREES, anc.JC69(), ingroup_samples=ING,
+                outgroup_samples=OUT, fit_required=False, progress=False)
         vcf, vcz = str(tmp_path / "out.vcf"), str(tmp_path / "out.vcz")
         inference.to_vcf(vcf)
         inference.to_zarr(vcz)
@@ -1330,6 +1415,7 @@ class TestWritingFromTheSites:
             np.testing.assert_array_equal(a[name][:], b[name][:], err_msg=name)
         assert a["variant_quality"][:].tobytes() == b["variant_quality"][:].tobytes()
         assert a.attrs["vcf_zarr_version"] == b.attrs["vcf_zarr_version"]
+        assert a.metadata.zarr_format == b.metadata.zarr_format
         fields = [line.split("\t") for line in open(vcf)
                   if not line.startswith("#")]
         assert {(f[2], f[5], f[6]) for f in fields} == {(".", ".", "PASS")}
@@ -1345,14 +1431,15 @@ class TestWritingFromTheSites:
                  for k, s in enumerate(self._sites()[:60])]
         out = str(tmp_path / "w.vcz")
         ZarrWriter(None, out).write(_fake_posteriors(sites))
-        lo, hi = sites[45].pos, sites[52].pos
+        # Chunk 35..41 holds the switch from chr1 to chr2 at site 40.
+        lo, hi = sites[40].pos, sites[52].pos
         result = subprocess.run(
             ["vcztools", "view", "-H", "-r", f"chr2:{lo}-{hi}", out],
             capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
         assert [int(line.split("\t")[1])
                 for line in result.stdout.splitlines()] == [
-            s.pos for s in sites[45:53]]
+            s.pos for s in sites[40:53]]
 
     def test_the_genotypes_are_appended_a_chunk_at_a_time(self, tmp_path,
                                                           monkeypatch):

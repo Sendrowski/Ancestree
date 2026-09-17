@@ -270,8 +270,8 @@ def test_local_tree_annotates_its_source_vcf(tmp_path):
     written = anc.LocalTreeInference(vcf, **common).to_vcf(
         str(tmp_path / "annotated.vcf.gz"))
     assert written == scored, (
-        f"{scored - written} of {scored} posteriors found no template row; "
-        f"the template does not describe the source")
+        f"{scored - written} of {scored} posteriors found no record of the "
+        f"source VCF")
 
 
 class TestReAnnotationCarriesNothingFromTheEarlierRun:

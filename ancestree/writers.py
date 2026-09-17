@@ -512,6 +512,13 @@ class Writer(ReprMixin, ABC):
             slots[k] = tip
         return list(columns.items())
 
+    def _empty_columns(self) -> "list[tuple[str, list[str | None]]]":
+        """The sample columns of an output that receives no site: the samples
+        to write, or none."""
+        if self._sample_order is None:
+            return []
+        return self._columns(Site(chrom="", pos=1, alleles=(), tip_alleles={}))
+
     @staticmethod
     def _record(site: Site) -> tuple[int, list[str], dict[str, int]]:
         """The position and alleles of the record written for ``site``.
@@ -948,7 +955,7 @@ class VCFWriter(Writer):
             if columns is None:
                 self._log.warning("%s received no posteriors, so %s holds no "
                                   "records.", type(self).__name__, self._output)
-                columns = []
+                columns = self._empty_columns()
             header = [
                 "##fileformat=VCFv4.2",
                 '##FILTER=<ID=PASS,Description="All filters passed">',
@@ -1295,8 +1302,7 @@ class ZarrWriter(Writer):
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`, together with the
     fixed fields and the ``region_index`` ``bio2zarr`` writes. A haploid call
     among diploid ones is written as a diploid call missing its second allele.
-    Variant-indexed
-    arrays are added at the root:
+    Variant-indexed arrays are added at the root:
     ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
     ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and
     ``variant_AA_post`` (``(n_variants, 4) float32`` posterior over A, C, G, T).
@@ -1798,6 +1804,9 @@ class ZarrWriter(Writer):
                 post.append(self._posterior_vector(posterior))
             if len(genotypes) == self._CHUNK:
                 flush()
+        if columns is None:
+            columns = self._empty_columns()
+            ploidy = max((len(s) for _, s in columns), default=1)
         flush()
         n = len(pos)
         if not n:

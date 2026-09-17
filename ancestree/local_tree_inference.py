@@ -11,10 +11,10 @@ The two main public classes, backed by the lower-level
   :meth:`LocalTreeBuilder.write() <ancestree.local_tree_inference.LocalTreeBuilder.write>`
   dumps a ``.trees`` file that can be fed straight to
   :class:`~ancestree.inference.ARGBasedInference`.
-- :class:`~ancestree.local_tree_inference.LocalTreeInference`, a thin convenience wrapper that takes
-  either genotypes (builds the trees via :class:`~ancestree.local_tree_inference.LocalTreeBuilder`) or a
-  pre-built ``.trees`` file, and delegates the per-site ancestral-allele
-  posterior to :class:`~ancestree.inference.ARGBasedInference`. Implements the
+- :class:`~ancestree.local_tree_inference.LocalTreeInference`, a thin convenience wrapper that builds
+  the trees from genotypes via :class:`~ancestree.local_tree_inference.LocalTreeBuilder` and delegates
+  the per-site ancestral-allele posterior to
+  :class:`~ancestree.inference.ARGBasedInference`. Implements the
   :class:`~ancestree.inference.Inference` contract
   (:meth:`Inference.infer() <ancestree.inference.Inference.infer>` yields
   ``(Site, Posterior)``).
@@ -1269,9 +1269,8 @@ class LocalTreeInference(Inference):
     """Infer ancestral alleles from genotypes via inferred local trees.
 
     Convenience over :class:`~ancestree.local_tree_inference.LocalTreeBuilder` +
-    :class:`~ancestree.inference.ARGBasedInference`: it accepts either genotypes, from
-    which it builds the local trees, or a pre-built ``.trees`` file or tree sequence,
-    and delegates the per-site posterior to
+    :class:`~ancestree.inference.ARGBasedInference`: it builds the local trees
+    from genotypes and delegates the per-site posterior to
     :class:`~ancestree.inference.ARGBasedInference`.
 
     .. code-block:: python
@@ -1285,9 +1284,10 @@ class LocalTreeInference(Inference):
 
     :param source: Genotype data the trees are inferred from: a VCF / BCF /
         VCZ path, a :class:`~ancestree.sites.SiteSource`, or polymorphic
-        :class:`~ancestree.sites.Site` records. Or a ``.trees`` path /
-        :class:`tskit.TreeSequence` of a pre-built local-tree sequence
-        (e.g. from :meth:`LocalTreeBuilder.write`). When building from sites,
+        :class:`~ancestree.sites.Site` records. A ``.trees`` path or
+        :class:`tskit.TreeSequence` is read for its genotypes alone, with a
+        warning that :meth:`Inference.from_arg() <ancestree.inference.Inference.from_arg>`
+        scores its genealogy. When building from sites,
         they must be in sorted genomic order (ascending position within each
         contig. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`). A VCF/VCZ path's haplotype
         panel is read from the file, so ``sample_names`` may be omitted.
@@ -1295,20 +1295,17 @@ class LocalTreeInference(Inference):
         :class:`~ancestree.models.JC69`.
     :param mu: Per-site per-generation rate (also the branch
         :attr:`Tree.time_scale <ancestree.trees.Tree.time_scale>`, since
-        inferred branches are in generations). For a pre-built tree sequence
-        it is instead per unit of that sequence's own ``time_units``.
-        Species-specific: omitting it falls back to ``1e-8`` and logs
+        inferred branches are in generations). Species-specific: omitting it falls back to ``1e-8`` and logs
         a warning.
     :param rec_rate: Recombination rate, likewise falling back to
-        ``1e-8`` with a warning (used when ``source`` is genotypes.
-        Ignored for a pre-built tree sequence).
+        ``1e-8`` with a warning.
     :param sample_names: Panel haplotype names (tip order). Required when
         building from :class:`~ancestree.sites.Site` records. Read from the
-        source for a VCF / BCF / VCZ path or a
-        :class:`~ancestree.sites.SiteSource`, and taken from the individual
-        metadata of a pre-built tree sequence.
-    :param sequence_length: Region length in bp. Required when building, unless
-        ``chunk_size`` is set (the chunked path derives it per segment).
+        source for a VCF / BCF / VCZ path, a tree sequence or a
+        :class:`~ancestree.sites.SiteSource`.
+    :param sequence_length: Region length in bp. Required unless ``chunk_size``
+        is set (the chunked path derives it per segment) or ``source`` is a
+        tree sequence, whose own length it defaults to.
     :param window: Local-tree window spec (the primary resolution parameter). See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
     :param block_size: HMM emission block width: int / bp string / ``"<N>snp"``;
@@ -1347,7 +1344,7 @@ class LocalTreeInference(Inference):
     :param n_ensemble: Genealogies per window to marginalise the posterior
         over, drawn from the pairwise HMM's posterior. ``None`` is the plug-in
         estimate, one agglomerated tree per window. Cost is linear in this
-        value. Ignored for a pre-built tree sequence.
+        value.
     :param ensemble_seed: Base seed for the genealogy draws. Member ``b`` draws
         from stream ``ensemble_seed + b``.
     :param member_chunk: Genealogies drawn and scored at once, which sets peak
@@ -1356,15 +1353,14 @@ class LocalTreeInference(Inference):
     :param recombination_map: Optional :class:`msprime.RateMap` (in the input's
         bp coordinates) driving the HMM's TMRCA-reset rate in place of the
         constant ``rec_rate``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per
-        segment on the chunked path. Ignored for a pre-built tree sequence.
+        segment on the chunked path.
     :param accessibility: Optional sequence of half-open ``(start, end)`` bp
         intervals marking the callable genome (BED-style). See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per segment on the chunked path.
-        Ignored for a pre-built tree sequence.
     :param mutation_map: Optional :class:`msprime.RateMap` (in the input's bp
         coordinates) giving the local mutation rate for the HMM emission in
         place of the constant ``mu``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced
-        per segment on the chunked path. Ignored for a pre-built tree sequence.
+        per segment on the chunked path.
     :param outgroup_samples: Sample ids treated as outgroups, used by the
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
@@ -1383,7 +1379,7 @@ class LocalTreeInference(Inference):
         consistency check. Off by default. Set ``True`` together with
         ``outgroup_samples`` or ``ingroup_samples`` to enable.
     :param chrom: Contig label of every emitted site. ``None`` keeps the
-        source's own, or ``"1"`` for a pre-built tree sequence.
+        source's own.
     :raises ValueError: If ``member_chunk``, ``n_ensemble`` or ``n_workers`` is
         below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
         ``sample_names`` is needed and absent, if a named sample is absent
@@ -1512,75 +1508,19 @@ class LocalTreeInference(Inference):
         self.focal = FocalNode.parse(focal)
         self._note_unnamed_ingroup()
 
-        # A tskit.TreeSequence or a ``.trees`` path is a pre-built local-tree
-        # sequence: delegate straight to ARGBasedInference. A VCF / BCF / VCZ
-        # path, by contrast, is genotype data we infer the local trees from;
-        # resolve it to a SiteSource and fall through to the genotype path.
-        is_prebuilt = isinstance(source, tskit.TreeSequence) or (
-            isinstance(source, (str, os.PathLike))
-            and _path_format(source) == "trees"
-        )
-        if is_prebuilt:
-            ts = source if isinstance(source, tskit.TreeSequence) \
-                else tskit.load(str(source))
-            self._arg = ARGBasedInference(
-                ts, model, mu=mu, prior=prior,
-                base_composition=base_composition, progress=progress,
-                n_workers=n_workers, focal=focal,
-                ingroup_samples=ingroup_samples, outgroup_samples=outgroup_samples,
-                mu_matches_time_units=mu_matches_time_units,
-                **({} if chrom is None else {"chrom": chrom}),
-            )
-            self._arg._quiet = True  # parent does the user-facing logging
-            # The genotype path sets these. On the pre-built path take them from
-            # the supplied ARG so infer()'s logging and the baseline hooks have a
-            # sample list and a window to report.
-            self.sample_names = list(self._arg.sample_map)
-            self._resolved_ingroup = self._arg._resolved_ingroup
-            self._resolved_outgroups = self._arg._resolved_outgroups
-            self.window = None
-            self.rec_rate = None
-            # A supplied genealogy is the estimate: no ensemble is drawn.
-            if self.n_ensemble is not None:
-                self._log.info(
-                    "Ignoring n_ensemble=%d for a pre-built tree "
-                    "sequence: the supplied genealogy is scored directly.",
-                    self.n_ensemble)
-                self.n_ensemble = None
-            # The genotype path's settings describe local-tree building, which
-            # a supplied genealogy has already done.
-            def _given(value, default) -> bool:
-                """Whether ``value`` was supplied and differs from ``default``.
+        if (isinstance(source, (str, os.PathLike))
+                and _path_format(source) == "trees"):
+            source = tskit.load(str(source))
+        if isinstance(source, tskit.TreeSequence):
+            self._log.warning(
+                "LocalTreeInference infers local trees from the genotypes of "
+                "the tree sequence and ignores its genealogy, which "
+                "Inference.from_arg() scores directly.")
+            from ancestree.sources import TskitSource
 
-                :param value: The argument as passed.
-                :param default: The signature's default.
-                :return: ``True`` where the caller set it to something else.
-                """
-                if value is None:
-                    return False
-                if np.ndim(value) > 0:
-                    return True
-                return bool(value != default)
-
-            ignored = [
-                name for name, value, default in (
-                    ("rec_rate", rec_rate, None), ("window", window, "8snp"),
-                    ("block_size", block_size, None), ("halo", halo, "auto"),
-                    ("chunk_size", chunk_size, "10mb"),
-                    ("n_time_bins", n_time_bins, 32),
-                    ("time_grid", time_grid, None),
-                    ("recombination_map", recombination_map, None),
-                    ("mutation_map", mutation_map, None),
-                    ("accessibility", accessibility, None),
-                    ("sequence_length", sequence_length, None),
-                ) if _given(value, default)
-            ]
-            if ignored:
-                self._log.info(
-                    "Ignoring %s for a pre-built tree sequence: these "
-                    "configure local-tree building, which the supplied "
-                    "genealogy has already done.", ", ".join(ignored))
-            return
+            if sequence_length is None:
+                sequence_length = source.sequence_length
+            source = TskitSource(source)
 
         explicit_panel = sample_names is not None
         if isinstance(source, (str, os.PathLike)):
@@ -1713,24 +1653,17 @@ class LocalTreeInference(Inference):
         if self._announced:
             return
         self._announced = True
-        if self.window is None:
-            self._log.info(
-                "Scoring a pre-built local-tree sequence (%d samples)",
-                len(self.sample_names),
-            )
-        else:
-            self._log.info(
-                "Inferring local trees from genotypes (%d samples, window=%s)",
-                len(self.sample_names), self.window,
-            )
+        self._log.info(
+            "Inferring local trees from genotypes (%d samples, window=%s)",
+            len(self.sample_names), self.window,
+        )
 
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` for every site, in genomic order."""
         self._log_start()
         pairs = self._infer_impl()
         if self.chrom is not None:
-            pairs = ((replace(site, chrom=self.chrom), post)
-                     for site, post in pairs)
+            pairs = self._relabelled(pairs)
         yield from self._with_baseline_check(pairs)
         if self._arg is not None:
             self._add_segment_counts((
@@ -1769,10 +1702,6 @@ class LocalTreeInference(Inference):
         sequence and is reported at the flat posterior, as on the ensemble
         path, so the stream pairs one to one with the source sites.
         """
-        if self.builder is None:
-            # A pre-built tree sequence: its sites are the ARG's.
-            yield from self._point_arg().infer()
-            return
         sites = self.builder.sites
         self._add_builder_unrepresentable()
         scored = {int(ts_site.pos): post
@@ -1824,11 +1753,11 @@ class LocalTreeInference(Inference):
             yield site, Posterior(tuple(STATES), post[row])
 
     def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        """Outgroup ids the baseline check compares this run against."""
+        """The resolved outgroup ids."""
         return self._resolved_outgroups
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        """Ingroup ids the baseline check compares this run against."""
+        """The resolved ingroup ids."""
         return self._resolved_ingroup
 
     # ----------------------------------------------------- chunked build path
@@ -2635,9 +2564,7 @@ class LocalTreeInference(Inference):
         :return: Iterator of ``(interval, iterator of tskit.TreeSequence)``.
         """
         if not self._segmented:
-            span = float(self._arg.ts.sequence_length
-                         if self.builder is None
-                         else self.builder.sequence_length)
+            span = float(self.builder.sequence_length)
             yield (0.0, span), self._iter_tree_sequences()
             return
         self._resolve_segmentation_params()
@@ -2767,12 +2694,11 @@ class LocalTreeInference(Inference):
 
         Delegates to :meth:`LocalTreeBuilder.pairwise_tmrcas`. The chunked path
         runs the HMM per segment and glues the per-block records in genome
-        order, so the record covers the whole region either way. A pre-built
-        tree sequence runs no HMM and has none to report.
+        order, so the record covers the whole region either way.
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
-        :raises NotImplementedError: On the pre-built-tree-sequence path, or
-            when a chunked source spans more than one contig (the blocks of
+        :raises NotImplementedError: When a chunked source spans more than one
+            contig (the blocks of
             different contigs would collide on one coordinate axis).
         :raises ValueError: If a chunked source yields no segments.
         """
@@ -2805,14 +2731,8 @@ class LocalTreeInference(Inference):
         holding: iterate instead where memory is the constraint.
 
         :return: Iterator of :class:`~ancestree.local_tree_inference.PairwiseTmrcas`, in genome order.
-        :raises NotImplementedError: On the pre-built-tree-sequence path,
-            which has no HMM to report.
         """
         if not self._segmented:
-            if self.builder is None:
-                raise NotImplementedError(
-                    "pairwise_tmrcas() is only available when building local "
-                    "trees from genotypes, not from a pre-built tree sequence")
             yield self.builder.pairwise_tmrcas()
             return
         self._resolve_segmentation_params()
@@ -2845,11 +2765,31 @@ class LocalTreeInference(Inference):
         self.pairwise_tmrcas().write(path)
 
     def _contig_lengths(self) -> dict[str, int]:
-        """The contig length of a pre-built tree sequence, as ARG mode reads
-        it, or those the genotype input declares."""
-        if self.builder is None and not self._segmented:
-            return self._point_arg()._contig_lengths()
-        return super()._contig_lengths()
+        """The contig lengths the input declares, the only one keyed under
+        ``chrom`` when set."""
+        lengths = super()._contig_lengths()
+        if self.chrom is None:
+            return lengths
+        return ({self.chrom: next(iter(lengths.values()))}
+                if len(lengths) == 1 else {})
+
+    def _relabelled(self, pairs):
+        """``pairs`` with every site on contig ``chrom``.
+
+        :param pairs: The ``(Site, Posterior)`` stream.
+        :return: Generator over the relabelled pairs.
+        :raises ValueError: If the sites lie on more than one contig.
+        """
+        first = None
+        for site, posterior in pairs:
+            if first is None:
+                first = site.chrom
+            elif site.chrom != first:
+                raise ValueError(
+                    f"chrom={self.chrom!r} would put the sites of contigs "
+                    f"{first!r} and {site.chrom!r} on one contig. Leave chrom "
+                    f"unset for a source spanning several contigs.")
+            yield replace(site, chrom=self.chrom), posterior
 
     def _output_template(self, given, fmt, output, restrict_samples):
         """As :meth:`Inference._output_template`, refusing a relabelled run.
@@ -2860,17 +2800,39 @@ class LocalTreeInference(Inference):
         :param restrict_samples: Whether an annotated file keeps only the
             samples the inference used.
         :return: ``(template, samples)``.
-        :raises ValueError: If ``chrom`` is set and the output annotates a
-            file, whose records keep their own contig names.
+        :raises ValueError: If ``chrom`` names no contig of the file the output
+            annotates, whose records keep their own contig names.
         """
         template, samples = super()._output_template(
             given, fmt, output, restrict_samples)
-        if template is not None and self.chrom is not None:
+        if (template is not None and self.chrom is not None
+                and self.chrom not in self._contigs_of(template, fmt)):
             raise ValueError(
-                f"chrom={self.chrom!r} renames the sites, so they match no "
-                f"record of {template}, which {output} would annotate. Write "
+                f"chrom={self.chrom!r} cannot rename the sites of {output}, "
+                f"which annotates {template} under its own contig names. Write "
                 f"an output of another format, or leave chrom unset.")
         return template, samples
+
+    @staticmethod
+    def _contigs_of(path: str, fmt: str) -> list[str]:
+        """The contigs a VCF header or a store declares.
+
+        :param path: The VCF or store.
+        :param fmt: ``"vcf"`` or ``"vcz"``.
+        :return: The contig names.
+        """
+        if fmt == "vcf":
+            import cyvcf2
+
+            vcf = cyvcf2.VCF(path)
+            try:
+                return list(vcf.seqnames)
+            finally:
+                vcf.close()
+        import zarr
+
+        return [SiteSource._decode(c)
+                for c in zarr.open(path, mode="r")["contig_id"][:]]
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,
@@ -2879,8 +2841,8 @@ class LocalTreeInference(Inference):
         :meth:`LocalTreeInference.to_arg() <ancestree.local_tree_inference.LocalTreeInference.to_arg>`
         annotates.
 
-        A pre-built or plug-in genealogy is resolved as ARG mode resolves it.
-        On the chunked path it is the stitch from
+        The plug-in genealogy is resolved as ARG mode resolves it. On the
+        chunked path it is the stitch from
         :meth:`LocalTreeInference.point_tree_sequence() <ancestree.local_tree_inference.LocalTreeInference.point_tree_sequence>`,
         which holds only the panel.
 

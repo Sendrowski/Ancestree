@@ -1,4 +1,4 @@
 INFO:ancestree.VCFWriter: Wrote 224 annotated sites to snps.annotated.vcf.gz
 INFO:ancestree.TskitWriter: Wrote 224 annotated sites to snps.annotated.trees
-INFO:ancestree.LocalTreeInference: No local VCF Zarr store input to annotate, so snps.annotated.vcz is written from the sites with the samples the inference used
+INFO:ancestree.LocalTreeInference: No local VCF Zarr store input to annotate, so snps.annotated.vcz is written from the sites, holding the panel
 INFO:ancestree.ZarrWriter: Wrote 224 annotated sites to snps.annotated.vcz

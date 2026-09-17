@@ -74,7 +74,9 @@ class Site:
     """Position on the contig, in the source's own coordinates: 1-based from
     VCF / VCF-Zarr sources, 0-based from tskit / ARG sources. Writers match
     posteriors to template records on this value, so it is consistent within a
-    single source but not normalised across source types."""
+    single source but not normalised across source types. An output written
+    from the sites takes it as the record position, refusing positions below
+    1."""
 
     alleles: tuple[str, ...]
     """Observed alleles, REF first. Each entry is a single-character string

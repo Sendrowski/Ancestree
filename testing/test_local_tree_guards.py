@@ -418,42 +418,6 @@ def test_an_unmatched_sample_name_is_refused_as_a_value_error():
             )
 
 
-class TestThePreBuiltPathIgnoresTheGenotypeArguments:
-    """A supplied genealogy needs none of the local-tree building settings.
-
-    Both of these reached the pre-built branch through checks meant for the
-    genotype path: the depth guard ran before ``n_ensemble`` was cleared, and
-    the ignored-argument report compared an array with ``!=``.
-    """
-
-    @staticmethod
-    def _ts():
-        import msprime
-
-        ts = msprime.sim_ancestry(4, sequence_length=1000, random_seed=1,
-                                  ploidy=1)
-        return msprime.sim_mutations(ts, rate=1e-3, random_seed=2)
-
-    def test_a_depth_focal_is_accepted_when_no_ensemble_is_drawn(self):
-        from ancestree import FocalNode
-
-        inference = LocalTreeInference(
-            self._ts(), JC69(), mu=1e-8, focal=FocalNode(depth=0.5))
-        assert inference.n_ensemble is None
-
-    def test_an_array_time_grid_does_not_raise(self):
-        LocalTreeInference(self._ts(), JC69(), mu=1e-8,
-                           time_grid=np.array([0.0, 1.0, 2.0, 3.0]))
-
-    def test_untouched_arguments_are_not_reported_as_ignored(self, caplog):
-        import logging
-
-        with caplog.at_level(logging.INFO, logger="ancestree"):
-            LocalTreeInference(self._ts(), JC69(), mu=1e-8)
-        assert not [r for r in caplog.records
-                    if "Ignoring window" in r.getMessage()]
-
-
 class TestTheSegmentBuilderCarriesTheMapAtItsOwnCoordinates:
     """A sliced rate map must be read at the segment's own origin.
 

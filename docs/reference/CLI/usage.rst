@@ -136,9 +136,9 @@ Output and logging
 The output format follows the ``--out`` extension: ``.vcf``, ``.vcf.gz``,
 ``.vcf.bgz`` or ``.bcf`` writes an annotated VCF, ``.vcz`` a VCF Zarr store and ``.trees`` a
 tree sequence, the formats described in :doc:`../Python/io`. ``fixed-tree``
-does not write ``.trees``. An output annotates the input when the input has
-its format. Otherwise each site is written as one record, holding the samples
-the inference used. VCF input and output need the ``[vcf]`` extra, VCF
+does not write ``.trees``. An output annotates the input when the input is a
+VCF or a local VCF Zarr store of its format. Otherwise each site is written as
+one record, holding the panel. VCF input and output need the ``[vcf]`` extra, VCF
 Zarr the ``[zarr]`` extra and ``--species-tree`` the ``[newick]`` extra (see
 :doc:`../Python/installation`).
 

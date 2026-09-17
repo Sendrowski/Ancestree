@@ -17,8 +17,8 @@ Exposes three subcommands matching the three inference modes:
   Emits an annotated VCF, VCF-Zarr, or ``.trees`` file.
 
 The output format is inferred from the ``--out`` extension. An output
-annotates the input when the input has its format, and is otherwise written
-from the sites with the samples the inference used:
+annotates the input when the input is a VCF or a local VCF Zarr store of its
+format, and is otherwise written from the sites, holding the panel:
 
 - ``.vcf``, ``.vcf.gz``, ``.vcf.bgz``, ``.bcf`` route to
   :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`;
@@ -1218,9 +1218,11 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         args.vcf, sample_filter=(args.samples or None),
         ploidy=args.ploidy, phased=args.phased, phase_seed=args.phase_seed,
     ))
-    # Canonical (ploidy-expanded) haplotype ids. Left to the library without
-    # --samples, so the panel then follows --ingroup and --outgroups.
-    sample_names = source.samples() if args.samples else None
+    if args.ingroup and args.outgroups:
+        from ancestree.inference import Inference
+
+        Inference._check_filter_labelled(args.samples, args.ingroup,
+                                         args.outgroups, chosen_by="--samples")
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
     _warn_model_defaults("local-tree", args.model)
@@ -1248,7 +1250,6 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         source, model,
         mu=args.mu,
         rec_rate=args.rec_rate,
-        sample_names=sample_names,
         sequence_length=args.sequence_length,
         window=args.window,
         n_ensemble=None if args.no_ensemble else args.ensemble_size,

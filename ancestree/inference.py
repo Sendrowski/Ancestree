@@ -123,6 +123,9 @@ class Inference(ReprMixin, ABC):
     #: The VCF this inference was constructed from, where it was one, which
     #: :meth:`Inference.to_vcf` annotates by default.
     _input_vcf_path: "str | None" = None
+    #: The contig label and tree sequence, or its path, this inference was
+    #: constructed from, where it was one.
+    _input_trees: "tuple[str, object] | None" = None
     #: Set where the caller's correctness depends on scoring in-process,
     #: so the global parallelism switch cannot promote a worker pool.
     _force_serial: bool = False
@@ -655,10 +658,13 @@ class Inference(ReprMixin, ABC):
         annotates. Any other path naming neither a store nor a tree sequence
         is a VCF, which
         :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`
-        annotates.
+        annotates. A tree sequence, or its path, is kept for its length.
 
-        :param source: A path, or a source carrying the path it read.
+        :param source: A path, a tree sequence, or a source carrying the path
+            or tree sequence it read.
         """
+        import tskit
+
         path = (str(source) if isinstance(source, (str, os.PathLike))
                 else getattr(source, "_path", None))
         fmt = _path_format(path) if path is not None else None
@@ -667,6 +673,33 @@ class Inference(ReprMixin, ABC):
         self._input_vcf_path = (
             path if path is not None and not store
             and fmt not in ("vcz", "trees") else None)
+        ts = getattr(source, "_ts", source)
+        self._input_trees = (
+            (getattr(source, "_chrom", "1"), ts)
+            if isinstance(ts, tskit.TreeSequence)
+            else ("1", path) if fmt == "trees" else None)
+
+    @staticmethod
+    def _check_filter_labelled(sample_filter, ingroup_samples,
+                               outgroup_samples,
+                               chosen_by: str = "sample_filter") -> None:
+        """Refuse a sample of ``sample_filter`` whose individual is in neither
+        the ingroup nor the outgroups.
+
+        :param sample_filter: Individuals the panel is restricted to, or
+            ``None``.
+        :param ingroup_samples: Named ingroup ids, or ``None``.
+        :param outgroup_samples: Named outgroup ids, or ``None``.
+        :param chosen_by: The argument that chose ``sample_filter``, named in
+            the error.
+        :raises ValueError: If a filtered sample is in neither list.
+        """
+        if not sample_filter:
+            return
+        # Filter entries name individuals, the lists may name haplotypes.
+        named = _by_individual((*(ingroup_samples or ()),
+                                *(outgroup_samples or ())))
+        _unlabelled(sample_filter, named, chosen_by=chosen_by)
 
     def _panel_samples(self) -> tuple[str, ...]:
         """The resolved ingroup and outgroup sample ids."""
@@ -801,13 +834,12 @@ class Inference(ReprMixin, ABC):
     _BASELINE_CHECK_MAX_SITES: int = 100_000
 
     def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        """Outgroup ids for the majority-allele comparator, or ``()`` if the
-        mode has no designated outgroups (then the check is skipped)."""
+        """The resolved outgroup ids, or ``()`` for a mode without outgroups."""
         return ()
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        """Ingroup ids used to stratify the comparison by folded-SFS bin.
-        ``()`` omits the per-bin breakdown."""
+        """The resolved ingroup ids, or ``()`` for a mode without an
+        ingroup."""
         return ()
 
     def _check_time_units(self, ts,
@@ -1277,12 +1309,19 @@ class Inference(ReprMixin, ABC):
                 params.update(self._focal_totals)
 
     def _contig_lengths(self) -> dict[str, int]:
-        """The length of each contig a local input declares.
+        """The length of each contig a tree sequence or a local input declares.
 
         :return: ``{contig: length}``, empty for an input declaring none.
         """
+        import tskit
+
         from ancestree.sources import CyVCF2Source, VcfZarrSource
 
+        if self._input_trees is not None:
+            chrom, ts = self._input_trees
+            if not isinstance(ts, tskit.TreeSequence):
+                ts = tskit.load(ts, skip_tables=True)
+            return {chrom: math.ceil(ts.sequence_length)}
         if (self._input_vcf_path is not None
                 and os.path.isfile(self._input_vcf_path)):
             return CyVCF2Source._contig_lengths(self._input_vcf_path)
@@ -1298,7 +1337,7 @@ class Inference(ReprMixin, ABC):
 
         An output annotates the file passed for it, or else the input when the
         input has the output's format. Otherwise it is written from the sites
-        and holds the samples the inference used.
+        and holds the panel.
 
         :param given: The file passed for the output, or ``None``.
         :param fmt: ``"vcf"`` or ``"vcz"``.
@@ -1315,8 +1354,8 @@ class Inference(ReprMixin, ABC):
                         else self._input_store_path)
         if template is None:
             self._log.info(
-                "No %s input to annotate, so %s is written from the sites with "
-                "the samples the inference used",
+                "No %s input to annotate, so %s is written from the sites, "
+                "holding the panel",
                 "VCF" if fmt == "vcf" else "local VCF Zarr store", output)
             return None, self._panel_samples() or None
         return template, self._used_samples() if restrict_samples else None
@@ -1340,7 +1379,7 @@ class Inference(ReprMixin, ABC):
         arrays plus the provenance record (see that writer for the on-disk
         layout). The writer annotates a copy of ``input_zarr``, or of the
         local store this inference was constructed from. Otherwise it writes
-        one variant per site, holding the samples the inference used.
+        one variant per site, holding the panel.
 
         :param output_zarr: Destination VCZ store path, which must differ from
             the store it annotates.
@@ -1395,7 +1434,7 @@ class Inference(ReprMixin, ABC):
         Feeds the posteriors to :class:`~ancestree.writers.VCFWriter`, which
         annotates the records of ``input_vcf``, or of the VCF this inference
         was constructed from. Otherwise it writes one record per site,
-        holding the samples the inference used.
+        holding the panel.
 
         :param output_vcf: Where to write the annotated output.
         :param input_vcf: VCF to annotate. Defaults to the VCF the inference
@@ -3220,24 +3259,6 @@ class FixedTreeInference(Inference):
             self.fit()
 
     @staticmethod
-    def _check_filter_labelled(sample_filter, ingroup_samples,
-                               outgroup_samples) -> None:
-        """Refuse a ``sample_filter`` sample in neither the ingroup nor the
-        outgroups.
-
-        :param sample_filter: The panel restriction, or ``None``.
-        :param ingroup_samples: Named ingroup ids, or ``None``.
-        :param outgroup_samples: Named outgroup ids, or ``None``.
-        :raises ValueError: If a filtered sample is in neither list.
-        """
-        if not sample_filter:
-            return
-        # Filter entries name individuals, the lists may name haplotypes.
-        named = _by_individual((*(ingroup_samples or ()),
-                                *(outgroup_samples or ())))
-        _unlabelled(sample_filter, named, chosen_by="sample_filter")
-
-    @staticmethod
     def _check_samples_present(outgroup_samples, sites, source=None,
                                ingroup_samples=None) -> None:
         """Reject named ids that appear on no site.
@@ -3955,7 +3976,6 @@ class MajorityOutgroupInference(Inference):
             )
         self.sites: list[Site] = list(sites)
         self.outgroup_samples: tuple[str, ...] = tuple(outgroup_samples)
-        # Ingroup panel for the no-outgroup major-allele fallback only.
         self.ingroup_samples: tuple[str, ...] = (
             tuple(ingroup_samples) if ingroup_samples is not None else ()
         )
