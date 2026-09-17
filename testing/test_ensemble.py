@@ -161,11 +161,11 @@ def _topology(ts):
             ts.tables.edges.parent.tobytes())
 
 
-def test_to_tree_sequence_yields_one_without_an_ensemble():
+def test_tree_sequences_yields_one_without_an_ensemble():
     """Ensemble off: the iterator carries exactly the plug-in tree."""
     sites, names, L = _sites()
     inf = _inference(sites, names, L, n_ensemble=None)
-    got = list(inf.to_tree_sequence())
+    got = list(inf.tree_sequences())
     assert len(got) == 1
     (lo, hi), members = got[0]
     members = list(members)
@@ -174,11 +174,11 @@ def test_to_tree_sequence_yields_one_without_an_ensemble():
     assert _topology(members[0]) == _topology(inf.point_tree_sequence())
 
 
-def test_to_tree_sequence_yields_every_member():
+def test_tree_sequences_yields_every_member():
     """Ensemble on: one tree sequence per member, none of them the plug-in."""
     sites, names, L = _sites()
     inf = _inference(sites, names, L, n_ensemble=8)
-    groups = list(inf.to_tree_sequence())
+    groups = list(inf.tree_sequences())
     assert len(groups) == 1
     members = list(groups[0][1])
     assert len(members) == 8
@@ -197,7 +197,7 @@ def test_materialised_members_are_reproducible():
         return [_topology(m)
                 for _interval, members in
                 _inference(sites, names, L, n_ensemble=4,
-                           ensemble_seed=seed).to_tree_sequence()
+                           ensemble_seed=seed).tree_sequences()
                 for m in list(members)]
 
     a, b, c = topologies(3), topologies(3), topologies(4)
@@ -234,7 +234,7 @@ def test_chunked_ensemble_materialises_a_stretch_at_a_time():
     sites, names, L = _sites()
     inf = _inference(sites, names, L, n_ensemble=8, chunk_size="20kb",
                      sequence_length=None)
-    groups = [(iv, list(members)) for iv, members in inf.to_tree_sequence()]
+    groups = [(iv, list(members)) for iv, members in inf.tree_sequences()]
     assert len(groups) > 1, "expected more than one segment at 20kb chunks"
     for (lo, hi), members in groups:
         assert hi > lo

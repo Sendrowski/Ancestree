@@ -78,7 +78,7 @@ def test_the_other_haplotypes_of_an_outgroup_individual_are_dropped():
                             outgroup_samples=["o1_h0"], progress=False)
     assert "o1_h1" not in lt.sample_names
     smap = TskitLocalTree.default_sample_map(tskit.load(DEMO_TREES))
-    with pytest.raises(ValueError, match="in neither"):
+    with pytest.raises(ValueError, match="other haplotypes"):
         anc.Inference.from_arg(tskit.load(DEMO_TREES), mu=5e-8,
                                sample_map=smap, outgroup_samples=["o1_h0"])
 
@@ -119,9 +119,10 @@ def test_the_samples_used_are_recorded(mode):
     else:
         inf = anc.MajorityOutgroupInference([], for_comparison_only=True, **kw)
     params = inf.provenance()["parameters"]
-    assert params["ingroup_samples"] == list(inf._baseline_ingroup_samples())
+    ingroup = (["i0"] if mode in ("fixed_tree", "majority")
+               else ["i0_h0", "i0_h1"])
+    assert params["ingroup_samples"] == ingroup
     assert params["outgroup_samples"] == ["o1_h0"]
-    assert params["ingroup_samples"][0].startswith("i0")
 
 
 def test_reading_an_output_grades_as_the_run_does(tmp_path):

@@ -420,8 +420,8 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--ingroup", type=_split_csv,
         help=(
-            "Comma-separated ingroup sample ids. Needed with "
-            "--focal=ingroup-mrca; defaults to every sample not in --outgroups."
+            "Comma-separated ingroup sample ids. Defaults to every sample "
+            "whose individual is not in --outgroups."
         ),
     )
     p.add_argument(

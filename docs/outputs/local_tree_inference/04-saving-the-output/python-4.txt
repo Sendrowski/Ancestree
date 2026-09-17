@@ -1,0 +1,1 @@
+stretch [0, 50,000): wrote 64 draws

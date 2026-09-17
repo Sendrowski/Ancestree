@@ -10,7 +10,7 @@ import re
 from collections import Counter
 
 #: Trailing per-haplotype suffix a VCF reader appends.
-_HAP_SUFFIX = re.compile(r"_h\d+$")
+_HAP_SUFFIX = re.compile(r"_h(\d+)$")
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -240,6 +240,12 @@ def _individual_of(sample_id: str) -> str:
     return _HAP_SUFFIX.sub("", sample_id)
 
 
+def _haplotype_index(sample_id: str) -> int:
+    """The ``k`` of a trailing ``_h<k>`` suffix, or 0 for an id without one."""
+    match = _HAP_SUFFIX.search(sample_id)
+    return int(match.group(1)) if match else 0
+
+
 def _named(sample_id: str, names: "Collection[str]") -> bool:
     """Whether a haplotype id, or the individual it belongs to, is in ``names``.
 
@@ -256,24 +262,30 @@ def _by_individual(ids: "Iterable[str]") -> "frozenset[str]":
     return frozenset(ids) | {_individual_of(s) for s in ids}
 
 
+#: Why :func:`_unlabelled` drops a sample, when both lists are named and when
+#: only the outgroups are.
+_NEITHER = "are in neither ingroup_samples nor outgroup_samples"
+_SIBLING = "are other haplotypes of outgroup individuals"
+
+
 def _unlabelled(
     samples: "Iterable[str]", named: "Collection[str]", *,
-    chosen_by: "str | None" = None,
+    chosen_by: "str | None" = None, reason: str = _NEITHER,
 ) -> list[str]:
-    """The samples in neither the ingroup nor the outgroups.
+    """The samples ``named`` does not cover.
 
     :param samples: Sample ids, matched by id or by individual.
-    :param named: The ingroup and outgroup ids together.
+    :param named: The ids that label a sample.
     :param chosen_by: The argument that chose ``samples``, named in the error.
+    :param reason: Why such a sample is dropped, quoted in the error.
     :return: The unlabelled samples, in order.
     :raises ValueError: If ``chosen_by`` is given and a sample is unlabelled.
     """
     unlabelled = [s for s in samples if not _named(s, named)]
     if unlabelled and chosen_by is not None:
         raise ValueError(
-            f"{len(unlabelled)} sample(s) in {chosen_by} are in neither "
-            f"ingroup_samples nor outgroup_samples: {unlabelled[:5]}. "
-            f"Label them, or leave them out of {chosen_by}.")
+            f"{len(unlabelled)} sample(s) in {chosen_by} {reason}: "
+            f"{unlabelled[:5]}. Label them, or leave them out of {chosen_by}.")
     return unlabelled
 
 
@@ -330,7 +342,7 @@ def _resolve_panel(
         split = {_individual_of(s) for s in panel if _named(s, outs)}
         dropped = _unlabelled(
             (s for s in panel if _individual_of(s) in split), outs,
-            chosen_by=chosen_by)
+            chosen_by=chosen_by, reason=_SIBLING)
     gone = set(dropped)
     panel = [s for s in panel if s not in gone]
     if ins:
@@ -971,7 +983,8 @@ class BaseComposition:
 class SiteTable:
     """Columnar store of polymorphic sites, list-like over :class:`~ancestree.sites.Site`.
 
-    Holds positions, contig ids, tree handles, unphased individuals and a ``(n_sites, n_hap) int8``
+    Holds positions, contig ids, tree handles, an index into the distinct
+    unphased sets and a ``(n_sites, n_hap) int8``
     genotype matrix indexed through the global ``STATE_INDEX``.
 
     Supports ``len``, iteration, indexing, slicing and truthiness, rebuilding
@@ -981,10 +994,11 @@ class SiteTable:
     """
 
     __slots__ = ("sample_names", "pos", "genotypes", "alleles", "chrom_of",
-                 "_chrom_names", "handle", "unphased")
+                 "_chrom_names", "handle", "unphased_index",
+                 "_unphased_sets")
 
     def __init__(self, sample_names, pos, genotypes, alleles, chrom_of,
-                 chrom_names, handle, unphased):
+                 chrom_names, handle, unphased_index, unphased_sets):
         self.sample_names = tuple(sample_names)
         self.pos = pos
         self.genotypes = genotypes
@@ -992,7 +1006,8 @@ class SiteTable:
         self.chrom_of = chrom_of
         self._chrom_names = chrom_names
         self.handle = handle
-        self.unphased = unphased
+        self.unphased_index = unphased_index
+        self._unphased_sets = unphased_sets
 
     @classmethod
     def from_sites(cls, sites, sample_names=None):
@@ -1015,14 +1030,16 @@ class SiteTable:
             names = tuple(sample_names or ())
             return cls(names, np.empty(0, np.int64),
                        np.empty((0, len(names)), np.int8), [],
-                       np.empty(0, np.int32), [], np.empty(0, np.float64), [])
+                       np.empty(0, np.int32), [], np.empty(0, np.float64),
+                       np.empty(0, np.int32), [])
         names = tuple(sample_names) if sample_names is not None \
             else tuple(first.tip_alleles)
         n_hap = len(names)
         cap = 1024
         pos = np.empty(cap, np.int64)
         handle = np.full(cap, np.nan, np.float64)
-        unphased: list = []
+        unphased_index = np.empty(cap, np.int32)
+        distinct_unphased: dict = {}
         chrom_of = np.empty(cap, np.int32)
         g = np.full((cap, n_hap), -1, np.int8)
         alleles, chrom_names, chrom_id = [], [], {}
@@ -1032,6 +1049,7 @@ class SiteTable:
                 cap *= 2
                 pos = np.resize(pos, cap)
                 handle = np.resize(handle, cap)
+                unphased_index = np.resize(unphased_index, cap)
                 chrom_of = np.resize(chrom_of, cap)
                 grown = np.full((cap, n_hap), -1, np.int8)
                 grown[:n] = g[:n]
@@ -1045,7 +1063,8 @@ class SiteTable:
             pos[n] = int(site.pos)
             h = site.local_tree_handle
             handle[n] = np.nan if h is None else float(h)
-            unphased.append(site.unphased)
+            unphased_index[n] = distinct_unphased.setdefault(
+                site.unphased, len(distinct_unphased))
             alleles.append(tuple(
                 (a.upper() if a is not None else a) for a in site.alleles))
             ta = site.tip_alleles
@@ -1058,7 +1077,7 @@ class SiteTable:
             n += 1
         return cls(names, pos[:n].copy(), g[:n].copy(), alleles,
                    chrom_of[:n].copy(), chrom_names, handle[:n].copy(),
-                   unphased)
+                   unphased_index[:n].copy(), list(distinct_unphased))
 
     def __len__(self):
         return len(self.pos)
@@ -1077,14 +1096,14 @@ class SiteTable:
                     pos=int(self.pos[i]), alleles=self.alleles[i],
                     tip_alleles=tip,
                     local_tree_handle=None if h != h else float(h),
-                    unphased=self.unphased[i])
+                    unphased=self._unphased_sets[self.unphased_index[i]])
 
     def __getitem__(self, i):
         if isinstance(i, slice):
             return SiteTable(self.sample_names, self.pos[i], self.genotypes[i],
                              self.alleles[i], self.chrom_of[i],
                              self._chrom_names, self.handle[i],
-                             self.unphased[i])
+                             self.unphased_index[i], self._unphased_sets)
         if i < 0:
             i += len(self)
         return self._site(i)

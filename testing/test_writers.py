@@ -930,6 +930,16 @@ def test_an_explicit_partial_sample_map_names_the_columns(tmp_path):
     assert cyvcf2.VCF(out).samples == ING + OUT
 
 
+def test_a_relabelled_local_tree_run_refuses_to_annotate_its_input(tmp_path):
+    """The renamed sites would match no record of the input."""
+    from testing._helpers import DEMO_VCF
+
+    inference = LocalTreeInference(DEMO_VCF, mu=5e-8, rec_rate=1e-8,
+                                   chrom="chrX", progress=False)
+    with pytest.raises(ValueError, match="renames the sites"):
+        inference.to_vcf(str(tmp_path / "out.vcf"))
+
+
 class TestPrebuiltLocalTreeWritesTheInput:
     """A pre-built tree sequence is written as ARG mode writes it: a ``.trees``
     output annotates it, a VCF is written from the sites."""
@@ -1200,7 +1210,10 @@ class TestWritingFromTheSites:
         bio2zarr_vcf.convert([str(vcf)], store, show_progress=False)
         for sites in (list(CyVCF2Source(str(vcf))), list(VcfZarrSource(store))):
             assert [s.unphased for s in sites] == [frozenset({"b"})] * 2
-            assert list(SiteTable.from_sites(sites)[0:2]) == sites
+            assert sites[0].unphased is sites[1].unphased
+            table = SiteTable.from_sites(sites)
+            assert list(table[0:2]) == sites
+            assert len(table._unphased_sets) == 1
         written = str(tmp_path / "out.vcf")
         VCFWriter(None, written).write(
             _fake_posteriors(list(VcfZarrSource(store))))
@@ -1254,15 +1267,128 @@ class TestWritingFromTheSites:
         record = [line for line in open(out) if not line.startswith("#")]
         assert record[0].split("\t")[3] == "."
 
-    def test_the_arg_declares_its_contig_length(self, tmp_path):
+    @pytest.mark.parametrize("mode", ["arg", "prebuilt_local_tree"])
+    def test_a_tree_sequence_declares_its_contig_length(self, tmp_path, mode):
         import zarr
 
-        inference = TestRestrictSamples._inference()
+        inference = (TestRestrictSamples._inference() if mode == "arg"
+                     else TestPrebuiltLocalTreeWritesTheInput._inference())
         vcf, vcz = str(tmp_path / "out.vcf"), str(tmp_path / "out.vcz")
         inference.to_vcf(vcf)
         inference.to_zarr(vcz)
         assert "##contig=<ID=1,length=50000>" in open(vcf).read()
         assert zarr.open(vcz, mode="r")["contig_length"][:].tolist() == [50000]
+
+    @pytest.mark.parametrize("fmt", ["vcf", "vcz"])
+    def test_an_input_declares_its_contig_lengths(self, tmp_path, fmt):
+        """A store written from a VCF, or a VCF from a store, keeps the lengths
+        the input declares."""
+        import bio2zarr.vcf as bio2zarr_vcf
+        import zarr
+
+        ts = tskit.load(QUICKSTART_TREES)
+        vcf = str(tmp_path / "in.vcf")
+        with open(vcf, "w") as fh:
+            ts.write_vcf(fh, position_transform="legacy",
+                         individual_names=ING + ["i4", "i5"] + OUT + ["o1"])
+        source = vcf
+        if fmt == "vcz":
+            source = str(tmp_path / "in.vcz")
+            bio2zarr_vcf.convert([vcf], source, show_progress=False)
+        inference = anc.FixedTreeInference(
+            source, anc.JC69(), ingroup_samples=ING, outgroup_samples=OUT,
+            fit_required=False, progress=False)
+        if fmt == "vcf":
+            out = str(tmp_path / "out.vcz")
+            inference.to_zarr(out)
+            assert zarr.open(out, mode="r")["contig_length"][:].tolist() == [50000]
+        else:
+            out = str(tmp_path / "out.vcf")
+            inference.to_vcf(out)
+            assert "##contig=<ID=1,length=50000>" in open(out).read()
+
+    def test_the_store_fields_match_bio2zarr(self, tmp_path, monkeypatch):
+        """Over several chunks, the fixed fields and the region index equal
+        those bio2zarr writes for the VCF of the same sites."""
+        import bio2zarr.vcf as bio2zarr_vcf
+        import zarr
+
+        from ancestree.writers import ZarrWriter
+
+        monkeypatch.setattr(ZarrWriter, "_CHUNK", 7)
+        pairs = _fake_posteriors(self._sites()[:60])
+        vcf, ours = str(tmp_path / "w.vcf"), str(tmp_path / "w.vcz")
+        VCFWriter(None, vcf).write(pairs)
+        ZarrWriter(None, ours).write(pairs)
+        theirs = str(tmp_path / "b.vcz")
+        bio2zarr_vcf.convert([vcf], theirs, variants_chunk_size=7,
+                             show_progress=False)
+        a, b = zarr.open(ours, mode="r"), zarr.open(theirs, mode="r")
+        for name in ("region_index", "variant_filter", "filter_id",
+                     "variant_id", "variant_id_mask", "variant_length",
+                     "variant_position", "variant_contig", "contig_id"):
+            np.testing.assert_array_equal(a[name][:], b[name][:], err_msg=name)
+        assert a["variant_quality"][:].tobytes() == b["variant_quality"][:].tobytes()
+        assert a.attrs["vcf_zarr_version"] == b.attrs["vcf_zarr_version"]
+        fields = [line.split("\t") for line in open(vcf)
+                  if not line.startswith("#")]
+        assert {(f[2], f[5], f[6]) for f in fields} == {(".", ".", "PASS")}
+
+    def test_a_region_query_returns_its_sites(self, tmp_path, monkeypatch):
+        import subprocess
+        from dataclasses import replace
+
+        from ancestree.writers import ZarrWriter
+
+        monkeypatch.setattr(ZarrWriter, "_CHUNK", 7)
+        sites = [replace(s, chrom="chr1" if k < 40 else "chr2")
+                 for k, s in enumerate(self._sites()[:60])]
+        out = str(tmp_path / "w.vcz")
+        ZarrWriter(None, out).write(_fake_posteriors(sites))
+        lo, hi = sites[45].pos, sites[52].pos
+        result = subprocess.run(
+            ["vcztools", "view", "-H", "-r", f"chr2:{lo}-{hi}", out],
+            capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert [int(line.split("\t")[1])
+                for line in result.stdout.splitlines()] == [
+            s.pos for s in sites[45:53]]
+
+    def test_the_genotypes_are_appended_a_chunk_at_a_time(self, tmp_path,
+                                                          monkeypatch):
+        from ancestree.writers import ZarrWriter
+
+        monkeypatch.setattr(ZarrWriter, "_CHUNK", 7)
+        blocks = []
+        stack = np.stack
+
+        def spy(arrays, *args, **kwargs):
+            blocks.append(len(arrays))
+            return stack(arrays, *args, **kwargs)
+
+        monkeypatch.setattr(np, "stack", spy)
+        ZarrWriter(None, str(tmp_path / "w.vcz")).write(
+            _fake_posteriors(self._sites()[:30]))
+        assert blocks == [7, 7, 7, 7, 2]
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_a_lone_haplotype_keeps_its_slot(self, tmp_path, suffix):
+        """Naming only a_h1 wrote its alleles as a_h0."""
+        from ancestree.sources import CyVCF2Source, VcfZarrSource
+
+        site = Site(chrom="1", pos=3, alleles=("A", "G"),
+                    tip_alleles={"a_h1": "G", "b_h0": "A", "b_h1": "A"})
+        out = str(tmp_path / f"out{suffix}")
+        self._writer(suffix)(None, out).write(_fake_posteriors([site]))
+        source = (VcfZarrSource if suffix == ".vcz" else CyVCF2Source)(out)
+        assert next(iter(source)).tip_alleles == {
+            "a_h0": None, "a_h1": "G", "b_h0": "A", "b_h1": "A"}
+
+    def test_samples_matching_no_tip_are_refused(self, tmp_path):
+        site = Site(chrom="1", pos=3, alleles=("A",), tip_alleles={"a": "A"})
+        with pytest.raises(ValueError, match="none of the 1 tips"):
+            VCFWriter(None, str(tmp_path / "out.vcf"), samples={"zz"}).write(
+                _fake_posteriors([site]))
 
     def test_a_failed_vcf_write_removes_its_partial_file(self, tmp_path):
         """A header that cannot be written fails after the partial file

@@ -23,6 +23,22 @@ import numpy as np
 
 from ancestree import STATES
 from ancestree.sites import Site, SiteSource
+
+#: The ``Site.unphased`` of a site whose calls were all read phased.
+_ALL_PHASED: "frozenset[str]" = frozenset()
+
+
+def _interned(unphased: "set[str]", seen: "dict") -> "frozenset[str]":
+    """``unphased`` as a frozenset shared with every equal one in ``seen``.
+
+    :param unphased: The individuals read unphased at a site.
+    :param seen: The distinct sets built so far.
+    :return: The shared frozenset.
+    """
+    if not unphased:
+        return _ALL_PHASED
+    key = frozenset(unphased)
+    return seen.setdefault(key, key)
 from ancestree.writers import (
     ZARR_ALLELE_FIELD,
     ZARR_CONTIG_FIELD,
@@ -293,6 +309,29 @@ class CyVCF2Source(SiteSource):
         """Per-haplotype tip ids in ``sample_filter`` order, else file order."""
         return list(self._samples_list)
 
+    @staticmethod
+    def _contig_lengths(path: str) -> dict[str, int]:
+        """The length of each contig a VCF header declares with one.
+
+        :param path: VCF / BCF path.
+        :return: ``{contig: length}``.
+        """
+        import re
+
+        import cyvcf2
+
+        vcf = cyvcf2.VCF(path)
+        try:
+            header = vcf.raw_header
+        finally:
+            vcf.close()
+        lengths = {}
+        for fields in re.findall(r"^##contig=<(.*)>$", header, re.MULTILINE):
+            entry = dict(f.split("=", 1) for f in fields.split(",") if "=" in f)
+            if "ID" in entry and entry.get("length", "").isdigit():
+                lengths[entry["ID"]] = int(entry["length"])
+        return lengths
+
     def _open_vcf(self):
         """Open the VCF under the configured sample filter.
 
@@ -320,6 +359,7 @@ class CyVCF2Source(SiteSource):
         vcf = self._open_vcf()
         prev_key = None
         warned_split = False
+        seen_unphased: dict = {}
         try:
             for variant in vcf:
                 if self._chrom_filter is not None and variant.CHROM != self._chrom_filter:
@@ -373,7 +413,7 @@ class CyVCF2Source(SiteSource):
                     pos=int(variant.POS),
                     alleles=tuple(site_alleles),
                     tip_alleles=tip_alleles,
-                    unphased=frozenset(unphased),
+                    unphased=_interned(unphased, seen_unphased),
                 )
         finally:
             vcf.close()
@@ -530,6 +570,7 @@ class VcfZarrSource(SiteSource):
         sample_idx = self._sample_indices
         prev_pos_key = None
         warned_split = False
+        seen_unphased: dict = {}
         for start in range(0, self._n_variants, self._chunk_size):
             end = min(start + self._chunk_size, self._n_variants)
             pos_batch = pos_arr[start:end]
@@ -595,8 +636,23 @@ class VcfZarrSource(SiteSource):
                     pos=int(pos_batch[i]),
                     alleles=site_alleles,
                     tip_alleles=tip_alleles,
-                    unphased=frozenset(unphased),
+                    unphased=_interned(unphased, seen_unphased),
                 )
+
+    @staticmethod
+    def _contig_lengths(path: str) -> dict[str, int]:
+        """The length of each contig a store records one for.
+
+        :param path: Store path.
+        :return: ``{contig: length}``, empty without ``contig_length``.
+        """
+        import zarr
+
+        root = zarr.open(path, mode="r")
+        if "contig_length" not in root:
+            return {}
+        return {SiteSource._decode(c): int(n) for c, n in
+                zip(root["contig_id"][:], root["contig_length"][:])}
 
     def _open_root(self):
         """Open the VCZ root group."""

@@ -17,9 +17,9 @@ from testing._helpers import write_vcz
 
 import zarr
 
-# The hand-built VCZ fixtures use fixed-length string arrays (bio2zarr's
-# layout). Zarr v3 has no V3 spec for them yet and warns. The format mandates
-# the dtype, so the notice is not actionable, silence it for this module only
+# The hand-built VCZ fixtures use fixed-length string arrays, for which zarr v3
+# has no V3 spec yet and warns. The notice is not actionable, so silence it for
+# this module only
 # (the category resolves because zarr is imported above).
 pytestmark = pytest.mark.filterwarnings(
     "ignore::zarr.errors.UnstableSpecificationWarning"

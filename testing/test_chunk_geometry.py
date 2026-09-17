@@ -143,7 +143,7 @@ def test_a_gap_wider_than_the_halo_still_materialises():
         sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         sequence_length=None, window=WINDOW_BP, block_size=BLOCK_BP,
         chunk_size=50_000, halo=10_000, n_ensemble=None, progress=False)
-    groups = list(inference.to_tree_sequence())
+    groups = list(inference.tree_sequences())
     assert groups
     for (lo, hi), members in groups:
         assert hi >= lo
@@ -176,7 +176,7 @@ def test_multi_contig_tree_sequences_refuse_rather_than_collide():
         sequence_length=None, window=WINDOW_BP, block_size=BLOCK_BP,
         chunk_size=100_000, n_ensemble=None, progress=False)
     with pytest.raises(NotImplementedError, match="single contig"):
-        list(inference.to_tree_sequence())
+        list(inference.tree_sequences())
 
 
 def test_the_time_grid_reaches_below_one_difference_per_block():
@@ -229,7 +229,7 @@ def test_a_group_keeps_its_frame_when_consumed_out_of_order():
         sequence_length=float(SEQUENCE_LENGTH), window=WINDOW_BP,
         block_size=BLOCK_BP, chunk_size=50_000, n_ensemble=None,
         progress=False)
-    groups = list(inference.to_tree_sequence())
+    groups = list(inference.tree_sequences())
     assert len(groups) > 1
     for (lo, hi), members in groups:
         for member in members:

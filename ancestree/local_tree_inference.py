@@ -1388,7 +1388,8 @@ class LocalTreeInference(Inference):
         below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
         ``sample_names`` is needed and absent, if a named sample is absent
         from the panel or named in both lists, or if ``sample_names`` names a
-        sample in neither list while both are named.
+        sample in neither list while both are named, or another haplotype of an
+        outgroup individual while only outgroups are.
     """
 
     @staticmethod
@@ -2606,7 +2607,7 @@ class LocalTreeInference(Inference):
         pos = {name: i for i, name in enumerate(self.sample_names)}
         return [pos[name] for name in wanted]
 
-    def to_tree_sequence(
+    def tree_sequences(
         self,
     ) -> "Iterator[tuple[tuple[float, float], Iterator[tskit.TreeSequence]]]":
         """The inferred genealogies, one group per stretch of the genome.
@@ -2646,7 +2647,7 @@ class LocalTreeInference(Inference):
         for work_unit in self._stream_segments():
             seg, core_lo, core_hi, origin, span = work_unit
             seen_chrom = self._same_contig(
-                seen_chrom, seg[0].chrom, "to_tree_sequence()")
+                seen_chrom, seg[0].chrom, "tree_sequences()")
             builder = self._segment_builder(work_unit)
             if not self._ensemble_mode():
                 members = iter([builder.to_tree_sequence()])
@@ -2845,10 +2846,31 @@ class LocalTreeInference(Inference):
 
     def _contig_lengths(self) -> dict[str, int]:
         """The contig length of a pre-built tree sequence, as ARG mode reads
-        it. Genotypes carry none."""
+        it, or those the genotype input declares."""
         if self.builder is None and not self._segmented:
             return self._point_arg()._contig_lengths()
-        return {}
+        return super()._contig_lengths()
+
+    def _output_template(self, given, fmt, output, restrict_samples):
+        """As :meth:`Inference._output_template`, refusing a relabelled run.
+
+        :param given: The file passed for the output, or ``None``.
+        :param fmt: ``"vcf"`` or ``"vcz"``.
+        :param output: Destination path.
+        :param restrict_samples: Whether an annotated file keeps only the
+            samples the inference used.
+        :return: ``(template, samples)``.
+        :raises ValueError: If ``chrom`` is set and the output annotates a
+            file, whose records keep their own contig names.
+        """
+        template, samples = super()._output_template(
+            given, fmt, output, restrict_samples)
+        if template is not None and self.chrom is not None:
+            raise ValueError(
+                f"chrom={self.chrom!r} renames the sites, so they match no "
+                f"record of {template}, which {output} would annotate. Write "
+                f"an output of another format, or leave chrom unset.")
+        return template, samples
 
     def _source_tree_sequence(
         self, restrict_samples: bool = False,

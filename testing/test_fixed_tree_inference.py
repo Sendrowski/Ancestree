@@ -1681,7 +1681,7 @@ def test_a_list_source_is_written_from_the_sites(tmp_path):
         [site], JC69(), _no_counts(), tree=tree, fit_required=False,
     )
     assert inf.to_vcf(tmp_path / "out.vcf") == 1
-    assert cyvcf2.VCF(str(tmp_path / "out.vcf")).samples == ["o1", "o2"]
+    assert cyvcf2.VCF(str(tmp_path / "out.vcf")).samples == ["o1", "o2", "i0"]
 
 
 def _fit_with_both_pools_requested():

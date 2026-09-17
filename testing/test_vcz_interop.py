@@ -67,7 +67,7 @@ def _bio2zarr_store(tmp_path) -> str:
 def _ts_vcf(ts, tmp_path) -> str:
     """Write ``ts`` to a plain VCF (contig ``"1"``) and return its path.
 
-    No indexing: to_zarr's bio2zarr conversion and CyVCF2Source both read a plain VCF.
+    No indexing: CyVCF2Source reads a plain VCF.
     """
     vcf = tmp_path / "ts.vcf"
     with open(vcf, "w") as f:

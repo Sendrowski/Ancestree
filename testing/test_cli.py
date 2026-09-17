@@ -699,12 +699,8 @@ class TestLocalTreeE2E:
         return vcf, float(ts.sequence_length)
 
     def test_local_tree_annotates_a_non_default_contig(self, tmp_path):
-        """A source contig other than the ``--chrom`` default must still annotate.
-
-        The output VCF is templated from the input, so its contig names carry
-        over. Templating from an auto-written file labelled ``--chrom`` instead
-        would match no posterior and write every record unannotated.
-        """
+        """A VCF input is annotated, so a contig other than ``1`` keeps its
+        own label."""
         import cyvcf2
         ts = msprime.sim_ancestry(
             samples=6, ploidy=1, sequence_length=5e4,
@@ -714,7 +710,7 @@ class TestLocalTreeE2E:
         assert not (ts.num_sites == 0), "simulation produced zero sites"
         src = tmp_path / "chr7.vcf"
         with open(src, "w") as f:
-            ts.write_vcf(f, contig_id="chr7")  # deliberately not the --chrom default
+            ts.write_vcf(f, contig_id="chr7")
 
         out = tmp_path / "annotated.vcf"
         assert run([

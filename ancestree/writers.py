@@ -41,7 +41,8 @@ if TYPE_CHECKING:
 
 from ancestree.posterior import Posterior
 from ancestree import STATE_INDEX, STATES
-from ancestree.sites import Site, SiteSource, _individual_of, _named
+from ancestree.sites import (Site, SiteSource, _by_individual, _haplotype_index,
+                             _individual_of, _named)
 from ancestree._repr import ReprMixin
 
 
@@ -399,10 +400,9 @@ class Writer(ReprMixin, ABC):
     ) -> int:
         """Persist the per-site posteriors. Returns the number of records annotated.
 
-        :param posteriors: Iterable of ``(Site, Posterior)`` pairs.
-            Typically fully consumed before writing. Keep the input
-            stream and the posterior generator pointing at the same set
-            of sites.
+        :param posteriors: Iterable of ``(Site, Posterior)`` pairs, placed
+            into the template's records, or written one record per pair
+            without a template.
         :param store_posterior: Record the full per-state posterior alongside
             the MAP allele. ``False`` writes the allele and its probability only.
         :param info: Optional run-level metadata. Keys become
@@ -413,7 +413,7 @@ class Writer(ReprMixin, ABC):
             parameters) written once to the format's canonical provenance
             location (VCF header, tskit provenance table, or VCF Zarr root
             ``attrs``), not per record.
-        :return: Number of input records that received an annotation.
+        :return: Number of records annotated or written.
         """
 
 
@@ -451,8 +451,9 @@ class Writer(ReprMixin, ABC):
         self._min_confidence: float | None = (
             float(min_confidence) if min_confidence is not None else None
         )
+        self._sample_order = None if samples is None else tuple(samples)
         self._samples: "frozenset[str] | None" = (
-            frozenset(samples) if samples is not None else None)
+            None if samples is None else frozenset(self._sample_order))
 
     def _refuse_template_overwrite(self) -> None:
         """Refuse an output that resolves to the template.
@@ -482,18 +483,34 @@ class Writer(ReprMixin, ABC):
                 f"{names[:3]}")
         return kept
 
-    def _columns(self, site: Site) -> dict[str, list[str]]:
+    def _columns(self, site: Site) -> "list[tuple[str, list[str | None]]]":
         """The sample columns of an output written from the sites.
 
-        :param site: The first site written, whose tips name the columns.
-        :return: ``{individual: haplotypes}`` over the samples to write, each
-            individual's haplotypes in order.
+        A column holds the tips of the first site among the samples to write,
+        then the samples no such tip covers. Each haplotype takes the slot its
+        ``_h<k>`` suffix names, and a lower slot no haplotype takes is missing.
+
+        :param site: The first site written.
+        :return: ``(individual, slots)`` per column, the slots holding tip ids
+            or ``None``.
+        :raises ValueError: If samples are given and none is among the tips.
         """
-        columns: dict[str, list[str]] = {}
-        for name in site.tip_alleles:
-            if self._samples is None or _named(name, self._samples):
-                columns.setdefault(_individual_of(name), []).append(name)
-        return columns
+        tips = list(site.tip_alleles)
+        if self._sample_order is not None:
+            covered = _by_individual(tips)
+            kept = [t for t in tips if _named(t, self._samples)]
+            if tips and not kept:
+                raise ValueError(
+                    f"none of the {len(tips)} tips of the first site is among "
+                    f"the samples to write; the site holds {tips[:3]}")
+            tips = kept + [s for s in self._sample_order if s not in covered]
+        columns: "dict[str, list[str | None]]" = {}
+        for tip in tips:
+            slots = columns.setdefault(_individual_of(tip), [])
+            k = _haplotype_index(tip)
+            slots += [None] * (k + 1 - len(slots))
+            slots[k] = tip
+        return list(columns.items())
 
     @staticmethod
     def _record(site: Site) -> tuple[int, list[str], dict[str, int]]:
@@ -520,7 +537,8 @@ class Writer(ReprMixin, ABC):
         """Each haplotype's allele at ``site``, coded through ``index``.
 
         :param site: The site written.
-        :param haplotypes: Tip ids, in column order.
+        :param haplotypes: Tip ids in column order, ``None`` for a missing
+            slot.
         :param index: The code of each allele.
         :param missing: The code of a missing tip.
         :return: Iterator over the codes, in the order of ``haplotypes``.
@@ -540,7 +558,8 @@ class VCFWriter(Writer):
     written unannotated. Without an input VCF, each site is written as one
     ``PASS`` record carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
-    :attr:`Site.unphased <ancestree.sites.Site.unphased>`.
+    :attr:`Site.unphased <ancestree.sites.Site.unphased>`. A haploid call
+    among diploid ones is written as a diploid call missing its second allele.
 
     The output format follows the extension of ``output_vcf``,
     case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
@@ -651,9 +670,9 @@ class VCFWriter(Writer):
     ) -> int:
         """Write ``output_vcf`` with the ``AA`` annotations.
 
-        :param posteriors: Iterable of ``(Site, Posterior)`` pairs. Fully
-            consumed before writing. Keep the input VCF and the
-            posterior generator pointing at the same set of sites.
+        :param posteriors: Iterable of ``(Site, Posterior)`` pairs, placed
+            into the records of the input VCF, or written one record per pair
+            without one.
         :param store_posterior: When ``True`` (default), also emit the
             ``AA_post`` ``INFO`` field holding the whole per-state posterior.
         :param info: Optional run-level constants (e.g.
@@ -890,23 +909,23 @@ class VCFWriter(Writer):
         """
         import cyvcf2
 
-        columns: list[tuple[str, list[str]]] | None = None
+        columns: "list[tuple[str, list[str | None]]] | None" = None
         contigs: dict[str, None] = {}
         calls: list[tuple[str, float, "list[float] | None"]] = []
 
         def separators(unphased) -> list[str]:
-            """What follows each haplotype's code on a record's GT columns."""
+            """What follows each slot's code on a record's GT columns."""
             seps: list[str] = []
-            for individual, haps in columns or ():
+            for individual, slots in columns or ():
                 inner = "/" if individual in unphased else "|"
-                seps += [inner] * (len(haps) - 1) + ["\t"]
+                seps += [inner] * (len(slots) - 1) + ["\t"]
             return seps[:-1] + [""]
 
         with tempfile.TemporaryFile("w+") as body:
             for site, posterior in posteriors:
                 if columns is None:
-                    columns = list(self._columns(site).items())
-                    haplotypes = [h for _, haps in columns for h in haps]
+                    columns = self._columns(site)
+                    haplotypes = [h for _, slots in columns for h in slots]
                     phased = separators(frozenset())
                 pos, alleles, index = self._record(site)
                 codes = self._allele_codes(
@@ -1274,7 +1293,9 @@ class ZarrWriter(Writer):
     ``PASS`` variant carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`, together with the
-    fixed fields and the ``region_index`` ``bio2zarr`` writes. Variant-indexed
+    fixed fields and the ``region_index`` ``bio2zarr`` writes. A haploid call
+    among diploid ones is written as a diploid call missing its second allele.
+    Variant-indexed
     arrays are added at the root:
     ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
     ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and
@@ -1341,8 +1362,8 @@ class ZarrWriter(Writer):
     @staticmethod
     @contextlib.contextmanager
     def _string_dtypes_allowed():
-        """Silence zarr v3's warning on the fixed-length string dtypes VCZ
-        mandates."""
+        """Silence zarr v3's warning on fixed-length string arrays such as
+        ``variant_AA``."""
         import warnings
 
         with warnings.catch_warnings():
@@ -1711,7 +1732,7 @@ class ZarrWriter(Writer):
         """
         import numpy as np
 
-        columns: list[tuple[str, list[str]]] | None = None
+        columns: "list[tuple[str, list[str | None]]] | None" = None
         ploidy = 1
         contig_index: dict[str, int] = {}
         pos: list[int] = []
@@ -1751,16 +1772,16 @@ class ZarrWriter(Writer):
 
         for site, posterior in posteriors:
             if columns is None:
-                columns = list(self._columns(site).items())
-                ploidy = max((len(h) for _, h in columns), default=1)
-                haplotypes = [h for _, haps in columns for h in haps]
-                slots = np.asarray([j * ploidy + k
-                                    for j, (_, haps) in enumerate(columns)
-                                    for k in range(len(haps))], dtype=np.intp)
+                columns = self._columns(site)
+                ploidy = max((len(s) for _, s in columns), default=1)
+                haplotypes = [h for _, slots in columns for h in slots]
+                cells = np.asarray([j * ploidy + k
+                                    for j, (_, slots) in enumerate(columns)
+                                    for k in range(len(slots))], dtype=np.intp)
                 all_phased = [True] * len(columns)
             site_pos, record_alleles, index = self._record(site)
             row = np.full(len(columns) * ploidy, -2, dtype=np.int8)
-            row[slots] = np.fromiter(
+            row[cells] = np.fromiter(
                 self._allele_codes(site, haplotypes, index, -1),
                 dtype=np.int8, count=len(haplotypes))
             genotypes.append(row.reshape(len(columns), ploidy))

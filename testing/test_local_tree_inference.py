@@ -697,11 +697,11 @@ def test_baseline_check_compares_against_the_named_outgroups(caplog):
     assert any("agree" in r.getMessage().lower() for r in caplog.records)
 
 
-def test_to_tree_sequence_yields_the_plug_in_tree_once_without_an_ensemble():
+def test_tree_sequences_yields_the_plug_in_tree_once_without_an_ensemble():
     """Without an ensemble the single group holds the plug-in tree sequence."""
     sites, names = toy_sites(range(0, 1000, 20))
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
-    groups = list(inf.to_tree_sequence())
+    groups = list(inf.tree_sequences())
     assert len(groups) == 1
     (interval, members), = groups
     assert interval == (0.0, 1000.0)
@@ -1129,7 +1129,7 @@ def _stitch_inputs(seed=12, samples=8, length=60_000):
     return sites, names
 
 
-def test_chunked_to_tree_sequence_is_valid():
+def test_chunked_point_tree_sequence_is_valid():
     """The chunked path stitches a single, valid genome-wide tree sequence:
     one shared sample set (names preserved), tiling edges, baked sites."""
     sites, names = _stitch_inputs()
@@ -2323,14 +2323,14 @@ class TestStreamingAlongTheGenome:
         """All draws arrive together, a stretch at a time."""
         for chunk_size, expected_groups in ((None, 1), ("10mb", 1), ("250kb", 4)):
             groups = [(iv, list(m)) for iv, m in self._inference(
-                chunk_size, n_ensemble=8).to_tree_sequence()]
+                chunk_size, n_ensemble=8).tree_sequences()]
             assert len(groups) == expected_groups, chunk_size
             assert {len(members) for _, members in groups} == {8}, chunk_size
 
     def test_the_ensemble_stream_tiles_the_region(self):
         """The stretches cover the input once, in order, without overlap."""
         groups = list(self._inference(
-            "250kb", n_ensemble=4).to_tree_sequence())
+            "250kb", n_ensemble=4).tree_sequences())
         bounds = [interval for interval, _ in groups]
         assert bounds == sorted(bounds)
         for (_, prev_hi), (next_lo, _) in zip(bounds, bounds[1:]):
@@ -2346,7 +2346,7 @@ class TestStreamingAlongTheGenome:
         segment covered too, so a caller unioning them would double-count.
         """
         groups = [(iv, list(m)) for iv, m in self._inference(
-            "250kb", n_ensemble=2).to_tree_sequence()]
+            "250kb", n_ensemble=2).tree_sequences()]
         assert len(groups) > 1
         for (lo, hi), members in groups:
             for member in members:
@@ -2358,7 +2358,7 @@ class TestStreamingAlongTheGenome:
     def test_plug_in_mode_streams_a_single_genealogy_per_stretch(self):
         """Without an ensemble each stretch carries one tree sequence."""
         groups = [(iv, list(m)) for iv, m in self._inference(
-            "250kb", n_ensemble=None).to_tree_sequence()]
+            "250kb", n_ensemble=None).tree_sequences()]
         assert {len(members) for _, members in groups} == {1}
 
 

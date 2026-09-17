@@ -20,7 +20,7 @@ import math
 import os
 from abc import ABC, abstractmethod
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -34,8 +34,8 @@ from tqdm import tqdm  # not tqdm.auto: avoids ipywidgets dep and per-line outpu
 from ancestree import DEFAULT_MU, STATE_INDEX, STATES
 from ancestree._repr import ReprMixin
 from ancestree.sites import (
-    _by_individual, _individual_of, _named, _path_format, _refuse_overlap,
-    _resolve_panel, _unlabelled,
+    _NEITHER, _SIBLING, _by_individual, _individual_of, _named, _path_format,
+    _refuse_overlap, _resolve_panel, _unlabelled,
 )
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
@@ -888,9 +888,8 @@ class Inference(ReprMixin, ABC):
             panel, self._ingroup_samples, self._outgroup_samples,
             chosen_by="the panel" if explicit else None)
         if dropped:
-            self._log.info(
-                "Ignoring %d sample(s) in neither ingroup_samples nor "
-                "outgroup_samples", len(dropped))
+            self._log.info("Ignoring %d sample(s) that %s", len(dropped),
+                           _NEITHER if self._ingroup_samples else _SIBLING)
         self._resolved_ingroup: tuple[str, ...] = tuple(ingroup)
         self._resolved_outgroups: tuple[str, ...] = tuple(outgroups)
         return tuple(panel)
@@ -1278,17 +1277,23 @@ class Inference(ReprMixin, ABC):
                 params.update(self._focal_totals)
 
     def _contig_lengths(self) -> dict[str, int]:
-        """The length of each contig the sites lie on, where the mode knows it.
+        """The length of each contig a local input declares.
 
-        :return: ``{contig: length}``, empty for a mode reading no genome
-            length.
+        :return: ``{contig: length}``, empty for an input declaring none.
         """
+        from ancestree.sources import CyVCF2Source, VcfZarrSource
+
+        if (self._input_vcf_path is not None
+                and os.path.isfile(self._input_vcf_path)):
+            return CyVCF2Source._contig_lengths(self._input_vcf_path)
+        if self._input_store_path is not None:
+            return VcfZarrSource._contig_lengths(self._input_store_path)
         return {}
 
     def _output_template(
         self, given: "str | os.PathLike | None", fmt: str,
         output: "str | os.PathLike", restrict_samples: bool,
-    ) -> "tuple[str | None, frozenset[str] | None]":
+    ) -> "tuple[str | None, Collection[str] | None]":
         """The file an output annotates, and the samples it keeps.
 
         An output annotates the file passed for it, or else the input when the
@@ -1313,7 +1318,7 @@ class Inference(ReprMixin, ABC):
                 "No %s input to annotate, so %s is written from the sites with "
                 "the samples the inference used",
                 "VCF" if fmt == "vcf" else "local VCF Zarr store", output)
-            return None, frozenset(self._panel_samples()) or None
+            return None, self._panel_samples() or None
         return template, self._used_samples() if restrict_samples else None
 
     def to_zarr(
@@ -1364,8 +1369,8 @@ class Inference(ReprMixin, ABC):
         template, samples = self._output_template(
             input_zarr, "vcz", output_zarr, restrict_samples)
         return ZarrWriter(
-            template, output_zarr, min_confidence=min_confidence,
-            samples=samples, contig_lengths=self._contig_lengths(),
+            template, output_zarr, min_confidence=min_confidence, samples=samples,
+            contig_lengths=None if template else self._contig_lengths(),
         ).write(
             self._completing(self._posteriors_for_writing(posteriors),
                              provenance, supplied),
@@ -1420,8 +1425,8 @@ class Inference(ReprMixin, ABC):
         template, samples = self._output_template(
             input_vcf, "vcf", output_vcf, restrict_samples)
         return VCFWriter(
-            template, output_vcf, min_confidence=min_confidence,
-            samples=samples, contig_lengths=self._contig_lengths(),
+            template, output_vcf, min_confidence=min_confidence, samples=samples,
+            contig_lengths=None if template else self._contig_lengths(),
         ).write(
             self._completing(self._posteriors_for_writing(posteriors),
                              provenance, supplied),
@@ -1638,7 +1643,8 @@ class ARGBasedInference(Inference):
         passed as ``prior``, which this mode does not fit.
     :raises ValueError: If a named ingroup or outgroup sample is absent from
         the panel or named in both lists, or if ``sample_map`` names a sample
-        in neither list while both are named.
+        in neither list while both are named, or another haplotype of an
+        outgroup individual while only outgroups are.
     """
 
     @property
@@ -1747,7 +1753,6 @@ class ARGBasedInference(Inference):
         # Scoring runs on the tree sequence restricted to the panel. The
         # supplied one is kept for output that holds every sample.
         self._input_ts = ts
-        self._input_sample_map = dict(sample_map)
         self._panel_map = {s: int(sample_map[s]) for s in panel}
         self.ts, sample_map = TskitLocalTree.restrict(ts, self._panel_map)
         self.sample_map: dict[str, int] = sample_map

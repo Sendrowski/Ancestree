@@ -254,7 +254,7 @@ def _ensemble_recovery(inf, window_snps: int) -> dict:
         count, prefixed so they sit beside the point-tree columns.
     """
     per_member: list[dict] = []
-    for _interval, members in inf.to_tree_sequence():
+    for _interval, members in inf.tree_sequences():
         per_member.extend(_metrics_vs_truth(member) for member in members)
     if not per_member:
         return {"ens_members": 0}
