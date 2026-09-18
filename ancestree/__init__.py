@@ -124,6 +124,7 @@ from ancestree.local_tree_inference import (
     PairwiseCoalescentHMM,
     PairwiseTmrcas,
 )
+from ancestree.plotting import FocalSweep, FocalTreePlot
 from ancestree.readers import Annotation, Annotations, Provenance, Reader
 from ancestree.writers import TskitWriter, VCFWriter, Writer, ZarrWriter
 
@@ -157,6 +158,8 @@ __all__ = [
     "FocalNode",
     "ResolvedFocal",
     "Grade",
+    "FocalTreePlot",
+    "FocalSweep",
     "IngroupWeight",
     "StationaryPrior",
     "KingmanIngroupWeight",

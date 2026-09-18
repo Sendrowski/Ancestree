@@ -113,7 +113,9 @@ html_theme_options = {
     # second search field to the header. Clear it explicitly.
     'navbar_persistent': [],
     "search_bar_text": "Search…",
-    "use_repository_button": False,
+    "repository_url": "https://github.com/Sendrowski/Ancestree",
+    "repository_branch": "main",
+    "use_repository_button": True,
     "use_edit_page_button": False,
     "use_issues_button": False,
     "use_download_button": False,

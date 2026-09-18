@@ -1,0 +1,8 @@
+INFO:ancestree.ARGBasedInference: Inferring the ancestral allele at 224 sites over 29 local trees from the ARG
+ARGBasedInference: 100%|██████████| 29/29 [--:--<--:--, -- trees/s]
+INFO:ancestree.VCFWriter: Wrote 106 annotated sites to annotated.divergence.vcf.gz
+INFO:ancestree.ARGBasedInference: Inferring the ancestral allele at 224 sites over 29 local trees from the ARG
+ARGBasedInference: 100%|██████████| 29/29 [--:--<--:--, -- trees/s]
+WARNING:ancestree.ARGBasedInference: 106 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup's own allele is the answer.
+INFO:ancestree.ARGBasedInference: Focal node: reported at the ingroup_mrca; 4 tree(s) where the ingroup is not monophyletic, so its MRCA subtends outgroup tips
+INFO:ancestree.VCFWriter: Wrote 118 annotated sites to annotated.polymorphism.vcf.gz

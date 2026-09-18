@@ -1,0 +1,2 @@
+106 ingroup-fixed sites, read at the panel root
+118 ingroup-polymorphic sites, read at the ingroup MRCA
