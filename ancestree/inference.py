@@ -2522,8 +2522,8 @@ class FixedTreeInference(Inference):
         parameters after the tree-rate MLE.
     :param prior: Optional root :class:`~ancestree.priors.StationaryPrior`.
         An :class:`~ancestree.priors.IngroupWeight` here raises
-        :class:`TypeError`. ``None`` (default) applies the π of a composition
-        carrying per-base counts, and is uniform otherwise.
+        :class:`TypeError`. ``None`` (default) applies the π of
+        ``base_composition``, uniform when none is supplied.
     :param outgroup_similarity_threshold: Warn when an outgroup pair differs
         at fewer than this fraction of jointly-observed polymorphic sites,
         since the fit then collapses their branch rates. Default ``0.01``.
@@ -2717,8 +2717,6 @@ class FixedTreeInference(Inference):
             n_poly_projected if n_poly_projected is not None
             else len(self.sites or [])
         )
-        # Read before the region fill: the prior follows caller-supplied counts.
-        supplied_counts = actual_bc.n_total > 0
         if actual_bc.n_total == 0 and n_target_sites is not None:
             arr = BaseComposition._largest_remainder(
                 actual_bc.pi, int(n_target_sites),
@@ -2867,8 +2865,7 @@ class FixedTreeInference(Inference):
             )
         self.prior = (
             prior if prior is not None
-            else StationaryPrior(
-                model, self.base_composition if supplied_counts else None)
+            else StationaryPrior(model, self.base_composition)
         )
 
         # ---- model-internal free params (e.g. K2/HKY's kappa, GTR's rates)

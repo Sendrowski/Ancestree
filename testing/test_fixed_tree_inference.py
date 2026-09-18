@@ -178,6 +178,10 @@ class TestFitRecovery2Outgroups:
 # ---------------------------------------------------------- HKY fit recovery
 
 
+#: Branch to each simulated ingroup tip, in expected substitutions per site.
+INGROUP_BRANCH_LENGTH = 0.01
+
+
 class TestFitRecoveryHKY3Outgroups:
     """3-outgroup HKY fit: every branch rate ``K_1..K_4`` AND the
     transition/transversion ratio ``kappa`` should recover from a
@@ -200,15 +204,21 @@ class TestFitRecoveryHKY3Outgroups:
         n_sites: int,
         seed: int,
     ):
-        ingroup = ["i0", "i1"]
+        ingroup = ["i0", "i1", "i2", "i3", "i4", "i5"]
         outgroup = ["o1", "o2", "o3"]
         truth_model = HKY(kappa=true_kappa)
 
         tree = OutgroupLadderTree(ingroup, outgroup)
         # Set ladder with K_0 = 0 then K_1..K_4 from the test's true_K.
         tree.set_params(np.array([0.0] + list(true_K)))
+        # The ingroup is observed. A root prior equal to the model's own
+        # stationary satisfies detailed balance, under which the outgroup
+        # patterns determine only the unrooted tree and every I -> O_k
+        # divergence is free. The ingroup weight's frequency information is
+        # what places the ingroup MRCA on the ladder.
         sites = simulate_tree_sites(
             tree, truth_model, n_sites, pi=pi, seed=seed,
+            ingroup_branch_length=INGROUP_BRANCH_LENGTH,
         )
         # Reset branch rates so the MLE starts from a neutral seed.
         tree.set_params(np.full(tree.n_params, 0.05))
@@ -2068,3 +2078,83 @@ def _post_a():
 
     return Posterior(alleles=("A", "C", "G", "T"),
                      values=np.array([0.7, 0.1, 0.1, 0.1]))
+
+
+class TestTheRootPriorFollowsTheComposition:
+    """The composition's π reaches the root prior whether or not the
+    composition carries per-base counts, as in the genealogy modes. Gating it
+    on counts made ``--prior composition`` identical to ``--prior uniform``
+    for every command-line run, since ``--empirical-composition`` tallies π
+    over variant sites and supplies no counts."""
+
+    @staticmethod
+    def _pi_of_root_prior(bc, **kwargs):
+        inf = FixedTreeInference(
+            _ladder_sites(4), JC69(), bc,
+            tree=OutgroupLadderTree(["i1"], ["o1", "o2"]),
+            progress=False, baseline_check=False, fit_required=False,
+            **kwargs)
+        return np.exp(inf.prior.log_probs(_ladder_sites(1))[0])
+
+    def test_a_composition_without_counts_still_sets_the_prior(self):
+        """The tally --empirical-composition produces: a π over variant sites
+        with no per-base counts behind it."""
+        ascertained = BaseComposition.from_polymorphic_sites(_ladder_sites(4))
+        assert ascertained.n_total == 0
+        assert not np.allclose(ascertained.pi, 0.25), (
+            "the fixture's π is uniform, so the assertion cannot discriminate")
+        np.testing.assert_allclose(
+            self._pi_of_root_prior(ascertained, n_target_sites=1_000),
+            ascertained.pi, rtol=1e-12)
+
+    def test_a_composition_with_counts_sets_the_prior(self):
+        skewed = BaseComposition(counts={"A": 40, "C": 10, "G": 10, "T": 40})
+        np.testing.assert_allclose(self._pi_of_root_prior(skewed), skewed.pi,
+                                   rtol=1e-12)
+
+    def test_no_composition_leaves_the_prior_uniform(self):
+        np.testing.assert_allclose(self._pi_of_root_prior(_no_counts()),
+                                   np.full(4, 0.25), rtol=1e-12)
+
+
+class TestAnOutgroupOnlyFitNeedsANonStationaryRootPrior:
+    """Where no ingroup allele is observed, a root prior equal to the model's
+    own stationary satisfies detailed balance, so the outgroup patterns
+    determine the unrooted tree alone and every ingroup-MRCA divergence is
+    free. The ingroup weight is what places the ingroup MRCA on the ladder,
+    and it carries no information without ingroup data.
+    """
+
+    TRUE_K = (0.04, 0.03, 0.05, 0.05)
+    PI = (0.30, 0.20, 0.20, 0.30)
+
+    def _weight_rows_varying(self, *, ingroup_branch):
+        """How many fit configurations the ingroup weight distinguishes."""
+        ingroup = [f"i{i}" for i in range(6)]
+        tree = OutgroupLadderTree(ingroup, ["o1", "o2", "o3"])
+        tree.set_params(np.array([0.0, *self.TRUE_K]))
+        sites = simulate_tree_sites(tree, HKY(kappa=4.0), 400, pi=self.PI,
+                                    seed=3, ingroup_branch_length=ingroup_branch)
+        tree = OutgroupLadderTree(ingroup, ["o1", "o2", "o3"])
+        tree.set_params(np.full(tree.n_params, 0.05))
+        inf = FixedTreeInference(
+            sites, HKY(kappa=2.0), base_composition=_no_counts(), tree=tree,
+            n_target_sites=400, progress=False, baseline_check=False,
+            fit_required=False)
+        rows = np.asarray(inf._fit_log_prior)
+        varying = int((rows.max(axis=1) - rows.min(axis=1) > 1e-12).sum())
+        return varying, len(rows)
+
+    def test_without_ingroup_data_the_weight_cannot_place_the_mrca(self):
+        varying, total = self._weight_rows_varying(ingroup_branch=None)
+        assert total > 0
+        assert varying == 0, (
+            f"{varying} of {total} configurations vary with the root state "
+            f"although no ingroup allele was observed")
+
+    def test_an_observed_ingroup_distinguishes_the_root_states(self):
+        varying, total = self._weight_rows_varying(
+            ingroup_branch=INGROUP_BRANCH_LENGTH)
+        assert varying == total > 0, (
+            f"only {varying} of {total} configurations vary with the root "
+            f"state, so the weight cannot place the ingroup MRCA")

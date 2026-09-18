@@ -225,8 +225,8 @@ def _build_prior(name: str, *, model):
     """Instantiate the prior on the state at the reporting node.
 
     :param name: ``composition`` defers to the base composition the inference
-        carries, uniform when it has none. ``uniform`` is a flat prior over
-        the alphabet.
+        carries, whose π is uniform when none was supplied. ``uniform`` is a
+        flat prior over the alphabet.
     :param model: Substitution model, for the alphabet size.
     :return: A :class:`~ancestree.priors.StationaryPrior`, or ``None`` to let
         the inference use its own base composition.
@@ -366,9 +366,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     genealogy_parent.add_argument(
         "--prior", default="composition", choices=["composition", "uniform"],
-        help="Prior on the state at the reporting node: the model's "
-             "stationary distribution, uniform without a base composition, or "
-             "uniform. Default: composition.",
+        help="Prior on the state at the reporting node: the base composition, "
+             "uniform without one, or uniform. Default: composition.",
     )
     genealogy_parent.add_argument(
         "--out", required=True,
@@ -583,8 +582,7 @@ def _add_fixed_tree_parser(
     p.add_argument(
         "--prior", default="composition", choices=["composition", "uniform"],
         help="Prior on the state at the reporting node: the base composition, "
-             "uniform without per-base counts, which --empirical-composition "
-             "does not supply, or uniform. Default: composition.",
+             "uniform without one, or uniform. Default: composition.",
     )
     p.add_argument(
         "--n-starts", type=int, metavar="N",
