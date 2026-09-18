@@ -933,8 +933,6 @@ class OutgroupLadderTree(Tree):
             or if any outgroup has no jointly-observed sites with the
             ingroup.
         """
-        from collections import Counter
-
         majority_per_site: list[str | None] = []
         any_ingroup_seen = False
         for site in sites:

@@ -247,12 +247,6 @@ def _individual_of(sample_id: str) -> str:
     return _HAP_SUFFIX.sub("", sample_id)
 
 
-def _haplotype_index(sample_id: str) -> int:
-    """The ``k`` of a trailing ``_h<k>`` suffix, or 0 for an id without one."""
-    match = _HAP_SUFFIX.search(sample_id)
-    return int(match.group(1)) if match else 0
-
-
 def _named(sample_id: str, names: "Collection[str]") -> bool:
     """Whether a haplotype id, or the individual it belongs to, is in ``names``.
 
@@ -1206,8 +1200,12 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         :param sample_filter: Forwarded to the VCF / VCZ source.
         :param chrom_filter: Forwarded to the VCF / VCZ source.
         :param ploidy: Forwarded to :class:`~ancestree.sources.CyVCF2Source`.
+        :param phased: Forwarded to the VCF / VCZ source.
+        :param phase_seed: Forwarded to the VCF / VCZ source.
         :return: A re-iterable site source.
         :raises TypeError: If ``source``'s type is not recognised.
+        :raises ValueError: If a reader argument is given for a tree sequence
+            or a pre-built source, which carry their own panel and contigs.
         """
         if isinstance(source, (SiteSource, list)):
             cls._refuse_unsupported_filters(

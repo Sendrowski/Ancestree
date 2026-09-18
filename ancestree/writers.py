@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 from ancestree.posterior import Posterior
 from ancestree import STATE_INDEX, STATES
-from ancestree.sites import (Site, SiteSource, _by_individual, _haplotype_index,
+from ancestree.sites import (Site, SiteSource, _by_individual,
                              _individual_of, _named)
 from ancestree._repr import ReprMixin
 
@@ -490,8 +490,9 @@ class Writer(ReprMixin, ABC):
         """The sample columns of an output written from the sites.
 
         A column holds the tips of the first site among the samples to write,
-        then the samples no such tip covers. Each haplotype takes the slot its
-        ``_h<k>`` suffix names, and a lower slot no haplotype takes is missing.
+        then the samples no such tip covers. An individual's haplotypes fill
+        its slots in the order the panel names them, so the column is as wide
+        as the individual has haplotypes.
 
         :param site: The first site written.
         :return: ``(individual, slots)`` per column, the slots holding tip ids
@@ -509,10 +510,7 @@ class Writer(ReprMixin, ABC):
             tips = kept + [s for s in self._sample_order if s not in covered]
         columns: "dict[str, list[str | None]]" = {}
         for tip in tips:
-            slots = columns.setdefault(_individual_of(tip), [])
-            k = _haplotype_index(tip)
-            slots += [None] * (k + 1 - len(slots))
-            slots[k] = tip
+            columns.setdefault(_individual_of(tip), []).append(tip)
         return list(columns.items())
 
     def _empty_columns(self) -> "list[tuple[str, list[str | None]]]":
@@ -568,10 +566,11 @@ class VCFWriter(Writer):
     written unannotated. Without an input VCF, each site is written as one
     ``PASS`` record carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
-    :attr:`Site.unphased <ancestree.sites.Site.unphased>`. Each haplotype
-    fills the slot its ``_h<k>`` suffix names and an unfilled slot is written
-    missing, so a lone ``S_h1`` gives ``.|1``. A tip carrying no suffix is a
-    haploid call, written as ``1``.
+    :attr:`Site.unphased <ancestree.sites.Site.unphased>`. An individual's
+    haplotypes fill its call in the order the panel names them and are
+    renumbered from ``_h0``, as
+    :meth:`TskitLocalTree.sample_map_from_individuals() <ancestree.trees.TskitLocalTree.sample_map_from_individuals>`
+    numbers them, so a sample carrying one haplotype is a haploid call.
 
     The output format follows the extension of ``output_vcf``,
     case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
@@ -1305,10 +1304,10 @@ class ZarrWriter(Writer):
     ``PASS`` variant carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`, together with the
-    fixed fields and the ``region_index`` ``bio2zarr`` writes. Each haplotype
-    fills the slot its ``_h<k>`` suffix names, an unfilled slot is written
-    missing, and a tip carrying no suffix is a haploid call, padded to the
-    row width with the ``-2`` fill.
+    fixed fields and the ``region_index`` ``bio2zarr`` writes. An individual's
+    haplotypes fill its call in the order the panel names them and are
+    renumbered from ``_h0``, a call narrower than the row being padded with
+    the ``-2`` fill.
     Variant-indexed arrays are added at the root:
     ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
     ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and

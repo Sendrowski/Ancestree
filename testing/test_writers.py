@@ -1449,17 +1449,38 @@ class TestWritingFromTheSites:
         assert blocks == [7, 7, 7, 7, 2]
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
-    def test_a_lone_haplotype_keeps_its_slot(self, tmp_path, suffix):
-        """Naming only a_h1 wrote its alleles as a_h0."""
+    def test_a_panel_numbered_from_one_invents_no_haplotype(self, tmp_path,
+                                                            suffix):
+        """An individual's haplotypes fill its slots in panel order and are
+        renumbered from ``_h0``, as
+        :meth:`TskitLocalTree.sample_map_from_individuals` numbers them.
+        Reading the suffix as the slot instead left slot 0 of a 1-based panel
+        unfilled, so every individual gained a missing haplotype, and a lone
+        ``B_h7`` widened the row to eight slots, seven of them invented."""
         from ancestree.sources import CyVCF2Source, VcfZarrSource
 
         site = Site(chrom="1", pos=3, alleles=("A", "G"),
-                    tip_alleles={"a_h1": "G", "b_h0": "A", "b_h1": "A"})
+                    tip_alleles={"A_h1": "A", "A_h2": "G",
+                                 "B_h1": "A", "B_h2": "A"})
         out = str(tmp_path / f"out{suffix}")
         self._writer(suffix)(None, out).write(_fake_posteriors([site]))
         source = (VcfZarrSource if suffix == ".vcz" else CyVCF2Source)(out)
         assert next(iter(source)).tip_alleles == {
-            "a_h0": None, "a_h1": "G", "b_h0": "A", "b_h1": "A"}
+            "A_h0": "A", "A_h1": "G", "B_h0": "A", "B_h1": "A"}
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_a_sparse_suffix_does_not_widen_the_row(self, tmp_path, suffix):
+        """One haplotype per individual is a haploid call, whatever it is
+        named. Reading the suffix as the slot made ``B_h7`` an eight-slot
+        call and every other sample eight haplotypes wide."""
+        from ancestree.sources import CyVCF2Source, VcfZarrSource
+
+        site = Site(chrom="1", pos=3, alleles=("A", "G"),
+                    tip_alleles={"B_h7": "G", "C_h0": "A"})
+        out = str(tmp_path / f"out{suffix}")
+        self._writer(suffix)(None, out).write(_fake_posteriors([site]))
+        source = (VcfZarrSource if suffix == ".vcz" else CyVCF2Source)(out)
+        assert next(iter(source)).tip_alleles == {"B": "G", "C": "A"}
 
     def test_samples_matching_no_tip_are_refused(self, tmp_path):
         site = Site(chrom="1", pos=3, alleles=("A",), tip_alleles={"a": "A"})

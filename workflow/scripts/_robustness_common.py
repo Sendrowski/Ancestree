@@ -197,12 +197,11 @@ class _ScenarioSiteSource(SiteSource):
     Re-iterable by contract: each ``__iter__`` re-walks ``ts.variants()`` and
     (for the unphased path) re-seeds the switch-error RNG and phase state, so
     the two streaming passes (fit then infer, or per-chunk builds) observe
-    byte-identical sites — matching the old single-materialised-list behaviour.
+    byte-identical sites.
 
-    ``keep_mode`` selects which sites to emit, mirroring the filters in the
-    former list builders: ``"all"`` (the fixed-tree path — every variant, as
-    ``sfs_bin`` was populated for all of them) or ``"truth_aa"`` (the
-    local-tree path — only sites whose ancestral state is a base in STATES).
+    ``keep_mode`` selects which sites to emit: ``"all"`` for the fixed-tree
+    path, every variant, or ``"truth_aa"`` for the local-tree path, only
+    sites whose ancestral state is a base in STATES.
     The filter is intrinsic (read off the variant) rather than a closure over
     a big position dict, so the source stays small and picklable for the
     parallel fit.

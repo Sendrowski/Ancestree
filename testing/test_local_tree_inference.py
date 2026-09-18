@@ -2683,3 +2683,35 @@ def test_a_relabelled_run_refuses_a_source_spanning_several_contigs():
                                 chunk_size=1000, chrom="chrX")
     with pytest.raises(ValueError, match="would put the sites of contigs"):
         list(inf.infer())
+
+
+def test_the_cached_plug_in_arg_is_drained_when_its_counts_are_folded_in():
+    """The plug-in ARG is cached across passes and silenced, and a silenced
+    walk never runs the summary that zeroes its counters. Folding its running
+    total into the parent without draining it made every later pass re-add
+    everything the earlier ones had seen, so the second provenance record
+    reported twice the diagnostics of the first."""
+    sites, names = toy_sites(range(0, 1000, 20))
+    inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0,
+                        ingroup_samples=names[:2], outgroup_samples=names[2:])
+    list(inf.infer())
+    assert inf._arg is not None, "the plug-in ARG was not built"
+    # What a walk that fell back to the uniform posterior leaves behind.
+    inf._arg._n_uniform_fallback = 5
+    list(inf.infer())
+    assert inf._arg._diagnostic_counts() == (0,) * len(inf._COUNTERS), (
+        "the plug-in ARG kept its tally, so the next pass folds it in again")
+
+
+def test_an_integer_mu_is_stored_as_a_float():
+    """``Inference._mu_for_interval`` tells a scalar from a rate map with
+    ``isinstance(mu, float)``, so an int fell through to the rate-map branch
+    and raised on ``get_cumulative_mass``."""
+    from ancestree import JC69, LocalTreeInference
+
+    sites, names = toy_sites(range(0, 1000, 20))
+    inf = LocalTreeInference(sites, JC69(), mu=1, rec_rate=1e-8,
+                             sample_names=names, sequence_length=1000.0,
+                             chunk_size=None, progress=False)
+    assert isinstance(inf.mu, float)
+    assert inf._mu_for_interval(0.0, 100.0) == 1.0

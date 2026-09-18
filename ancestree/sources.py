@@ -21,6 +21,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ancestree.sites import Site, SiteSource
+from ancestree.writers import (
+    ZARR_ALLELE_FIELD,
+    ZARR_CONTIG_FIELD,
+    ZARR_POSITION_FIELD,
+)
+
+if TYPE_CHECKING:
+    import tskit
 
 #: The ``Site.unphased`` of a site whose calls were all read phased.
 _ALL_PHASED: "frozenset[str]" = frozenset()
@@ -37,14 +45,6 @@ def _interned(unphased: "set[str]", seen: "dict") -> "frozenset[str]":
         return _ALL_PHASED
     key = frozenset(unphased)
     return seen.setdefault(key, key)
-from ancestree.writers import (
-    ZARR_ALLELE_FIELD,
-    ZARR_CONTIG_FIELD,
-    ZARR_POSITION_FIELD,
-)
-
-if TYPE_CHECKING:
-    import tskit
 
 
 def _site_from_tskit_variant(

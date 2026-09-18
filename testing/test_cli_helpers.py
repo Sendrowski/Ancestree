@@ -3,6 +3,7 @@ logging setup, the empirical composition tally, the ``--debug`` probe and the
 entry points around :func:`ancestree.cli.main`). These exercise the
 argument-plumbing branches without running any inference, so they stay fast.
 """
+import argparse
 import logging
 import runpy
 import sys
@@ -400,3 +401,67 @@ def test_module_entry_point_runs_main(monkeypatch, capsys):
         runpy.run_module("ancestree.cli", run_name="__main__", alter_sys=True)
     assert exc.value.code == 0
     assert __version__ in capsys.readouterr().out
+
+
+class TestBaseCompositionFlag:
+    """``--base-composition`` supplies a whole-region π to every subcommand,
+    as a FASTA or as explicit counts."""
+
+    def test_counts_are_parsed(self):
+        from ancestree.cli import _base_composition
+
+        bc = _base_composition("A=400,C=100,G=100,T=400")
+        assert bc.n_total == 1000
+        np.testing.assert_allclose(bc.pi, [0.4, 0.1, 0.1, 0.4])
+
+    def test_a_fasta_is_counted(self, tmp_path):
+        from ancestree.cli import _base_composition
+
+        fa = tmp_path / "ref.fa"
+        fa.write_text(">c\n" + "AT" * 400 + "CG" * 100 + "\n")
+        bc = _base_composition(str(fa))
+        assert bc.n_total == 1000
+        np.testing.assert_allclose(bc.pi, [0.4, 0.1, 0.1, 0.4])
+
+    @pytest.mark.parametrize("value", ["A=1,C=2,G=3", "A=1,C=2,G=3,X=4",
+                                       "A=1,C=2,G=3,T=x"])
+    def test_malformed_counts_are_refused(self, value):
+        from ancestree.cli import _base_composition
+
+        with pytest.raises(argparse.ArgumentTypeError,
+                           match="--base-composition"):
+            _base_composition(value)
+
+    def test_an_unreadable_path_is_refused(self, tmp_path):
+        from ancestree.cli import _base_composition
+
+        with pytest.raises(argparse.ArgumentTypeError,
+                           match="--base-composition"):
+            _base_composition(str(tmp_path / "absent.fa"))
+
+    @pytest.mark.parametrize("command", ["fixed-tree", "arg", "local-tree"])
+    def test_every_subcommand_accepts_it(self, command):
+        """The pi-models are offered in all three, so the input that
+        configures them is too."""
+        from ancestree.cli import build_parser
+
+        base = {
+            "fixed-tree": ["--vcf", "x.vcf", "--outgroups", "o1"],
+            "arg": ["--trees", "x.trees"],
+            "local-tree": ["--vcf", "x.vcf"],
+        }[command]
+        args = build_parser().parse_args(
+            [command, *base, "--out", "y.vcf",
+             "--base-composition", "A=4,C=1,G=1,T=4"])
+        np.testing.assert_allclose(args.base_composition.pi,
+                                   [0.4, 0.1, 0.1, 0.4])
+
+    def test_the_two_composition_flags_are_exclusive(self, tmp_path):
+        """One is a whole-region tally, the other reads the input variants."""
+        from ancestree.cli import run
+
+        with pytest.raises(SystemExit, match="not both"):
+            run(["fixed-tree", "--vcf", str(tmp_path / "x.vcf"),
+                 "--outgroups", "o1", "--out", str(tmp_path / "y.vcf"),
+                 "--base-composition", "A=4,C=1,G=1,T=4",
+                 "--empirical-composition"])

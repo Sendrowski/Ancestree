@@ -1292,6 +1292,16 @@ class LocalTreeInference(Inference):
         building from :class:`~ancestree.sites.Site` records. Read from the
         source for a VCF / BCF / VCZ path, a tree sequence or a
         :class:`~ancestree.sites.SiteSource`.
+    :param sample_filter: Restrict a VCF / VCZ read to these sample names,
+        each of which must be in ``ingroup_samples`` or ``outgroup_samples``.
+    :param chrom_filter: Restrict a VCF / VCZ read to this contig.
+    :param ploidy: Haplotypes read per VCF sample. ``None`` (default) detects
+        it from the first record.
+    :param phased: Whether the genotypes are phased, so haplotype ``k`` of an
+        individual is the same lineage at every site. ``None`` (default) reads
+        the per-record phase flag.
+    :param phase_seed: Seed for the per-site haplotype-order randomisation
+        applied to unphased heterozygotes, so a run is reproducible.
     :param sequence_length: Region length in bp, which the local-tree windows
         tile as ``[0, L)``. Give it whenever it is known: under ``chunk_size``
         it is what lays one window grid over the whole region and not one per
@@ -1340,17 +1350,24 @@ class LocalTreeInference(Inference):
     :param member_chunk: Genealogies drawn and scored at once, which sets peak
         memory. The chunk used is the largest divisor of ``n_ensemble`` no
         greater than this.
-    :param recombination_map: Optional :class:`msprime.RateMap` (in the input's
-        bp coordinates) driving the HMM's TMRCA-reset rate in place of the
-        constant ``rec_rate``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per
+    :param recombination_map: Optional HapMap file path or
+        :class:`msprime.RateMap` (in the input's bp coordinates) driving the
+        HMM's TMRCA-reset rate in place of the constant ``rec_rate``. See
+        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per
         segment on the chunked path.
-    :param accessibility: Optional sequence of half-open ``(start, end)`` bp
-        intervals marking the callable genome (BED-style). See
-        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per segment on the chunked path.
-    :param mutation_map: Optional :class:`msprime.RateMap` (in the input's bp
-        coordinates) giving the local mutation rate for the HMM emission in
-        place of the constant ``mu``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced
-        per segment on the chunked path.
+    :param accessibility: Optional BED file path, or sequence of half-open
+        ``(start, end)`` bp intervals, marking the callable genome. See
+        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per
+        segment on the chunked path.
+    :param mutation_map: Optional bedGraph file path or
+        :class:`msprime.RateMap` (in the input's bp coordinates) giving the
+        local mutation rate for the HMM emission in place of the constant
+        ``mu``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
+        Sliced per segment on the chunked path.
+
+        Each of the three also accepts a ``{contig: map}`` dict, as
+        :class:`~ancestree._maps.MapFiles` reads a file carrying a contig
+        column, and the entry for the sites' own contig applies.
     :param outgroup_samples: Sample ids treated as outgroups, used by the
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
@@ -1470,9 +1487,10 @@ class LocalTreeInference(Inference):
         # otherwise be shared across inferences.
         model = model if model is not None else JC69()
         self.model = model
-        if isinstance(mu, (int, float)) and not (
-                np.isfinite(mu) and mu > 0):
-            raise ValueError(f"mu must be positive, got {mu}")
+        if isinstance(mu, (int, float)):
+            if not (np.isfinite(mu) and mu > 0):
+                raise ValueError(f"mu must be positive, got {mu}")
+            mu = float(mu)
         self.mu = mu
         self._require_stationary_prior(prior)
         self.prior = prior
@@ -1652,6 +1670,7 @@ class LocalTreeInference(Inference):
         yield from self._with_baseline_check(self._emitted(self._infer_impl()))
         if self._arg is not None:
             self._add_counts(self._arg._diagnostic_counts())
+            self._arg._reset_counts()
         self._log_uniform_fallback_summary()
 
     def _infer_impl(self) -> Iterator[tuple[Site, Posterior]]:
@@ -2094,7 +2113,12 @@ class LocalTreeInference(Inference):
             self._count_ingroup_monomorphic(core)
             self._count_unrepresentable(core)
             counted, unrep_sites, unrep_tips = self._drain_site_counts(before)
-            return rows, (0, 0, uniform, counted, 0, unrep_sites, unrep_tips)
+            return rows, self._counts_in_order({
+                "_n_uniform_fallback": uniform,
+                "_n_ingroup_monomorphic": counted,
+                "_n_unrepresentable_sites": unrep_sites,
+                "_n_unrepresentable_tips": unrep_tips,
+            })
         arg = ARGBasedInference(
             self._segment_builder(work_unit).to_tree_sequence(), self.model,
             mu=self.mu, prior=self.prior,
@@ -2121,15 +2145,15 @@ class LocalTreeInference(Inference):
         self._count_ingroup_monomorphic(core)
         self._count_unrepresentable(core)
         counted, unrep_sites, unrep_tips = self._drain_site_counts(before)
-        return out, (
-            arg._n_ingroup_non_monophyletic,
-            arg._n_focal_multiroot_fallback,
-            arg._n_uniform_fallback,
-            counted,
-            arg._n_uncoalesced_segments,
-            unrep_sites,
-            unrep_tips,
-        )
+        return out, self._counts_in_order({
+            "_n_ingroup_non_monophyletic": arg._n_ingroup_non_monophyletic,
+            "_n_focal_multiroot_fallback": arg._n_focal_multiroot_fallback,
+            "_n_uniform_fallback": arg._n_uniform_fallback,
+            "_n_ingroup_monomorphic": counted,
+            "_n_uncoalesced_segments": arg._n_uncoalesced_segments,
+            "_n_unrepresentable_sites": unrep_sites,
+            "_n_unrepresentable_tips": unrep_tips,
+        })
 
     def _process_segment_ensemble(self, work_unit) -> list[tuple[Site, np.ndarray]]:
         """Score one segment's core sites against an ensemble of genealogies.
@@ -2531,26 +2555,20 @@ class LocalTreeInference(Inference):
         """
         if not self._segmented:
             span = float(self.builder.sequence_length)
-            yield (0.0, span), self._iter_tree_sequences()
+            # The unsegmented plug-in tree is the cached one infer() scored.
+            members = (self._ensemble_members(self.builder)
+                       if self._ensemble_mode()
+                       else iter([self.point_tree_sequence()]))
+            yield (0.0, span), members
             return
         self._resolve_segmentation_params()
-        from ancestree._ensemble import SegmentEnsemble
         end = float(getattr(self, "_declared_length", 0.0) or 0.0)
         seen_chrom = None
         for work_unit in self._stream_segments():
             seg, core_lo, core_hi, origin, span = work_unit
             seen_chrom = self._same_contig(
                 seen_chrom, seg[0].chrom, "tree_sequences()")
-            builder = self._segment_builder(work_unit)
-            if not self._ensemble_mode():
-                members = iter([builder.to_tree_sequence()])
-            else:
-                ens = SegmentEnsemble(builder, self.model,
-                                      len(self.sample_names),
-                                      self._ingroup_indices())
-                members = ens.iter_tree_sequences(
-                    self.n_ensemble, member_chunk=self.member_chunk,
-                    seed=self.ensemble_seed)
+            members = self._ensemble_members(self._segment_builder(work_unit))
             core = (float(core_lo), float(core_hi))
             yield core, self._genome_frame_iter(
                 members, origin, span, end, core)
@@ -2619,20 +2637,22 @@ class LocalTreeInference(Inference):
         return tables.tree_sequence().keep_intervals(
             [[lo, hi]], simplify=False)
 
-    def _iter_tree_sequences(self):
-        """The genealogies of a single unsegmented region, lazily.
+    def _ensemble_members(self, builder):
+        """The genealogies one builder's region contributes, lazily.
 
-        :return: Iterator of :class:`tskit.TreeSequence` --- ``n_ensemble`` of
-            them in ensemble mode, else the one plug-in tree sequence.
+        :param builder: The :class:`~ancestree.local_tree_inference.LocalTreeBuilder`
+            covering the region.
+        :return: Iterator of :class:`tskit.TreeSequence`, the
+            ``n_ensemble`` draws in ensemble mode, else the one plug-in tree
+            sequence.
         """
         if not self._ensemble_mode():
-            yield self.point_tree_sequence()
-            return
+            return iter([builder.to_tree_sequence()])
         from ancestree._ensemble import SegmentEnsemble
-        ens = SegmentEnsemble(self.builder, self.model,
-                              len(self.sample_names),
+
+        ens = SegmentEnsemble(builder, self.model, len(self.sample_names),
                               self._ingroup_indices())
-        yield from ens.iter_tree_sequences(
+        return ens.iter_tree_sequences(
             self.n_ensemble, member_chunk=self.member_chunk,
             seed=self.ensemble_seed)
 

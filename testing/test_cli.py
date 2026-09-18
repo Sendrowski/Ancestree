@@ -1182,3 +1182,16 @@ def test_local_tree_samples_select_individuals(tmp_path):
     with pytest.raises(ValueError, match="in sample_filter"):
         run([*base, "--samples", "i0,i1,o1", "--ingroup", "i0",
              "--outgroups", "o1_h0", "--out", str(out)])
+
+
+def test_local_tree_reads_a_tree_sequence_through_the_cli(tmp_path):
+    """The CLI must reach the source the library accepts. ``--phase-seed``
+    defaulting to 0 rather than the constructor's None made every reader
+    argument look supplied, and SiteSource.resolve refuses those for a tree
+    sequence, so a .trees input died before any work."""
+    out = tmp_path / "annot.vcf"
+    code = run(["local-tree", "--vcf", str(QUICKSTART_TREES),
+                "--out", str(out), "--mu", "2e-8", "--rec-rate", "1e-8",
+                "--chunk-size", "none", "--no-ensemble"])
+    assert code == 0
+    assert sum(1 for line in open(out) if not line.startswith("#")) > 0

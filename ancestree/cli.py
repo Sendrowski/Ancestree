@@ -38,7 +38,7 @@ import logging
 import sys
 from typing import Sequence
 
-from ancestree import __version__
+from ancestree import STATES, __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
 from ancestree.sites import _path_format
@@ -124,6 +124,39 @@ def _warn_ignored(args, pairs) -> None:
         if attr in supplied and ignored:
             _log.warning("--%s is ignored %s",
                          attr.replace("_", "-"), reason)
+
+
+def _base_composition(value: str):
+    """The whole-region base composition ``--base-composition`` names.
+
+    :param value: A FASTA path, or per-base counts as ``A=n,C=n,G=n,T=n``.
+    :return: The :class:`~ancestree.sites.BaseComposition`.
+    :raises argparse.ArgumentTypeError: If counts are malformed, or the path
+        cannot be read.
+    """
+    from ancestree.sites import BaseComposition
+
+    if "=" in value:
+        counts: dict[str, int] = {}
+        for token in value.split(","):
+            base, _, n = token.partition("=")
+            base = base.strip().upper()
+            if base not in STATES or not n.strip().lstrip("-").isdigit():
+                raise argparse.ArgumentTypeError(
+                    f"--base-composition counts read as 'A=n,C=n,G=n,T=n' over "
+                    f"{','.join(STATES)}; got {token!r}")
+            counts[base] = int(n)
+        missing = [b for b in STATES if b not in counts]
+        if missing:
+            raise argparse.ArgumentTypeError(
+                f"--base-composition counts must name every base; "
+                f"missing {missing}")
+        return BaseComposition.from_counts(**counts)
+    try:
+        return BaseComposition.from_fasta(value)
+    except (OSError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            f"--base-composition {value!r}: {exc}") from exc
 
 
 def _build_model(name: str, *, fit_kappa: bool, fit_rates: bool, kappa: float | None = None):
@@ -365,11 +398,6 @@ def build_parser() -> argparse.ArgumentParser:
              "species' rate.",
     )
     genealogy_parent.add_argument(
-        "--prior", default="composition", choices=["composition", "uniform"],
-        help="Prior on the state at the reporting node: the base composition, "
-             "uniform without one, or uniform. Default: composition.",
-    )
-    genealogy_parent.add_argument(
         "--out", required=True,
         help="Output path. The format is inferred from the extension: "
              "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated "
@@ -402,6 +430,18 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True) -> No
         choices=["JC69", "K2", "F81", "HKY", "GTR"],
         help="Substitution model. Default: JC69.",
     )
+    p.add_argument(
+        "--prior", default="composition", choices=["composition", "uniform"],
+        help="Prior on the state at the reporting node: the base composition, "
+             "uniform without one, or uniform. Default: composition.",
+    )
+    p.add_argument(
+        "--base-composition", type=_base_composition, default=None,
+        metavar="SRC",
+        help="Whole-region base composition, as a FASTA path or per-base "
+             "counts 'A=n,C=n,G=n,T=n'. Supplies the pi of F81, HKY and GTR "
+             "and the prior at the reporting node. Default: uniform.",
+    )
     if fit_flags:
         p.add_argument(
             "--fit-kappa", action="store_true",
@@ -411,6 +451,22 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True) -> No
             "--fit-rates", action="store_true",
             help="GTR only: fit the six exchangeability rates jointly.",
         )
+
+
+def _add_focal_anchor(p: argparse.ArgumentParser) -> None:
+    """Add the shared ``--focal`` anchor flag.
+
+    :param p: Subcommand parser to extend.
+    """
+    p.add_argument(
+        "--focal", default="ingroup-mrca",
+        choices=["ingroup-mrca", "panel-root"],
+        help=(
+            "Anchor to report the posterior at. 'ingroup-mrca' (default) is "
+            "the ingroup's own MRCA; 'panel-root' is the MRCA of the whole "
+            "panel, deeper whenever outgroups are in the panel."
+        ),
+    )
 
 
 def _add_focal_args(p: argparse.ArgumentParser) -> None:
@@ -430,15 +486,7 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
         help=("Comma-separated outgroup sample ids. Defaults to every sample "
               "not in --ingroup. With both given, other samples are ignored."),
     )
-    p.add_argument(
-        "--focal", default="ingroup-mrca",
-        choices=["ingroup-mrca", "panel-root"],
-        help=(
-            "Anchor to report the posterior at. 'ingroup-mrca' (default) is "
-            "the ingroup's own MRCA; 'panel-root' is the MRCA of the whole "
-            "panel, deeper whenever outgroups are in the panel."
-        ),
-    )
+    _add_focal_anchor(p)
     g = p.add_mutually_exclusive_group()
     g.add_argument(
         "--focal-fraction", type=float, metavar="F",
@@ -460,23 +508,23 @@ def _add_focal_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _warn_model_defaults(mode: str, model_name: str) -> None:
+def _warn_model_defaults(mode: str, model_name: str, *,
+                         has_composition: bool = False) -> None:
     """Report the model parameters this subcommand cannot set.
 
-    ``arg`` and ``local-tree`` take branch lengths from the genealogy and offer
-    no ``--empirical-composition`` or fit toggles, so a model with free
-    parameters runs at uniform base frequencies and the model's own default
-    kappa.
+    ``arg`` and ``local-tree`` take branch lengths from the genealogy and
+    offer no fit toggles, so a model with free parameters runs at the model's
+    own default kappa.
 
     :param mode: Subcommand name, for the message.
     :param model_name: Value of ``--model``.
+    :param has_composition: Whether ``--base-composition`` was given.
     """
     key = model_name.upper()
-    if key in ("F81", "HKY", "GTR"):
+    if key in ("F81", "HKY", "GTR") and not has_composition:
         _log.warning(
-            "%s: model %s runs with uniform base frequencies, as this subcommand "
-            "has no --empirical-composition. Use the Python API to supply a "
-            "base composition.", mode, model_name)
+            "%s: model %s runs with uniform base frequencies. Pass "
+            "--base-composition to supply pi.", mode, model_name)
     if key in ("K2", "HKY"):
         _log.warning(
             "%s: model %s runs at its default kappa, as this subcommand "
@@ -510,15 +558,7 @@ def _add_fixed_tree_parser(
             "default, as an annotated VCF or VCF Zarr store."
         ),
     )
-    p.add_argument(
-        "--focal", default="ingroup-mrca",
-        choices=["ingroup-mrca", "panel-root"],
-        help=(
-            "Anchor to report the posterior at. 'ingroup-mrca' (default) is "
-            "the ingroup's own MRCA; 'panel-root' is the MRCA of the whole "
-            "panel, deeper whenever outgroups are in the panel."
-        ),
-    )
+    _add_focal_anchor(p)
     g = p.add_mutually_exclusive_group()
     g.add_argument(
         "--focal-fraction", type=float, metavar="F",
@@ -578,11 +618,6 @@ def _add_fixed_tree_parser(
         choices=["none", "kingman", "adaptive"],
         help="How the ingroup allele frequencies enter, as a likelihood on "
              "the ingroup MRCA. Default: kingman.",
-    )
-    p.add_argument(
-        "--prior", default="composition", choices=["composition", "uniform"],
-        help="Prior on the state at the reporting node: the base composition, "
-             "uniform without one, or uniform. Default: composition.",
     )
     p.add_argument(
         "--n-starts", type=int, metavar="N",
@@ -727,7 +762,8 @@ def _add_local_tree_parser(
               "--no-phased randomises that order per site."),
     )
     p.add_argument(
-        "--phase-seed", type=int, default=0,
+        "--phase-seed", type=int,
+        default=_lib_default(LocalTreeInference, "phase_seed"),
         help=("Seed for the per-site haplotype-order randomisation applied to "
               "unphased heterozygotes. Default: %(default)s."),
     )
@@ -926,6 +962,12 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         ("max_calibration_sites", not args.empirical_composition,
          "without --empirical-composition"),
     ])
+    if args.empirical_composition and args.base_composition is not None:
+        raise SystemExit(
+            "fixed-tree: pass --base-composition or --empirical-composition, "
+            "not both. The first is a whole-region tally, the second reads "
+            "the input variants, where a base's share is weighted by how "
+            "readily it mutates.")
     out_format = _out_format(args, "fixed-tree", ("vcf", "vcz"))
     if st and args.ingroup_weight == "adaptive":
         _log.warning(
@@ -956,7 +998,8 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             "fixed-tree: --template-vcf is ignored for a .vcz --out"
         )
 
-    base_composition = None
+    base_composition = args.base_composition
+    args_kappa = None
     if args.empirical_composition:
         base_composition = _empirical_composition(
             args.vcf, args.max_calibration_sites, args.samples or None)
@@ -967,16 +1010,13 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         )
         if args.model in ("K2", "HKY") and not args.fit_kappa:
             args_kappa = base_composition.kappa_estimate
-        else:
-            args_kappa = None
-    else:
-        args_kappa = None
-        if args.model in ("F81", "HKY", "GTR"):
-            _log.warning(
-                "Model %s runs with uniform base frequencies. Pass "
-                "--empirical-composition to derive pi and kappa from the data.",
-                args.model,
-            )
+    elif base_composition is None and args.model in ("F81", "HKY", "GTR"):
+        _log.warning(
+            "Model %s runs with uniform base frequencies. Pass "
+            "--base-composition for a whole-region pi, or "
+            "--empirical-composition to derive pi and kappa from the data.",
+            args.model,
+        )
     model = _build_model(
         args.model, fit_kappa=args.fit_kappa, fit_rates=args.fit_rates,
         kappa=args_kappa,
@@ -1025,13 +1065,15 @@ def _run_arg(args: argparse.Namespace) -> int:
     from ancestree.inference import ARGBasedInference
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
-    _warn_model_defaults("arg", args.model)
+    _warn_model_defaults("arg", args.model,
+                         has_composition=args.base_composition is not None)
     prior = _build_prior(args.prior, model=model)
     focal = _build_focal(args)
 
     inference = ARGBasedInference(
         args.trees[0] if len(args.trees) == 1 else args.trees,
         model=model,
+        base_composition=args.base_composition,
         mu=args.mu,
         mu_matches_time_units=args.mu_matches_time_units,
         prior=prior,
@@ -1072,12 +1114,14 @@ def _run_local_tree(args: argparse.Namespace) -> int:
     from ancestree.local_tree_inference import LocalTreeInference
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
-    _warn_model_defaults("local-tree", args.model)
+    _warn_model_defaults("local-tree", args.model,
+                         has_composition=args.base_composition is not None)
     prior = _build_prior(args.prior, model=model)
     focal = _build_focal(args)
 
     inference = LocalTreeInference(
         args.vcf, model,
+        base_composition=args.base_composition,
         sample_filter=args.samples or None,
         ploidy=args.ploidy,
         phased=args.phased,

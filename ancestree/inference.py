@@ -14,6 +14,7 @@ kernel.
 All three implement :meth:`Inference.infer() <ancestree.inference.Inference.infer>`, which yields
 ``(Site, Posterior)`` pairs.
 """
+import dataclasses
 import datetime
 import logging
 import math
@@ -112,11 +113,18 @@ class Inference(ReprMixin, ABC):
 
     #: The substitution model every site is scored under.
     model: "SubstitutionModel"
-    #: ``None`` where the mode applies the model's stationary vector directly.
+    #: The prior at the reporting node. ``None`` on the rule-based
+    #: baselines, which apply none.
     prior: "StationaryPrior | None" = None
     #: Per-site rate scaling branch lengths measured in generations. Absent
     #: from the modes whose trees are in substitutions per site.
     mu: "float | msprime.RateMap | None" = None
+    #: Whole-region base composition supplying the model's π, or ``None`` for
+    #: a uniform one.
+    base_composition: "BaseComposition | None" = None
+    #: Likelihood of the ingroup alleles given the state at the ingroup MRCA,
+    #: set by the mode that fits one.
+    ingroup_weight: "IngroupWeight | None" = None
     #: The local VCF Zarr store this inference was constructed from, where it
     #: was one, which :meth:`Inference.to_zarr` annotates by default.
     _input_store_path: "str | None" = None
@@ -196,6 +204,19 @@ class Inference(ReprMixin, ABC):
         from ancestree.local_tree_inference import LocalTreeInference
 
         return LocalTreeInference(*args, **kwargs)
+
+    @classmethod
+    def _counts_in_order(cls, values: "Mapping[str, int]") -> tuple[int, ...]:
+        """Diagnostic counters in :attr:`_COUNTERS` order, from named values.
+
+        :param values: Counter name to value, a name left out counting zero.
+        :return: The counts :meth:`_add_counts` consumes.
+        :raises KeyError: If a name is not a diagnostic counter.
+        """
+        unknown = set(values) - set(cls._COUNTERS)
+        if unknown:
+            raise KeyError(f"not diagnostic counters: {sorted(unknown)}")
+        return tuple(int(values.get(name, 0)) for name in cls._COUNTERS)
 
     def _diagnostic_counts(self) -> tuple[int, ...]:
         """This walk's diagnostic counters, in :attr:`_COUNTERS` order."""
@@ -626,7 +647,7 @@ class Inference(ReprMixin, ABC):
         :return: The composition's ``pi``, or ``None`` when the run supplied
             no composition and the model uses its own default.
         """
-        bc = getattr(self, "base_composition", None)
+        bc = self.base_composition
         return None if bc is None else bc.pi
 
     @staticmethod
@@ -857,16 +878,18 @@ class Inference(ReprMixin, ABC):
             return
         self._warned_no_sites = True
         names = None if self._sample_filter is None else list(self._sample_filter)
+        active = []
+        if self._chrom_filter is not None:
+            active.append(f"chrom_filter={self._chrom_filter!r}, where a label "
+                          f"that does not match the data, such as 'chr1' "
+                          f"against '1', is the usual cause")
+        if names is not None:
+            active.append(f"sample_filter={len(names)} sample(s): "
+                          f"{', '.join(names[:5])}")
         self._log.warning(
-            "%s read no sites, so nothing is annotated. Active source "
-            "filters: chrom_filter=%s, sample_filter=%s. A contig label that "
-            "does not match the data, such as 'chr1' against '1', is the "
-            "usual cause.",
+            "%s read no sites, so nothing is annotated.%s",
             type(self).__name__,
-            "None (every contig)" if self._chrom_filter is None
-            else repr(self._chrom_filter),
-            "None (every sample)" if names is None
-            else f"{len(names)} sample(s): {', '.join(names[:5])}")
+            "" if not active else " Active source filters: " + "; ".join(active) + ".")
 
     def _emit_baseline_check(
         self, real_pairs: "Sequence[tuple[Site, Posterior]]",
@@ -1113,7 +1136,7 @@ class Inference(ReprMixin, ABC):
             summing to 1.
         """
         from ancestree.priors import StationaryPrior
-        bc = getattr(self, "base_composition", None)
+        bc = self.base_composition
         engine = Likelihood(self.model, base_composition=bc)
         scale = self._scale_for(tree)
         if scale is not None:
@@ -1121,7 +1144,7 @@ class Inference(ReprMixin, ABC):
         tree = self._focal_view(tree)
         # Seed the ingroup weight as infer() does.
         seeds = None
-        weight = getattr(self, "ingroup_weight", None)
+        weight = self.ingroup_weight
         if weight is not None:
             anchor = tree.ingroup_mrca
             if anchor is None:
@@ -1246,6 +1269,40 @@ class Inference(ReprMixin, ABC):
             return None, self._panel_samples() or None
         return template, self._used_samples() if restrict_samples else None
 
+    def _write_annotated(
+        self, writer_cls, fmt: str, output, given, *,
+        info, provenance, min_confidence, store_posterior, posteriors,
+        restrict_samples,
+    ) -> int:
+        """Write the annotated output through ``writer_cls``.
+
+        :param writer_cls: The :class:`~ancestree.writers.Writer` to feed.
+        :param fmt: ``"vcf"`` or ``"vcz"``, the format a template must have.
+        :param output: Destination path.
+        :param given: The file passed to annotate, or ``None``.
+        :param info: Run-level constants recorded alongside the annotations.
+        :param provenance: The caller's provenance mapping, or ``None``.
+        :param min_confidence: MAP posterior below which a site is blanked.
+        :param store_posterior: Whether the per-state posterior is written.
+        :param posteriors: Scored pairs, or ``None`` to run :meth:`infer`.
+        :param restrict_samples: Whether an annotated file keeps only the
+            samples the inference used.
+        :return: Number of records annotated.
+        """
+        supplied, provenance = provenance, self._resolve_provenance(
+            provenance, min_confidence)
+        template, samples = self._output_template(
+            given, fmt, output, restrict_samples)
+        return writer_cls(
+            template, output, min_confidence=min_confidence, samples=samples,
+            contig_lengths=None if template else self._contig_lengths(),
+        ).write(
+            self._completing(self._posteriors_for_writing(posteriors),
+                             provenance, supplied),
+            store_posterior=store_posterior,
+            info=info, provenance=provenance,
+        )
+
     def to_zarr(
         self,
         output_zarr: str | os.PathLike,
@@ -1289,19 +1346,11 @@ class Inference(ReprMixin, ABC):
         :return: Number of variants annotated.
         """
         from ancestree.writers import ZarrWriter
-        supplied, provenance = provenance, self._resolve_provenance(
-            provenance, min_confidence)
-        template, samples = self._output_template(
-            input_zarr, "vcz", output_zarr, restrict_samples)
-        return ZarrWriter(
-            template, output_zarr, min_confidence=min_confidence, samples=samples,
-            contig_lengths=None if template else self._contig_lengths(),
-        ).write(
-            self._completing(self._posteriors_for_writing(posteriors),
-                             provenance, supplied),
-            store_posterior=store_posterior,
-            info=info, provenance=provenance,
-        )
+        return self._write_annotated(
+            ZarrWriter, "vcz", output_zarr, input_zarr, info=info,
+            provenance=provenance, min_confidence=min_confidence,
+            store_posterior=store_posterior, posteriors=posteriors,
+            restrict_samples=restrict_samples)
 
     def to_vcf(
         self,
@@ -1345,19 +1394,11 @@ class Inference(ReprMixin, ABC):
         :return: Number of records annotated.
         """
         from ancestree.writers import VCFWriter
-        supplied, provenance = provenance, self._resolve_provenance(
-            provenance, min_confidence)
-        template, samples = self._output_template(
-            input_vcf, "vcf", output_vcf, restrict_samples)
-        return VCFWriter(
-            template, output_vcf, min_confidence=min_confidence, samples=samples,
-            contig_lengths=None if template else self._contig_lengths(),
-        ).write(
-            self._completing(self._posteriors_for_writing(posteriors),
-                             provenance, supplied),
-            store_posterior=store_posterior,
-            info=info, provenance=provenance,
-        )
+        return self._write_annotated(
+            VCFWriter, "vcf", output_vcf, input_vcf, info=info,
+            provenance=provenance, min_confidence=min_confidence,
+            store_posterior=store_posterior, posteriors=posteriors,
+            restrict_samples=restrict_samples)
 
     def to_arg(
         self,
@@ -2721,13 +2762,8 @@ class FixedTreeInference(Inference):
             arr = BaseComposition._largest_remainder(
                 actual_bc.pi, int(n_target_sites),
             )
-            actual_bc = BaseComposition(
-                counts=dict(zip(STATES, [int(x) for x in arr])),
-                n_ts=actual_bc.n_ts,
-                n_tv=actual_bc.n_tv,
-                _pi_cache=actual_bc._pi_cache,
-                _pi_is_ascertained=actual_bc._pi_is_ascertained,
-            )
+            actual_bc = dataclasses.replace(
+                actual_bc, counts=dict(zip(STATES, [int(x) for x in arr])))
         self.base_composition = actual_bc
         mono_counts = actual_bc.monomorphic_counts(n_poly_for_counts)
         # A fit needs monomorphic-site calibration: non-zero counts or

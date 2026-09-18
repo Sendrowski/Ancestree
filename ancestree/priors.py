@@ -241,8 +241,9 @@ class KingmanIngroupWeight(IngroupWeight):
     A mono-allelic ingroup gives a delta on the allele it carries, and an
     unobserved ingroup gives uniform.
 
-    :param ingroup_samples: Sample ids for the ingroup haplotypes,
-        must match the keys used in :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`.
+    :param ingroup_samples: Sample ids for the ingroup haplotypes, or the
+        individuals they belong to, resolved against the keys of
+        :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`.
     :raises ValueError: If ``ingroup_samples`` is empty.
     """
 
@@ -281,11 +282,13 @@ class KingmanIngroupWeight(IngroupWeight):
         return {"n_ingroup": self.n_ingroup}
 
     ingroup_samples: list[str]
-    """Sample ids for the ingroup haplotypes, must match the keys used in
+    """Sample ids for the ingroup haplotypes, or the individuals they belong
+    to, resolved against the keys of
     :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`."""
 
     n_ingroup: int
-    """Number of ingroup haplotypes (``len(ingroup_samples)``)."""
+    """Number of ids given (``len(ingroup_samples)``), which an inference
+    rebinds to the haplotype count its panel resolves them to."""
 
     def __init__(self, ingroup_samples: Sequence[str]) -> None:
         """Store the ingroup sample ids the weight is computed over."""

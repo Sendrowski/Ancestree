@@ -20,6 +20,10 @@ LOCAL_TREE_FLAGS = {
     "block_size": "block_size",
     "n_time_bins": "n_time_bins",
     "n_workers": "n_workers",
+    "phase_seed": "phase_seed",
+    "ploidy": "ploidy",
+    "phased": "phased",
+    "ensemble_seed": "ensemble_seed",
 }
 
 
