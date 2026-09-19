@@ -260,14 +260,13 @@ rule report_local_tree_genealogy:
 
 
 rule plot_local_tree_appendix_figs:
-    """Render the two appendix figures (window-accuracy + genealogy) from the
-    committed JSONs."""
+    """Render the two-panel local-tree robustness figure (window-size and
+    misspecification scans, genealogy recovery) from the committed JSONs."""
     input:
         window = rules.report_local_tree_window.output.json,
         genealogy = rules.report_local_tree_genealogy.output.json,
     output:
-        accuracy_pdf = f"{REPORTS}/bench_local_tree_window_accuracy.pdf",
-        genealogy_pdf = f"{REPORTS}/bench_local_tree_genealogy.pdf",
+        pdf = f"{REPORTS}/bench_local_tree_window_genealogy.pdf",
     conda:
         "../envs/bench.yml"
     script:
@@ -275,17 +274,15 @@ rule plot_local_tree_appendix_figs:
 
 
 rule copy_local_tree_appendix_figures:
-    """Copy the two appendix figure PDFs into the manuscript figures directory."""
+    """Copy the two-panel figure PDF into the manuscript figures directory."""
     input:
-        accuracy = rules.plot_local_tree_appendix_figs.output.accuracy_pdf,
-        genealogy = rules.plot_local_tree_appendix_figs.output.genealogy_pdf,
+        rules.plot_local_tree_appendix_figs.output.pdf,
     output:
-        accuracy = "reports/manuscripts/latex/figures/bench_local_tree_window_accuracy.pdf",
-        genealogy = "reports/manuscripts/latex/figures/bench_local_tree_genealogy.pdf",
+        "reports/manuscripts/latex/figures/bench_local_tree_window_genealogy.pdf",
     conda:
         "../envs/bench.yml"
     shell:
-        "cp {input.accuracy} {output.accuracy} && cp {input.genealogy} {output.genealogy}"
+        "cp {input} {output}"
 
 
 # =========================================================================

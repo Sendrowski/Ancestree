@@ -22,8 +22,11 @@ def _even(n):
     return [i / (n - 1) for i in range(n)]
 
 
-def draw_scan_panel(fig, ax, wb, *, ylabel=True):
-    """Draw the four scans of report ``wb`` on ``ax``; return (handles, labels)."""
+def draw_scan_panel(fig, ax, wb, *, ylabel=True, fs=1.0):
+    """Draw the four scans of report ``wb`` on ``ax``; return (handles, labels).
+
+    ``fs`` scales every font size, for panels drawn smaller than full width.
+    """
     windows = [_win_int(w) for w in wb["windows"]]
     cells = wb["cells"]
     brier = [cells[f"{w}__r1.0"]["mean_brier"] for w in wb["windows"]]
@@ -45,12 +48,12 @@ def draw_scan_panel(fig, ax, wb, *, ylabel=True):
     ax.axhline(ceil["mean_brier"], ls="--", lw=LW, color=CEIL_C, alpha=0.9,
                label="true-ARG ceiling")
     if ylabel:
-        ax.set_ylabel(r"mean Brier score ($\downarrow$)", y=0.56)
+        ax.set_ylabel(r"mean Brier score ($\downarrow$)", y=0.56, fontsize=10 * fs)
     # Wide enough that the outermost tick labels (0.01x, 100x) clear the frame.
     ax.set_xlim(-0.06, 1.06)
     ax.set_xticks([])
     ax.grid(True, axis="y", ls=":", lw=0.5, alpha=0.6)
-    ax.tick_params(axis="y", labelsize=9)
+    ax.tick_params(axis="y", labelsize=9 * fs)
     handles, labels = ax.get_legend_handles_labels()
 
     def _extra_axis(offset, ticks, tick_labels, title, colour, side="top"):
@@ -64,23 +67,23 @@ def draw_scan_panel(fig, ax, wb, *, ylabel=True):
                 a.spines[other].set_visible(False)
         # Labels hug the spine on the stacked top axes; the bottom one keeps a
         # normal gap so it does not crowd the frame.
-        a.tick_params(axis="x", labelsize=8, pad=1.0 if side == "top" else 3.5)
+        a.tick_params(axis="x", labelsize=8 * fs, pad=1.0 if side == "top" else 3.5)
         a.set_xticks(ticks)
         a.set_xticklabels(tick_labels)
-        a.set_xlabel(title, color=colour, fontsize=10)
+        a.set_xlabel(title, color=colour, fontsize=10 * fs)
         return a
 
     _extra_axis(0, xa, [str(w) for w in windows], "window size (SNPs)", WIN_C,
                 side="bottom")
     _extra_axis(0, xb, [f"{float(r):g}×" for r in rec_specs],
                 "assumed rate / true rate", RATE_C)
-    _extra_axis(AXIS_STEP, xc, [f"{float(v) * 100:g}" for v in switch_specs],
+    _extra_axis(AXIS_STEP * fs, xc, [f"{float(v) * 100:g}" for v in switch_specs],
                 "switch-error rate (%)", SW_C)
 
     # Carry the plot frame up past the stacked axes so the whole block reads as
     # one box rather than a plot with loose rules above it.
     pos = ax.get_position()
-    rise = (AXIS_STEP / 72.0) / fig.get_figheight()
+    rise = (AXIS_STEP * fs / 72.0) / fig.get_figheight()
     for x in (pos.x0, pos.x1):
         fig.add_artist(_mlines.Line2D(
             [x, x], [pos.y1, pos.y1 + rise], transform=fig.transFigure,
