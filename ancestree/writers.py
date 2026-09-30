@@ -541,7 +541,8 @@ class Writer(ReprMixin, ABC):
         return pos, alleles, {a: i for i, a in enumerate(alleles)}
 
     @staticmethod
-    def _allele_codes(site: Site, haplotypes, index: Mapping, missing):
+    def _allele_codes(site: Site, haplotypes, index: Mapping, missing,
+                      absent):
         """Each haplotype's allele at ``site``, coded through ``index``.
 
         :param site: The site written.
@@ -549,10 +550,16 @@ class Writer(ReprMixin, ABC):
             slot.
         :param index: The code of each allele.
         :param missing: The code of a missing tip.
+        :param absent: The code of a tip in :attr:`Site.padded
+            <ancestree.sites.Site.padded>`.
         :return: Iterator over the codes, in the order of ``haplotypes``.
         """
         table = defaultdict(lambda: missing, index)
-        return map(table.__getitem__, map(site.tip_alleles.get, haplotypes))
+        codes = map(table.__getitem__, map(site.tip_alleles.get, haplotypes))
+        if not site.padded:
+            return codes
+        return (absent if h in site.padded else c
+                for h, c in zip(haplotypes, codes))
 
 
 class VCFWriter(Writer):
@@ -903,6 +910,25 @@ class VCFWriter(Writer):
         for field_id, vcf_type, value in info_fields:
             variant.INFO[field_id] = self._coerce_info_value(value, vcf_type)
 
+    @staticmethod
+    def _narrowed(codes, seps) -> "tuple[list[str], list[str]]":
+        """The GT codes and separators without the slots of padded tips.
+
+        :param codes: Each slot's code, ``None`` for a padded tip.
+        :param seps: What follows each slot's code.
+        :return: The codes and separators of the slots kept, each call
+            closed by the separator of its last slot.
+        """
+        kept_codes: list[str] = []
+        kept_seps: list[str] = []
+        for code, sep in zip(codes, seps):
+            if code is not None:
+                kept_codes.append(code)
+                kept_seps.append(sep)
+            elif sep in ("\t", "") and kept_seps:
+                kept_seps[-1] = sep
+        return kept_codes, kept_seps
+
     def _write_from_sites(
         self,
         posteriors: Iterable[tuple[Site, Posterior]],
@@ -941,8 +967,10 @@ class VCFWriter(Writer):
                 pos, alleles, index = self._record(site)
                 codes = self._allele_codes(
                     site, haplotypes, {a: str(i) for a, i in index.items()},
-                    ".")
+                    ".", None)
                 seps = separators(site.unphased) if site.unphased else phased
+                if site.padded:
+                    codes, seps = self._narrowed(codes, seps)
                 chrom = str(site.chrom)
                 contigs[chrom] = None
                 body.write("\t".join((
@@ -1800,7 +1828,7 @@ class ZarrWriter(Writer):
             site_pos, record_alleles, index = self._record(site)
             row = np.full(len(columns) * ploidy, -2, dtype=np.int8)
             row[cells] = np.fromiter(
-                self._allele_codes(site, haplotypes, index, -1),
+                self._allele_codes(site, haplotypes, index, -1, -2),
                 dtype=np.int8, count=len(haplotypes))
             genotypes.append(row.reshape(len(columns), ploidy))
             phased.append([c not in site.unphased for c, _ in columns]

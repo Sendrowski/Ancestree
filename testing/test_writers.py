@@ -1523,6 +1523,94 @@ def test_a_fixed_tree_on_a_tree_sequence_path_writes_every_site(tmp_path, suffix
     assert method(out) == ts.num_sites
 
 
+class TestAHaploidCallInADiploidFileStaysHaploid:
+    """A haploid call beside diploid ones (a male's chrX in a diploid file) is
+    written back haploid, not as a diploid call with a missing second allele
+    (``1|.``, or ``[1, -1]`` in a store), whichever format it is read from."""
+
+    @staticmethod
+    def _input(tmp_path, suffix):
+        from testing._helpers import write_vcf
+
+        vcf = write_vcf(tmp_path / "in.vcf", [
+            ("1", 10, "A", "G", ".", ("0|1", "1", "0|0")),
+            ("1", 20, "C", "T", ".", ("1|1", ".", "0|0")),
+        ], samples=("A", "M", "o1"))
+        if suffix == ".vcz":
+            from ancestree.writers import ZarrWriter
+            from ancestree.sources import CyVCF2Source
+
+            store = str(tmp_path / "in.vcz")
+            ZarrWriter(None, store).write(_fake_posteriors(list(CyVCF2Source(vcf))))
+            return store
+        return vcf
+
+    @pytest.mark.parametrize("read_from", [".vcf", ".vcz"])
+    def test_the_padded_slot_is_marked(self, tmp_path, read_from):
+        source = anc.SiteSource.resolve(self._input(tmp_path, read_from))
+        assert [site.padded for site in source] == [frozenset({"M_h1"})] * 2
+
+    @pytest.mark.parametrize("read_from", [".vcf", ".vcz"])
+    def test_vcf_output(self, tmp_path, read_from):
+        sites = list(anc.SiteSource.resolve(self._input(tmp_path, read_from)))
+        out = str(tmp_path / "out.vcf")
+        VCFWriter(None, out).write(_fake_posteriors(sites))
+        calls = [line.split("\t")[9:] for line in open(out)
+                 if not line.startswith("#")]
+        assert calls == [["0|1", "1", "0|0\n"], ["1|1", ".", "0|0\n"]]
+
+    @pytest.mark.parametrize("read_from", [".vcf", ".vcz"])
+    def test_store_output(self, tmp_path, read_from):
+        import zarr
+        from ancestree.writers import ZarrWriter
+
+        sites = list(anc.SiteSource.resolve(self._input(tmp_path, read_from)))
+        out = str(tmp_path / "out.vcz")
+        ZarrWriter(None, out).write(_fake_posteriors(sites))
+        gt = zarr.open(out, mode="r")["call_genotype"][:]
+        assert gt[:, 1].tolist() == [[1, -2], [-1, -2]]
+
+
+class TestAnUnphasedCallNarrowerThanThePloidyKeepsItsAlleles:
+    """The haplotype order of an unphased heterozygote is drawn over the call's
+    own slots only, so the padding stays trailing and no allele lands in a
+    padded slot, which the writers leave out."""
+
+    def test_vcf_output(self, tmp_path):
+        from ancestree.sources import CyVCF2Source
+        from testing._helpers import write_vcf
+
+        vcf = write_vcf(tmp_path / "in.vcf", [
+            ("1", 10 * k, "A", "G", ".", ("0/1",)) for k in range(1, 9)],
+            samples=("S",))
+        sites = list(CyVCF2Source(vcf, ploidy=4))
+        assert all(site.padded == {"S_h2", "S_h3"} for site in sites)
+        out = str(tmp_path / "out.vcf")
+        VCFWriter(None, out).write(_fake_posteriors(sites))
+        calls = [line.split("\t")[9].strip() for line in open(out)
+                 if not line.startswith("#")]
+        assert sorted(set(calls)) <= ["0/1", "1/0"]
+
+    def test_store_input(self, tmp_path):
+        import zarr
+        from ancestree.sources import VcfZarrSource
+        from ancestree.writers import ZarrWriter
+        from testing._helpers import write_vcz
+
+        store = str(tmp_path / "in.vcz")
+        write_vcz(store, positions=[10 * k for k in range(1, 9)],
+                  contigs_per_variant=[0] * 8, contig_ids=["1"],
+                  alleles=[["A", "G"]] * 8, sample_ids=["S"],
+                  genotypes=np.tile(np.array([[[0, 1, -2, -2]]], np.int8),
+                                    (8, 1, 1)),
+                  phased=False)
+        out = str(tmp_path / "out.vcz")
+        ZarrWriter(None, out).write(_fake_posteriors(list(VcfZarrSource(store))))
+        gt = zarr.open(out, mode="r")["call_genotype"][:, 0]
+        assert (gt[:, 2:] == -2).all()
+        assert sorted(map(sorted, gt[:, :2].tolist())) == [[0, 1]] * 8
+
+
 class TestASiteWhoseTipsAreAllMissingIsBlanked:
     """A site with no readable tip leaves every tip marginalised, so its
     posterior is the prior and its MAP allele is an artefact of the tie-break.

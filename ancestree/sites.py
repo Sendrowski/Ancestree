@@ -106,6 +106,11 @@ class Site:
     Where such a call carries two alleles, its haplotype order is drawn at
     random and not the source's own."""
 
+    padded: "frozenset[str]" = frozenset()
+    """The tips filling the slots of a call narrower than the ploidy, such as
+    a haploid call in a diploid file. The kernel reads them as missing, and
+    the writers leave their slots out of the call."""
+
     @classmethod
     def monomorphic(
         cls,
@@ -1004,7 +1009,7 @@ class SiteTable:
     """Columnar store of polymorphic sites, list-like over :class:`~ancestree.sites.Site`.
 
     Holds positions, contig ids, tree handles, an index into the distinct
-    unphased sets and a ``(n_sites, n_hap) int8``
+    unphased and padded sets and a ``(n_sites, n_hap) int8``
     genotype matrix indexed through the global ``STATE_INDEX``.
 
     Supports ``len``, iteration, indexing, slicing and truthiness, rebuilding
@@ -1015,10 +1020,11 @@ class SiteTable:
 
     __slots__ = ("sample_names", "pos", "genotypes", "alleles", "chrom_of",
                  "_chrom_names", "handle", "unphased_index",
-                 "_unphased_sets")
+                 "_unphased_sets", "padded_index", "_padded_sets")
 
     def __init__(self, sample_names, pos, genotypes, alleles, chrom_of,
-                 chrom_names, handle, unphased_index, unphased_sets):
+                 chrom_names, handle, unphased_index, unphased_sets,
+                 padded_index, padded_sets):
         self.sample_names = tuple(sample_names)
         self.pos = pos
         self.genotypes = genotypes
@@ -1028,6 +1034,8 @@ class SiteTable:
         self.handle = handle
         self.unphased_index = unphased_index
         self._unphased_sets = unphased_sets
+        self.padded_index = padded_index
+        self._padded_sets = padded_sets
 
     @classmethod
     def from_sites(cls, sites, sample_names=None):
@@ -1051,7 +1059,7 @@ class SiteTable:
             return cls(names, np.empty(0, np.int64),
                        np.empty((0, len(names)), np.int8), [],
                        np.empty(0, np.int32), [], np.empty(0, np.float64),
-                       np.empty(0, np.int32), [])
+                       np.empty(0, np.int32), [], np.empty(0, np.int32), [])
         names = tuple(sample_names) if sample_names is not None \
             else tuple(first.tip_alleles)
         n_hap = len(names)
@@ -1060,6 +1068,8 @@ class SiteTable:
         handle = np.full(cap, np.nan, np.float64)
         unphased_index = np.empty(cap, np.int32)
         distinct_unphased: dict = {}
+        padded_index = np.empty(cap, np.int32)
+        distinct_padded: dict = {}
         chrom_of = np.empty(cap, np.int32)
         g = np.full((cap, n_hap), -1, np.int8)
         alleles, chrom_names, chrom_id = [], [], {}
@@ -1070,6 +1080,7 @@ class SiteTable:
                 pos = np.resize(pos, cap)
                 handle = np.resize(handle, cap)
                 unphased_index = np.resize(unphased_index, cap)
+                padded_index = np.resize(padded_index, cap)
                 chrom_of = np.resize(chrom_of, cap)
                 grown = np.full((cap, n_hap), -1, np.int8)
                 grown[:n] = g[:n]
@@ -1085,6 +1096,8 @@ class SiteTable:
             handle[n] = np.nan if h is None else float(h)
             unphased_index[n] = distinct_unphased.setdefault(
                 site.unphased, len(distinct_unphased))
+            padded_index[n] = distinct_padded.setdefault(
+                site.padded, len(distinct_padded))
             alleles.append(tuple(
                 (a.upper() if a is not None else a) for a in site.alleles))
             ta = site.tip_alleles
@@ -1097,7 +1110,8 @@ class SiteTable:
             n += 1
         return cls(names, pos[:n].copy(), g[:n].copy(), alleles,
                    chrom_of[:n].copy(), chrom_names, handle[:n].copy(),
-                   unphased_index[:n].copy(), list(distinct_unphased))
+                   unphased_index[:n].copy(), list(distinct_unphased),
+                   padded_index[:n].copy(), list(distinct_padded))
 
     def __len__(self):
         return len(self.pos)
@@ -1116,14 +1130,16 @@ class SiteTable:
                     pos=int(self.pos[i]), alleles=self.alleles[i],
                     tip_alleles=tip,
                     local_tree_handle=None if h != h else float(h),
-                    unphased=self._unphased_sets[self.unphased_index[i]])
+                    unphased=self._unphased_sets[self.unphased_index[i]],
+                    padded=self._padded_sets[self.padded_index[i]])
 
     def __getitem__(self, i):
         if isinstance(i, slice):
             return SiteTable(self.sample_names, self.pos[i], self.genotypes[i],
                              self.alleles[i], self.chrom_of[i],
                              self._chrom_names, self.handle[i],
-                             self.unphased_index[i], self._unphased_sets)
+                             self.unphased_index[i], self._unphased_sets,
+                             self.padded_index[i], self._padded_sets)
         if i < 0:
             i += len(self)
         return self._site(i)
@@ -1338,23 +1354,28 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         return alleles, site_alleles
 
     def _phase_order(self, sample: str, pos: int,
-                     called: "Iterable[int]") -> "list[int] | None":
+                     called: "Iterable[int]",
+                     width: "int | None" = None) -> "list[int] | None":
         """The haplotype order of one unphased call.
 
         A call whose alleles all agree reads the same in every order, so only
-        a heterozygote is randomised.
+        a heterozygote is randomised. Only the call's own slots are permuted,
+        the slots past its width keeping their place.
 
         :param sample: The sample the call belongs to.
         :param pos: The record's position, which seeds the permutation.
         :param called: The called allele indices, missing ones excluded.
+        :param width: Slots the call carries, ``None`` for the ploidy.
         :return: Source position of each haplotype, or ``None`` to keep the
             written order.
         """
         if len({int(a) for a in called}) <= 1:
             return None
         self._note_unphased_once()
+        width = self._ploidy if width is None else min(width, self._ploidy)
         return self._phase_permutation(
-            self._phase_seed, pos, sample, self._ploidy)
+            self._phase_seed, pos, sample, width) + list(
+                range(width, self._ploidy))
 
     def _note_unphased_once(self) -> None:
         """Report, once, that haplotype assignment is being drawn."""

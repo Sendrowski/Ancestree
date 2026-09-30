@@ -30,20 +30,23 @@ from ancestree.writers import (
 if TYPE_CHECKING:
     import tskit
 
-#: The ``Site.unphased`` of a site whose calls were all read phased.
-_ALL_PHASED: "frozenset[str]" = frozenset()
+#: The empty ``Site.unphased`` or ``Site.padded`` set.
+_NONE: "frozenset[str]" = frozenset()
+
+#: The ``call_genotype`` fill of a slot past a call's own ploidy.
+_FILL = -2
 
 
-def _interned(unphased: "set[str]", seen: "dict") -> "frozenset[str]":
-    """``unphased`` as a frozenset shared with every equal one in ``seen``.
+def _interned(names: "set[str]", seen: "dict") -> "frozenset[str]":
+    """``names`` as a frozenset shared with every equal one in ``seen``.
 
-    :param unphased: The individuals read unphased at a site.
+    :param names: The individuals or tips of one site's set.
     :param seen: The distinct sets built so far.
     :return: The shared frozenset.
     """
-    if not unphased:
-        return _ALL_PHASED
-    key = frozenset(unphased)
+    if not names:
+        return _NONE
+    key = frozenset(names)
     return seen.setdefault(key, key)
 
 
@@ -323,6 +326,7 @@ class CyVCF2Source(SiteSource):
         prev_key = None
         warned_split = False
         seen_unphased: dict = {}
+        seen_padded: dict = {}
         try:
             for variant in vcf:
                 if self._chrom_filter is not None and variant.CHROM != self._chrom_filter:
@@ -341,6 +345,7 @@ class CyVCF2Source(SiteSource):
                 genotypes = variant.genotypes  # indices + a phase flag
                 tip_alleles: dict[str, str | None] = {}
                 unphased: set[str] = set()
+                padded: set[str] = set()
                 for row, sample in zip(self._genotype_rows, self._vcf_samples):
                     call = genotypes[row]
                     order = None
@@ -351,7 +356,8 @@ class CyVCF2Source(SiteSource):
                             unphased.add(sample)
                             order = self._phase_order(
                                 sample, int(variant.POS),
-                                (int(a) for a in call[:-1] if int(a) >= 0))
+                                (int(a) for a in call[:-1] if int(a) >= 0),
+                                len(call) - 1)
                     if call is not None and len(call) - 1 > self._ploidy:
                         self._warn_ploidy_truncated(
                             str(variant.CHROM), int(variant.POS),
@@ -363,6 +369,9 @@ class CyVCF2Source(SiteSource):
                     else:
                         for h, allele in enumerate(haps):
                             tip_alleles[f"{sample}_h{h}"] = allele
+                        if call is not None and len(call) - 1 < self._ploidy:
+                            padded.update(f"{sample}_h{h}" for h in
+                                          range(len(call) - 1, self._ploidy))
 
                 yield Site(
                     chrom=str(variant.CHROM),
@@ -370,6 +379,7 @@ class CyVCF2Source(SiteSource):
                     alleles=site_alleles,
                     tip_alleles=tip_alleles,
                     unphased=_interned(unphased, seen_unphased),
+                    padded=_interned(padded, seen_padded),
                 )
         finally:
             vcf.close()
@@ -527,6 +537,7 @@ class VcfZarrSource(SiteSource):
         prev_pos_key = None
         warned_split = False
         seen_unphased: dict = {}
+        seen_padded: dict = {}
         for start in range(0, self._n_variants, self._chunk_size):
             end = min(start + self._chunk_size, self._n_variants)
             pos_batch = pos_arr[start:end]
@@ -563,13 +574,15 @@ class VcfZarrSource(SiteSource):
                     ph_row = (phased_batch[i] if phased_batch is not None
                               else np.zeros(gt_row.shape[0], dtype=bool))
                 unphased: set[str] = set()
+                padded: set[str] = set()
                 for s_idx, name in enumerate(self._kept_sample_names):
                     order: Sequence[int] = range(self._ploidy)
                     if ph_row is not None and not bool(ph_row[s_idx]):
                         unphased.add(name)
                         order = self._phase_order(
                             name, int(pos_batch[i]),
-                            (int(a) for a in gt_row[s_idx] if int(a) >= 0)
+                            (int(a) for a in gt_row[s_idx] if int(a) >= 0),
+                            int(np.count_nonzero(gt_row[s_idx] != _FILL)),
                         ) or order
                     for h, src in enumerate(order):
                         allele_idx = int(gt_row[s_idx, src])
@@ -577,6 +590,8 @@ class VcfZarrSource(SiteSource):
                         tip_alleles[key] = (
                             raw_alleles[allele_idx]
                             if 0 <= allele_idx < len(raw_alleles) else None)
+                        if allele_idx == _FILL:
+                            padded.add(key)
 
                 yield Site(
                     chrom=str(chrom),
@@ -584,6 +599,7 @@ class VcfZarrSource(SiteSource):
                     alleles=site_alleles,
                     tip_alleles=tip_alleles,
                     unphased=_interned(unphased, seen_unphased),
+                    padded=_interned(padded, seen_padded),
                 )
 
     @staticmethod
