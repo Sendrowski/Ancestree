@@ -3,12 +3,13 @@
 Exposes three subcommands matching the three inference modes:
 
 - ``ancestree fixed-tree``: :class:`~ancestree.inference.FixedTreeInference`
-  on a VCF / VCZ + species-tree Newick. ML-fits branch rates on the
-  outgroup-ladder topology and emits an annotated VCF.
+  on a VCF / VCZ, with an optional species-tree Newick. ML-fits branch
+  rates on the outgroup-ladder topology and emits an annotated VCF or
+  ``.vcz`` store.
 - ``ancestree arg``: :class:`~ancestree.inference.ARGBasedInference`
   on a tskit ``.trees`` file. No outgroups required. The local ARG
-  trees carry the genealogical signal. Emits either an annotated VCF
-  or an annotated ``.trees`` file.
+  trees carry the genealogical signal. Emits an annotated VCF, ``.vcz``
+  store or ``.trees`` file.
 - ``ancestree local-tree``:
   :class:`~ancestree.local_tree_inference.LocalTreeInference` on a VCF / VCZ
   of genotypes alone. Infers a dated local tree per window (PSMC'-style
@@ -393,9 +394,8 @@ def build_parser() -> argparse.ArgumentParser:
     genealogy_parent.add_argument(
         "--mu", type=float, default=None,
         help="Per-site per-generation mutation rate, which scales branch "
-             "lengths into expected substitutions. Defaults to 1e-8 with a "
-             "warning. That is a human / great-ape figure, so pass your "
-             "species' rate.",
+             "lengths into expected substitutions. Default: 1e-8 (human / "
+             "great ape), with a warning.",
     )
     genealogy_parent.add_argument(
         "--out", required=True,
@@ -415,7 +415,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True) -> None:
+def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True,
+                    ) -> "argparse._MutuallyExclusiveGroup | argparse.ArgumentParser":
     """Add the shared ``--model`` flag (and, when ``fit_flags``, the
     ``--fit-kappa`` / ``--fit-rates`` toggles), identical across subcommands.
 
@@ -424,6 +425,8 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True) -> No
         model-parameter fit toggles. ``False`` for ``arg`` and ``local-tree``
         mode, which take branch lengths from the ARG or the inferred local
         trees and never fit the rate matrix.
+    :return: Where ``--base-composition`` was added, a group exclusive with
+        any other source of the composition when ``fit_flags``.
     """
     p.add_argument(
         "--model", default="JC69",
@@ -432,10 +435,12 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True) -> No
     )
     p.add_argument(
         "--prior", default="composition", choices=["composition", "uniform"],
-        help="Prior on the state at the reporting node: the base composition, "
-             "uniform without one, or uniform. Default: composition.",
+        help="Prior on the state at the reporting node. 'composition' "
+             "(default) uses the pi of --base-composition, uniform when none "
+             "is given. 'uniform' is flat.",
     )
-    p.add_argument(
+    composition = p.add_mutually_exclusive_group() if fit_flags else p
+    composition.add_argument(
         "--base-composition", type=_base_composition, default=None,
         metavar="SRC",
         help="Whole-region base composition, as a FASTA path or per-base "
@@ -451,6 +456,7 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True) -> No
             "--fit-rates", action="store_true",
             help="GTR only: fit the six exchangeability rates jointly.",
         )
+    return composition
 
 
 def _add_focal_anchor(p: argparse.ArgumentParser) -> None:
@@ -581,7 +587,8 @@ def _add_fixed_tree_parser(
     )
     p.add_argument(
         "--vcf", required=True,
-        help="Input VCF / VCF.GZ / BCF / VCZ store with the polymorphic sites.",
+        help="Input VCF / VCF.GZ / BCF / VCZ store with the polymorphic "
+             "sites, or a .trees file whose genotypes are read.",
     )
     p.add_argument(
         "--species-tree", default=None,
@@ -605,7 +612,7 @@ def _add_fixed_tree_parser(
             "(must match VCF and Newick names)."
         ),
     )
-    _add_model_args(p)
+    composition = _add_model_args(p)
     p.add_argument(
         "--baseline-check", action=argparse.BooleanOptionalAction,
         default=_lib_default(FixedTreeInference, "baseline_check"),
@@ -636,11 +643,11 @@ def _add_fixed_tree_parser(
         "--n-target-sites", type=int, default=None,
         help=(
             "Genome length L for monomorphic-site calibration, required for "
-            "the branch-rate MLE. See the Python API to supply an explicit "
-            "base composition instead."
+            "the branch-rate MLE unless --base-composition supplies per-base "
+            "counts."
         ),
     )
-    p.add_argument(
+    composition.add_argument(
         "--empirical-composition", action="store_true",
         help="Derive the base composition (pi) and the transition / transversion "
              "ratio (kappa) from the input variants in place of the uniform "
@@ -746,7 +753,9 @@ def _add_local_tree_parser(
     )
     p.add_argument(
         "--vcf", required=True,
-        help="Input VCF / VCF.GZ / BCF / VCZ store of the panel genotypes.",
+        help="Input VCF / VCF.GZ / BCF / VCZ store of the panel genotypes, "
+             "or a .trees file whose genotypes are read and whose genealogy "
+             "is ignored (the `arg` subcommand scores it).",
     )
     p.add_argument(
         "--ploidy", type=int, default=None,
@@ -968,12 +977,6 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         ("max_calibration_sites", not args.empirical_composition,
          "without --empirical-composition"),
     ])
-    if args.empirical_composition and args.base_composition is not None:
-        raise SystemExit(
-            "fixed-tree: pass --base-composition or --empirical-composition, "
-            "not both. The first is a whole-region tally, the second reads "
-            "the input variants, where a base's share is weighted by how "
-            "readily it mutates.")
     out_format = _out_format(args, "fixed-tree", ("vcf", "vcz"))
     if st and args.ingroup_weight == "adaptive":
         _log.warning(

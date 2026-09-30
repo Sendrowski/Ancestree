@@ -289,7 +289,8 @@ def _by_individual(ids: "Iterable[str]") -> "frozenset[str]":
 
 #: Why :func:`_unlabelled` drops a sample, when both lists are named and when
 #: only the outgroups are.
-_NEITHER = "are in neither ingroup_samples nor outgroup_samples"
+_NEITHER = ("are in neither ingroup_samples (--ingroup) nor outgroup_samples "
+            "(--outgroups)")
 _SIBLING = "are other haplotypes of outgroup individuals"
 
 
@@ -1302,13 +1303,10 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     def _phase_permutation(seed: int, pos: int, sample: str, ploidy: int) -> list[int]:
         """Draw a haplotype order for one unphased genotype.
 
-        The 64-bit key is unranked into an ordering through the factorial
-        number system, in integer arithmetic alone, so the draw is uniform
-        over the ``ploidy!`` orderings to within the bias of reducing 64
-        bits modulo ``ploidy!``, below ``1e-14`` for any ploidy up to eight.
-        The key is derived from the record's position, the sample name and
-        the ploidy, so the ordering is stable across passes and filters and
-        reproducible across runs and platforms.
+        A 64-bit key hashed from ``seed``, ``pos``, ``sample`` and ``ploidy``
+        is unranked into one of the ``ploidy!`` orderings through the
+        factorial number system. The modulo bias is below ``1e-14`` for
+        ploidy up to eight.
 
         :param seed: The source's ``phase_seed``.
         :param pos: The record's position.

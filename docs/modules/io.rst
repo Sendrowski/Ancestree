@@ -15,7 +15,8 @@ for a bare install, and the VCF and Zarr backends are imported on first use.
 Every haplotype is a separate tip, so a diploid sample ``S`` appears as ``S_h0``
 and ``S_h1``. Either a haplotype name or the individual's own name may be given
 when naming ingroup and outgroup samples, an individual standing for all of its
-haplotypes.
+haplotypes. In fixed-tree mode each outgroup is one ladder tip, so an outgroup
+is named by haplotype.
 
 A :class:`~ancestree.writers.Writer` writes the result back out: each site's MAP
 ancestral allele, its posterior, and a record of the run. Where the input file
@@ -24,8 +25,8 @@ annotated as a store, :class:`~ancestree.writers.VCFWriter` and
 :class:`~ancestree.writers.ZarrWriter` copy that file and add the annotations to
 its records. Where it is not, they write one record per site, carrying the
 site's alleles and the genotypes of the panel.
-:class:`~ancestree.writers.TskitWriter` writes the tree sequence the run
-scored.
+:class:`~ancestree.writers.TskitWriter` writes the input tree sequence in
+ARG mode and the plug-in local trees in local-tree mode.
 
 :class:`~ancestree.readers.Reader` reads an annotated file back, dispatching on
 the path's suffix to recover the per-site annotations, as

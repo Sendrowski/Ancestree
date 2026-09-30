@@ -1316,7 +1316,8 @@ class LocalTreeInference(Inference):
         positive, replacing the data-calibrated grid and overriding
         ``n_time_bins``. At most ``MAX_TIME_BINS + 1`` edges may be given.
     :param prior: Optional root :class:`~ancestree.priors.StationaryPrior`;
-        ``None`` (default) uses the per-data base composition.
+        ``None`` (default) applies the π of ``base_composition``, uniform
+        when none is supplied.
     :param base_composition: Optional base composition for the prior.
     :param progress: Show a tqdm bar, over segments on the chunked path and
         over trees on a single-region build.
@@ -1352,22 +1353,18 @@ class LocalTreeInference(Inference):
         greater than this.
     :param recombination_map: Optional HapMap file path or
         :class:`msprime.RateMap` (in the input's bp coordinates) driving the
-        HMM's TMRCA-reset rate in place of the constant ``rec_rate``. See
-        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per
-        segment on the chunked path.
+        HMM's TMRCA-reset rate in place of the constant ``rec_rate``.
     :param accessibility: Optional BED file path, or sequence of half-open
-        ``(start, end)`` bp intervals, marking the callable genome. See
-        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Sliced per
-        segment on the chunked path.
+        ``(start, end)`` bp intervals, marking the callable genome.
     :param mutation_map: Optional bedGraph file path or
         :class:`msprime.RateMap` (in the input's bp coordinates) giving the
         local mutation rate for the HMM emission in place of the constant
-        ``mu``. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
-        Sliced per segment on the chunked path.
+        ``mu``.
 
-        Each of the three also accepts a ``{contig: map}`` dict, as
-        :class:`~ancestree._maps.MapFiles` reads a file carrying a contig
-        column, and the entry for the sites' own contig applies.
+        Each of the three also accepts a ``{contig: map}`` dict, whose entry
+        for the sites' contig applies. A file is read into one entry per
+        contig. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
+        On the chunked path each map is sliced per segment.
     :param outgroup_samples: Sample ids treated as outgroups, used by the
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
@@ -1391,8 +1388,7 @@ class LocalTreeInference(Inference):
         below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
         ``sample_names`` is needed and absent, if a named sample is absent
         from the panel or named in both lists, or if ``sample_names`` names a
-        sample in neither list while both are named, or another haplotype of an
-        outgroup individual while only outgroups are.
+        sample that ``outgroup_samples`` drops.
     """
 
     @staticmethod
@@ -1528,8 +1524,9 @@ class LocalTreeInference(Inference):
         if isinstance(source, TskitSource):
             self._log.warning(
                 "LocalTreeInference infers local trees from the genotypes of "
-                "the tree sequence and ignores its genealogy, which "
-                "Inference.from_arg() scores directly.")
+                "the tree sequence and ignores its genealogy, which ARG mode "
+                "(Inference.from_arg(), the `arg` subcommand) scores "
+                "directly.")
             if sequence_length is None:
                 sequence_length = source._ts.sequence_length
         if ingroup_samples and outgroup_samples:
@@ -1607,8 +1604,9 @@ class LocalTreeInference(Inference):
 
         if sequence_length is None:
             raise ValueError(
-                "building requires sequence_length (or set chunk_size to use "
-                "the chunked path, which derives it per segment)"
+                "building requires sequence_length (--sequence-length), or "
+                "chunk_size (--chunk-size) for the chunked path, which "
+                "derives it per segment"
             )
         self._log_start()
         if hasattr(source, "__next__"):
@@ -2786,12 +2784,6 @@ class LocalTreeInference(Inference):
     def _output_template(self, given, fmt, output, restrict_samples):
         """As :meth:`Inference._output_template`, refusing a relabelled run.
 
-        :param given: The file passed for the output, or ``None``.
-        :param fmt: ``"vcf"`` or ``"vcz"``.
-        :param output: Destination path.
-        :param restrict_samples: Whether an annotated file keeps only the
-            samples the inference used.
-        :return: ``(template, samples)``.
         :raises ValueError: If ``chrom`` renames the sites of an output that
             annotates a file, whose records keep their own contig names.
         """
@@ -2806,7 +2798,7 @@ class LocalTreeInference(Inference):
                 f"chrom={self.chrom!r} renames the sites of contig "
                 f"{first.chrom!r}, so {output} cannot annotate {template}, "
                 f"whose records keep their own contig names. Write an output "
-                f"of another format, or leave chrom unset.")
+                f"of another format, or leave chrom (--chrom) unset.")
         return template, samples
 
     def _source_tree_sequence(

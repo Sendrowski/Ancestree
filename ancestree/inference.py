@@ -583,7 +583,8 @@ class Inference(ReprMixin, ABC):
     @staticmethod
     def _check_filter_labelled(sample_filter, ingroup_samples,
                                outgroup_samples,
-                               chosen_by: str = "sample_filter") -> None:
+                               chosen_by: str = "sample_filter (--samples)",
+                               ) -> None:
         """Refuse a sample of ``sample_filter`` whose individual is in neither
         the ingroup nor the outgroups.
 
@@ -1276,17 +1277,9 @@ class Inference(ReprMixin, ABC):
     ) -> int:
         """Write the annotated output through ``writer_cls``.
 
-        :param writer_cls: The :class:`~ancestree.writers.Writer` to feed.
-        :param fmt: ``"vcf"`` or ``"vcz"``, the format a template must have.
-        :param output: Destination path.
-        :param given: The file passed to annotate, or ``None``.
-        :param info: Run-level constants recorded alongside the annotations.
-        :param provenance: The caller's provenance mapping, or ``None``.
-        :param min_confidence: MAP posterior below which a site is blanked.
-        :param store_posterior: Whether the per-state posterior is written.
-        :param posteriors: Scored pairs, or ``None`` to run :meth:`infer`.
-        :param restrict_samples: Whether an annotated file keeps only the
-            samples the inference used.
+        Parameters as :meth:`to_vcf`, with ``fmt`` the format a template must
+        have and ``given`` the file passed to annotate.
+
         :return: Number of records annotated.
         """
         supplied, provenance = provenance, self._resolve_provenance(
@@ -1320,9 +1313,8 @@ class Inference(ReprMixin, ABC):
         Feeds the posteriors to :class:`~ancestree.writers.ZarrWriter`, which
         adds the ``variant_AA`` / ``variant_AA_prob`` / ``variant_AA_post``
         arrays plus the provenance record (see that writer for the on-disk
-        layout). The writer annotates a copy of ``input_zarr``, or of the
-        local store this inference was constructed from. Otherwise it writes
-        one variant per site, holding the panel.
+        layout). The writer annotates a copy of ``input_zarr``, or without
+        one writes one variant per site, holding the panel.
 
         :param output_zarr: Destination VCZ store path, which must differ from
             the store it annotates.
@@ -1367,9 +1359,8 @@ class Inference(ReprMixin, ABC):
         """Write an annotated VCF with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` fields.
 
         Feeds the posteriors to :class:`~ancestree.writers.VCFWriter`, which
-        annotates the records of ``input_vcf``, or of the VCF this inference
-        was constructed from. Otherwise it writes one record per site,
-        holding the panel.
+        annotates the records of ``input_vcf``, or without one writes one
+        record per site, holding the panel.
 
         :param output_vcf: Where to write the annotated output.
         :param input_vcf: VCF to annotate. Defaults to the VCF the inference
@@ -1550,8 +1541,7 @@ class ARGBasedInference(Inference):
         interval-weighted mean over each local tree's span.
     :param base_composition: Optional :class:`~ancestree.sites.BaseComposition`
         of empirical base frequencies. Required by the non-symmetric models,
-        ignored by :class:`~ancestree.models.JC69` and
-        :class:`~ancestree.models.K2`. ``None`` is uniform.
+        and the π of the root prior under every model. ``None`` is uniform.
     :param prior: Optional root :class:`~ancestree.priors.StationaryPrior`
         applied after the kernel. ``None`` (default) builds one from the base
         composition. An :class:`~ancestree.priors.IngroupWeight` is rejected
@@ -1597,8 +1587,7 @@ class ARGBasedInference(Inference):
         passed as ``prior``, which this mode does not fit.
     :raises ValueError: If a named ingroup or outgroup sample is absent from
         the panel or named in both lists, or if ``sample_map`` names a sample
-        in neither list while both are named, or another haplotype of an
-        outgroup individual while only outgroups are.
+        that ``outgroup_samples`` drops.
     """
 
     @property
@@ -2521,10 +2510,13 @@ class FixedTreeInference(Inference):
     :param tree: Optional pre-built :class:`~ancestree.trees.OutgroupLadderTree`,
         fitted in place, whose sample lists are read from it. ``None``
         (default) builds the ladder from the sample names.
-    :param ingroup_samples: Ingroup sample names. Required without ``tree``.
+    :param ingroup_samples: Ingroup sample names. Defaults to every panel
+        haplotype whose individual is not an outgroup (see
+        :meth:`FixedTreeInference.default_ingroup()
+        <ancestree.inference.FixedTreeInference.default_ingroup>`).
     :param outgroup_samples: Outgroup sample names, closest first. Required
-        without ``tree``. ``[]`` is the no-outgroup mode, where the prior
-        alone is the posterior.
+        without ``tree``. ``[]`` is the no-outgroup mode, where the ingroup
+        weight and the root prior alone give the posterior.
     :param model: Substitution model. Defaults to :class:`~ancestree.models.JC69`.
         Branch rates are in expected substitutions per site, so there is no
         ``mu`` argument.

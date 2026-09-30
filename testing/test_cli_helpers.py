@@ -456,12 +456,13 @@ class TestBaseCompositionFlag:
         np.testing.assert_allclose(args.base_composition.pi,
                                    [0.4, 0.1, 0.1, 0.4])
 
-    def test_the_two_composition_flags_are_exclusive(self, tmp_path):
+    def test_the_two_composition_flags_are_exclusive(self, tmp_path, capsys):
         """One is a whole-region tally, the other reads the input variants."""
         from ancestree.cli import run
 
-        with pytest.raises(SystemExit, match="not both"):
+        with pytest.raises(SystemExit):
             run(["fixed-tree", "--vcf", str(tmp_path / "x.vcf"),
                  "--outgroups", "o1", "--out", str(tmp_path / "y.vcf"),
                  "--base-composition", "A=4,C=1,G=1,T=4",
                  "--empirical-composition"])
+        assert "not allowed with argument" in capsys.readouterr().err
