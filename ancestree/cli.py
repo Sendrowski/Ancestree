@@ -36,13 +36,14 @@ from __future__ import annotations
 import argparse
 import inspect
 import logging
+import os
 import sys
 from typing import Sequence
 
 from ancestree import STATES, __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
-from ancestree.sites import _path_format, _replaceable_store
+from ancestree.sites import _is_zarr_store, _path_format, _replaceable_store
 
 __all__ = ["main", "build_parser", "run"]
 
@@ -107,6 +108,19 @@ def _split_csv(value: str) -> list[str]:
     :return: List of trimmed, non-empty tokens.
     """
     return [tok.strip() for tok in value.split(",") if tok.strip()]
+
+
+def _probability(value: str) -> float:
+    """Parse a probability in ``[0, 1]``.
+
+    :param value: Raw flag value from the command line.
+    :return: The probability.
+    :raises argparse.ArgumentTypeError: If the value lies outside ``[0, 1]``.
+    """
+    p = float(value)
+    if not 0.0 <= p <= 1.0:
+        raise argparse.ArgumentTypeError(f"{value} is not in [0, 1]")
+    return p
 
 
 def _warn_ignored(args, pairs) -> None:
@@ -371,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
              "metadata). The MAP allele and its probability are still written.",
     )
     output_parent.add_argument(
-        "--min-confidence", type=float, default=None, metavar="P",
+        "--min-confidence", type=_probability, default=None, metavar="P",
         help="Blank the ancestral-allele call at any site whose MAP posterior "
              "is below P, writing AA=. instead. The posterior itself is still "
              "written where it is requested. Default: report every site.",
@@ -1096,6 +1110,39 @@ def _run_arg(args: argparse.Namespace) -> int:
     return _write_output(inference, args, out_format)
 
 
+def _input_contigs(path: str) -> "list[str] | None":
+    """The contigs holding records in a VCF Zarr store or an indexed VCF,
+    read without a pass over the records.
+
+    :param path: The input path.
+    :return: The contigs, or ``None`` for an input that would need a full
+        read, such as a VCF without a ``.tbi`` or ``.csi`` index.
+    """
+    fmt = _path_format(path)
+    if fmt == "vcz" and _is_zarr_store(path):
+        import numpy as np
+        import zarr
+
+        root = zarr.open(path, mode="r")
+        names = root["contig_id"][:]
+        return [str(names[i]) for i in np.unique(root["variant_contig"][:])]
+    if fmt == "vcf" and any(os.path.exists(path + ext)
+                            for ext in (".tbi", ".csi")):
+        import warnings
+
+        import cyvcf2
+
+        vcf = cyvcf2.VCF(path)
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)  # empty contigs
+                return [c for c in vcf.seqnames
+                        if next(iter(vcf(c)), None) is not None]
+        finally:
+            vcf.close()
+    return None
+
+
 def _run_local_tree(args: argparse.Namespace) -> int:
     """Execute the ``local-tree`` subcommand.
 
@@ -1106,7 +1153,9 @@ def _run_local_tree(args: argparse.Namespace) -> int:
 
     :param args: Parsed argparse namespace from :func:`build_parser`.
     :return: Process exit code (0 on success).
-    :raises SystemExit: If ``--out`` has an unsupported extension.
+    :raises SystemExit: If ``--out`` has an unsupported extension, or if a
+        ``.trees`` output, ``--out-trees`` or ``--chrom`` meets an input whose
+        index or store lists records on several contigs.
     """
     chunked = getattr(args, "chunk_size", None) is not None
     no_ens = bool(getattr(args, "no_ensemble", False))
@@ -1120,6 +1169,16 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         ("member_chunk", no_ens, "with --no-ensemble"),
     ])
     out_format = _out_format(args, "local-tree", ("vcf", "vcz", "trees"))
+    single = [flag for flag, given in (
+        ("a .trees --out", out_format == "trees"),
+        ("--out-trees", bool(getattr(args, "out_trees", None))),
+        ("--chrom", getattr(args, "chrom", None) is not None)) if given]
+    contigs = _input_contigs(str(args.vcf)) if single else None
+    if contigs is not None and len(contigs) > 1:
+        raise SystemExit(
+            f"local-tree: {' and '.join(single)} need a single-contig input, "
+            f"but {args.vcf} holds records on {len(contigs)} contigs "
+            f"({', '.join(contigs[:5])}). Split the input by contig.")
     from ancestree.local_tree_inference import LocalTreeInference
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)

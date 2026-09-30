@@ -115,6 +115,12 @@ class TestDiploidVCF:
         # Each VCF sample contributes exactly 2 hap ids.
         assert len(samples) == 2 * 5
 
+    def test_a_ploidy_above_the_calls_is_reported(self, vcf_path, caplog):
+        """The third haplotype of every call would be missing."""
+        with caplog.at_level("WARNING", logger="ancestree"):
+            CyVCF2Source(vcf_path, ploidy=3)
+        assert "ploidy=3 exceeds the 2 haplotype(s)" in caplog.text
+
     def test_each_site_has_2n_tip_alleles(self, vcf_path):
         src = CyVCF2Source(vcf_path)
         first = next(iter(src))

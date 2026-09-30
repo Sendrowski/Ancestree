@@ -233,23 +233,27 @@ class CyVCF2Source(SiteSource):
                 else list(self._sample_filter))
             row_of = {name: i for i, name in enumerate(file_order)}
             self._genotype_rows = [row_of[s] for s in self._vcf_samples]
+            # Ploidy is len(genotype) - 1. A bare "." reaches htslib as one
+            # value, so records are probed until one carries a called
+            # genotype. A sites-only VCF defaults to diploid.
+            detected = None
+            for _ in range(_PLOIDY_PROBE_RECORDS):
+                record = next(iter(vcf), None)
+                if record is None:
+                    break
+                gts = record.genotypes
+                if not gts:
+                    break
+                if any(a >= 0 for g in gts for a in g[:-1]):
+                    detected = max((len(g) - 1 for g in gts), default=1)
+                    break
             if ploidy is None:
-                # Ploidy is len(genotype) - 1. A bare "." reaches htslib as one
-                # value, so records are probed until one carries a called
-                # genotype. A sites-only VCF defaults to diploid.
-                for _ in range(_PLOIDY_PROBE_RECORDS):
-                    record = next(iter(vcf), None)
-                    if record is None:
-                        break
-                    gts = record.genotypes
-                    if not gts:
-                        break
-                    if any(a >= 0 for g in gts for a in g[:-1]):
-                        ploidy = max((len(g) - 1 for g in gts), default=1)
-                        break
-                if ploidy is None:
-                    ploidy = 2
-                ploidy = max(1, ploidy)
+                ploidy = max(1, detected if detected is not None else 2)
+            elif detected is not None and ploidy > detected:
+                self._log.warning(
+                    "ploidy=%d exceeds the %d haplotype(s) of the first called "
+                    "record of %s. A call narrower than the ploidy leaves its "
+                    "extra haplotypes missing.", ploidy, detected, self._path)
         finally:
             vcf.close()
 

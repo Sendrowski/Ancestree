@@ -1208,3 +1208,52 @@ def test_local_tree_reads_a_tree_sequence_through_the_cli(tmp_path):
                 "--chunk-size", "none", "--no-ensemble"])
     assert code == 0
     assert sum(1 for line in open(out) if not line.startswith("#")) > 0
+
+
+class TestInputChecks:
+    """Arguments a run cannot use are refused before any inference."""
+
+    def test_min_confidence_outside_the_unit_interval(self, tmp_path, capsys):
+        with pytest.raises(SystemExit):
+            run(["arg", "--trees", str(QUICKSTART_TREES), "--mu", "1e-7",
+                 "--min-confidence", "1.5", "--out", str(tmp_path / "o.vcf")])
+        assert "not in [0, 1]" in capsys.readouterr().err
+
+    def test_a_single_contig_output_of_a_multi_contig_store(self, tmp_path):
+        from testing._helpers import write_vcz
+
+        store = str(tmp_path / "two.vcz")
+        write_vcz(store, positions=[100, 200], contigs_per_variant=[0, 1],
+                  contig_ids=["1", "2"], alleles=[["A", "C"], ["T", "G"]],
+                  sample_ids=["s1", "s2"],
+                  genotypes=np.zeros((2, 2, 2), dtype=np.int8))
+        with pytest.raises(SystemExit, match="holds records on 2 contigs"):
+            run(["local-tree", "--vcf", store, "--mu", "1e-7",
+                 "--chrom", "X", "--out", str(tmp_path / "o.vcf")])
+
+
+def test_a_directory_holding_no_store_is_refused_as_input(tmp_path):
+    """The contig check before the run leaves a non-store directory to the
+    source, which names what is wrong with it."""
+    junk = tmp_path / "junk.vcz"
+    junk.mkdir()
+    with pytest.raises(ValueError, match="is a directory but not a Zarr store"):
+        run(["local-tree", "--vcf", str(junk), "--mu", "1e-7",
+             "--out", str(tmp_path / "o.trees")])
+
+
+def test_restrict_samples_keeps_the_panel_columns(tmp_path):
+    """An output annotating the input keeps every column unless restricted."""
+    from testing._helpers import QUICKSTART_VCF
+
+    def columns(*extra):
+        out = tmp_path / f"out{len(extra)}.vcf"
+        assert run(["fixed-tree", "--vcf", QUICKSTART_VCF, "--ingroup",
+                    "i0,i1,i2", "--outgroups", "o0", "--n-target-sites",
+                    "50000", "--out", str(out), *extra]) == 0
+        header = next(line for line in out.read_text().splitlines()
+                      if line.startswith("#CHROM"))
+        return header.split("\t")[9:]
+
+    assert columns() == ["i0", "i1", "i2", "i3", "i4", "i5", "o0", "o1"]
+    assert columns("--restrict-samples") == ["i0", "i1", "i2", "o0"]

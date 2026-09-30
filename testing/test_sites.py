@@ -74,6 +74,11 @@ class TestColumnarRoundTripKeepsMissingTips:
         assert PolymorphicSiteFilter(samples=list(self.NAMES)).accepts(rebuilt)
 
 
+def test_a_directory_holding_no_store_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="is a directory but not a Zarr store"):
+        SiteSource.resolve(str(tmp_path))
+
+
 class TestPhaseArgumentsAreRefusedWhereTheyCannotApply:
     """A tree sequence carries its own phase, so accepting these discards them.
 

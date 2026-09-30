@@ -254,11 +254,19 @@ def _replaceable_store(path: "str | os.PathLike") -> bool:
     text = str(path)
     if not os.path.exists(text):
         return True
-    if not os.path.isdir(text):
-        return False
-    return (not os.listdir(text)
-            or any(os.path.exists(os.path.join(text, marker))
-                   for marker in (".zgroup", "zarr.json")))
+    return os.path.isdir(text) and (not os.listdir(text)
+                                    or _is_zarr_store(text))
+
+
+def _is_zarr_store(path: "str | os.PathLike") -> bool:
+    """Whether ``path`` is a directory holding a Zarr group (``.zgroup`` or
+    ``zarr.json``).
+
+    :param path: A local path.
+    :return: ``True`` for a Zarr store.
+    """
+    return any(os.path.exists(os.path.join(str(path), marker))
+               for marker in (".zgroup", "zarr.json"))
 
 
 def _individual_of(sample_id: str) -> str:
@@ -1241,7 +1249,8 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         :return: A re-iterable site source.
         :raises TypeError: If ``source``'s type is not recognised.
         :raises ValueError: If a reader argument is given for a tree sequence
-            or a pre-built source, which carry their own panel and contigs.
+            or a pre-built source, which carry their own panel and contigs, or
+            if a directory holds no Zarr store.
         """
         if isinstance(source, (SiteSource, list)):
             cls._refuse_unsupported_filters(
@@ -1268,6 +1277,10 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                 kwargs["phase_seed"] = phase_seed
             if fmt == "vcz":
                 from ancestree.sources import VcfZarrSource
+                if os.path.isdir(source) and not _is_zarr_store(source):
+                    raise ValueError(
+                        f"{source} is a directory but not a Zarr store; a "
+                        f"VCF Zarr input holds .zgroup or zarr.json.")
                 if ploidy is not None:
                     raise ValueError(
                         "ploidy is read from the store's call_genotype array for "
