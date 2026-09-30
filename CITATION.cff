@@ -1,6 +1,8 @@
 cff-version: 1.2.0
 message: If you use this software, please cite the article below.
 title: Ancestree
+version: 0.2.0
+date-released: 2026-09-30
 authors:
   - family-names: Sendrowski
     given-names: Janek
