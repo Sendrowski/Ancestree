@@ -958,6 +958,30 @@ class TestNoOutgroupMonomorphic:
         assert post["G"] == 1.0
         assert post.max_prob == 1.0
 
+    def test_the_root_prior_applies(self):
+        """A skewed base composition moves a segregating site's posterior
+        as it does in every other mode, and ``prior=`` overrides it."""
+        from ancestree import BaseComposition, StationaryPrior
+
+        ingroup = ["i1", "i2", "i3"]
+        site = Site(chrom="1", pos=2, alleles=("A", "G"),
+                    tip_alleles={"i1": "A", "i2": "G", "i3": "G"})
+        bc = BaseComposition.from_counts(A=700, C=100, G=100, T=100)
+
+        def infer(**kw):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                inf = FixedTreeInference(
+                    [site], ingroup_samples=ingroup, outgroup_samples=[],
+                    model=JC69(), progress=False, **kw)
+            return [p for _, p in inf.infer()][0]
+
+        flat, skewed = infer(), infer(base_composition=bc)
+        ratio = (skewed["A"] / skewed["G"]) / (flat["A"] / flat["G"])
+        assert ratio == pytest.approx(7.0)
+        explicit = infer(prior=StationaryPrior(JC69(), bc))
+        assert explicit["A"] == pytest.approx(skewed["A"])
+
     def test_polymorphic_still_uses_prior(self):
         """A segregating ingroup must keep the (non-degenerate) SFS prior."""
         ingroup = ["i1", "i2", "i3"]

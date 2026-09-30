@@ -2658,7 +2658,7 @@ class FixedTreeInference(Inference):
             if outgroup_samples is None:
                 outgroup_samples = list(tree.outgroup_samples) or None
 
-        # No-outgroup mode: the posterior is the normalised prior on the ingroup.
+        # No-outgroup mode: the posterior comes from the ingroup alone.
         self._no_outgroup_mode = (
             outgroup_samples is not None and len(outgroup_samples) == 0
         )
@@ -2697,7 +2697,7 @@ class FixedTreeInference(Inference):
             else BaseComposition.no_counts()
         )
 
-        # Resolve the topology: no-outgroup (prior is the posterior), an
+        # Resolve the topology: no-outgroup (no ladder), an
         # explicit ladder, or one built from the ingroup / outgroup names.
         if self._no_outgroup_mode:
             if ingroup_samples is None:
@@ -2705,7 +2705,7 @@ class FixedTreeInference(Inference):
                     "FixedTreeInference: ingroup_samples is required even "
                     "in the no-outgroup mode (outgroup_samples=[])."
                 )
-            actual_tree = None  # no ladder. The prior is the posterior
+            actual_tree = None
             self._ingroup_samples_no_out: list[str] = list(ingroup_samples)
         elif tree is not None:
             actual_tree = tree
@@ -2797,19 +2797,32 @@ class FixedTreeInference(Inference):
         self.fit_required = bool(fit_required)
         self.baseline_check = bool(baseline_check)
 
+        from ancestree.priors import StationaryPrior
+        if prior is not None and not isinstance(prior, StationaryPrior):
+            raise TypeError(
+                f"prior must be a StationaryPrior or None; got "
+                f"{type(prior).__name__}. An IngroupWeight belongs in "
+                f"ingroup_weight=, where it is seeded once on the ingroup "
+                f"MRCA; passing it as prior= applies it again at the readout."
+            )
+        self.prior = (
+            prior if prior is not None
+            else StationaryPrior(model, self.base_composition)
+        )
+
         if self._no_outgroup_mode:
-            # No ladder, parameters or fit: infer() emits the normalised prior.
+            # No ladder, parameters or fit: infer() emits the normalised
+            # ingroup weight times the root prior.
             from ancestree.priors import KingmanIngroupWeight
             self.ingroup_weight = (
                 ingroup_weight if ingroup_weight is not None
                 else KingmanIngroupWeight(self._ingroup_samples_no_out)
             )
-            self.prior = prior
             self._log.warning(
                 "FixedTreeInference: no outgroups supplied (outgroup_samples=[]). "
-                "Using the prior alone: no branch-rate fit and no Felsenstein "
-                "evaluation. Per-site posteriors are the normalised prior over "
-                "the ingroup; under the default KingmanIngroupWeight, "
+                "Using the ingroup alone: no branch-rate fit and no Felsenstein "
+                "evaluation. Per-site posteriors are the normalised ingroup "
+                "weight times the root prior; under the default KingmanIngroupWeight, "
                 "mono-allelic ingroup sites fall back to uniform but "
                 "polyallelic sites cannot place mass on unobserved alleles. "
                 "Supply outgroup_samples for a proper fit, or pass a smoother "
@@ -2891,19 +2904,6 @@ class FixedTreeInference(Inference):
             )
 
         self.ingroup_weight = ingroup_weight
-        from ancestree.priors import StationaryPrior
-        if prior is not None and not isinstance(prior, StationaryPrior):
-            raise TypeError(
-                f"prior must be a StationaryPrior or None; got "
-                f"{type(prior).__name__}. An IngroupWeight belongs in "
-                f"ingroup_weight=, where it is seeded once on the ingroup "
-                f"MRCA; passing it as prior= applies it again at the readout."
-            )
-        self.prior = (
-            prior if prior is not None
-            else StationaryPrior(model, self.base_composition)
-        )
-
         # ---- model-internal free params (e.g. K2/HKY's kappa, GTR's rates)
         self._model_free_param_names: tuple[str, ...] = tuple(model.free_params)
         self._model_free_param_bounds: list[tuple[float, float]] = [
@@ -3594,13 +3594,15 @@ class FixedTreeInference(Inference):
                     "Inferring the ancestral allele at %s site(s) on the "
                     "fitted outgroup ladder", f"{len(self.sites):,}")
         if self._no_outgroup_mode:
-            # The posterior is the normalised ingroup weight. A monoallelic
-            # ingroup takes all mass on its observed allele.
+            # The posterior is the normalised ingroup weight times the root
+            # prior. A monoallelic ingroup takes all mass on its observed
+            # allele.
             if not self.sites:
                 return
             self._count_ingroup_monomorphic(self.sites)
             self._count_unrepresentable(self.sites)
-            log_pr = self.ingroup_weight.log_probs(self.sites)
+            log_pr = (self.ingroup_weight.log_probs(self.sites)
+                      + self.prior.log_probs(self.sites))
             post = self._normalise_log_post(
                 log_pr, n_states=self.model.n_states)
             states = self.model.states

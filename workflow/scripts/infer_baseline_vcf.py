@@ -93,7 +93,7 @@ ingroup_weight = KingmanIngroupWeight(ingroup_samples=ingroup_names)
 truth = {int(s.position): s.ancestral_state for s in ts.sites()}
 
 # Native path: FixedTreeInference handles outgroup_samples=[] as
-# "no ladder, posterior = normalised prior on the ingroup".
+# "no ladder, posterior = normalised ingroup weight times the root prior".
 vcf_inf = Inference.from_fixed_tree(
     in_vcf,
     ingroup_samples=ingroup_names,
