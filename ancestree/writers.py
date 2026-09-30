@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 from ancestree.posterior import Posterior
 from ancestree import STATE_INDEX, STATES
 from ancestree.sites import (Site, SiteSource, _by_individual,
-                             _individual_of, _named)
+                             _individual_of, _named, _replaceable_store)
 from ancestree._repr import ReprMixin
 
 
@@ -1339,6 +1339,8 @@ class ZarrWriter(Writer):
         in a store written from the sites where every contig has one. ``None``
         (default) stores none.
     :raises ImportError: If ``zarr`` is not installed.
+    :raises ValueError: If ``output_zarr`` exists and is neither an empty
+        directory nor a Zarr store.
     """
 
     @property
@@ -1370,6 +1372,10 @@ class ZarrWriter(Writer):
             "zarr", "`pip install zarr` or `conda install -c conda-forge zarr`")
         self._input = None if input_zarr is None else str(input_zarr)
         self._init_output(output_zarr, min_confidence, samples, contig_lengths)
+        if not _replaceable_store(self._output):
+            raise ValueError(
+                f"ZarrWriter: {self._output} exists and is not a Zarr store, "
+                f"so it is not replaced. Write to a new path.")
 
     @staticmethod
     @contextlib.contextmanager

@@ -1055,6 +1055,19 @@ class TestLocalTreeDispatchGuards:
             _run_local_tree(_args(out="result.txt"))
 
 
+def test_an_existing_directory_that_is_no_store_is_not_replaced(tmp_path):
+    """``--out`` naming a directory of other files is refused before the run,
+    and the files stay: a directory counts as a store only when it holds one
+    or is empty."""
+    out = tmp_path / "results"
+    out.mkdir()
+    (out / "notes.txt").write_text("kept")
+    with pytest.raises(SystemExit, match="is not a Zarr store"):
+        run(["arg", "--trees", str(QUICKSTART_TREES), "--mu", "1e-7",
+             "--out", str(out)])
+    assert sorted(p.name for p in out.iterdir()) == ["notes.txt"]
+
+
 TREES = QUICKSTART_TREES
 
 

@@ -41,7 +41,7 @@ from typing import Sequence
 from ancestree import STATES, __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
-from ancestree.sites import _path_format
+from ancestree.sites import _path_format, _replaceable_store
 
 __all__ = ["main", "build_parser", "run"]
 
@@ -898,7 +898,8 @@ def _out_format(args, command: str, allowed: "tuple[str, ...]") -> str:
     :param command: The subcommand, named in the error.
     :param allowed: Formats the subcommand accepts, named in the error.
     :return: One of ``"vcf"``, ``"vcz"`` and ``"trees"``.
-    :raises SystemExit: If ``--out`` has an unsupported extension.
+    :raises SystemExit: If ``--out`` has an unsupported extension, or names
+        a store path holding something other than a Zarr store.
     """
     out_format = _path_format(args.out)
     if out_format not in allowed:
@@ -911,6 +912,10 @@ def _out_format(args, command: str, allowed: "tuple[str, ...]") -> str:
                 "`local-tree` subcommands.")
         raise SystemExit(
             f"{command} --out must end with {named} (got {args.out!r}).{hint}")
+    if out_format == "vcz" and not _replaceable_store(args.out):
+        raise SystemExit(
+            f"{command} --out {args.out!r} exists and is not a Zarr store, so "
+            f"it is not replaced. Write to a new path.")
     return out_format
 
 

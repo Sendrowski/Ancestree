@@ -65,6 +65,21 @@ def test_writing_over_the_zarr_template_is_refused(tmp_path):
     assert list(zarr.open(path, mode="r")["variant_AA"][:]) == ["A", "T"]
 
 
+@pytest.mark.parametrize("existing", ["file", "directory"])
+def test_a_path_holding_no_store_is_not_replaced(tmp_path, existing):
+    """The store would replace whatever sits at the path."""
+    out = tmp_path / "out.vcz"
+    if existing == "file":
+        out.write_text("kept")
+    else:
+        out.mkdir()
+        (out / "notes.txt").write_text("kept")
+    with pytest.raises(ValueError, match="is not a Zarr store"):
+        ZarrWriter(None, str(out))
+    kept = out if existing == "file" else out / "notes.txt"
+    assert kept.read_text() == "kept"
+
+
 def test_a_different_output_path_is_allowed(tmp_path):
     """The guard must not block ordinary use."""
     panel = tmp_path / "panel.vcf.gz"

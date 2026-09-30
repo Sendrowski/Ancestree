@@ -237,6 +237,25 @@ def _path_format(path: "str | os.PathLike") -> "str | None":
     return None
 
 
+def _replaceable_store(path: "str | os.PathLike") -> bool:
+    """Whether a store may be written at ``path``: nothing is there, or an
+    empty directory, or a Zarr store (a directory holding ``.zgroup`` or
+    ``zarr.json``).
+
+    :param path: The destination path.
+    :return: ``False`` for an existing file or a non-empty directory that is
+        not a Zarr store.
+    """
+    text = str(path)
+    if not os.path.exists(text):
+        return True
+    if not os.path.isdir(text):
+        return False
+    return (not os.listdir(text)
+            or any(os.path.exists(os.path.join(text, marker))
+                   for marker in (".zgroup", "zarr.json")))
+
+
 def _individual_of(sample_id: str) -> str:
     """Strip a trailing ``_h<k>`` haplotype suffix from a tip id.
 
