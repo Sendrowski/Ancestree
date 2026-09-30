@@ -1,6 +1,6 @@
 """Unit tests for :class:`ancestree._maps.MapFiles`, the readers behind the
 ``--accessibility``, ``--mutation-map`` and ``--recombination-map`` options.
-Both BED-like formats carry a contig column, so each is read into one entry
+All three formats carry a contig column, so each is read into one entry
 per contig and :meth:`ancestree._maps.MapFiles.on_contig` picks the one the
 sites live on.
 """
@@ -110,6 +110,25 @@ class TestMutationMapGapRate:
         assert np.isnan(rm.rate[0])
 
 
+class TestReadHapmap:
+    def test_one_map_per_contig(self, tmp_path):
+        """Each contig's cumulative map starts over, so reading the file as
+        one map refused it (positions not increasing) or applied one
+        contig's rates to every other."""
+        hm = tmp_path / "rec.hapmap"
+        hm.write_text(
+            "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n"
+            "chr1\t100\t1.0\t0\n"
+            "chr1\t2000\t0\t0.0019\n"
+            "chr2\t50\t3.0\t0\n"
+            "chr2\t9000\t0\t0.02685\n")
+        maps = MapFiles.read_hapmap(str(hm))
+        assert sorted(maps) == ["chr1", "chr2"]
+        np.testing.assert_allclose(maps["chr1"].rate[1:], [1e-8])
+        np.testing.assert_allclose(maps["chr2"].rate[1:], [3e-8])
+        assert maps["chr2"].position[-1] == 9000.0
+
+
 class TestOnContig:
     def test_a_plain_map_passes_through(self):
         rate_map = msprime.RateMap(position=[0.0, 10.0], rate=[1e-8])
@@ -120,6 +139,11 @@ class TestOnContig:
 
     def test_a_dict_is_indexed_by_contig(self):
         assert MapFiles.on_contig({"chr1": [(0.0, 5.0)]}, "chr1",
+                                  "accessibility") == [(0.0, 5.0)]
+
+    @pytest.mark.parametrize("key, contig", [("chr1", "1"), ("1", "chr1")])
+    def test_a_chr_prefix_is_optional(self, key, contig):
+        assert MapFiles.on_contig({key: [(0.0, 5.0)]}, contig,
                                   "accessibility") == [(0.0, 5.0)]
 
     def test_a_missing_contig_names_what_is_covered(self):

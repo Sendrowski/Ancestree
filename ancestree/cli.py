@@ -810,7 +810,8 @@ def _add_local_tree_parser(
         help=(
             "Optional HapMap-format genetic map file (Chr, Position(bp), "
             "Rate(cM/Mb), Map(cM)) driving the HMM's TMRCA-reset rate in place "
-            "of the constant --rec-rate. Read via msprime.RateMap.read_hapmap."
+            "of the constant --rec-rate, one map per contig. Each contig's "
+            "rows are read via msprime.RateMap.read_hapmap."
         ),
     )
     p.add_argument(

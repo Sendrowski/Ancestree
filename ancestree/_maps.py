@@ -1,11 +1,11 @@
 """Readers for the genome map files local-tree mode accepts.
 
-A BED accessibility mask and a bedGraph mutation map carry a contig column,
-so both are read into one entry per contig. A HapMap recombination map is
-read as one map.
+A BED accessibility mask, a bedGraph mutation map and a HapMap recombination
+map carry a contig column, so each is read into one entry per contig.
 """
 from __future__ import annotations
 
+import io
 import os
 
 
@@ -96,17 +96,35 @@ class MapFiles:
         return maps
 
     @staticmethod
-    def read_hapmap(path: "str | os.PathLike"):
-        """A HapMap recombination map.
+    def read_hapmap(path: "str | os.PathLike") -> dict:
+        """One :class:`msprime.RateMap` per contig of a HapMap recombination
+        map (contig, position, rate in cM/Mb, map position in cM), with a
+        header line.
 
         :param path: The HapMap file.
-        :return: The :class:`msprime.RateMap`.
+        :return: ``{contig: RateMap}``, each read by
+            :meth:`msprime.RateMap.read_hapmap` from that contig's rows.
+        :raises ValueError: If the file holds no data row.
         """
-        return MapFiles.msprime().RateMap.read_hapmap(path)
+        msprime = MapFiles.msprime()
+        with open(path) as fh:
+            lines = [line for line in fh if line.strip()]
+        header, rows = lines[:1], lines[1:]
+        per_contig: dict[str, list[str]] = {}
+        for line in rows:
+            per_contig.setdefault(line.split()[0], []).append(line)
+        if not per_contig:
+            raise ValueError(f"no data rows in the recombination map {path}")
+        return {contig: msprime.RateMap.read_hapmap(
+                    io.StringIO("".join(header + contig_rows)))
+                for contig, contig_rows in per_contig.items()}
 
     @staticmethod
     def on_contig(value, contig: str, name: str):
         """The entry of a per-contig map for ``contig``, or ``value`` itself.
+
+        A contig name matches with or without a ``chr`` prefix, so ``chr1``
+        and ``1`` name the same contig.
 
         :param value: A map, a ``{contig: map}`` dict, or ``None``.
         :param contig: The contig of the sites.
@@ -116,8 +134,10 @@ class MapFiles:
         """
         if not isinstance(value, dict):
             return value
-        if contig not in value:
-            raise ValueError(
-                f"{name} has no entry for contig {contig!r}. It covers "
-                f"{sorted(value)[:5]}")
-        return value[contig]
+        bare = contig[3:] if contig.startswith("chr") else contig
+        for key in (contig, bare, f"chr{bare}"):
+            if key in value:
+                return value[key]
+        raise ValueError(
+            f"{name} has no entry for contig {contig!r}. It covers "
+            f"{sorted(value)[:5]}")

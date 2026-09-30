@@ -1943,9 +1943,8 @@ class LocalTreeInference(Inference):
         :param value: A map, a ``{contig: map}`` dict, a file path, or
             ``None``.
         :param name: The parameter: ``recombination_map`` reads a HapMap file,
-            ``accessibility`` a BED file and ``mutation_map`` a bedGraph, the
-            last two one entry per contig.
-        :return: The map, per contig where read from a BED or bedGraph file.
+            ``accessibility`` a BED file and ``mutation_map`` a bedGraph.
+        :return: The map, one entry per contig where read from a file.
         """
         if not isinstance(value, (str, os.PathLike)):
             return list(value) if name == "accessibility" and isinstance(
