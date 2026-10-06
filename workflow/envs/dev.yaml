@@ -40,5 +40,5 @@ dependencies:
       - newick
       - bio2zarr   # VCF -> VCZ, to build the interop fixture
       - vcztools   # reads the written stores back, for the interop test
-      - sfsutils-popgen   # parses the AA / AA_prob annotations, for the interop test
+      - sfsutils-popgen>=1.1   # parses the AA / AA_prob / AA_post annotations, for the interop test
       - -e ../..   # editable install of local ancestree pkg; ../.. = repo root relative to .snakemake/conda (for --use-conda)

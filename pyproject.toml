@@ -79,8 +79,8 @@ dev = [
     # stores against.
     "bio2zarr[vcf]>=0.2",
     "vcztools>=0.2",
-    # Test-only downstream consumer of the AA / AA_prob annotations.
-    "sfsutils-popgen>=1.0",
+    # Test-only downstream consumer of the AA / AA_prob / AA_post annotations.
+    "sfsutils-popgen>=1.1",
     # ancestree.plotting, which the focal-node plotting tests exercise.
     "matplotlib>=3.7",
     # test_slim_outgroup_workflow imports it at module scope.
