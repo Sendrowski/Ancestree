@@ -981,7 +981,8 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
 
     :param args: Parsed argparse namespace from :func:`build_parser`.
     :return: Process exit code (0 on success).
-    :raises SystemExit: If ``--out`` has an unsupported extension.
+    :raises SystemExit: If ``--out`` has an unsupported extension, or
+        ``--outgroups`` is missing without ``--tree``.
     """
     st = args.tree is not None
     if not st and not args.outgroups:
@@ -1005,7 +1006,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         ingroup = FixedTreeInference.default_ingroup(
             args.vcf, args.outgroups, sample_filter=args.samples or None)
 
-    # Build the ladder first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
+    # Build the tree first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
     # taken as closest-first and the rates are fitted.
     if st:
         with open(args.tree) as fh:

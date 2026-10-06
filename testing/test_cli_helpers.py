@@ -259,14 +259,9 @@ class TestLoggerAnnotationsResolve:
         assert hints["return"] is _logging.Logger
 
 
-class TestSpeciesTreeOrdersTheLadder:
-    """The ladder order must come from the Newick topology, not from the order
-    ``--outgroups`` happens to be typed in.
-
-    Passing the outgroups in any order other than closest-first would otherwise
-    fit the wrong ladder, silently, while the Newick that specifies the correct
-    one is parsed and discarded.
-    """
+class TestNewickOrdersTheLadder:
+    """The ladder order comes from the Newick topology, not from the order the
+    outgroups are listed in."""
 
     def test_topology_wins_over_argument_order(self):
         from ancestree.trees import OutgroupLadderTree
@@ -284,20 +279,8 @@ class TestSpeciesTreeOrdersTheLadder:
             ingroup, ["o1", "o2", "o3"]
         ).outgroup_samples == ("o1", "o2", "o3")
 
-    def test_handler_passes_the_parsed_tree(self):
-        import inspect
 
-        from ancestree import cli
-
-        src = inspect.getsource(cli._run_fixed_tree)
-        # A source-text check: it proves the argument is named, not that the
-        # parsed tree is the one constructed. The behavioural half is
-        # test_topology_wins_over_argument_order above, which pins the ladder
-        # order the Newick produces.
-        assert "tree=tree" in src, "the parsed Newick must reach FixedTreeInference"
-
-
-class TestSpeciesTreeIsUsedVerbatim:
+class TestTreeIsUsedAsGiven:
     """``--tree`` supplies the tree, so the ML fit is skipped.
 
     Without it the ladder comes from ``--outgroups`` and its rates are fitted.

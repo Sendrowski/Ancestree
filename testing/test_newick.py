@@ -366,6 +366,25 @@ class TestSpeciesTreeAsGiven:
                 [site], JC69(), tree=TskitLocalTree.from_newick(self.NEWICK),
                 ingroup_samples=["c", "x"])
 
+    def test_tip_absent_from_the_data_raises(self):
+        """A leaf name matching no sample would be scored as missing data at
+        every site, so it is refused."""
+        mistyped = self.NEWICK.replace("g:", "gorilla:")
+        with pytest.raises(ValueError, match="absent from the data"):
+            FixedTreeInference(
+                [self.SITE], JC69(), tree=anc.FixedTree.from_newick(mistyped))
+
+    def test_single_label_reports_at_that_tip(self, caplog):
+        """One named tip is its own reporting node: the posterior is a point
+        mass on the allele it carries, and the run warns."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            values = self._posterior(ingroup_samples=["b"])
+        np.testing.assert_allclose(values, np.eye(4)[1])
+        assert any("ingroup is a single sample" in r.getMessage()
+                   for r in caplog.records)
+
     def test_ingroup_weight_is_refused(self):
         with pytest.raises(ValueError, match="does not apply"):
             self._posterior(

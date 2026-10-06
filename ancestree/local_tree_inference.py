@@ -1568,6 +1568,7 @@ class LocalTreeInference(Inference):
                 self.sample_names)
         if not self._resolved_ingroup:
             self._refuse_empty_ingroup(len(self.sample_names))
+        self._warn_single_ingroup(len(self._resolved_ingroup))
         self.window = window
         # The raw spec. None and "<N>snp" resolve from the SNP density later.
         self.block_size = block_size

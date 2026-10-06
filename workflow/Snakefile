@@ -493,7 +493,6 @@ rule cli_transcripts:
         "docs/run_cli_examples.py",
         "docs/_static/demo.vcf.gz",
         "docs/_static/demo.trees",
-        "docs/_static/demo_species_tree.nwk",
     output:
         # usage.rst embeds the .html via `.. raw:: html`, so they are outputs:
         # undeclared, a failed run leaves tracebacks on three published pages.

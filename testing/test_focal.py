@@ -1490,7 +1490,7 @@ class TestTruthAtFocal:
         assert at_root == {1: "A"}
         assert at_mrca == {1: "C"}
 
-    def test_a_focal_node_on_a_tip_is_read_at_the_arg_root(self):
+    def test_a_focal_node_on_a_tip_is_read_at_the_tip(self):
         tables, ids = panel_tables()
         site = tables.sites.add_row(position=1.0, ancestral_state="A")
         tables.mutations.add_row(site=site, node=ids["ab"], derived_state="C")
@@ -1502,7 +1502,7 @@ class TestTruthAtFocal:
         above_tip = Grade.truth_at_focal(
             ts, FocalNode("ingroup_mrca", coalescences=1),
             ingroup_samples=["a"], sample_map=sample_map)
-        assert at_tip == {1: "A"}
+        assert at_tip == {1: "C"}
         assert above_tip == {1: "C"}
 
 

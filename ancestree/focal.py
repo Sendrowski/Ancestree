@@ -195,15 +195,15 @@ class FocalNode:
         :param ingroup_nodes: Sample node ids making up the ingroup. Required
             for the ``"ingroup_mrca"`` anchor.
         :return: The resolved point, or ``None`` for the tree's own root or
-            roots: where this names the panel root, where the ingroup spans
-            several roots, and where the point is a tip.
+            roots: where this names the panel root, and where the ingroup
+            spans several roots. A single ingroup sample resolves to its own
+            tip.
         """
         if self.is_root or FocalNode.spans_roots(tree, ingroup_nodes):
             return None
         ranks = {int(n): i for i, n in enumerate(tree.postorder())}
-        resolved = self.resolve(tree, ingroup_nodes=ingroup_nodes,
-                                postorder_rank=ranks)
-        return None if _is_degenerate_focal(tree, resolved) else resolved
+        return self.resolve(tree, ingroup_nodes=ingroup_nodes,
+                            postorder_rank=ranks)
 
     @staticmethod
     def spans_roots(tree, ingroup_nodes) -> bool:
@@ -323,21 +323,6 @@ class FocalNode:
                 return path[step], want
             want -= length
         return path[-1], 0.0
-
-
-def _is_degenerate_focal(tree, resolved: "ResolvedFocal") -> bool:
-    """Whether re-rooting at ``resolved`` would return a tip's own allele.
-
-    The MRCA of a single ingroup sample is that sample's tip. Re-rooting there
-    with no offset makes the tip both the query node and an observation, so the
-    posterior collapses onto the allele it carries. A placement above the tip
-    walks up to an internal node and is well defined.
-
-    :param tree: The :class:`tskit.Tree` ``resolved`` was resolved against.
-    :param resolved: The resolved focal node.
-    :return: ``True`` when the focal node is a tip carrying no offset.
-    """
-    return bool(tree.is_leaf(int(resolved.node)) and resolved.tau <= 0.0)
 
 
 def _mrca(tree, nodes, postorder_rank: "dict[int, int] | None") -> int:

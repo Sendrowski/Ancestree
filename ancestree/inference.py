@@ -626,6 +626,22 @@ class Inference(ReprMixin, ABC):
                 self._log.info("Using %d %s sample(s): %s", len(samples),
                                label, ", ".join(samples))
 
+    def _warn_single_ingroup(self, n_tips: int) -> None:
+        """Warn that a one-sample ingroup is read at that sample's own tip.
+
+        :param n_tips: Tips the ingroup resolves to.
+        """
+        focal = self.focal
+        if (n_tips != 1 or focal.anchor != "ingroup_mrca"
+                or focal._placement is not None):
+            return
+        self._log.warning(
+            "The ingroup is a single sample, so its most recent common "
+            "ancestor is that sample's own tip and the posterior reported "
+            "there restates the sample's allele. Name several ingroup "
+            "samples, or place the focal node above the tip."
+        )
+
     def _note_unnamed_ingroup(self) -> None:
         """Report that an unnamed ingroup is the whole panel.
 
@@ -1708,6 +1724,7 @@ class ARGBasedInference(Inference):
         )
         if not self._ingroup_nodes:
             self._refuse_empty_ingroup(len(self.sample_map))
+        self._warn_single_ingroup(len(self._ingroup_nodes))
         # Counted over the walk and reported once.
         self._n_ingroup_non_monophyletic = 0
         self._n_focal_multiroot_fallback = 0
@@ -2735,8 +2752,9 @@ class FixedTreeInference(Inference):
                                     self._stream_source,
                                     ingroup_samples=ingroup_samples)
         _refuse_overlap(ingroup_samples or (), outgroup_samples or ())
-        self._check_filter_labelled(sample_filter, ingroup_samples,
-                                    outgroup_samples)
+        if not self._given_tree:
+            self._check_filter_labelled(sample_filter, ingroup_samples,
+                                        outgroup_samples)
         self.model = model
         actual_bc = BaseComposition.require(
             actual_bc, context="FixedTreeInference",
@@ -2863,14 +2881,26 @@ class FixedTreeInference(Inference):
                     f"FixedTreeInference: sample(s) {unknown} are not tips "
                     f"of the tree, whose tips are {sorted(tips)}."
                 )
+            panel = getattr(self._stream_source, "samples", None)
+            present = (
+                set(panel()) if callable(panel)
+                else {s for site in self.sites for s in site.tip_alleles})
+            absent = sorted(set(tips) - present)
+            if present and absent:
+                raise ValueError(
+                    f"FixedTreeInference: tip(s) {absent} of the tree are "
+                    f"absent from the data, whose samples are "
+                    f"{sorted(present)}."
+                )
             self._given_ingroup: tuple[str, ...] = (
                 tuple(ingroup_samples) if ingroup_samples else tips)
             self._given_outgroup: tuple[str, ...] = tuple(
                 outgroup_samples or ())
+            self.focal = FocalNode.parse(focal)
+            self._warn_single_ingroup(len(self._given_ingroup))
             self.ingroup_weight = None
             self._engine = Likelihood(
                 model, base_composition=self.base_composition)
-            self.focal = FocalNode.parse(focal)
             self._params_mle = None
             self._log_likelihood_mle = None
             self._model_params_mle = None

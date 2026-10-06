@@ -316,14 +316,16 @@ class TestGradingReadsTheScoredPanel:
             outgroup_samples=["o1_h0", "o1_h1"])
         assert by_name == by_haplotype
 
-    def test_a_tip_focal_node_is_read_at_the_scored_root(self):
-        """A single-haplotype ingroup puts the focal node on a tip, so the run
-        reads at the root of the restricted tree, not at the ARG root."""
+    def test_a_tip_focal_node_is_read_at_the_tip(self):
+        """A single-haplotype ingroup puts the focal node on its tip, so the
+        truth there is the allele that haplotype carries."""
         ts = tskit.load(QUICKSTART_TREES)
         lists = dict(ingroup_samples=["i0"], outgroup_samples=["o0"])
         at_tip = Grade.truth_at_focal(ts, "ingroup_mrca", **lists)
-        assert at_tip == Grade.truth_at_focal(ts, "panel_root", **lists)
-        assert at_tip != Grade.truth_at_focal(ts, "panel_root")
+        carried = {int(site.pos): site.tip_alleles["i0"]
+                   for site in anc.TskitSource(ts)}
+        assert at_tip == {pos: carried[pos] for pos in at_tip}
+        assert at_tip != Grade.truth_at_focal(ts, "panel_root", **lists)
 
     @pytest.mark.parametrize("focal", [
         "ingroup_mrca", "panel_root", anc.FocalNode("ingroup_mrca", fraction=0.5),

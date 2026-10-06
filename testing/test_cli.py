@@ -572,6 +572,17 @@ class TestFixedTreeHandler:
             rdr.close()
         np.testing.assert_allclose(written, expected, atol=1e-3)
 
+    def test_tree_with_samples_needs_no_labels(self, ladder_panel, tmp_path):
+        """``--samples`` restricts the read on a given tree without any
+        sample being labelled ingroup or outgroup."""
+        vcf, _vcz, nwk, alleles, _gt = ladder_panel
+        out = tmp_path / "annot.vcf"
+        assert run([
+            "fixed-tree", "--vcf", str(vcf), "--tree", str(nwk),
+            "--samples", "i0,i1,o1,o2", "--out", str(out),
+        ]) == 0
+        assert len(_aa_calls(out)) == len(alleles)
+
     def test_outgroups_are_required_without_a_tree(self, ladder_panel, tmp_path):
         vcf, _vcz, _nwk, _alleles, _gt = ladder_panel
         with pytest.raises(SystemExit, match="--outgroups is required"):
