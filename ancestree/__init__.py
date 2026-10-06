@@ -98,7 +98,7 @@ from ancestree.sites import (
     BaseComposition, PolymorphicSiteFilter, Site, SiteSource, SiteTable,
 )
 from ancestree.trees import (
-    OutgroupLadderTree, RerootedTree, Tree, TskitLocalTree,
+    FixedTree, OutgroupLadderTree, RerootedTree, Tree, TskitLocalTree,
 )
 from ancestree.models import SubstitutionModel, JC69, K2, F81, HKY, GTR
 from ancestree.likelihood import Likelihood
@@ -144,6 +144,7 @@ __all__ = [
     "SiteTable",
     "Tree",
     "TskitLocalTree",
+    "FixedTree",
     "OutgroupLadderTree",
     "RerootedTree",
     "SubstitutionModel",

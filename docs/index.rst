@@ -9,7 +9,8 @@ nucleotide states rather than a single allele. One likelihood kernel
 serves three modes that differ only in the tree it is evaluated on.
 :class:`~ancestree.inference.FixedTreeInference` assumes a fixed tree
 of ingroup and outgroups and fits its branch rates by maximum
-likelihood [1]_.
+likelihood [1]_, or takes a dated species tree with one sequence per
+species as given.
 :class:`~ancestree.inference.ARGBasedInference` uses the local tree of
 each site in a supplied ARG [2]_.
 :class:`~ancestree.local_tree_inference.LocalTreeInference` requires

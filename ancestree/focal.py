@@ -176,14 +176,15 @@ class FocalNode:
     def describe(self) -> str:
         """The anchor and its placement as one log-ready phrase.
 
-        :return: The anchor name, followed by ``(fraction=0.5)`` and the like
-            when a placement is set.
+        :return: The quoted anchor name, followed by ``(fraction=0.5)`` and
+            the like when a placement is set.
         """
         placement = ", ".join(
             f"{key[len('focal_'):]}={value}"
             for key, value in self.provenance().items() if key != "focal"
         )
-        return f"{self.anchor} ({placement})" if placement else self.anchor
+        anchor = f'"{self.anchor}"'
+        return f"{anchor} ({placement})" if placement else anchor
 
     def locate(
         self, tree, ingroup_nodes: "Sequence[int] | np.ndarray | None" = None,

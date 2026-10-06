@@ -56,7 +56,7 @@ Or use an environment file for reproducibility:
      - ancestree
      - cyvcf2          # [vcf]: CyVCF2Source and VCFWriter
      - zarr            # [zarr]: VcfZarrSource and ZarrWriter
-     - newick          # [newick]: OutgroupLadderTree.from_newick
+     - newick          # [newick]: Newick species trees
      - msprime         # [maps]: recombination and mutation maps
      - matplotlib      # [plotting]: ancestree.plotting
 

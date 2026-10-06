@@ -8,6 +8,8 @@ Backends:
 
 - :class:`~ancestree.trees.TskitLocalTree`: a :class:`tskit.Tree` at a fixed
   genomic position (single-rooted, since multi-root segments raise).
+- :class:`~ancestree.trees.FixedTree`: one dated tree read from a Newick
+  string and used as given for every site, every leaf a tip.
 - :class:`~ancestree.trees.OutgroupLadderTree`: the ingroup-polytomy plus
   outgroup-ladder topology, with :math:`2n_\mathrm{out} - 1` branch rates
   fitted by maximum likelihood in fixed-tree mode.
@@ -387,23 +389,34 @@ class TskitLocalTree(Tree):
         return obj
 
     @classmethod
-    def from_newick(cls, newick_str: str) -> "TskitLocalTree":
+    def from_newick(
+        cls, newick_str: str, *, time_scale: float = 1.0,
+    ) -> "TskitLocalTree":
         """Build a :class:`~ancestree.trees.TskitLocalTree` from a Newick string.
 
         Leaf names become caller-facing sample ids in the resulting
         ``sample_map``, and the wrapped tree sequence carries no sites or
-        mutations. Intended for hand-built example trees, not production ARGs.
+        mutations. Intended for hand-built example trees and, through
+        :class:`~ancestree.trees.FixedTree`, for a tree that
+        :class:`~ancestree.inference.FixedTreeInference` uses as given, not
+        for production ARGs.
 
         :param newick_str: Newick string with branch lengths on every
-            non-root edge. Polytomies are permitted. Leaves are placed at time
-            0 and every internal node takes the depth of its deepest child
-            path, so a shorter sibling's branch is lengthened to match and the
-            resulting tree is ultrametric whatever the input.
+            non-root edge. Polytomies are permitted. Every branch keeps its
+            length: the root is placed at the depth of the deepest leaf, and
+            each node at its own distance below the root, so the leaves of a
+            tree that is not ultrametric sit at different times.
+        :param time_scale: The tree's :attr:`time_scale`, in expected
+            substitutions per site per unit of branch length. ``1.0``
+            (default) reads the branch lengths as substitutions per site, and
+            a tree dated in generations takes the mutation rate per site per
+            generation.
         :return: A :class:`~ancestree.trees.TskitLocalTree` wrapping the
             single local tree of the constructed tree sequence.
         :raises ImportError: If the ``newick`` package is not installed.
-        :raises ValueError: If ``newick_str`` parses to multiple roots, or a
-            branch length leaves a parent no later than one of its children.
+        :raises ValueError: If ``newick_str`` parses to multiple roots, a
+            branch length leaves a parent no later than one of its children,
+            or ``time_scale`` is not positive.
         """
         try:
             import newick as _newick
@@ -424,20 +437,19 @@ class TskitLocalTree(Tree):
         leaves = [n for n in root.walk() if n.is_leaf]
         internals = [n for n in root.walk() if not n.is_leaf]
 
-        # Assign times: leaves at 0. Internals at max(child_time + child_branch_length).
-        time_at: dict[int, float] = {}
-        def _assign_times(n) -> float:
-            """Node height above the leaves, recording it as it recurses."""
-            if n.is_leaf:
-                time_at[id(n)] = 0.0
-                return 0.0
-            t = max(_assign_times(c) + float(c.length or 0.0) for c in n.descendants)
-            time_at[id(n)] = t
-            return t
-        _assign_times(root)
+        # Assign times from the root down, the deepest leaf at time 0.
+        depth_of: dict[int, float] = {id(root): 0.0}
+        def _assign_depths(n) -> None:
+            """Distance of every node below the root, recorded as it recurses."""
+            for c in n.descendants:
+                depth_of[id(c)] = depth_of[id(n)] + float(c.length or 0.0)
+                _assign_depths(c)
+        _assign_depths(root)
+        height = max(depth_of[id(leaf)] for leaf in leaves)
+        time_at = {key: height - depth for key, depth in depth_of.items()}
 
         # tskit requires a strictly greater time on every parent, which a
-        # zero-length branch violates unless a sibling lifts the parent clear.
+        # zero-length branch violates.
         for n in internals:
             for c in n.descendants:
                 if time_at[id(n)] <= time_at[id(c)]:
@@ -452,7 +464,7 @@ class TskitLocalTree(Tree):
         node_id: dict[int, int] = {}
         for leaf in leaves:
             node_id[id(leaf)] = tables.nodes.add_row(
-                flags=tskit.NODE_IS_SAMPLE, time=0.0,
+                flags=tskit.NODE_IS_SAMPLE, time=time_at[id(leaf)],
             )
         for n in internals:
             node_id[id(n)] = tables.nodes.add_row(flags=0, time=time_at[id(n)])
@@ -467,10 +479,12 @@ class TskitLocalTree(Tree):
         _add_edges(root)
         tables.sort()
         ts = tables.tree_sequence()
-        return cls(
+        tree = cls(
             ts, position=0.0,
             sample_map={leaf.name: node_id[id(leaf)] for leaf in leaves},
         )
+        tree.time_scale = time_scale
+        return tree
 
     def _init(
         self,
@@ -629,6 +643,18 @@ class TskitLocalTree(Tree):
         return self._tree.draw_svg(**kwargs)
 
 
+
+
+class FixedTree(TskitLocalTree):
+    """One dated tree used as given for every site, every leaf a tip.
+
+    The tree :class:`~ancestree.inference.FixedTreeInference` takes when
+    nothing is to be fitted, typically a species tree with one sequence per
+    species. The tips may be any samples, several haplotypes of one species
+    included, and the kernel treats them all alike.
+    :meth:`FixedTree.from_newick() <ancestree.trees.TskitLocalTree.from_newick>`
+    builds it from a Newick string and keeps every branch length.
+    """
 
 
 class RerootedTree(Tree):

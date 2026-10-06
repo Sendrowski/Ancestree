@@ -112,10 +112,14 @@ individual is not named in ``--outgroups``, so naming one haplotype of an
 outgroup individual withholds that individual entirely. Pass it explicitly
 to use a subset of the panel.
 
-Passing ``--species-tree`` instead supplies the tree outright, topology
-and branch lengths both, and no fit is performed. The Newick must be
-dated. Extra taxa in it are pruned, and the ladder order follows its
-topology rather than the order ``--outgroups`` was given in.
+Passing ``--tree`` instead supplies a dated Newick that is used as given
+for every site, as a :class:`~ancestree.trees.FixedTree`: every leaf is a
+tip named as its sample, branch lengths are in expected substitutions per
+site, and nothing is fitted. This is the mode for a species tree with one
+sequence per species. No ingroup population is involved, ``--outgroups``
+is optional, and ``--ingroup`` only names the tips whose most recent common
+ancestor the posterior is reported at (see
+:doc:`../Python/fixed_tree_inference`).
 
 The fitted divergences increase along the ladder, as the assumed topology
 requires. A rate pinned at its bound instead signals a degenerate fit.
@@ -139,7 +143,7 @@ tree sequence, the formats described in :doc:`../Python/io`. ``fixed-tree``
 does not write ``.trees``. An output annotates the input when the input is a
 VCF or a local VCF Zarr store of its format. Otherwise each site is written as
 one record, holding the panel. VCF input and output need the ``[vcf]`` extra, VCF
-Zarr the ``[zarr]`` extra, ``--species-tree`` the ``[newick]`` extra, and
+Zarr the ``[zarr]`` extra, ``--tree`` the ``[newick]`` extra, and
 ``--recombination-map`` and ``--mutation-map`` the ``[maps]`` extra (see
 :doc:`../Python/installation`).
 

@@ -3,9 +3,11 @@
 :class:`~ancestree.inference.ARGBasedInference` reads a local tree per site
 from a supplied :class:`tskit.TreeSequence` and scores the root state on it.
 
-:class:`~ancestree.inference.FixedTreeInference` assumes one
-:class:`~ancestree.trees.OutgroupLadderTree` for every site, fits its branch
-rates by maximum likelihood, and scores the ingroup MRCA state.
+:class:`~ancestree.inference.FixedTreeInference` assumes one tree for every
+site. It fits the branch rates of an
+:class:`~ancestree.trees.OutgroupLadderTree` by maximum likelihood and scores
+the ingroup MRCA state, or scores a dated
+:class:`~ancestree.trees.FixedTree` as given.
 
 :class:`~ancestree.local_tree_inference.LocalTreeInference` infers a dated
 local tree per window from genotypes alone, then scores it with the ARG-mode
@@ -316,7 +318,7 @@ class Inference(ReprMixin, ABC):
         """
         if self.focal.is_root:
             return None
-        parts = [f"reported at the {self.focal.describe()}"]
+        parts = [f"reported at {self.focal.describe()}"]
         if self._n_ingroup_non_monophyletic:
             parts.append(
                 f"{self._n_ingroup_non_monophyletic} tree(s) where the ingroup "
@@ -2503,17 +2505,24 @@ class FixedTreeInference(Inference):
     likewise required, as ``n_target_sites=L`` or a composition carrying
     per-base counts, or the fitted branch rates inflate.
 
+    A :class:`~ancestree.trees.FixedTree` passed as ``tree`` is used as
+    given: every leaf is a tip, nothing is fitted, and the sample names only
+    set the node the posterior is reported at.
+
     :param source: The site data: a VCF / BCF / VCZ path, a ``.trees`` path,
         a :class:`~ancestree.sites.SiteSource`, a :class:`tskit.TreeSequence`,
         or a ``list[Site]``. Ingroup alleles enter through the ingroup weight,
         outgroup alleles through the Felsenstein kernel.
     :param tree: Optional pre-built :class:`~ancestree.trees.OutgroupLadderTree`,
-        fitted in place, whose sample lists are read from it. ``None``
+        fitted in place, whose sample lists are read from it, or a
+        :class:`~ancestree.trees.FixedTree` used as given. ``None``
         (default) builds the ladder from the sample names.
     :param ingroup_samples: Ingroup sample names. Defaults to every panel
         haplotype whose individual is not an outgroup (see
         :meth:`FixedTreeInference.default_ingroup()
-        <ancestree.inference.FixedTreeInference.default_ingroup>`).
+        <ancestree.inference.FixedTreeInference.default_ingroup>`). On a
+        :class:`~ancestree.trees.FixedTree` they only set the reporting node
+        and default to every tip.
     :param outgroup_samples: Outgroup sample names, closest first. Required
         without ``tree``. ``[]`` is the no-outgroup mode, where the ingroup
         weight and the root prior alone give the posterior.
@@ -2599,7 +2608,7 @@ class FixedTreeInference(Inference):
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
         return {"model": type(self.model),
-                "n_outgroups": self.tree.n_outgroups if self.tree is not None else 0,
+                "n_outgroups": len(self._baseline_outgroup_samples()),
                 "fitted": self.params_mle is not None}
 
     def __init__(
@@ -2608,7 +2617,7 @@ class FixedTreeInference(Inference):
         model: "SubstitutionModel | None" = None,
         base_composition: BaseComposition | None = None,
         *,
-        tree: "OutgroupLadderTree | None" = None,
+        tree: "Tree | None" = None,
         ingroup_samples: Sequence[str] | None = None,
         outgroup_samples: Sequence[str] | None = None,
         n_target_sites: int | None = None,
@@ -2640,8 +2649,14 @@ class FixedTreeInference(Inference):
             raise TypeError(
                 "FixedTreeInference: `source` is the site data (path / VCF / "
                 "VCZ / TreeSequence / SiteSource / list[Site]); pass a pre-built "
-                "OutgroupLadderTree via tree= instead."
+                "tree via tree= instead."
             )
+
+        # A tree other than a ladder is used as given, every leaf a tip.
+        self._given_tree = (
+            tree is not None and not isinstance(tree, OutgroupLadderTree))
+        if self._given_tree:
+            fit_required = False
 
         # An explicit ladder carries its own sample lists.
         if tree is not None:
@@ -2652,7 +2667,8 @@ class FixedTreeInference(Inference):
 
         # No-outgroup mode: the posterior comes from the ingroup alone.
         self._no_outgroup_mode = (
-            outgroup_samples is not None and len(outgroup_samples) == 0
+            not self._given_tree
+            and outgroup_samples is not None and len(outgroup_samples) == 0
         )
 
         if stream is None:
@@ -2730,7 +2746,7 @@ class FixedTreeInference(Inference):
         resolved_subsample_size: int | None = None
         proj_weights: dict | None = None
         n_poly_projected: int | None = None
-        if not self._no_outgroup_mode:
+        if not self._no_outgroup_mode and not self._given_tree:
             resolved_subsample_size = self._resolve_subsample_size(
                 ingroup_weight, subsample_size,
             )
@@ -2821,6 +2837,39 @@ class FixedTreeInference(Inference):
                 "IngroupWeight explicitly."
             )
             # provenance() and every annotated write read the focal node.
+            self.focal = FocalNode.parse(focal)
+            self._params_mle = None
+            self._log_likelihood_mle = None
+            self._model_params_mle = None
+            return
+
+        if self._given_tree:
+            if ingroup_weight is not None:
+                raise ValueError(
+                    "FixedTreeInference: ingroup_weight does not apply to a "
+                    "tree used as given, where every sample is a tip of the "
+                    "tree."
+                )
+            tips = tuple(
+                name for name in (
+                    tree.sample_for_tip(node) for node in tree.postorder()
+                    if not tree.children(node))
+                if name is not None
+            )
+            labelled = (*(ingroup_samples or ()), *(outgroup_samples or ()))
+            unknown = sorted(set(labelled) - set(tips))
+            if unknown:
+                raise ValueError(
+                    f"FixedTreeInference: sample(s) {unknown} are not tips "
+                    f"of the tree, whose tips are {sorted(tips)}."
+                )
+            self._given_ingroup: tuple[str, ...] = (
+                tuple(ingroup_samples) if ingroup_samples else tips)
+            self._given_outgroup: tuple[str, ...] = tuple(
+                outgroup_samples or ())
+            self.ingroup_weight = None
+            self._engine = Likelihood(
+                model, base_composition=self.base_composition)
             self.focal = FocalNode.parse(focal)
             self._params_mle = None
             self._log_likelihood_mle = None
@@ -3271,9 +3320,9 @@ class FixedTreeInference(Inference):
     def fit(self) -> dict[str, float]:
         r"""Run L-BFGS-B to fit the tree's branch rates by ML.
 
-        No-op in the no-outgroup mode (``outgroup_samples=[]``): the
-        outgroup-ladder tree has no parameters and the per-site posterior
-        is the normalised prior. Returns an empty dict in that case.
+        No-op in the no-outgroup mode (``outgroup_samples=[]``), where the
+        per-site posterior is the normalised prior, and on a tree used as
+        given. Returns an empty dict in both cases.
 
         Mutates ``self.tree`` in place to the MLE rates. The objective sums
         over the unique (ingroup sub-AFS, outgroup-pattern) configs ``c``,
@@ -3295,11 +3344,11 @@ class FixedTreeInference(Inference):
         the observed allele on monomorphic-sub-AFS configs.
 
         :return: Mapping from :attr:`OutgroupLadderTree.param_names <ancestree.trees.OutgroupLadderTree.param_names>` entry to the
-            MLE rate. Empty dict in the no-outgroup mode.
+            MLE rate. Empty dict where nothing is fitted.
         :raises RuntimeError: If every start fails to converge. A partial
             failure is tolerated and the best converged start wins.
         """
-        if self._no_outgroup_mode:
+        if self._no_outgroup_mode or self._given_tree:
             return {}
         if self._streaming:
             self._log.info(
@@ -3565,11 +3614,15 @@ class FixedTreeInference(Inference):
         self._log_uniform_fallback_summary()
 
     def _baseline_outgroup_samples(self) -> tuple[str, ...]:
+        if self._given_tree:
+            return self._given_outgroup
         if not self._no_outgroup_mode and self.tree is not None:
             return tuple(self.tree.outgroup_samples)
         return ()
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
+        if self._given_tree:
+            return self._given_ingroup
         if not self._no_outgroup_mode and self.tree is not None:
             return tuple(self.tree.ingroup_samples)
         return tuple(getattr(self, "_ingroup_samples_no_out", ()))
@@ -3579,12 +3632,12 @@ class FixedTreeInference(Inference):
         if not self._quiet:
             if self._streaming:
                 self._log.info(
-                    "Inferring the ancestral allele on the fitted outgroup "
-                    "ladder, streaming the sites")
+                    "Inferring the ancestral allele on the fixed tree, "
+                    "streaming the sites")
             else:
                 self._log.info(
                     "Inferring the ancestral allele at %s site(s) on the "
-                    "fitted outgroup ladder", f"{len(self.sites):,}")
+                    "fixed tree", f"{len(self.sites):,}")
         if self._no_outgroup_mode:
             # The posterior is the normalised ingroup weight times the root
             # prior. A monoallelic ingroup takes all mass on its observed
@@ -3669,7 +3722,8 @@ class FixedTreeInference(Inference):
             )
             with np.errstate(under="ignore"):
                 seeds = {self.tree.ingroup_mrca: np.exp(log_w)}
-        self._count_ingroup_monomorphic(batch, counts=counts)
+        if not self._given_tree:
+            self._count_ingroup_monomorphic(batch, counts=counts)
         self._count_unrepresentable(batch)
         log_prior = self.prior.log_probs(batch)
         log_L = self._engine.log_likelihoods(
@@ -3712,6 +3766,8 @@ class FixedTreeInference(Inference):
         """
         if self.tree is None:
             return None
+        if self._given_tree:
+            return self._focal_view(self.tree)
         return self.tree.at_focal(self.focal)
 
     _MODE = "fixed-tree"
@@ -3741,10 +3797,7 @@ class FixedTreeInference(Inference):
                                if self.ingroup_weight is not None else None),
             "prior": type(self.prior).__name__ if self.prior is not None else None,
             "branch_rates_fitted": self._params_mle is not None,
-            "n_outgroups": (
-                0 if self._no_outgroup_mode or self.tree is None
-                else int(self.tree.n_outgroups)
-            ),
+            "n_outgroups": len(self._baseline_outgroup_samples()),
             "n_target_sites": (
                 int(self.base_composition.n_total)
                 if self.base_composition is not None else None),

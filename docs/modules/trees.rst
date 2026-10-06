@@ -7,9 +7,11 @@ Both are named here.
 The :class:`~ancestree.trees.Tree` abstraction is the whole of what the kernel
 sees: children, branch lengths, a post-order traversal, and a mapping from
 sample names to tip nodes. :class:`~ancestree.trees.TskitLocalTree` wraps a
-local tree taken from an ARG or inferred from genotypes, and
-:class:`~ancestree.trees.OutgroupLadderTree` is the fixed ladder the
-`est-sfs <https://sourceforge.net/projects/est-usfs/>`_ model assumes. Both present that same surface, which is why the inference modes
+local tree taken from an ARG or inferred from genotypes,
+:class:`~ancestree.trees.FixedTree` is one dated tree used as given for every
+site, and
+:class:`~ancestree.trees.OutgroupLadderTree` is the fitted ladder the
+`est-sfs <https://sourceforge.net/projects/est-usfs/>`_ model assumes. All present that same surface, which is why the inference modes
 differ so little from one another.
 
 A topology does not by itself say where the posterior is read.
@@ -26,6 +28,7 @@ themselves.
 
    ~ancestree.trees.Tree
    ~ancestree.trees.TskitLocalTree
+   ~ancestree.trees.FixedTree
    ~ancestree.trees.OutgroupLadderTree
    ~ancestree.trees.RerootedTree
    ~ancestree.focal.FocalNode
@@ -36,6 +39,8 @@ themselves.
 .. autoclass:: ancestree.trees.Tree
 
 .. autoclass:: ancestree.trees.TskitLocalTree
+
+.. autoclass:: ancestree.trees.FixedTree
 
 .. autoclass:: ancestree.trees.OutgroupLadderTree
 

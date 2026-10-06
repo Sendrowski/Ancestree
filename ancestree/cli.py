@@ -3,8 +3,8 @@
 Exposes three subcommands matching the three inference modes:
 
 - ``ancestree fixed-tree``: :class:`~ancestree.inference.FixedTreeInference`
-  on a VCF / VCZ, with an optional species-tree Newick. ML-fits branch
-  rates on the outgroup-ladder topology and emits an annotated VCF or
+  on a VCF / VCZ. ML-fits branch rates on the outgroup-ladder topology, or
+  scores a dated Newick tree as given, and emits an annotated VCF or
   ``.vcz`` store.
 - ``ancestree arg``: :class:`~ancestree.inference.ARGBasedInference`
   on a tskit ``.trees`` file. No outgroups required. The local ARG
@@ -573,7 +573,7 @@ def _add_fixed_tree_parser(
         help="EST-SFS-style: ML-fit a fixed outgroup-ladder tree on a VCF.",
         description=(
             "ML-fit branch rates on an OutgroupLadderTree built from "
-            "--outgroups, or take a dated --species-tree as given, then write "
+            "--outgroups, or take a dated --tree as given, then write "
             "per-site posteriors at the focal node, the ingroup MRCA by "
             "default, as an annotated VCF or VCF Zarr store."
         ),
@@ -605,25 +605,27 @@ def _add_fixed_tree_parser(
              "sites, or a .trees file whose genotypes are read.",
     )
     p.add_argument(
-        "--species-tree", default=None,
-        help="Dated Newick to use as the tree, topology and branch lengths "
-             "both. Skips the ML fit; extra taxa are pruned and the ladder "
-             "order comes from the topology. Without it, the ladder is built "
-             "from --outgroups, closest first, and its rates are fitted.",
+        "--tree", default=None,
+        help="Dated Newick used as given for every site, with branch lengths "
+             "in expected substitutions per site. Every leaf is a tip named "
+             "as its sample, nothing is fitted, and --ingroup only names the "
+             "tips whose most recent common ancestor the posterior is "
+             "reported at. Without it, the ladder is built from --outgroups, "
+             "closest first, and its rates are fitted.",
     )
     p.add_argument(
         "--ingroup", type=_split_csv,
         help=(
             "Comma-separated ingroup sample ids "
             "(must match VCF sample columns and Newick leaves). Defaults to "
-            "every haplotype whose individual is not named in --outgroups."
+            "every sample not named in --outgroups."
         ),
     )
     p.add_argument(
-        "--outgroups", required=True, type=_split_csv,
+        "--outgroups", type=_split_csv,
         help=(
             "Comma-separated outgroup sample ids, closest-first "
-            "(must match VCF and Newick names)."
+            "(must match VCF and Newick names). Required without --tree."
         ),
     )
     composition = _add_model_args(p)
@@ -981,37 +983,33 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     :return: Process exit code (0 on success).
     :raises SystemExit: If ``--out`` has an unsupported extension.
     """
-    st = args.species_tree is not None
+    st = args.tree is not None
+    if not st and not args.outgroups:
+        raise SystemExit("fixed-tree: --outgroups is required without --tree")
     _warn_ignored(args, [
-        ("fit_kappa", st, "with --species-tree: the branch-rate fit is skipped"),
-        ("fit_rates", st, "with --species-tree: the branch-rate fit is skipped"),
+        ("fit_kappa", st, "with --tree: nothing is fitted"),
+        ("fit_rates", st, "with --tree: nothing is fitted"),
         ("n_target_sites", st,
-         "with --species-tree: only the fit consumes the monomorphic weights"),
-        ("parallelize", st, "with --species-tree: no fit runs to parallelise"),
+         "with --tree: only the fit consumes the monomorphic weights"),
+        ("parallelize", st, "with --tree: no fit runs to parallelise"),
+        ("ingroup_weight", st, "with --tree: every sample is a tip"),
         ("max_calibration_sites", not args.empirical_composition,
          "without --empirical-composition"),
     ])
     out_format = _out_format(args, "fixed-tree", ("vcf", "vcz"))
-    if st and args.ingroup_weight == "adaptive":
-        _log.warning(
-            "--ingroup-weight adaptive with --species-tree: its per-bin fit "
-            "runs inside fit(), which --species-tree skips, so the Kingman "
-            "values are used instead")
     from ancestree.inference import FixedTreeInference
-    from ancestree.trees import OutgroupLadderTree
+    from ancestree.trees import FixedTree, OutgroupLadderTree, Tree
 
-    ingroup = args.ingroup or FixedTreeInference.default_ingroup(
-        args.vcf, args.outgroups, sample_filter=args.samples or None)
+    ingroup = args.ingroup
+    if ingroup is None and args.outgroups:
+        ingroup = FixedTreeInference.default_ingroup(
+            args.vcf, args.outgroups, sample_filter=args.samples or None)
 
     # Build the ladder first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
     # taken as closest-first and the rates are fitted.
-    if args.species_tree is not None:
-        with open(args.species_tree) as fh:
-            newick_str = fh.read().strip()
-        tree = OutgroupLadderTree.from_newick(
-            newick_str, ingroup_samples=ingroup,
-            outgroup_samples=args.outgroups,
-        )
+    if st:
+        with open(args.tree) as fh:
+            tree: Tree = FixedTree.from_newick(fh.read().strip())
     else:
         tree = OutgroupLadderTree(ingroup, args.outgroups)
 
@@ -1044,7 +1042,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         args.model, fit_kappa=args.fit_kappa, fit_rates=args.fit_rates,
         kappa=args_kappa,
     )
-    ingroup_weight = _build_ingroup_weight(
+    ingroup_weight = None if st else _build_ingroup_weight(
         args.ingroup_weight, ingroup_samples=ingroup,
         parallelize=args.parallelize,
     )
@@ -1054,10 +1052,12 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         args.vcf,
         model=model,
         tree=tree,
+        ingroup_samples=ingroup if st else None,
+        outgroup_samples=args.outgroups if st else None,
         sample_filter=(args.samples or None),
         baseline_check=args.baseline_check,
         focal=_build_focal(args),
-        fit_required=args.species_tree is None,
+        fit_required=args.tree is None,
         n_target_sites=args.n_target_sites,
         n_starts=args.n_starts,
         seed=args.seed,
@@ -1067,7 +1067,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         parallelize=args.parallelize,
         n_workers=args.n_workers,
     )
-    if args.species_tree is None:
+    if args.tree is None:
         inference.fit()  # ML branch rates. Skipped when a dated tree is given
 
     return _write_output(inference, args, out_format, input_vcf=template_vcf)

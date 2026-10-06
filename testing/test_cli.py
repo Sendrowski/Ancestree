@@ -102,7 +102,7 @@ class TestParser:
         ns = parser.parse_args([
             "fixed-tree",
             "--vcf", "in.vcf.gz",
-            "--species-tree", "tree.nwk",
+            "--tree", "tree.nwk",
             "--ingroup", "a,b,c",
             "--outgroups", "o1,o2",
             "--model", "HKY", "--fit-kappa",
@@ -112,7 +112,7 @@ class TestParser:
         ])
         assert ns.command == "fixed-tree"
         assert ns.vcf == "in.vcf.gz"
-        assert ns.species_tree == "tree.nwk"
+        assert ns.tree == "tree.nwk"
         assert ns.ingroup == ["a", "b", "c"]
         assert ns.outgroups == ["o1", "o2"]
         assert ns.model == "HKY"
@@ -132,7 +132,7 @@ class TestParser:
         with pytest.raises(SystemExit):
             parser.parse_args([
                 "fixed-tree",
-                "--species-tree", "tree.nwk",
+                "--tree", "tree.nwk",
                 "--ingroup", "a", "--outgroups", "o1",
                 "--out", "annot.vcf",
             ])
@@ -308,7 +308,7 @@ class TestArgSubcommandE2E:
             run([
                 "fixed-tree",
                 "--vcf", str(tmp_path / "missing.vcf"),
-                "--species-tree", str(tmp_path / "missing.nwk"),
+                "--tree", str(tmp_path / "missing.nwk"),
                 "--ingroup", "a,b",
                 "--outgroups", "o1",
                 "--out", str(out_path),
@@ -348,7 +348,7 @@ class TestArgSubcommandE2E:
         code = run([
             "fixed-tree",
             "--vcf", str(vcf_in),
-            "--species-tree", str(nwk),
+            "--tree", str(nwk),
             "--ingroup", ",".join(ingroup),
             "--outgroups", ",".join(outgroup),
             "--prior", "uniform",
@@ -490,7 +490,7 @@ class TestFixedTreeVczInput:
             "fixed-tree",
             "--vcf", str(store),
             "--template-vcf", str(skel),
-            "--species-tree", str(nwk),
+            "--tree", str(nwk),
             "--ingroup", ",".join(ingroup),
             "--outgroups", ",".join(outgroup),
             "--prior", "uniform",
@@ -530,21 +530,53 @@ class TestFixedTreeVczInput:
 class TestFixedTreeHandler:
     """The ``fixed-tree`` branches beyond the species-tree VCF-to-VCF run."""
 
-    def test_adaptive_weight_with_species_tree_falls_back_to_kingman(
+    def test_ingroup_weight_is_ignored_with_a_given_tree(
             self, ladder_panel, tmp_path, caplog):
         vcf, _vcz, nwk, _alleles, _gt = ladder_panel
         out = tmp_path / "annot.vcf"
         with caplog.at_level(logging.WARNING, logger="ancestree.cli"):
             code = run([
-                "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+                "fixed-tree", "--vcf", str(vcf), "--tree", str(nwk),
                 "--ingroup", "i0,i1", "--outgroups", "o1,o2",
                 "--ingroup-weight", "adaptive", "--out", str(out),
             ])
         assert code == 0
         messages = [r.getMessage() for r in caplog.records]
-        assert any("Kingman values are used instead" in m for m in messages)
+        assert any("--ingroup-weight is ignored" in m for m in messages)
+        assert Reader(out).provenance()["parameters"]["ingroup_weight"] is None
         prov = Reader(out).provenance()
         assert prov["parameters"]["branch_rates_fitted"] is False
+
+    def test_tree_without_outgroups_matches_the_api(
+            self, ladder_panel, tmp_path):
+        """``--tree`` needs no ``--outgroups``: every leaf is a tip and
+        ``--ingroup`` only sets the reporting node, as in the Python API."""
+        import cyvcf2
+        import numpy as np
+        import ancestree as anc
+
+        vcf, _vcz, nwk, _alleles, _gt = ladder_panel
+        out = tmp_path / "annot.vcf"
+        assert run([
+            "fixed-tree", "--vcf", str(vcf), "--tree", str(nwk),
+            "--ingroup", "i0,i1", "--out", str(out),
+        ]) == 0
+        inf = anc.FixedTreeInference(
+            str(vcf), tree=anc.FixedTree.from_newick(nwk.read_text().strip()),
+            ingroup_samples=["i0", "i1"], progress=False)
+        expected = [post.max_prob for _, post in inf.infer()]
+        rdr = cyvcf2.VCF(str(out))
+        try:
+            written = [float(rec.INFO.get("AA_prob")) for rec in rdr]
+        finally:
+            rdr.close()
+        np.testing.assert_allclose(written, expected, atol=1e-3)
+
+    def test_outgroups_are_required_without_a_tree(self, ladder_panel, tmp_path):
+        vcf, _vcz, _nwk, _alleles, _gt = ladder_panel
+        with pytest.raises(SystemExit, match="--outgroups is required"):
+            run(["fixed-tree", "--vcf", str(vcf),
+                 "--out", str(tmp_path / "annot.vcf")])
 
     def test_ingroup_is_derived_from_the_panel(
             self, ladder_panel, tmp_path, caplog):
@@ -552,7 +584,7 @@ class TestFixedTreeHandler:
         out = tmp_path / "annot.vcf"
         with caplog.at_level(logging.INFO, logger="ancestree"):
             code = run([
-                "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+                "fixed-tree", "--vcf", str(vcf), "--tree", str(nwk),
                 "--outgroups", "o1,o2", "--out", str(out),
             ])
         assert code == 0
@@ -562,7 +594,7 @@ class TestFixedTreeHandler:
 
     def test_outgroups_alone_build_the_ladder_and_fit(
             self, ladder_panel, tmp_path, caplog):
-        """Without ``--species-tree`` the ladder is fitted, and a
+        """Without ``--tree`` the ladder is fitted, and a
         base-frequency model without ``--empirical-composition`` reports its
         uniform frequencies."""
         vcf, _vcz, _nwk, alleles, _gt = ladder_panel
@@ -615,7 +647,7 @@ class TestFixedTreeHandler:
         vcf, _vcz, nwk, alleles, gt = ladder_panel
         out = tmp_path / "annot.vcf"
         argv = [
-            "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+            "fixed-tree", "--vcf", str(vcf), "--tree", str(nwk),
             "--ingroup", "i0,i1", "--outgroups", "o1,o2",
             "--model", model, "--empirical-composition",
             "--max-calibration-sites", "200", "--out", str(out),
@@ -651,7 +683,7 @@ class TestFixedTreeHandler:
         out = tmp_path / "annot.vcz"
         with caplog.at_level(logging.INFO, logger="ancestree"):
             code = run([
-                "fixed-tree", "--vcf", str(vcf), "--species-tree", str(nwk),
+                "fixed-tree", "--vcf", str(vcf), "--tree", str(nwk),
                 "--ingroup", "i0,i1", "--outgroups", "o1,o2",
                 "--template-vcf", str(vcf), "--out", str(out),
             ])
@@ -815,7 +847,7 @@ class TestLocalTreeE2E:
         nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
         out = tmp_path / "annot.vcf"
         assert run([
-            "fixed-tree", "--vcf", str(store), "--species-tree", str(nwk),
+            "fixed-tree", "--vcf", str(store), "--tree", str(nwk),
             "--ingroup", "i0,i1", "--outgroups", "o1,o2", "--prior", "uniform",
             "--n-target-sites", str(n_sites), "--out", str(out),
         ]) == 0

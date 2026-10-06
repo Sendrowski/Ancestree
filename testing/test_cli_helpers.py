@@ -298,7 +298,7 @@ class TestSpeciesTreeOrdersTheLadder:
 
 
 class TestSpeciesTreeIsUsedVerbatim:
-    """``--species-tree`` supplies the tree, so the ML fit is skipped.
+    """``--tree`` supplies the tree, so the ML fit is skipped.
 
     Without it the ladder comes from ``--outgroups`` and its rates are fitted.
     The two are distinguishable in the handler by ``fit_required``.
@@ -310,8 +310,8 @@ class TestSpeciesTreeIsUsedVerbatim:
         from ancestree import cli
 
         src = inspect.getsource(cli._run_fixed_tree)
-        assert "fit_required=args.species_tree is None" in src
-        assert "if args.species_tree is None:" in src
+        assert "fit_required=args.tree is None" in src
+        assert "if args.tree is None:" in src
 
     def test_species_tree_is_optional(self):
         import argparse
@@ -321,7 +321,7 @@ class TestSpeciesTreeIsUsedVerbatim:
         sa = next(a for a in build_parser()._actions
                   if isinstance(a, argparse._SubParsersAction))
         action = next(a for a in sa.choices["fixed-tree"]._actions
-                      if a.dest == "species_tree")
+                      if a.dest == "tree")
         assert not action.required
         assert action.default is None
 

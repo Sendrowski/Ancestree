@@ -1,4 +1,4 @@
-"""Tests for OutgroupLadderTree.from_newick + FixedTreeInference(fit_required=False)."""
+"""Tests for OutgroupLadderTree.from_newick, FixedTreeInference(fit_required=False) and a species tree used as given."""
 from __future__ import annotations
 
 import sys
@@ -290,3 +290,83 @@ class TestFitRequiredFalse:
         log_post -= logsumexp(log_post)
         expected = np.exp(log_post)
         np.testing.assert_allclose(post.values, expected, atol=1e-10)
+
+
+class TestSpeciesTreeAsGiven:
+    """A dated tree that is not a ladder: every leaf a tip, nothing fitted,
+    and the sample names only set the reporting node."""
+
+    #: Not ultrametric, with two sister species below a deeper third.
+    NEWICK = "((h:0.01,(c:0.02,b:0.02):0.03):0.02,g:0.07);"
+    SITE = Site(
+        chrom="1", pos=1, alleles=("A", "C"),
+        tip_alleles={"h": "A", "c": "A", "b": "C", "g": "A"},
+    )
+
+    @staticmethod
+    def _jc69(t: float) -> np.ndarray:
+        """JC69 transition matrix over ``t`` expected substitutions per site."""
+        decay = np.exp(-4.0 * t / 3.0)
+        return decay * np.eye(4) + (1.0 - decay) / 4.0
+
+    def _posterior(self, **kwargs) -> np.ndarray:
+        inf = FixedTreeInference(
+            [self.SITE], JC69(), tree=anc.FixedTree.from_newick(self.NEWICK),
+            progress=False, **kwargs)
+        assert inf.fit() == {}
+        return next(iter(inf.infer()))[1].values
+
+    def test_branch_lengths_are_kept(self):
+        tree = TskitLocalTree.from_newick(self.NEWICK)
+        for name, length in {"h": 0.01, "c": 0.02, "b": 0.02, "g": 0.07}.items():
+            assert tree.branch_length(tree.tip_for_sample(name)) == pytest.approx(length)
+
+    def test_time_scale_rescales_the_branches(self):
+        """A tree dated in other units with its rate gives the posterior of
+        the same tree written in substitutions per site."""
+        scaled = "((h:1e6,(c:2e6,b:2e6):3e6):2e6,g:7e6);"
+        inf = FixedTreeInference(
+            [self.SITE], JC69(), progress=False,
+            tree=anc.FixedTree.from_newick(scaled, time_scale=1e-8))
+        np.testing.assert_allclose(
+            next(iter(inf.infer()))[1].values, self._posterior(), rtol=1e-10)
+
+    def test_posterior_matches_pruning_by_hand(self):
+        """The posterior at the root, and at the ancestor the labels name,
+        equals the pruning recursion written out under a uniform prior."""
+        P = self._jc69
+        a_tip, c_tip = np.eye(4)[0], np.eye(4)[1]
+        sisters = (P(0.02) @ a_tip) * (P(0.02) @ c_tip)
+        upper = (P(0.01) @ a_tip) * (P(0.03) @ sisters)
+        at_root = (P(0.02) @ upper) * (P(0.07) @ a_tip)
+        # Read at the ancestor of c and b, the rest of the tree hangs above it.
+        above = (P(0.01) @ a_tip) * (P(0.02) @ (P(0.07) @ a_tip))
+        at_sisters = sisters * (P(0.03) @ above)
+
+        np.testing.assert_allclose(
+            self._posterior(), at_root / at_root.sum(), rtol=1e-10)
+        np.testing.assert_allclose(
+            self._posterior(ingroup_samples=["c", "b"]),
+            at_sisters / at_sisters.sum(), rtol=1e-10)
+
+    def test_labels_do_not_change_the_likelihood(self):
+        """Naming an ingroup moves the reporting node and nothing else: read
+        back at the root, the posterior is the unlabelled one."""
+        np.testing.assert_allclose(
+            self._posterior(ingroup_samples=["c", "b"], focal="panel_root"),
+            self._posterior(), rtol=1e-12)
+
+    def test_label_off_the_tree_raises(self):
+        """A sample present in the data but absent from the tree cannot set
+        the reporting node."""
+        site = Site(chrom="1", pos=1, alleles=("A", "C"),
+                    tip_alleles={**self.SITE.tip_alleles, "x": "A"})
+        with pytest.raises(ValueError, match="not tips of the tree"):
+            FixedTreeInference(
+                [site], JC69(), tree=TskitLocalTree.from_newick(self.NEWICK),
+                ingroup_samples=["c", "x"])
+
+    def test_ingroup_weight_is_refused(self):
+        with pytest.raises(ValueError, match="does not apply"):
+            self._posterior(
+                ingroup_weight=anc.KingmanIngroupWeight(["c", "b"]))
