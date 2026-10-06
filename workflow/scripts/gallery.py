@@ -45,7 +45,7 @@ STATE_COLORS = {"A": "#1f77b4", "C": "#2ca02c", "G": "#ff7f0e", "T": "#d62728"}
 
 
 def case_polymorphic_arg():
-    nwk = "((i1:0.001,i2:0.001):0.002,o1:0.02);"
+    nwk = "((i1:0.001,i2:0.001):0.019,o1:0.02);"
     tree = TskitLocalTree.from_newick(nwk)
     site = Site(chrom="1", pos=1, alleles=("A", "C"),
                 tip_alleles={"i1": "A", "i2": "C", "o1": "A"})
@@ -56,7 +56,7 @@ def case_polymorphic_arg():
 
 
 def case_polyallelic():
-    nwk = "((i1:0.002,i2:0.002):0.003,(o1:0.01,o2:0.01):0.005);"
+    nwk = "((i1:0.002,i2:0.002):0.013,(o1:0.01,o2:0.01):0.005);"
     tree = TskitLocalTree.from_newick(nwk)
     site = Site(chrom="1", pos=1, alleles=("A", "C", "G"),
                 tip_alleles={"i1": "A", "i2": "C", "o1": "G", "o2": "G"})
@@ -67,7 +67,7 @@ def case_polyallelic():
 
 
 def case_missing_outgroup():
-    nwk = "((i1:0.001,i2:0.001):0.002,o1:0.02);"
+    nwk = "((i1:0.001,i2:0.001):0.019,o1:0.02);"
     tree = TskitLocalTree.from_newick(nwk)
     site = Site(chrom="1", pos=1, alleles=("A", "C"),
                 tip_alleles={"i1": "A", "i2": "A", "o1": None})
@@ -100,7 +100,7 @@ def case_recurrent_homoplastic():
 
 
 def case_polytomy_root():
-    nwk = "(i1:0.005,i2:0.005,i3:0.005,o1:0.03);"
+    nwk = "(i1:0.03,i2:0.03,i3:0.03,o1:0.03);"
     tree = TskitLocalTree.from_newick(nwk)
     site = Site(chrom="1", pos=1, alleles=("A", "C"),
                 tip_alleles={"i1": "A", "i2": "A", "i3": "C", "o1": "A"})
@@ -110,7 +110,7 @@ def case_polytomy_root():
 
 
 def case_k2_kappa():
-    nwk = "((i1:0.003,i2:0.003):0.005,o1:0.03);"
+    nwk = "((i1:0.003,i2:0.003):0.027,o1:0.03);"
     tree = TskitLocalTree.from_newick(nwk)
     # A↔G is a transition. Under K2(κ=10) this is 10× more likely than A↔C/T.
     site = Site(chrom="1", pos=1, alleles=("A", "G"),
