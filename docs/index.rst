@@ -86,6 +86,7 @@ Three inference modes:
    :maxdepth: 1
    :hidden:
 
+   citing
    changelog
 
 References
