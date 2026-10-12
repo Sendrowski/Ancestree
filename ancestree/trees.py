@@ -928,6 +928,11 @@ class OutgroupLadderTree(Tree):
     :raises ValueError: If ``outgroup_samples`` is empty.
     """
 
+    #: Mean distance from an ingroup haplotype to the ingroup MRCA, in
+    #: substitutions per site. It places the panel root, and is set by
+    #: :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`.
+    ingroup_depth: float = 0.0
+
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
@@ -1444,12 +1449,16 @@ class OutgroupLadderTree(Tree):
         The far end is the ancestor of the whole panel, which sits on the
         deepest outgroup's branch at a position the exact transition matrix
         cannot identify, since it satisfies ``P(a) P(b) == P(a + b)``. The
-        ultrametric convention places it at half that outgroup's divergence,
-        as :meth:`from_divergences` does.
+        ultrametric convention places it at ``(d - h) / 2``, for the deepest
+        outgroup's divergence ``d`` and the :attr:`ingroup_depth` ``h``, and
+        no lower than the deepest join.
 
         :return: Distance from the ingroup MRCA, in substitutions per site.
         """
-        return 0.5 * float(self.outgroup_divergence()[-1])
+        _, lengths = self._backbone
+        midpoint = 0.5 * (float(self.outgroup_divergence()[-1])
+                          - float(self.ingroup_depth))
+        return max(midpoint, sum(lengths[:-1]))
 
     @classmethod
     def from_divergences(

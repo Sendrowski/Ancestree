@@ -1516,6 +1516,26 @@ def _fittable_instance(**overrides):
     return FixedTreeInference(sites, JC69(), _no_counts(), **kwargs)
 
 
+class TestIngroupDepth:
+    """The fit records the ingroup MRCA depth that places the panel root."""
+
+    def test_fit_sets_the_mean_derived_fraction_per_site(self):
+        """40 singletons among 4 haplotypes over 4000 sites, each oriented by
+        two agreeing outgroups, put a quarter of a derived allele per
+        polymorphic site on the mean haplotype."""
+        ingroup = [f"i{k}" for k in range(4)]
+        outgroup = ["o1", "o2"]
+        sites = [_biallelic_site(pos + 1, ingroup, outgroup) for pos in range(40)]
+        inf = FixedTreeInference(
+            sites, JC69(), _no_counts(),
+            tree=OutgroupLadderTree(ingroup, outgroup),
+            n_target_sites=4000, progress=False, n_starts=2,
+        )
+        assert inf.tree.ingroup_depth == 0.0
+        inf.fit()
+        assert inf.tree.ingroup_depth == pytest.approx(40 * 0.25 / 4000, rel=0.02)
+
+
 class TestSubsampleSizeReconciliation:
     """A supplied AFS-aware prior must agree on ``subsample_size``.
 

@@ -294,6 +294,29 @@ class TestDrawText:
         assert "O1" in text and "O2" in text
 
 
+class TestPanelRootPlacement:
+    """Where the ladder places the ancestor of the whole panel."""
+
+    def test_midpoint_of_the_deepest_divergence_without_ingroup_depth(self):
+        assert _two_outgroup_tree()._backbone_limit == pytest.approx(0.3)
+
+    def test_ingroup_depth_lowers_the_panel_root_by_half_of_it(self):
+        """The panel root is equally far from the ingroup haplotypes and from
+        the deepest outgroup, so a reading that ignores the ingroup's own
+        depth sits half of it too high."""
+        ladder = _two_outgroup_tree()
+        ladder.ingroup_depth = 0.04
+        assert ladder._backbone_limit == pytest.approx(0.28)
+        anchor, tau = ladder.at_focal(FocalNode("panel_root")).placement
+        assert anchor == ladder.tip_for_sample("o2")
+        assert tau == pytest.approx(0.32)
+
+    def test_panel_root_stays_at_or_above_the_deepest_join(self):
+        ladder = _two_outgroup_tree()
+        ladder.ingroup_depth = 0.9
+        assert ladder._backbone_limit == pytest.approx(0.1)
+
+
 class TestRerootedView:
     """Placement, delegation and validation of a re-rooted ladder view."""
 

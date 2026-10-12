@@ -3418,9 +3418,44 @@ class FixedTreeInference(Inference):
                 )
             self.ingroup_weight.end_fit()
 
+        self.tree.ingroup_depth = self._estimate_ingroup_depth()
         self._warn_if_outgroup_divergences_non_monotone()
         self._log_fit_summary(best.nit, results=results, best_idx=best_idx)
         return self.params_mle  # type: ignore[return-value]
+
+    def _estimate_ingroup_depth(self) -> float:
+        r"""Mean ingroup MRCA depth at the fitted rates, in substitutions per site.
+
+        .. math::
+
+            \hat h = \frac{\sum_c w_c \sum_a p_c(a)\,(1 - m_{c,a} / m_c)}
+                {\sum_c w_c},
+
+        for the multiplicity ``w_c`` of config ``c``, its posterior ``p_c(a)``
+        that ``a`` is ancestral at the ingroup MRCA, and the ``m_{c,a}`` of
+        its ``m_c`` called ingroup tips that carry ``a``.
+
+        :return: The estimate, ``0.0`` without fit configs.
+        """
+        if not self._fit_configs:
+            return 0.0
+        log_L = self._engine.log_likelihoods(self.tree, self._fit_configs)
+        log_post = (log_L + self._fit_log_prior
+                    + self.prior.log_probs(self._fit_configs[:1])[0])
+        post = np.exp(log_post - logsumexp(log_post, axis=1, keepdims=True))
+        outgroups = set(self.tree.outgroup_samples)
+        derived = np.zeros(len(self._fit_configs))
+        for i, config in enumerate(self._fit_configs):
+            counts = Counter(
+                allele for sample, allele in config.tip_alleles.items()
+                if sample not in outgroups and allele in STATE_INDEX
+            )
+            called = sum(counts.values())
+            if called:
+                carried = np.array([counts.get(s, 0) for s in STATES]) / called
+                derived[i] = float(post[i] @ (1.0 - carried))
+        weights = np.asarray(self._fit_weights, dtype=float)
+        return float((weights * derived).sum() / weights.sum())
 
     def _warn_if_outgroup_divergences_non_monotone(self) -> None:
         """Warn when the fitted ``I → O_k`` divergences do not increase along
