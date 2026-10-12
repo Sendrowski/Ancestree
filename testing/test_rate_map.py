@@ -8,10 +8,10 @@ dep. Coverage:
 1. Uniform ``msprime.RateMap`` produces bit-identical posteriors to the
    scalar ``mu`` path.
 2. Non-uniform ``msprime.RateMap`` produces posteriors that differ from
-   a scalar at the mean rate, confirming the per-tree query actually
+   a scalar at the mean rate, confirming the rate at the site actually
    flows through to the kernel.
 3. A duck-typed shim (a tiny user-defined class with only
-   ``mean_rate_in_interval``) is accepted by the constructor and produces
+   ``get_cumulative_mass``) is accepted by the constructor and produces
    the same output as a matched scalar.
 4. Non-numeric, non-rate-map ``mu`` raises ``TypeError`` with a clear
    message naming the expected contract.
@@ -94,8 +94,8 @@ def test_nonuniform_rate_map_differs_from_uniform_scalar():
     assert shared, "no shared positions between scalar and rate-map runs"
 
     # At least one site in the hot region must produce a numerically
-    # different posterior. The rate-map path is taking the per-tree
-    # mean-rate query, not the global average.
+    # different posterior. The rate-map path is taking the rate at the
+    # site, not the global average.
     differs = any(
         pos > seq_len / 2 and not np.allclose(
             scalar_by_pos[pos], map_by_pos[pos], rtol=0, atol=1e-12,
@@ -104,7 +104,7 @@ def test_nonuniform_rate_map_differs_from_uniform_scalar():
     )
     assert differs, (
         "non-uniform RateMap produced identical posteriors to the matched-"
-        "average scalar; the per-tree rate query is not taking effect."
+        "average scalar; the per-site rate query is not taking effect."
     )
 
 
@@ -147,9 +147,9 @@ def test_invalid_mu_type_rejected():
         ARGBasedInference(ts, JC69(), mu="not a rate", progress=False)
 
 
-def test_rate_map_scales_a_supplied_tree_by_its_interval(small_ts):
-    """``infer_site`` on a tskit-backed tree reads the rate map over the
-    tree's own interval, so it agrees with a scalar run at that rate."""
+def test_rate_map_scales_a_supplied_tree_by_the_rate_at_the_site(small_ts):
+    """``infer_site`` on a tskit-backed tree reads the rate map at the site's
+    position, so it agrees with a scalar run at that rate."""
     length = small_ts.sequence_length
     rate_map = msprime.RateMap(position=[0.0, length / 2, length],
                                rate=[1e-8, 4e-8])

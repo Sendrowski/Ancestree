@@ -50,7 +50,9 @@ from ancestree._upgma import (
     WindowedUpgmaTreeSequence,
 )
 from ancestree.focal import FocalNode
-from ancestree.inference import ARGBasedInference, Inference
+from ancestree.inference import (
+    _ZERO_RATE_FLOOR, ARGBasedInference, Inference,
+)
 from ancestree.models import JC69, SubstitutionModel
 from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
@@ -668,11 +670,12 @@ class LocalTreeBuilder(ReprMixin):
         uniformly in the HMM. See :meth:`PairwiseCoalescentHMM.block_tmrcas`.
         Defaults to ``None`` (every block callable).
     :param mutation_map: Optional :class:`msprime.RateMap` (in this region's bp
-        coordinates) giving the local per-site mutation rate, used in the HMM
-        emission in place of the constant ``mu``, which is then the reference
-        rate the map is expressed against. See
-        :meth:`PairwiseCoalescentHMM.block_tmrcas`. Defaults to ``None`` (a
-        uniform rate).
+        coordinates) giving the local per-site mutation rate, with ``mu`` the
+        reference rate the map is expressed against. The HMM emission of a
+        block uses the map's mean rate over it (see
+        :meth:`PairwiseCoalescentHMM.block_tmrcas`), and the kernel scales
+        the branches of each site by the map's rate at that site.
+        Defaults to ``None`` (a uniform rate).
     :param validate_coverage: When ``True`` (default), raise if any declared
         sample is observed at zero sites, the signature of a ``sample_names`` /
         :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>` key
@@ -1053,6 +1056,37 @@ class LocalTreeBuilder(ReprMixin):
             emit_scale = np.clip(scale, _EMIT_SCALE_FLOOR, None)
         return step, block_mask, emit_scale
 
+    def _site_rate_scale(self, positions: np.ndarray) -> "np.ndarray | None":
+        """Mutation rate at each site relative to :attr:`mu`.
+
+        :param positions: Site coordinates in region coordinates ``[0, L)``.
+        :return: ``(n_sites,)`` positive multipliers, a zero rate floored, or
+            ``None`` without a :attr:`mutation_map`.
+        """
+        if self.mutation_map is None:
+            return None
+        mm = self._kernel_mu()
+        x = np.clip(np.asarray(positions, dtype=np.float64), 0.0,
+                    np.nextafter(float(mm.sequence_length), 0.0))
+        rate = np.asarray(mm.get_rate(x), dtype=np.float64)
+        return np.maximum(rate, _ZERO_RATE_FLOOR) / float(self.mu)
+
+    def _kernel_mu(self):
+        """The rate the kernel scores this builder's sites at.
+
+        :return: :attr:`mu`, or the :attr:`mutation_map` with the intervals
+            it leaves undefined at :attr:`mu`.
+        """
+        mm = self.mutation_map
+        if mm is None:
+            return self.mu
+        rate = np.asarray(mm.rate, dtype=np.float64)
+        if not np.isnan(rate).any():
+            return mm
+        from ancestree._maps import MapFiles
+        return MapFiles.msprime().RateMap(
+            position=mm.position, rate=np.where(np.isnan(rate), self.mu, rate))
+
     def _accessible_fraction(self, n_blocks: int) -> np.ndarray:
         """Callable base-pair fraction of each block.
 
@@ -1358,8 +1392,9 @@ class LocalTreeInference(Inference):
         ``(start, end)`` bp intervals, marking the callable genome.
     :param mutation_map: Optional bedGraph file path or
         :class:`msprime.RateMap` (in the input's bp coordinates) giving the
-        local mutation rate for the HMM emission in place of the constant
-        ``mu``.
+        local mutation rate, with ``mu`` the reference rate. The HMM emission
+        of a block uses the map's mean rate over it, and the kernel scales the
+        branches of each site by the map's rate at that site.
 
         Each of the three also accepts a ``{contig: map}`` dict, whose entry
         for the sites' contig applies. A file is read into one entry per
@@ -1649,7 +1684,7 @@ class LocalTreeInference(Inference):
                     "build. Use point_tree_sequence() for the stitched trees.")
             self._arg = ARGBasedInference(
                 self.builder.to_tree_sequence(), self._arg_model,
-                **self._arg_kwargs)
+                **{**self._arg_kwargs, "mu": self.builder._kernel_mu()})
             self._arg._quiet = True  # parent does the user-facing logging
         return self._arg
 
@@ -2117,9 +2152,10 @@ class LocalTreeInference(Inference):
                 "_n_unrepresentable_sites": unrep_sites,
                 "_n_unrepresentable_tips": unrep_tips,
             })
+        segment = self._segment_builder(work_unit)
         arg = ARGBasedInference(
-            self._segment_builder(work_unit).to_tree_sequence(), self.model,
-            mu=self.mu, prior=self.prior,
+            segment.to_tree_sequence(), self.model,
+            mu=segment._kernel_mu(), prior=self.prior,
             base_composition=self.base_composition, progress=False,
             n_workers=1, focal=self.focal,
             ingroup_samples=self._ingroup_samples or None,

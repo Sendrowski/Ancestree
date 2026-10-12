@@ -203,8 +203,8 @@ def test_zero_rate_ratemap_floors_instead_of_crashing(caplog):
     # A fully zero-rate map: every local tree's span integrates to zero mass.
     rmap = msprime.RateMap(position=[0, 2000], rate=[0.0])
     inf = ARGBasedInference(ts, JC69(), mu=rmap, progress=False)
-    # _mu_for_interval floors the zero-mass interval (deterministic).
-    assert inf._mu_for_interval(0.0, 2000.0) == pytest.approx(1e-12)
+    # The zero rate is floored (deterministic).
+    assert inf._site_rates(np.array([100.0]))[0] == pytest.approx(1e-12)
     with caplog.at_level(logging.WARNING, logger="ancestree.ARGBasedInference"):
         out = list(inf.infer())
     assert len(out) == ts.num_sites  # ran to completion, no crash
@@ -220,8 +220,37 @@ def test_ratemap_nonzero_interval_unaffected():
     ts = msprime.sim_mutations(ts, rate=1e-2, random_seed=5)
     rmap = msprime.RateMap(position=[0, 1000, 2000], rate=[0.0, 1e-8])
     inf = ARGBasedInference(ts, JC69(), mu=rmap, progress=False)
-    assert inf._mu_for_interval(0.0, 500.0) == pytest.approx(1e-12)  # zero region -> floor
-    assert inf._mu_for_interval(1000.0, 2000.0) == pytest.approx(1e-8)  # genuine rate
+    rates = inf._site_rates(np.array([250.0, 1500.0]))
+    assert rates[0] == pytest.approx(1e-12)  # zero region -> floor
+    assert rates[1] == pytest.approx(1e-8)  # genuine rate
+
+
+def test_rate_map_is_read_at_each_site(small_ts):
+    """A rate-map ``mu`` scales the branches of a site by the map's rate at
+    that site, so a map of two rate classes gives each class the posterior of
+    a scalar run at its rate. A rate averaged over the local tree's span would
+    give every site of the tree the same one."""
+    L = int(small_ts.sequence_length)
+    mu = 1e-8
+    rate = np.where(np.arange(L) % 2 == 0, 10 * mu, mu)
+    rmap = msprime.RateMap(position=np.arange(L + 1, dtype=float), rate=rate)
+
+    def posteriors(mu):
+        inf = ARGBasedInference(small_ts, JC69(), mu=mu, progress=False)
+        return np.array([p.values for _, p in inf.infer()])
+
+    fast = np.array([int(s.position) % 2 == 0 for s in small_ts.sites()])
+    assert fast.any() and not fast.all()
+    expected = np.where(fast[:, None], posteriors(10 * mu), posteriors(mu))
+    np.testing.assert_allclose(posteriors(rmap), expected, rtol=1e-12, atol=1e-14)
+
+    # A single site scored on its own tree takes the same rate.
+    inf = ARGBasedInference(small_ts, JC69(), mu=rmap, progress=False)
+    tree = next(t for t in small_ts.trees() if t.num_sites)
+    variant = next(small_ts.variants(left=tree.interval.left))
+    site = inf._parse_variant(variant, small_ts.samples())
+    local = TskitLocalTree.from_tskit_tree(tree, sample_map=inf.sample_map)
+    assert inf._scale_for(local, site) == rate[int(variant.site.position)]
 
 
 class TestTimeUnits:

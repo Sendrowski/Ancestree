@@ -1024,7 +1024,7 @@ class Inference(ReprMixin, ABC):
             sample_map=sample_map,
         )
 
-    def _scale_for(self, tree: "Tree") -> "float | None":
+    def _scale_for(self, tree: "Tree", site: Site) -> "float | None":
         """The per-site rate scaling ``tree``'s branch lengths, or ``None``.
 
         Branch lengths measured in generations, as an ARG local tree and the
@@ -1034,48 +1034,44 @@ class Inference(ReprMixin, ABC):
         are left alone.
 
         :param tree: The tree about to be scored.
+        :param site: The site scored on it.
         :return: The rate to assign to ``tree.time_scale``, or ``None`` to
             leave the branch lengths as they are.
         """
-        mu = self.mu
-        ts_tree = tree.tskit_tree
-        if mu is None or ts_tree is None:
+        if self.mu is None or tree.tskit_tree is None:
             return None
-        if isinstance(mu, float):
-            return float(mu)
-        interval = ts_tree.interval
-        return self._mu_for_interval(
-            float(interval.left), float(interval.right))
+        return float(self._site_rates(np.array([float(site.pos)]))[0])
 
-    def _mu_for_interval(self, left: float, right: float) -> float:
-        """Per-site rate over a genomic interval ``[left, right)``.
+    def _site_rates(self, positions: np.ndarray) -> np.ndarray:
+        """The rate each site is scored at: ``mu``, or a rate-map ``mu`` at
+        the site's position, floored where it is zero or undefined.
 
-        A scalar ``mu`` is returned directly. A rate-map ``mu`` is reduced to
-        its interval-weighted mean,
-        ``(cumulative_mass(right) - cumulative_mass(left)) / (right - left)``.
-
-        :param left: Interval start (bp).
-        :param right: Interval end (bp).
-        :return: The rate scaling branch lengths over the interval.
+        :param positions: Site positions (bp).
+        :return: ``(n_sites,)`` positive rates.
         """
-        if isinstance(self.mu, float):
-            return self.mu
-        mass = (
-            float(self.mu.get_cumulative_mass(right))
-            - float(self.mu.get_cumulative_mass(left))
-        )
-        rate = mass / (right - left)
-        if rate <= 0.0:
-            # A zero-rate interval is floored, with one warning per run.
+        mu = self.mu
+        if isinstance(mu, float):
+            return np.full(len(positions), mu)
+        if hasattr(mu, "get_rate"):
+            end = float(getattr(mu, "sequence_length", np.inf))
+            rate = np.asarray(mu.get_rate(
+                np.clip(positions, 0.0, np.nextafter(end, 0.0))), dtype=float)
+        else:
+            mass = (np.asarray(mu.get_cumulative_mass(positions + 1.0), float)
+                    - np.asarray(mu.get_cumulative_mass(positions), float))
+            # The difference of two cumulative masses carries their rounding.
+            rate = np.array([float(f"{m:.9g}") for m in mass])
+        bad = ~(rate > 0.0)
+        if bad.any():
             if not getattr(self, "_warned_zero_rate", False):
                 self._log.warning(
-                    "Rate-map mu is zero over [%g, %g); flooring to %g so the "
-                    "interval's sites are scored as mutationally uninformative "
+                    "Rate-map mu is zero or undefined at %d site(s); flooring "
+                    "to %g so they are scored as mutationally uninformative "
                     "(prior-dominated) rather than crashing.",
-                    left, right, _ZERO_RATE_FLOOR,
+                    int(bad.sum()), _ZERO_RATE_FLOOR,
                 )
                 self._warned_zero_rate = True
-            return _ZERO_RATE_FLOOR
+            rate = np.where(bad, _ZERO_RATE_FLOOR, rate)
         return rate
 
     def _focal_view(self, tree: "Tree") -> "Tree":
@@ -1157,7 +1153,7 @@ class Inference(ReprMixin, ABC):
         from ancestree.priors import StationaryPrior
         bc = self.base_composition
         engine = Likelihood(self.model, base_composition=bc)
-        scale = self._scale_for(tree)
+        scale = self._scale_for(tree, site)
         if scale is not None:
             tree.time_scale = scale
         tree = self._focal_view(tree)
@@ -1527,6 +1523,24 @@ def _arg_infer_chunk_worker(
 _ZERO_RATE_FLOOR: float = 1e-12
 
 
+@dataclasses.dataclass(frozen=True)
+class _TreeWalk:
+    """Kernel state shared by every tree of one walk over a tree sequence."""
+
+    #: The likelihood engine of the walk.
+    engine: Likelihood
+    #: Sample node ids, in the tree sequence's sample order.
+    sample_nodes: np.ndarray
+    #: Node times of the tree sequence.
+    node_times: np.ndarray
+    #: Scratch map from node id to dense slot, all ``-1`` between trees.
+    id_map_scratch: np.ndarray
+    #: Model state index per allele.
+    state_index: "Mapping[str, int]"
+    #: Sample columns that carry a sample-map binding.
+    bound_mask: np.ndarray
+
+
 class ARGBasedInference(Inference):
     """Infer the ancestral allele at every variant in a :class:`tskit.TreeSequence`, using its per-site local tree.
 
@@ -1555,8 +1569,8 @@ class ARGBasedInference(Inference):
         per site. Omitting it falls back to ``1e-8`` with a warning. Pass
         ``mu=1.0`` when the branch lengths are in substitutions per site. A
         scalar ``float``, or an object exposing ``get_cumulative_mass(position)``
-        such as :class:`msprime.RateMap`, whose per-tree rate is the
-        interval-weighted mean over each local tree's span.
+        such as :class:`msprime.RateMap`, whose rate at each site's position
+        scales the branches that site is scored on.
     :param base_composition: Optional :class:`~ancestree.sites.BaseComposition`
         of empirical base frequencies. Required by the non-symmetric models,
         and the π of the root prior under every model. ``None`` is uniform.
@@ -1975,6 +1989,9 @@ class ARGBasedInference(Inference):
             dtype=bool,
         )
 
+        walk = _TreeWalk(engine, sample_nodes, node_times, id_map_scratch,
+                         state_index, bound_mask)
+
         # The variants of the genomic window the tree walk covers.
         if tree_stop <= tree_start:
             return
@@ -2007,134 +2024,18 @@ class ARGBasedInference(Inference):
                         self._parse_variant(v, sample_nodes)
                         for v in variants_in_tree
                     ]
-                    tree_mu = self._mu_for_interval(
-                        float(tree.interval.left), float(tree.interval.right),
-                    )
                     focal = self._resolve_focal(tree)
-                    if tree.num_roots == 1:
-                        # Native path: int8 tip states straight into the kernel.
-                        tip_states = self._pack_tip_states(
-                            variants_in_tree, state_index, bound_mask,
-                        )
-                        log_L = engine.log_likelihoods_tskit_native(
-                            tree, tip_states, sample_nodes, node_times,
-                            time_scale=tree_mu, id_map_scratch=id_map_scratch,
-                            focal=focal,
-                        )
-                        self._stash_log_L(sites_in_tree, log_L)
-                        log_post = log_L + self.prior.log_probs(sites_in_tree)
-                        posteriors = self._normalise_log_post(
-                            log_post, n_states=self.model.n_states,
-                        )
-                    elif focal is not None:
-                        # One root holds the ingroup. The others are
-                        # disconnected and cancel on normalisation, so
-                        # averaging them in would only dilute the answer.
-                        holder = self._root_holding_focal(tree, focal)
-                        local_tree = TskitLocalTree.from_tskit_tree(
-                            tree, sample_map=self.sample_map, root=holder,
-                        )
-                        local_tree.time_scale = tree_mu
-                        posteriors = self._compute_posteriors(
-                            engine, local_tree, sites_in_tree, focal=focal,
-                        )
-                        # The row just stashed covers the holder's tips only.
-                        others = [int(r) for r in tree.roots
-                                  if int(r) != int(holder)]
-                        if self._log_L_sink is not None and others:
-                            offset = self._log_root_evidence(
-                                engine, tree, others, sites_in_tree, tree_mu,
-                                self.prior.log_probs(sites_in_tree),
-                            )
-                            for i, site in enumerate(sites_in_tree):
-                                key = (site.local_tree_handle
-                                       if site.local_tree_handle is not None
-                                       else site.pos)
-                                self._log_L_sink[key] = (
-                                    self._log_L_sink[key] + offset[i])
-                    else:
-                        # Multi-root: marginalise over the roots that subtend
-                        # a coalescence. tskit reports an uncoalesced lineage
-                        # as a root of its own, and such a root is its own
-                        # ancestor, so its "ancestral" allele is the tip's
-                        # observed one and including it would echo the data
-                        # back as part of the call.
-                        # A root that is itself a sample tip is an
-                        # uncoalesced lineage, its own ancestor, so its
-                        # posterior is a point mass on the observed allele. A
-                        # unary internal root is not that: it sits above its
-                        # sample at positive time and its posterior is
-                        # informative, so it stays in the mixture.
-                        roots = [int(r) for r in tree.roots
-                                 if not (tree.is_sample(int(r))
-                                         and tree.num_children(int(r)) == 0)]
-                        if not roots:
-                            # No lineage has coalesced anywhere in this tree,
-                            # so it constrains no ancestral node and the prior
-                            # is the whole answer.
-                            self._n_uncoalesced_segments += 1
-                            log_prior = self.prior.log_probs(sites_in_tree)
-                            if self._log_L_sink is not None:
-                                offset = self._log_root_evidence(
-                                    engine, tree, tree.roots, sites_in_tree,
-                                    tree_mu, log_prior,
-                                )
-                                self._stash_log_L(
-                                    sites_in_tree,
-                                    np.zeros_like(log_prior) + offset[:, None])
-                            posteriors = self._normalise_log_post(
-                                log_prior, n_states=self.model.n_states,
-                            )
-                            self._count_ingroup_monomorphic(sites_in_tree)
-                            self._count_unrepresentable(sites_in_tree)
-                            for site, p in zip(sites_in_tree, posteriors):
-                                yield site, Posterior(
-                                    alleles=self.model.states, values=p)
-                            if pbar is not None:
-                                pbar.update(1)
-                            current_index += 1
-                            if current_index < tree_stop:
-                                tree.next()
-                            continue
-                        # Marginalise under a uniform prior over which root is
-                        # meant. Which one a caller is asking about is a choice
-                        # the sequence data carry no information about, so that
-                        # prior is not updated and the mixture is an
-                        # equal-weight mean.
-                        per_root_trees = [
-                            TskitLocalTree.from_tskit_tree(
-                                tree, sample_map=self.sample_map, root=r,
-                            )
-                            for r in roots
-                        ]
-                        for lt in per_root_trees:
-                            lt.time_scale = tree_mu
-                        log_prior = self.prior.log_probs(sites_in_tree)
-                        per_root_log_L = [
-                            engine.log_likelihoods(lt, sites_in_tree)
-                            for lt in per_root_trees
-                        ]
-                        per_root = [
-                            self._normalise_log_post(
-                                log_L + log_prior,
-                                n_states=self.model.n_states)
-                            for log_L in per_root_log_L
-                        ]
-                        posteriors = np.mean(per_root, axis=0)
-                        # The draws path mixes in likelihood space, so the row
-                        # records the mixture with every root's evidence in it.
-                        if self._log_L_sink is not None:
-                            offset = self._log_root_evidence(
-                                engine, tree, tree.roots, sites_in_tree,
-                                tree_mu, log_prior,
-                                known=dict(zip((int(r) for r in roots),
-                                               per_root_log_L)),
-                            )
-                            self._stash_log_L(
-                                sites_in_tree,
-                                np.log(np.clip(posteriors, 1e-300, None))
-                                - log_prior + offset[:, None],
-                            )
+                    if (focal is None and tree.num_roots > 1
+                            and not self._coalesced_roots(tree)):
+                        self._n_uncoalesced_segments += 1
+                    posteriors = np.empty(
+                        (len(sites_in_tree), self.model.n_states))
+                    for rate, rows in self._rate_batches(variants_in_tree):
+                        posteriors[rows] = self._score_tree_batch(
+                            walk, tree,
+                            [variants_in_tree[i] for i in rows],
+                            [sites_in_tree[i] for i in rows],
+                            rate, focal)
                     self._count_ingroup_monomorphic(sites_in_tree)
                     self._count_unrepresentable(sites_in_tree)
                     for site, p in zip(sites_in_tree, posteriors):
@@ -2147,6 +2048,150 @@ class ARGBasedInference(Inference):
         finally:
             if pbar is not None:
                 pbar.close()
+
+    def _rate_batches(self, variants) -> "list[tuple[float, np.ndarray]]":
+        """The sites of one tree grouped by the rate they are scored at.
+
+        :param variants: The tree's tskit variants.
+        :return: ``(rate, rows)`` per group, ``rows`` indexing ``variants``.
+        """
+        if isinstance(self.mu, float):
+            return [(self.mu, np.arange(len(variants)))]
+        from ancestree._maps import RateClasses
+
+        return list(RateClasses(self._site_rates(
+            np.array([v.site.position for v in variants], dtype=np.float64))))
+
+    @staticmethod
+    def _coalesced_roots(tree) -> list[int]:
+        """The roots of ``tree`` that are not bare, uncoalesced sample tips.
+        A unary internal root counts.
+
+        :param tree: The :class:`tskit.Tree` to read.
+        :return: Their node ids.
+        """
+        return [int(r) for r in tree.roots
+                if not (tree.is_sample(int(r))
+                        and tree.num_children(int(r)) == 0)]
+
+    def _score_tree_batch(
+        self, walk, tree, variants, sites, tree_mu, focal,
+    ) -> np.ndarray:
+        """Posteriors of one batch of sites on one local tree, at one rate.
+
+        :param walk: The per-walk kernel state.
+        :param tree: The :class:`tskit.Tree` covering the sites.
+        :param variants: The batch's tskit variants.
+        :param sites: The batch's :class:`~ancestree.sites.Site` records.
+        :param tree_mu: Rate scaling the tree's branch lengths for this batch.
+        :param focal: The focal node resolved on ``tree``, or ``None`` for
+            its own root or roots.
+        :return: ``(len(sites), model.n_states)`` posteriors.
+        """
+        engine = walk.engine
+        if tree.num_roots == 1:
+            # Native path: int8 tip states straight into the kernel.
+            tip_states = self._pack_tip_states(
+                variants, walk.state_index, walk.bound_mask,
+            )
+            log_L = engine.log_likelihoods_tskit_native(
+                tree, tip_states, walk.sample_nodes, walk.node_times,
+                time_scale=tree_mu, id_map_scratch=walk.id_map_scratch,
+                focal=focal,
+            )
+            self._stash_log_L(sites, log_L)
+            log_post = log_L + self.prior.log_probs(sites)
+            posteriors = self._normalise_log_post(
+                log_post, n_states=self.model.n_states,
+            )
+        elif focal is not None:
+            # One root holds the ingroup. The others are
+            # disconnected and cancel on normalisation, so
+            # averaging them in would only dilute the answer.
+            holder = self._root_holding_focal(tree, focal)
+            local_tree = TskitLocalTree.from_tskit_tree(
+                tree, sample_map=self.sample_map, root=holder,
+            )
+            local_tree.time_scale = tree_mu
+            posteriors = self._compute_posteriors(
+                engine, local_tree, sites, focal=focal,
+            )
+            # The row just stashed covers the holder's tips only.
+            others = [int(r) for r in tree.roots
+                      if int(r) != int(holder)]
+            if self._log_L_sink is not None and others:
+                offset = self._log_root_evidence(
+                    engine, tree, others, sites, tree_mu,
+                    self.prior.log_probs(sites),
+                )
+                for i, site in enumerate(sites):
+                    key = (site.local_tree_handle
+                           if site.local_tree_handle is not None
+                           else site.pos)
+                    self._log_L_sink[key] = (
+                        self._log_L_sink[key] + offset[i])
+        else:
+            # Several roots and no node to read at: marginalise over the
+            # roots that subtend a coalescence. Including a bare tip would
+            # echo its observed allele back as part of the answer.
+            roots = self._coalesced_roots(tree)
+            if not roots:
+                # No lineage has coalesced anywhere in this tree,
+                # so it constrains no ancestral node and the prior
+                # is the whole answer.
+                log_prior = self.prior.log_probs(sites)
+                if self._log_L_sink is not None:
+                    offset = self._log_root_evidence(
+                        engine, tree, tree.roots, sites,
+                        tree_mu, log_prior,
+                    )
+                    self._stash_log_L(
+                        sites,
+                        np.zeros_like(log_prior) + offset[:, None])
+                posteriors = self._normalise_log_post(
+                    log_prior, n_states=self.model.n_states,
+                )
+                return posteriors
+            # Marginalise under a uniform prior over which root is
+            # meant. Which one a caller is asking about is a choice
+            # the sequence data carry no information about, so that
+            # prior is not updated and the mixture is an
+            # equal-weight mean.
+            per_root_trees = [
+                TskitLocalTree.from_tskit_tree(
+                    tree, sample_map=self.sample_map, root=r,
+                )
+                for r in roots
+            ]
+            for lt in per_root_trees:
+                lt.time_scale = tree_mu
+            log_prior = self.prior.log_probs(sites)
+            per_root_log_L = [
+                engine.log_likelihoods(lt, sites)
+                for lt in per_root_trees
+            ]
+            per_root = [
+                self._normalise_log_post(
+                    log_L + log_prior,
+                    n_states=self.model.n_states)
+                for log_L in per_root_log_L
+            ]
+            posteriors = np.mean(per_root, axis=0)
+            # The draws path mixes in likelihood space, so the row
+            # records the mixture with every root's evidence in it.
+            if self._log_L_sink is not None:
+                offset = self._log_root_evidence(
+                    engine, tree, tree.roots, sites,
+                    tree_mu, log_prior,
+                    known=dict(zip((int(r) for r in roots),
+                                   per_root_log_L)),
+                )
+                self._stash_log_L(
+                    sites,
+                    np.log(np.clip(posteriors, 1e-300, None))
+                    - log_prior + offset[:, None],
+                )
+        return posteriors
 
     def _log_root_evidence(
         self, engine, tree, roots, sites, tree_mu, log_pi, known=None,

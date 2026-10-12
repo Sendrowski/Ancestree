@@ -34,6 +34,7 @@ from numba import njit, prange, types
 from numba.extending import intrinsic
 
 from ancestree._jit_kernel import postorder_core, postorder_internal_core
+from ancestree._maps import RateClasses
 
 S_STATES = 4
 
@@ -1068,6 +1069,23 @@ class SegmentEnsemble:
         self.row_off = np.zeros(len(self.needed) + 1, dtype=np.int64)
         self.row_off[1:] = np.cumsum(per_win)
 
+        # One site-row CSR per kernel rate class: (multiplier, offsets, rows).
+        scale = builder._site_rate_scale(self.positions)
+        if scale is None:
+            self._rate_classes = [(1.0, self.row_off, self.row_idx)]
+        else:
+            self._rate_classes = []
+            in_class = np.empty(self.n_sites, dtype=np.bool_)
+            for value, sites in RateClasses(scale):
+                in_class[:] = False
+                in_class[sites] = True
+                rows = self.row_idx[in_class[self.row_idx]]
+                offsets = np.zeros(len(self.needed) + 1, dtype=np.int64)
+                offsets[1:] = np.cumsum(np.bincount(
+                    np.searchsorted(self.needed, win_of_site[rows]),
+                    minlength=len(self.needed)))
+                self._rate_classes.append((value, offsets, rows))
+
     def _buffers(self, M, W):
         """Per-chunk packing and transition-matrix scratch."""
         n = self.n_hap
@@ -1119,10 +1137,12 @@ class SegmentEnsemble:
                    n, float(fraction), int(n_coal), pidx.reshape(M * W, nslot),
                    cofs.reshape(M * W, nslot + 1), cflat.reshape(M * W, nslot),
                    poi.reshape(M * W, n), root.reshape(M * W))
-        score_ensemble(branch_t, self._lam, self._V, self._Vinv,
-                       pidx, poi, cofs, cflat, root, sample_dense,
-                       self.tip_states, self.row_off[w0:w0 + W + 1],
-                       self.row_idx, nslot, S_STATES, out)
+        for scale, row_off, row_idx in self._rate_classes:
+            score_ensemble(branch_t if scale == 1.0 else branch_t * scale,
+                           self._lam, self._V, self._Vinv,
+                           pidx, poi, cofs, cflat, root, sample_dense,
+                           self.tip_states, row_off[w0:w0 + W + 1],
+                           row_idx, nslot, S_STATES, out)
 
     def _path_chunk(self, member_chunk: int, n_members: int) -> int:
         """Members whose sampled paths, ``(n_pairs, n_blocks) int8`` each,

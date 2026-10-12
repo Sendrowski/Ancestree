@@ -8,6 +8,42 @@ from __future__ import annotations
 import io
 import os
 
+import numpy as np
+
+class RateClasses:
+    """Per-site rates grouped into the classes the kernel scores.
+
+    Iterating yields ``(rate, rows)`` per class. More than :attr:`MAX_CLASSES`
+    distinct rates are binned geometrically over their range, a bin taking
+    the geometric mean of its sites.
+
+    :param rate: ``(n_sites,)`` positive rate at each site, absolute or
+        relative to a reference rate.
+    """
+
+    #: Most classes the sites of one batch are scored in.
+    MAX_CLASSES = 16
+
+    def __init__(self, rate) -> None:
+        rate = np.asarray(rate, dtype=np.float64)
+        self.rates, self._class_of_site = np.unique(rate, return_inverse=True)
+        if self.rates.size > self.MAX_CLASSES:
+            log_rate = np.log(rate)
+            edges = np.linspace(log_rate.min(), log_rate.max(),
+                                self.MAX_CLASSES + 1)
+            binned = np.clip(np.searchsorted(edges, log_rate, side="right") - 1,
+                             0, self.MAX_CLASSES - 1)
+            used, self._class_of_site = np.unique(binned, return_inverse=True)
+            self.rates = np.array(
+                [np.exp(log_rate[binned == b].mean()) for b in used])
+
+    def __len__(self) -> int:
+        return int(self.rates.size)
+
+    def __iter__(self):
+        for c, rate in enumerate(self.rates):
+            yield float(rate), np.flatnonzero(self._class_of_site == c)
+
 
 class MapFiles:
     """Read accessibility masks and rate maps, and pick a contig's entry."""

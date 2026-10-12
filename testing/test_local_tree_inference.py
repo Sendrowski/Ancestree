@@ -1670,6 +1670,53 @@ def test_mutation_map_uniform_matches_constant():
         np.testing.assert_allclose(pb.values, pm.values, rtol=1e-9, atol=1e-12)
 
 
+def test_ensemble_kernel_scales_branches_by_the_site_rate():
+    """The ensemble kernel scores a site at the mutation map's rate there.
+
+    A flat map at twice ``mu`` and a flat map at ``mu`` with ``mu`` doubled
+    date the genealogies identically, the factor of two being exact in
+    floating point, so the posteriors agree only if the kernel reads the
+    site's rate from the map and not the reference ``mu``.
+    """
+    from ancestree import JC69
+    a, names = toy_sites(range(0, 5000, 25), seed=6)
+    L = 5000
+    kw = dict(rec_rate=1e-8, sample_names=names, n_ensemble=8,
+              sequence_length=L, window=300, block_size=50, progress=False)
+    mm = msprime.RateMap(position=[0, L], rate=[2.5e-8])
+    doubled = list(LocalTreeInference(a, JC69(), mu=2.5e-8, mutation_map=mm, **kw).infer())
+    mapped = list(LocalTreeInference(a, JC69(), mu=1.25e-8, mutation_map=mm, **kw).infer())
+    for (_, pd), (_, pm) in zip(doubled, mapped):
+        np.testing.assert_allclose(pd.values, pm.values, rtol=1e-9, atol=1e-12)
+
+
+def test_kernel_rate_of_a_zero_or_undefined_map_interval():
+    """A zero map rate is floored and an undefined one takes the reference
+    rate, in the ensemble kernel and in the map handed to ARG mode alike."""
+    a, names = toy_sites(range(0, 3000, 25), seed=6)
+    mu = 1.25e-8
+    mm = msprime.RateMap(position=[0, 1000, 2000, 3000], rate=[mu, 0.0, np.nan])
+    builder = LocalTreeBuilder(a, mu=mu, rec_rate=1e-8, sample_names=names,
+                               sequence_length=3000, block_size=50, mutation_map=mm)
+    at = np.array([500.0, 1500.0, 2500.0])
+    np.testing.assert_allclose(builder._site_rate_scale(at), [1.0, 1e-12 / mu, 1.0])
+    np.testing.assert_allclose(builder._kernel_mu().get_rate(at), [mu, 0.0, mu])
+
+
+def test_rate_classes_group_and_bin_the_site_rates():
+    from ancestree._maps import RateClasses
+
+    classes = list(RateClasses(np.array([1.0, 10.0, 1.0])))
+    assert [rate for rate, _ in classes] == [1.0, 10.0]
+    assert [rows.tolist() for _, rows in classes] == [[0, 2], [1]]
+    many = np.geomspace(0.1, 10.0, 200)
+    binned = RateClasses(many)
+    assert len(binned) == RateClasses.MAX_CLASSES
+    assert np.all(np.diff(binned.rates) > 0)
+    for rate, rows in binned:
+        np.testing.assert_allclose(many[rows], rate, rtol=0.2)
+
+
 def test_ensemble_applies_the_mutation_map_to_its_calibration():
     """The ensemble's time grid must see the map, not only the emission.
 
@@ -2704,7 +2751,7 @@ def test_the_cached_plug_in_arg_is_drained_when_its_counts_are_folded_in():
 
 
 def test_an_integer_mu_is_stored_as_a_float():
-    """``Inference._mu_for_interval`` tells a scalar from a rate map with
+    """``Inference._site_rates`` tells a scalar from a rate map with
     ``isinstance(mu, float)``, so an int fell through to the rate-map branch
     and raised on ``get_cumulative_mass``."""
     from ancestree import JC69, LocalTreeInference
@@ -2714,4 +2761,4 @@ def test_an_integer_mu_is_stored_as_a_float():
                              sample_names=names, sequence_length=1000.0,
                              chunk_size=None, progress=False)
     assert isinstance(inf.mu, float)
-    assert inf._mu_for_interval(0.0, 100.0) == 1.0
+    assert inf._site_rates(np.array([50.0]))[0] == 1.0

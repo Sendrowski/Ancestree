@@ -852,9 +852,7 @@ def _add_local_tree_parser(
         "--mutation-map", default=None,
         help=(
             "Optional bedGraph file (chrom, start, end, rate) of the local "
-            "per-site mutation rate, used in the HMM emission in place of the "
-            "constant --mu; gaps default to --mu. A high-rate block's extra "
-            "differences are then read as mutation, not a deeper coalescence."
+            "per-site mutation rate; gaps default to --mu."
         ),
     )
     p.add_argument(

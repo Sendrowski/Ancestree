@@ -63,9 +63,7 @@ def test_native_matches_generic_per_tree(name, model):
             continue
         vlist = [by_site[s.id] for s in tree.sites()]
         sites = [inf._parse_variant(v, sample_nodes) for v in vlist]
-        tree_mu = inf._mu_for_interval(
-            float(tree.interval.left), float(tree.interval.right),
-        )
+        tree_mu = inf.mu
         lt = TskitLocalTree.from_tskit_tree(tree, sample_map=inf.sample_map)
         lt.time_scale = tree_mu
         old = inf._compute_posteriors(engine, lt, sites)
