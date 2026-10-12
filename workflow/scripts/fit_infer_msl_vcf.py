@@ -32,13 +32,14 @@ from ancestree import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _msl_io import sites_from_arrays  # noqa: E402
+from _msl_io import fixed_difference_sites, sites_from_arrays  # noqa: E402
 
 
 # -------------------------------------------------------- input config
 try:
     in_npz = snakemake.input.npz  # type: ignore[name-defined]
     in_meta = snakemake.input.meta  # type: ignore[name-defined]
+    in_fixed = snakemake.input.fixed  # type: ignore[name-defined]
     out_anc = snakemake.output.anc  # type: ignore[name-defined]
     out_meta = snakemake.output.meta  # type: ignore[name-defined]
     out_posteriors = snakemake.output.posteriors  # type: ignore[name-defined]
@@ -50,6 +51,7 @@ except NameError:
     region = "chr1_0_25M"
     in_npz = f"results/data/msl_polymorphic_{region}.npz"
     in_meta = f"results/data/msl_polymorphic_{region}_meta.json"
+    in_fixed = f"results/data/msl_fixed_differences_{region}.npz"
     n_subsample_w = "100k"
     seed = 0
     infer_scope = "subsample"
@@ -91,8 +93,22 @@ print(
 )
 
 
+# The fit sees the same random fraction of every class of site: of the
+# ingroup-polymorphic sites, of the ingroup-fixed variant sites, and through
+# n_target_sites of the invariant ones.
+fixed_npz = np.load(in_fixed, allow_pickle=True)
+fixed_pos = fixed_npz["pos"]
+fixed_allele = fixed_npz["ingroup_allele"]
+fixed_outgroup = fixed_npz["outgroup"]
+fit_fraction = 1.0
 if n_subsample is not None and n_subsample < n_total:
     rng = np.random.default_rng(seed)
+    fit_fraction = n_subsample / n_total
+    keep_fixed = np.sort(rng.choice(
+        len(fixed_pos), size=int(round(fit_fraction * len(fixed_pos))), replace=False))
+    fixed_pos = fixed_pos[keep_fixed]
+    fixed_allele = fixed_allele[keep_fixed]
+    fixed_outgroup = fixed_outgroup[keep_fixed]
     keep = np.sort(rng.choice(n_total, size=n_subsample, replace=False))
     pos = pos[keep]
     ref_idx = ref_idx[keep]
@@ -113,7 +129,9 @@ def build_sites(pos, ref_idx, alt_idx, ingroup, outgroup):
 
 
 t_build0 = time.perf_counter()
-fit_sites = build_sites(pos, ref_idx, alt_idx, ingroup, outgroup)
+score_sites = build_sites(pos, ref_idx, alt_idx, ingroup, outgroup)
+fit_sites = score_sites + fixed_difference_sites(
+    fixed_pos, fixed_allele, fixed_outgroup, ingroup_names, outgroup_names)
 t_build = time.perf_counter() - t_build0
 print(f"fit_infer_msl_vcf: built {len(fit_sites):,} Site records in {t_build:.1f}s", flush=True)
 
@@ -133,12 +151,11 @@ tree = OutgroupLadderTree(ingroup_names, outgroup_names)
 prior = KingmanIngroupWeight(ingroup_samples=ingroup_names)
 model = HKY(kappa=kappa_hat, fit_kappa=True)
 
-# n_target_sites: use the region's positional span (a slight over-estimate
-# of callable-mask length, but the rate fit is robust to this — only the
-# polymorphic / monomorphic ratio matters).
+# n_target_sites: the fitted fraction of the positions the pseudo-VCF lists
+# in the region.
 with open(in_meta) as f:
     region_meta = json.load(f)
-n_target_sites = region_meta["end"] - region_meta["start"]
+n_target_sites = int(round(fit_fraction * region_meta["n_lines_in_range"]))
 
 
 # -------------------------------------------------------- fit
@@ -175,9 +192,9 @@ if infer_scope == "all" and n_subsample is not None and n_subsample < n_total:
         f"applying fitted params for the posterior pass",
         flush=True,
     )
-    inference.sites = full_sites
 else:
-    full_sites = fit_sites
+    full_sites = score_sites
+inference.sites = full_sites
 
 
 t_infer0 = time.perf_counter()
@@ -227,6 +244,7 @@ meta = {
     "infer_scope": infer_scope,
     "n_sites_polymorphic_total": int(n_total),
     "n_sites_in_fit": len(fit_sites),
+    "n_fixed_differences_in_fit": int(len(fixed_pos)),
     "n_sites_in_infer": len(full_sites),
     "n_sites_written": n_written,
     "n_sites_skipped_unknown_allele": n_skipped,

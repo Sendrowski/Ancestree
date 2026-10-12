@@ -88,6 +88,7 @@ sample_nodes = ts.samples()
 
 keep_ids = set(ingroup_names) | set(outgroup_names)
 all_sites: list[Site] = []
+fixed_sites: list[Site] = []
 for variant in ts.variants():
     alleles = tuple(variant.alleles)
     gens = variant.genotypes
@@ -106,9 +107,10 @@ for variant in ts.variants():
         tip_alleles.get(s) for s in ingroup_names
         if tip_alleles.get(s) is not None
     }
-    if len(ingroup_alleles) < 2:
-        continue  # only ingroup-polymorphic sites feed the adaptive fit
-    all_sites.append(Site(
+    # n_sites counts ingroup-polymorphic sites. The ingroup-fixed variant
+    # sites are subsampled at the same fraction and join the fit.
+    target = all_sites if len(ingroup_alleles) >= 2 else fixed_sites
+    target.append(Site(
         chrom="1", pos=int(variant.site.position),
         alleles=tuple(a for a in alleles if a in STATES),
         tip_alleles=tip_alleles,
@@ -122,7 +124,7 @@ print(
 )
 
 if n_sites_wc == "all":
-    kept = all_sites
+    kept = all_sites + fixed_sites
     n_sites_kept = n_total
 else:
     n_sites_target = int(n_sites_wc)
@@ -134,7 +136,13 @@ else:
     rng = np.random.default_rng(seed)
     idx = rng.choice(n_total, size=n_sites_target, replace=False)
     idx.sort()
-    kept = [all_sites[i] for i in idx]
+    idx_fixed = rng.choice(
+        len(fixed_sites),
+        size=int(round(len(fixed_sites) * n_sites_target / n_total)),
+        replace=False,
+    )
+    idx_fixed.sort()
+    kept = [all_sites[i] for i in idx] + [fixed_sites[i] for i in idx_fixed]
     n_sites_kept = n_sites_target
 
 n_target_eff = max(n_sites_kept, int(round(length_full * n_sites_kept / n_total)))

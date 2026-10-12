@@ -32,6 +32,7 @@ rule msl_outgroup_count_figure:
     input:
         npz = f"{DATA}/msl_polymorphic_chr1_143750000_150M.npz",
         meta = f"{DATA}/msl_polymorphic_chr1_143750000_150M_meta.json",
+        fixed = f"{DATA}/msl_fixed_differences_chr1_143750000_150M.npz",
     output:
         f"{FIGURES_DIR}/bench_msl_outgroup_count.pdf",
     conda:

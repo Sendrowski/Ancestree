@@ -1485,12 +1485,32 @@ rule extract_msl_polymorphic:
         "scripts/extract_msl_polymorphic.py"
 
 
+rule extract_msl_fixed_differences:
+    """Per-chunk ingroup-fixed variant sites: the ingroup carries one allele
+    and an outgroup another. With the ingroup-polymorphic sites of
+    ``extract_msl_polymorphic`` they are every variant site of the panel, the
+    source of the fixed-tree branch-rate fit."""
+    input:
+        simplify_vcf = f"{DATA}/msl_pseudo_vcf_{{region}}.vcf.gz",
+        panel = MSL_REAL_DATA_FILES["msl_panel"],
+    output:
+        npz = f"{DATA}/msl_fixed_differences_{{region}}.npz",
+        meta = f"{DATA}/msl_fixed_differences_{{region}}_meta.json",
+    params:
+        outgroup_samples = MSL_OUTGROUPS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/extract_msl_fixed_differences.py"
+
+
 rule fit_infer_msl_vcf:
     """FixedTreeInference on a subsample of the cached .npz, emitting
     per-site MAP estimates in the PolarBEAR-comparable schema."""
     input:
         npz = f"{DATA}/msl_polymorphic_{{region}}.npz",
         meta = f"{DATA}/msl_polymorphic_{{region}}_meta.json",
+        fixed = f"{DATA}/msl_fixed_differences_{{region}}.npz",
     output:
         anc = f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}.txt",
         meta = f"{DATA}/msl_vcf_{{region}}_n{{n_subsample}}_seed{{seed}}_{{infer_scope}}_meta.json",
@@ -1798,11 +1818,16 @@ rule report_msl_3way_chr1:
 
 rule fit_infer_msl_vcf_streaming:
     """Whole-chr1 fixed-tree fit in one streaming pass
-    (``FixedTreeInference(stream=True)`` over every polymorphic chunk at once),
-    with no positional chunking of the fit and no per-chunk site subsample."""
+    (``FixedTreeInference(stream=True)`` over every variant site of every
+    chunk at once), with no positional chunking of the fit and no per-chunk
+    site subsample."""
     input:
         npz = expand(
             f"{DATA}/msl_polymorphic_{{region}}.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        fixed = expand(
+            f"{DATA}/msl_fixed_differences_{{region}}.npz",
             region=MSL_CHR1_CHUNK_REGIONS,
         ),
         meta = expand(

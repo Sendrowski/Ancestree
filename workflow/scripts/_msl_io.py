@@ -8,7 +8,10 @@ and the ``report_msl_*`` scripts:
   position offset);
 - :class:`MslPolymorphicNpzSource` -- a re-iterable
   :class:`~ancestree.sites.SiteSource` over a list of per-region npz chunks
-  (for the streaming whole-chromosome fit);
+  (the sites the posteriors are reported at);
+- :func:`fixed_difference_sites` / :class:`MslVariantNpzSource` -- the
+  ingroup-fixed variant sites, and every variant site of the panel (the source
+  of the fixed-tree branch-rate fit);
 - :func:`load_pos_idx` / :func:`load_estsfs` -- parse the ``pos<TAB>idx``
   ancestral-call files the three Ancestree modes, PolarBEAR, and EST-SFS emit.
 
@@ -98,6 +101,60 @@ class MslPolymorphicNpzSource(SiteSource):
                 z["pos"], z["ref_idx"], z["alt_idx"],
                 z["ingroup"], self.ingroup_names,
                 z["outgroup"], self.outgroup_names,
+            )
+
+
+def fixed_difference_sites(
+    pos, ingroup_allele, outgroup, ingroup_names, outgroup_names, *, chrom="1",
+):
+    """Build :class:`Site` records for ingroup-fixed variant sites.
+
+    :param pos: ``(n_sites,)`` positions.
+    :param ingroup_allele: ``(n_sites,)`` index of the allele every ingroup
+        haplotype carries, into :data:`~ancestree.STATES`.
+    :param outgroup: ``(n_sites, n_out)`` outgroup allele indices
+        (``-1`` = missing).
+    :param ingroup_names: Ingroup haplotype ids.
+    :param outgroup_names: Outgroup ids, paired with ``outgroup``.
+    :param chrom: Chromosome label for the Sites.
+    :return: ``list[Site]``.
+    """
+    out: list[Site] = []
+    for k in range(len(pos)):
+        fixed = STATES[int(ingroup_allele[k])]
+        tip_alleles: dict[str, str | None] = dict.fromkeys(ingroup_names, fixed)
+        alleles = [fixed]
+        for j, name in enumerate(outgroup_names):
+            a = int(outgroup[k][j])
+            tip_alleles[name] = STATES[a] if a >= 0 else None
+            if a >= 0 and STATES[a] not in alleles:
+                alleles.append(STATES[a])
+        out.append(Site(chrom=chrom, pos=int(pos[k]), alleles=tuple(alleles),
+                        tip_alleles=tip_alleles))
+    return out
+
+
+class MslVariantNpzSource(MslPolymorphicNpzSource):
+    """Re-iterable :class:`SiteSource` over every variant site of the panel.
+
+    Yields the ingroup-polymorphic sites of each chunk followed by its
+    ingroup-fixed variant sites, at which an outgroup carries another allele.
+
+    :param npz_paths: Per-region ``msl_polymorphic_*.npz`` paths.
+    :param fixed_paths: Per-region ``msl_fixed_differences_*.npz`` paths.
+    """
+
+    def __init__(self, npz_paths, fixed_paths) -> None:
+        super().__init__(npz_paths)
+        self._fixed_paths = list(fixed_paths)
+
+    def __iter__(self):
+        yield from super().__iter__()
+        for path in self._fixed_paths:
+            z = np.load(path, allow_pickle=True)
+            yield from fixed_difference_sites(
+                z["pos"], z["ingroup_allele"], z["outgroup"],
+                self.ingroup_names, self.outgroup_names,
             )
 
 

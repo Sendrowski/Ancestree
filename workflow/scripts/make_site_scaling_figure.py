@@ -12,8 +12,6 @@
   is the minor one in SFS bin i, against ``n_sites``, one line per
   ``subsample_size``. Same log-log style.
 """
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

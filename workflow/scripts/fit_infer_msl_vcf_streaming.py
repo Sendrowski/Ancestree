@@ -9,7 +9,9 @@ bounded memory (config-histogram pass for the fit, then a per-site posterior
 pass), never holding the full site list.
 
 This script therefore fits ONE global outgroup-ladder rate set + HKY kappa on
-*every* polymorphic chr1 SNP at once and emits per-site MAP calls in the same
+*every* variant site of chr1 at once, the ingroup-polymorphic SNPs together
+with the sites the ingroup has fixed where an outgroup differs, and emits
+per-site MAP calls for the ingroup-polymorphic SNPs in the same
 ``pos<TAB>allele_idx`` format as the chunked script, so the 3-way report can
 consume it unchanged.
 
@@ -35,13 +37,14 @@ from ancestree import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _msl_io import MslPolymorphicNpzSource  # noqa: E402
+from _msl_io import MslPolymorphicNpzSource, MslVariantNpzSource  # noqa: E402
 
 
 # -------------------------------------------------------- input config
 try:
     npz_paths = list(snakemake.input.npz)  # type: ignore[name-defined]
     meta_paths = list(snakemake.input.meta)  # type: ignore[name-defined]
+    fixed_paths = list(snakemake.input.fixed)  # type: ignore[name-defined]
     out_anc = snakemake.output.anc  # type: ignore[name-defined]
     out_meta = snakemake.output.meta  # type: ignore[name-defined]
     out_posteriors = snakemake.output.posteriors  # type: ignore[name-defined]
@@ -51,6 +54,7 @@ except NameError:
         if not p.endswith("_meta.json")
     )
     meta_paths = [p.replace(".npz", "_meta.json") for p in npz_paths]
+    fixed_paths = sorted(glob.glob("results/data/msl_fixed_differences_chr1_*.npz"))
     out_anc = "results/data/msl_vcf_chr1_full_stream_calls.txt"
     out_meta = "results/data/msl_vcf_chr1_full_stream_meta.json"
     out_posteriors = "results/data/msl_vcf_chr1_full_stream_posteriors.npz"
@@ -67,6 +71,7 @@ npz_paths = [npz_paths[i] for i in order]
 meta_paths = [meta_paths[i] for i in order]
 
 source = MslPolymorphicNpzSource(npz_paths)
+fit_source = MslVariantNpzSource(npz_paths, fixed_paths)
 ingroup_names = source.ingroup_names
 outgroup_names = source.outgroup_names
 print(
@@ -78,7 +83,7 @@ print(
 
 # -------------------------------------------------------- BC (streaming pass)
 t_bc0 = time.perf_counter()
-bc = BaseComposition.from_polymorphic_sites(source)
+bc = BaseComposition.from_polymorphic_sites(fit_source)
 kappa_hat = bc.kappa_estimate
 print(
     f"stream_msl_vcf: empirical pi={bc.pi.tolist()}, "
@@ -87,13 +92,12 @@ print(
     flush=True,
 )
 
-# n_target_sites: total callable span = sum of per-chunk region spans
-# (full chr1). The polymorphic / monomorphic ratio is what the rate fit reads.
+# n_target_sites: the positions the pseudo-VCF lists, summed over the chunks.
+# The variant / invariant ratio is what the rate fit reads.
 n_target_sites = 0
 for mp in meta_paths:
     with open(mp) as f:
-        m = json.load(f)
-    n_target_sites += int(m["end"]) - int(m["start"])
+        n_target_sites += int(json.load(f)["n_lines_in_range"])
 
 prior = KingmanIngroupWeight(ingroup_samples=ingroup_names)
 model = HKY(kappa=kappa_hat, fit_kappa=True)
@@ -102,10 +106,10 @@ model = HKY(kappa=kappa_hat, fit_kappa=True)
 # -------------------------------------------------------- fit (streaming)
 # Streaming form: pass the re-iterable source first; FixedTreeInference builds
 # the OutgroupLadderTree from ingroup/outgroup sample lists internally and
-# walks the source twice (config-histogram fit, then per-site infer).
+# walks the source for the config-histogram fit.
 t_fit0 = time.perf_counter()
 inference = FixedTreeInference(
-    source,
+    fit_source,
     model=model,
     ingroup_samples=ingroup_names,
     outgroup_samples=outgroup_names,
@@ -131,8 +135,22 @@ Path(out_anc).parent.mkdir(parents=True, exist_ok=True)
 n_written = n_skipped = 0
 post_positions: list[int] = []
 post_values: list[list[float]] = []
+scoring = FixedTreeInference(
+    source,
+    tree=inference.tree,
+    model=inference.model,
+    ingroup_samples=ingroup_names,
+    outgroup_samples=outgroup_names,
+    base_composition=bc,
+    n_target_sites=n_target_sites,
+    ingroup_weight=prior,
+    fit_required=False,
+    parallelize=False,
+    progress=False,
+    stream=True,
+)
 with open(out_anc, "w") as f:
-    for site, posterior in inference.infer():
+    for site, posterior in scoring.infer():
         allele = posterior.map_allele
         if allele not in STATE_INDEX:
             n_skipped += 1

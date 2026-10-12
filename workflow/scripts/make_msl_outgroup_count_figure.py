@@ -33,11 +33,13 @@ import numpy as np  # noqa: E402
 try:
     NPZ = Path(snakemake.input.npz)  # type: ignore[name-defined]
     META = Path(snakemake.input.meta)  # type: ignore[name-defined]
+    FIXED = Path(snakemake.input.fixed)  # type: ignore[name-defined]
     OUT_PDF = Path(snakemake.output[0])  # type: ignore[name-defined]
 except NameError:
     DATA = Path("results/data")
     NPZ = DATA / "msl_polymorphic_chr1_143750000_150M.npz"
     META = DATA / "msl_polymorphic_chr1_143750000_150M_meta.json"
+    FIXED = DATA / "msl_fixed_differences_chr1_143750000_150M.npz"
     OUT_PDF = Path("reports/manuscripts/latex/figures/"
                    "bench_msl_outgroup_count.pdf")
 
@@ -50,18 +52,21 @@ def _run(keep_idx, sites_cached, region_meta, ingroup_names):
     )
     outgroup_names_all = sites_cached["outgroup_names_all"]
     outgroup_names = [outgroup_names_all[i] for i in keep_idx]
-    sites = sites_cached["site_factory"](keep_idx, outgroup_names)
+    scored = sites_cached["site_factory"](keep_idx, outgroup_names)
+    scored_pos = {int(s.pos) for s in scored}
+    sites = scored + sites_cached["fixed_factory"](keep_idx, outgroup_names)
     bc = BaseComposition.from_polymorphic_sites(sites)
     model = HKY(kappa=bc.kappa_estimate, fit_kappa=True)
     ingroup_weight = KingmanIngroupWeight(ingroup_samples=ingroup_names)
     inf = FixedTreeInference(
         sites, ingroup_samples=ingroup_names, outgroup_samples=outgroup_names,
-        model=model, n_target_sites=region_meta["end"] - region_meta["start"],
+        model=model, n_target_sites=region_meta["n_lines_in_range"],
         ingroup_weight=ingroup_weight, base_composition=bc,
-        recurrence="full", parallelize=False, progress=False,
+        parallelize=False, progress=False,
     )
     inf.fit()
-    posteriors_by_pos = {int(s.pos): p for s, p in inf.infer()}
+    posteriors_by_pos = {int(s.pos): p for s, p in inf.infer()
+                         if int(s.pos) in scored_pos}
     return posteriors_by_pos
 
 
@@ -118,7 +123,27 @@ def main() -> None:
                             alleles=alleles, tip_alleles=tip_alleles))
         return out
 
-    cached = {"site_factory": site_factory, "outgroup_names_all": outgroup_names_all}
+    fixed = np.load(FIXED, allow_pickle=True)
+
+    def fixed_factory(keep_idx: list[int], outgroup_names: list[str]):
+        """The ingroup-fixed sites at which a kept outgroup differs."""
+        out = []
+        for k in range(len(fixed["pos"])):
+            a_in = int(fixed["ingroup_allele"][k])
+            kept = [int(fixed["outgroup"][k, j]) for j in keep_idx]
+            if all(a in (-1, a_in) for a in kept):
+                continue
+            tip_alleles = dict.fromkeys(ingroup_names, STATES[a_in])
+            for name, a in zip(outgroup_names, kept):
+                tip_alleles[name] = STATES[a] if a >= 0 else None
+            alleles = tuple(dict.fromkeys(
+                [STATES[a_in]] + [STATES[a] for a in kept if a >= 0]))
+            out.append(Site(chrom="1", pos=int(fixed["pos"][k]),
+                            alleles=alleles, tip_alleles=tip_alleles))
+        return out
+
+    cached = {"site_factory": site_factory, "fixed_factory": fixed_factory,
+              "outgroup_names_all": outgroup_names_all}
 
     print("running 1-outgroup (ponAbe2 only) ...", flush=True)
     p1 = _run([0], cached, region_meta, ingroup_names)
