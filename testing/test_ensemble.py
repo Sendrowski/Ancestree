@@ -354,6 +354,50 @@ class TestEnsembleKernelInvariants:
             np.testing.assert_array_equal(
                 self._draw(4, 7, stride), reference)
 
+    def test_equal_exposure_weights_give_the_plain_linkage(self):
+        from ancestree._ensemble import upgma_batch
+
+        rng = np.random.default_rng(12)
+        for n in (5, 8, 12):
+            condensed = (rng.random(n * (n - 1) // 2) + 0.1)[None, :]
+            plain = np.empty((1, n - 1, 4))
+            weighted = np.empty((1, n - 1, 4))
+            upgma_batch(condensed.copy(), n, plain, np.empty((0, condensed.size)))
+            upgma_batch(condensed.copy(), n, weighted, np.full((1, condensed.size), 0.37))
+            np.testing.assert_allclose(weighted, plain, rtol=1e-12)
+
+    def test_a_haplotype_without_exposure_leaves_the_others_tree_unchanged(self):
+        """The called haplotypes merge at the heights they merge at without it.
+
+        With the plain average, the random distances of a haplotype uncalled
+        over a window entered every cluster mean it took part in, so it moved
+        the haplotypes that do have data. With every deeper outgroup uncalled
+        over a stretch, a rare ingroup allele then received tens of percent of
+        ancestral probability against a simulated rate below one in a thousand.
+        """
+        from itertools import combinations
+
+        from ancestree._ensemble import _WEIGHT_FLOOR, upgma_batch
+
+        rng = np.random.default_rng(13)
+        n = 9
+        pairs = list(combinations(range(n), 2))
+        condensed = rng.random(len(pairs)) + 0.1
+        blind = np.array([n - 1 in pair for pair in pairs])
+        weights = np.where(blind, _WEIGHT_FLOOR, 1.0)[None, :]
+        # A draw that would make it the first merge under the plain average.
+        condensed[np.flatnonzero(blind)[0]] = 1e-3
+        full = np.empty((1, n - 1, 4))
+        upgma_batch(condensed[None, :].copy(), n, full, weights)
+        called = np.empty((1, n - 2, 4))
+        upgma_batch(condensed[None, ~blind].copy(), n - 1, called,
+                    np.empty((0, int((~blind).sum()))))
+        heights = np.sort(full[0, :, 2])
+        for h in called[0, :, 2]:
+            assert np.isclose(heights, h, rtol=1e-6).any(), (
+                f"merge height {h} of the called haplotypes is absent from "
+                f"the tree that includes the uncalled one: {heights}")
+
     def test_the_numba_upgma_matches_scipy(self):
         from scipy.cluster.hierarchy import linkage
 
@@ -363,7 +407,8 @@ class TestEnsembleKernelInvariants:
         for n in (5, 8, 12):
             condensed = rng.random(n * (n - 1) // 2) + 0.1
             out = np.empty((1, n - 1, 4), dtype=np.float64)
-            upgma_batch(condensed[None, :].copy(), n, out)
+            upgma_batch(condensed[None, :].copy(), n, out,
+                        np.empty((0, condensed.size)))
             want = linkage(condensed.copy(), method="average")
             # The whole linkage, not only column 2: two different topologies
             # can merge at the same multiset of heights, so sorted heights
@@ -446,10 +491,10 @@ def _posteriors(sites, model):
 #: Pins the per-block called-fraction exposure in the ensemble's
 #: own forward pass.
 _GOLDEN_MISSING = {
-    36: (0.2638047428034459, 0.7353656633824902, 0.0004147969070320288, 0.00041479690703184144),
-    40: (0.9996871250654736, 0.00010429164484207681, 0.00010429164484209467, 0.00010429164484209459),
-    47: (0.9991364348193866, 0.0008610945187029669, 1.235330955211815e-06, 1.2353309552113345e-06),
-    109: (0.772979950345466, 0.22616042002442482, 0.0004298148150547369, 0.0004298148150545824),
+    36: (0.2789779780705328, 0.7201483297035972, 0.0004368461129350441, 0.00043684611293484725),
+    40: (0.99967746113603, 0.0001075129546566987, 0.00010751295465671652, 0.00010751295465671644),
+    47: (0.9802590811579532, 0.019707236205189778, 1.684131842850717e-05, 1.684131842850255e-05),
+    109: (0.744318865880089, 0.25478140053704845, 0.0004498667914314021, 0.00044986679143123656),
 }
 
 

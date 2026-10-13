@@ -37,6 +37,9 @@ from ancestree._jit_kernel import postorder_core, postorder_internal_core
 from ancestree._maps import RateClasses
 
 S_STATES = 4
+#: Linkage weight of a pair with no exposure in a window: small enough that any
+#: called pair outweighs it, positive so uncalled pairs average among themselves.
+_WEIGHT_FLOOR = 1e-9
 
 
 # --------------------------------------------------------------- UPGMA
@@ -113,6 +116,62 @@ def _nn_chain_average(D, n, Z):
 
 
 @njit(cache=True)
+def _nn_chain_weighted(D, Wt, n, Z):
+    """Nearest-neighbour chain for exposure-weighted average linkage.
+
+    The distance between two clusters is the mean of the pairwise distances
+    between them, each weighted by the pair's exposure. ``D`` and ``Wt`` are
+    scratch.
+    """
+    size = np.ones(n, np.float64)
+    chain = np.empty(n, np.int64)
+    chain_len = 0
+    for k in range(n - 1):
+        if chain_len == 0:
+            chain_len = 1
+            for i in range(n):
+                if size[i] > 0:
+                    chain[0] = i
+                    break
+        while True:
+            x = chain[chain_len - 1]
+            if chain_len > 1:
+                y = chain[chain_len - 2]
+                current_min = D[_condensed_index(n, min(x, y), max(x, y))]
+            else:
+                y = -1
+                current_min = np.inf
+            for i in range(n):
+                if size[i] == 0 or x == i:
+                    continue
+                dist = D[_condensed_index(n, min(x, i), max(x, i))]
+                if dist < current_min:
+                    current_min = dist
+                    y = i
+            if chain_len > 1 and y == chain[chain_len - 2]:
+                break
+            chain[chain_len] = y
+            chain_len += 1
+        chain_len -= 2
+        if x > y:
+            x, y = y, x
+        Z[k, 0] = x
+        Z[k, 1] = y
+        Z[k, 2] = current_min
+        Z[k, 3] = size[x] + size[y]
+        size[y] = size[x] + size[y]
+        size[x] = 0.0
+        for i in range(n):
+            if size[i] == 0 or i == y:
+                continue
+            ix = _condensed_index(n, min(i, x), max(i, x))
+            iy = _condensed_index(n, min(i, y), max(i, y))
+            wx, wy = Wt[ix], Wt[iy]
+            D[iy] = (wx * D[ix] + wy * D[iy]) / (wx + wy)
+            Wt[iy] = wx + wy
+
+
+@njit(cache=True)
 def _sort_and_label(Z, n, order, uf_parent, uf_size):
     """Stable sort of ``Z`` by height, then scipy's union-find relabelling."""
     m = n - 1
@@ -172,21 +231,31 @@ def _sort_and_label(Z, n, order, uf_parent, uf_size):
 
 
 @njit(cache=True, parallel=True)
-def upgma_batch(condensed, n, Zout):
+def upgma_batch(condensed, n, Zout, weights):
     """Average-linkage UPGMA over a stack of condensed distance matrices.
 
     :param condensed: ``(R, n(n-1)/2)`` float64 pairwise TMRCAs.
     :param n: Number of taxa.
     :param Zout: ``(R, n-1, 4)`` float64, filled with scipy-format linkages.
+    :param weights: ``(n_w, n(n-1)/2)`` float64 exposure of each pair in each
+        window, row ``r`` of ``condensed`` taking window ``r % n_w``. Zero
+        rows (``n_w = 0``) is the unweighted linkage.
     """
     R = condensed.shape[0]
     npair = condensed.shape[1]
+    n_w = weights.shape[0]
     for w in prange(R):
         D = np.empty(npair, np.float64)
         for i in range(npair):
             D[i] = condensed[w, i]
         Z = np.empty((n - 1, 4), np.float64)
-        _nn_chain_average(D, n, Z)
+        if n_w == 0:
+            _nn_chain_average(D, n, Z)
+        else:
+            Wt = np.empty(npair, np.float64)
+            for i in range(npair):
+                Wt[i] = weights[w % n_w, i]
+            _nn_chain_weighted(D, Wt, n, Z)
         order = np.empty(n - 1, np.int64)
         ufp = np.empty(2 * n - 1, np.int64)
         ufs = np.empty(2 * n - 1, np.int64)
@@ -194,6 +263,26 @@ def upgma_batch(condensed, n, Zout):
         for i in range(n - 1):
             for c in range(4):
                 Zout[w, i, c] = Z[i, c]
+
+
+def window_exposure(called_frac, blk_lo, blk_hi):
+    """Linkage weight of each pair in each window.
+
+    :param called_frac: ``(P, K)`` fraction of each block over which the pair
+        is called.
+    :param blk_lo: ``(n_w,)`` first block of each window.
+    :param blk_hi: ``(n_w,)`` one past its last block.
+    :return: ``(n_w, P)`` mean called fraction over the window's blocks, plus
+        :data:`_WEIGHT_FLOOR`. Zero rows where every pair is fully called,
+        which :func:`upgma_batch` reads as the plain average.
+    """
+    if not (called_frac < 1.0).any():
+        return np.empty((0, called_frac.shape[0]))
+    csum = np.concatenate(
+        [np.zeros((called_frac.shape[0], 1)), np.cumsum(called_frac, axis=1)],
+        axis=1)
+    return np.ascontiguousarray(
+        ((csum[:, blk_hi] - csum[:, blk_lo]) / (blk_hi - blk_lo)).T) + _WEIGHT_FLOOR
 
 
 # ------------------------------------------------------- dense tree packing
@@ -1061,6 +1150,8 @@ class SegmentEnsemble:
             np.searchsorted(edges, self.positions, side="right") - 1,
             0, len(intervals) - 1).astype(np.int64)
         self.needed = np.unique(win_of_site)
+        self.win_weight = window_exposure(
+            esc, self.blk_lo[self.needed], self.blk_hi[self.needed])
         order = np.argsort(win_of_site, kind="stable")
         self.row_idx = order.astype(np.int64)
         per_win = np.bincount(
@@ -1127,7 +1218,8 @@ class SegmentEnsemble:
         (Z, branch_t, parent0, sample_dense, fmrca, pidx, cofs, cflat, poi,
          root) = (arrays if W == self._w_block else self._buffers(M, W))
         condensed = np.ascontiguousarray(condensed)
-        upgma_batch(condensed.reshape(M * W, -1), n, Z.reshape(M * W, n - 1, 4))
+        upgma_batch(condensed.reshape(M * W, -1), n, Z.reshape(M * W, n - 1, 4),
+                    self.win_weight[w0:w0 + W])
         pack_base_all(Z.reshape(M * W, n - 1, 4), n, self.is_ingroup, self.mu,
                       branch_t.reshape(M * W, nslot),
                       parent0.reshape(M * W, n_all),
@@ -1242,7 +1334,7 @@ class SegmentEnsemble:
         for draws in self.draw_chunks(n_members, member_chunk=member_chunk,
                                       seed=seed):
             for member in draws:
-                upgma_batch(member, n, Z)
+                upgma_batch(member, n, Z, self.win_weight)
                 yield build_windowed_tree_sequence(
                     n, b.sequence_length, intervals, list(Z),
                     sample_names=b.sample_names)

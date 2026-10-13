@@ -493,6 +493,7 @@ class PairwiseCoalescentHMM(ReprMixin):
         """
         counts, called_frac = self._pair_block_counts(
             genotypes, block_of_site, n_blocks, dtype=np.int64)
+        self.called_frac = called_frac
 
         if seg_bounds is None:
             seg_bounds = [(0, n_blocks)]
@@ -771,6 +772,7 @@ class LocalTreeBuilder(ReprMixin):
         self.mutation_map = mutation_map
         self._ts = None
         self._pair_block_t: "np.ndarray | None" = None
+        self._pair_called_frac: "np.ndarray | None" = None
 
     def _tally_unrepresentable(self, sites: "Iterable[Site]") -> "Iterator[Site]":
         """Pass sites through, tallying alleles outside the alphabet.
@@ -1170,12 +1172,16 @@ class LocalTreeBuilder(ReprMixin):
         intervals = self._window_intervals()
         n = len(self.sample_names)
         # Exact UPGMA over the full pairwise-TMRCA matrix (combinations order).
-        condensed = [pair_block_t[:, b0:b1].mean(axis=1)
-                     for b0, b1 in (self._blocks_for_window(l, r, n_blocks)
-                                    for l, r in intervals)]
+        bounds = [self._blocks_for_window(l, r, n_blocks) for l, r in intervals]
+        condensed = [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in bounds]
+        from ancestree._ensemble import window_exposure
         topo = WindowedUpgmaTreeSequence(
             n, self.sequence_length,
             intervals, condensed, sample_names=self.sample_names,
+            window_weights=window_exposure(
+                self._pair_called_frac,
+                np.array([b0 for b0, _ in bounds], dtype=np.int64),
+                np.array([b1 for _, b1 in bounds], dtype=np.int64)),
         ).build()
         if not self.bake_genotypes:
             self._ts = topo
@@ -1257,6 +1263,7 @@ class LocalTreeBuilder(ReprMixin):
             seg_bounds=self._seg_block_bounds(n_blocks),
             step=step, block_mask=block_mask, emit_scale=emit_scale,
         )
+        self._pair_called_frac = hmm.called_frac
         return self._pair_block_t
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:

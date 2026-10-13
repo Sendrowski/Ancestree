@@ -290,7 +290,9 @@ class EnsembleFocalScan:
         # rather than reading a materialised (M, W, nslot, 4, 4) array.
         lam, V, Vinv = self.model.real_eig()
 
-        upgma_batch(condensed.reshape(M * W, -1), n, Z.reshape(M * W, n - 1, 4))
+        # The simulated panels carry no missing genotype: the plain average.
+        upgma_batch(condensed.reshape(M * W, -1), n, Z.reshape(M * W, n - 1, 4),
+                    np.empty((0, condensed.shape[2])))
         pack_base_all(Z.reshape(M * W, n - 1, 4), n, self.is_ingroup, self.mu,
                       branch_t.reshape(M * W, nslot),
                       parent0.reshape(M * W, n_all),

@@ -140,6 +140,9 @@ class WindowedUpgmaTreeSequence:
         node is attached to an individual carrying ``{"name": ...}`` so the
         tree sequence is self-describing (``ARGBasedInference`` recovers the
         sample map from individual metadata).
+    :param window_weights: Optional ``(n_windows, n(n-1)/2)`` exposure of each
+        pair in each window, which weights the cluster means. ``None`` or zero
+        rows is the plain average.
     :raises ValueError: If ``n_samples < 2``, ``sample_names`` length does
         not match ``n_samples``, ``window_intervals`` and
         ``window_condensed_tmrcas`` differ in length, or any condensed
@@ -153,6 +156,7 @@ class WindowedUpgmaTreeSequence:
         window_intervals: Sequence[tuple[float, float]],
         window_condensed_tmrcas: Sequence[np.ndarray],
         sample_names: Sequence[str] | None = None,
+        window_weights: "np.ndarray | None" = None,
     ) -> None:
         if n_samples < 2:
             raise ValueError(
@@ -181,6 +185,7 @@ class WindowedUpgmaTreeSequence:
         self.window_intervals = window_intervals
         self.window_condensed_tmrcas = window_condensed_tmrcas
         self.sample_names = sample_names
+        self.window_weights = window_weights
 
     def build(self):
         """Build the sites-free per-window UPGMA :class:`tskit.TreeSequence`.
@@ -190,12 +195,23 @@ class WindowedUpgmaTreeSequence:
         """
         from scipy.cluster.hierarchy import linkage
 
-        # UPGMA. linkage tolerates zeros. Merge heights become node times.
-        linkages = [
-            linkage(np.ascontiguousarray(condensed, dtype=np.float64),
-                    method="average")
-            for condensed in self.window_condensed_tmrcas
-        ]
+        weights = self.window_weights
+        if weights is not None and len(weights):
+            from ancestree._ensemble import upgma_batch
+
+            condensed = np.ascontiguousarray(
+                self.window_condensed_tmrcas, dtype=np.float64)
+            stacked = np.empty((len(condensed), self.n_samples - 1, 4))
+            upgma_batch(condensed, self.n_samples, stacked,
+                        np.ascontiguousarray(weights, dtype=np.float64))
+            linkages = list(stacked)
+        else:
+            # UPGMA. linkage tolerates zeros. Merge heights become node times.
+            linkages = [
+                linkage(np.ascontiguousarray(condensed, dtype=np.float64),
+                        method="average")
+                for condensed in self.window_condensed_tmrcas
+            ]
         return build_windowed_tree_sequence(
             self.n_samples, self.sequence_length, self.window_intervals,
             linkages, sample_names=self.sample_names,
