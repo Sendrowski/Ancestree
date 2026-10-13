@@ -28,21 +28,21 @@ except NameError:
 CONDITIONS = [
     (("fixed_tree_reference_estimated_model_class_rate",
       "local_tree_reference_node_class_rate_out9"),
-     "reference genome, at human\u2013chimpanzee ancestor", "#e69f00", False),
+     "reference genome", "#e69f00", False),
     (("fixed_tree_sample_node", "local_tree_sample_node_class_rate_out9"),
-     "20 haplotypes, at human\u2013chimpanzee ancestor", "#009e73", False),
+     "20 haplotypes", "#009e73", False),
     (("fixed_tree_sample_mrca", "local_tree_sample_mrca_class_rate_out9"),
-     "20 haplotypes, at their MRCA", "#cc3311", True),
+     "20 haplotypes", "#cc3311", True),
 ]
 #: Mode: legend label, line style, marker.
-MODES = [("fixed-tree mode", "-", "s"), ("local-tree mode", "--", "o")]
+MODES = [("fixed-tree", "-", "s"), ("local-tree", "--", "o")]
 COLUMNS = [("all", "all sites"), ("CpG", "CpG sites")]
 
 report = json.loads(IN_JSON.read_text())
 n = report["n_haplotypes"]
 x = np.arange(n + 1)
 
-fig, axes = plt.subplots(1, 2, figsize=(8.0, 3.7), gridspec_kw={"wspace": 0.2})
+fig, axes = plt.subplots(1, 2, figsize=(8.0, 4.0), gridspec_kw={"wspace": 0.2})
 for ax, (context, title) in zip(axes, COLUMNS):
     epo = np.asarray(report["methods"]["epo"][context]["spectrum_map"])
     ax.axhline(1.0, color="0.1", lw=0.8)
@@ -51,21 +51,34 @@ for ax, (context, title) in zip(axes, COLUMNS):
         for key, (_, style, marker) in zip(keys, MODES):
             spectrum = np.asarray(report["methods"][key][context]["spectrum_weighted"])
             ax.plot(bins, spectrum[bins] / epo[bins], color=colour, ls=style, marker=marker,
-                    ms=2.5, lw=1.0, alpha=0.9)
+                    ms=2.8, lw=1.4, alpha=0.7)
     ax.set_title(title, fontsize=11.5)
     ax.grid(True, alpha=0.2, lw=0.4)
     ax.set_xticks(x[::2])
     ax.set_xlabel("derived-allele count", fontsize=10)
 axes[0].set_ylabel("sites relative to EPO", fontsize=10)
-handles = [Line2D([], [], color=colour, lw=1.5, label=label)
-           for _, label, colour, _ in CONDITIONS]
-handles += [Line2D([], [], color="0.3", ls=style, marker=marker, ms=3, lw=1.0, label=label)
-            for label, style, marker in MODES]
-fig.legend(handles=handles[:3], fontsize=7.5, ncol=3, frameon=True, framealpha=1.0,
-           edgecolor="0.6", loc="lower center", bbox_to_anchor=(0.5, 0.09))
-fig.legend(handles=handles[3:], fontsize=7.5, ncol=2, frameon=True, framealpha=1.0,
-           edgecolor="0.6", loc="lower center", bbox_to_anchor=(0.5, 0.005))
-fig.subplots_adjust(left=0.09, right=0.99, top=0.92, bottom=0.31)
+def entry(colour, label):
+    return Line2D([], [], color=colour, lw=1.8, alpha=0.8, label=label)
+
+
+def heading(label):
+    return Line2D([], [], lw=0, label=label)
+
+
+# Three columns, filled column by column: the two focal nodes, then the modes.
+colours = [colour for _, _, colour, _ in CONDITIONS]
+handles = [
+    heading("focal node: human\u2013chimpanzee ancestor"),
+    entry(colours[0], "reference genome"), entry(colours[1], "20 haplotypes"),
+    heading("focal node: ingroup MRCA"), entry(colours[2], "20 haplotypes"), heading(""),
+    heading("mode"),
+    *[Line2D([], [], color="0.3", ls=style, marker=marker, ms=3, lw=1.4, label=label)
+      for label, style, marker in MODES],
+]
+fig.legend(handles=handles, fontsize=7.5, ncol=3, framealpha=0.9,
+           loc="lower center", bbox_to_anchor=(0.5, 0.015),
+           borderpad=1.0, columnspacing=3.0, labelspacing=0.5)
+fig.subplots_adjust(left=0.09, right=0.99, top=0.93, bottom=0.4)
 FIG.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(FIG)
 print(f"wrote {FIG}", flush=True)

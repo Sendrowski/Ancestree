@@ -106,7 +106,7 @@ fig.legend(handles=handles_b, loc="upper center", ncol=2,
            bbox_to_anchor=(0.555 + 0.19, LEGEND_Y), **LEGEND)
 
 # The right panel is titled; the left one is labelled by its stacked axes.
-ax_b.set_title("Genealogy recovery", fontsize=11 * FS, pad=10)
+ax_b.set_title("Genealogy recovery", fontsize=12 * FS, pad=10)
 
 fig.savefig(out_pdf, bbox_inches="tight")
 plt.close(fig)

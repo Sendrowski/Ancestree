@@ -61,7 +61,7 @@ axA.set_xticks(range(0, NING + 1, 4))
 axA.grid(True, which="both", alpha=0.25, lw=0.5)
 axA.legend(title="SNPs kept (by confidence)", fontsize=7, title_fontsize=7,
            framealpha=0.9, loc="lower left")
-axA.set_title("(a) Filtering by posterior confidence", fontsize=9.5)
+axA.set_title("(a) Filtering by posterior confidence", fontsize=10.5)
 
 # ---- Panel B: MAP vs fractional (expected) SFS vs truth ---------------------
 T = np.array(d["true"])[1:NING]
@@ -78,7 +78,7 @@ axB.set_xlabel(r"derived-allele count $i$")
 axB.set_xticks(range(0, NING + 1, 4))
 axB.grid(True, which="both", alpha=0.25, lw=0.5)
 axB.legend(fontsize=7.5, framealpha=0.9, loc="lower left")
-axB.set_title("(b) MAP versus posterior-weighted calls", fontsize=9.5)
+axB.set_title("(b) MAP versus posterior-weighted calls", fontsize=10.5)
 
 fig.tight_layout()
 OUT.parent.mkdir(parents=True, exist_ok=True)
