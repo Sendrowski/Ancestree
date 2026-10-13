@@ -190,7 +190,7 @@ class Inference(ReprMixin, ABC):
     @staticmethod
     def from_fixed_tree(*args, **kwargs) -> "FixedTreeInference":
         """Build a :class:`~ancestree.inference.FixedTreeInference`
-        (outgroup-ladder mode), taking that constructor's arguments.
+        (fixed-tree mode), taking that constructor's arguments.
 
         :return: The inference.
         """
@@ -2539,7 +2539,7 @@ class ARGBasedInference(Inference):
 
 
 class FixedTreeInference(Inference):
-    """ML-fit branch rates on an :class:`~ancestree.trees.OutgroupLadderTree` + per-site posteriors.
+    """Per-site posteriors on one tree for every site: an :class:`~ancestree.trees.OutgroupLadderTree` with ML-fitted branch rates, or a :class:`~ancestree.trees.FixedTree` used as given.
 
     The free branch rates of the :class:`~ancestree.trees.OutgroupLadderTree`
     are fitted by maximum likelihood against the polymorphic-site outgroup

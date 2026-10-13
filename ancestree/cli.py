@@ -359,7 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Ancestral-allele annotation via Felsenstein likelihood on ARGs "
             "and fixed trees. Pick a subcommand: `fixed-tree` for "
-            "outgroup-ladder (EST-SFS-style) inference, `arg` for "
+            "outgroup-ladder (EST-SFS-style) or given-species-tree inference, "
+            "`arg` for "
             "tskit/ARG-based (PolarBEAR-style) inference, and `local-tree` "
             "for VCF-only inferred-local-tree inference."
         ),
@@ -570,7 +571,8 @@ def _add_fixed_tree_parser(
     p = sub.add_parser(
         "fixed-tree",
         parents=parents or [],
-        help="EST-SFS-style: ML-fit a fixed outgroup-ladder tree on a VCF.",
+        help="EST-SFS-style: ML-fit a fixed outgroup-ladder tree on a VCF, "
+             "or score a dated Newick tree as given.",
         description=(
             "ML-fit branch rates on an OutgroupLadderTree built from "
             "--outgroups, or take a dated --tree as given, then write "
