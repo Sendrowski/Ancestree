@@ -116,6 +116,65 @@ rule scenario_nout_fracsfs_figure:
         "../scripts/plot_scenario_nout_fracsfs.py"
 
 
+rule divergence_counts_figure:
+    """MAP vs posterior-weighted vs true divergence counts across scenarios x
+    n_out x inference mode, reconstructed from the per-cell robustness
+    summaries (no inference re-run)."""
+    input:
+        cells = expand(
+            f"{DATA}/robustness_cell_{{scenario}}_{{method}}_n{{n_out}}_summary.json",
+            scenario=["baseline", "cpg_hypermut", "strong_ils",
+                      "outgroup_clade", "slim"],
+            method=["anc_arg", "local_tree_unphased", "anc_ft"],
+            n_out=[1, 3, 10],
+        ),
+    output:
+        pdf = f"{REPORTS}/bench_divergence_counts.pdf",
+        json = f"{REPORTS}/bench_divergence_counts.json",
+    conda:
+        "../envs/bench.yml"
+    script:
+        "../scripts/plot_divergence_counts.py"
+
+
+rule epo_spectra_figure:
+    """Unfolded spectrum of the MSL sample under the Ensembl EPO ancestral
+    base and under Ancestree, over all sites and over the CpG sites."""
+    input:
+        json = f"{REPORTS}/epo_spectra.json",
+    output:
+        pdf = f"{REPORTS}/epo_spectra.pdf",
+    conda:
+        "../envs/bench.yml"
+    script:
+        "../scripts/plot_epo_spectra.py"
+
+
+rule epo_spectra_figure_copy:
+    """The EPO spectrum figure, in the manuscript's figure tree."""
+    input:
+        pdf = rules.epo_spectra_figure.output.pdf,
+    output:
+        fig_copy = f"{FIGURES_DIR}/epo_spectra.pdf",
+    shell:
+        "cp {input.pdf} {output.fig_copy}"
+
+
+rule epo_tables:
+    """The EPO comparison and matched-simulation tables."""
+    input:
+        spectra = f"{REPORTS}/epo_spectra.json",
+        simulation = f"{REPORTS}/epo_simulation.json",
+        maker = "reports/scripts/make_epo_tables.py",
+    output:
+        comparison = f"{LATEX}/tables/epo_comparison.tex",
+        simulation = f"{LATEX}/tables/epo_simulation.tex",
+    conda:
+        "../envs/bench.yml"
+    shell:
+        "python reports/scripts/make_epo_tables.py"
+
+
 rule prior_demog_comparison_figure:
     """Appendix: the polarization prior (Kingman / adaptive / uniform) under
     demographic distortion (fixed-tree mode, no outgroup vs one outgroup), from
@@ -281,6 +340,7 @@ rule manuscript_figures:
         rules.edge_cases_table.output,
         rules.msl_informative_prior_table.output,
         f"{LATEX}/tables/msl_runtime.tex",
+        rules.epo_tables.output,
 
 
 rule msl_runtime_report:

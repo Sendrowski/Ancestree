@@ -1,0 +1,661 @@
+{
+ "n_sites": 154920907.0,
+ "n_patterns": 426597,
+ "n_distinct_columns": 115291,
+ "models": {
+  "HKY, kappa = 2, 40% GC": {
+   "EPO branch lengths": {
+    "scale": {
+     "non-CpG": 1.0,
+     "CpG": 1.0
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771974.0,
+     "divergent_ancestree_posterior_weighted": 742619.6817722323,
+     "divergent_ancestree_map_where_epo_calls": 771956.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 736701.8340874155,
+     "divergent_ancestree_map_where_epo_high_confidence": 736044.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 706131.351737139
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 547118.0,
+     "divergent_ancestree_posterior_weighted": 529530.189136507,
+     "divergent_ancestree_map_where_epo_calls": 547109.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524313.371012603,
+     "divergent_ancestree_map_where_epo_high_confidence": 521246.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503455.86233029276
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224854.0,
+     "divergent_ancestree_posterior_weighted": 213087.40795541223,
+     "divergent_ancestree_map_where_epo_calls": 224845.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 212386.46482248334,
+     "divergent_ancestree_map_where_epo_high_confidence": 214796.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202673.49159288767
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.084680312948325,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.998252329049119,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9978139586468604
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999723753039687,
+     "mean_posterior_on_epo_base": 0.9997650717519014
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9984038141655066,
+     "mean_posterior_on_epo_base": 0.9948935340170612
+    }
+   },
+   "one fitted scale": {
+    "scale": {
+     "non-CpG": 1.175342471083941,
+     "CpG": 1.175342471083941
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771843.0,
+     "divergent_ancestree_posterior_weighted": 743634.7641856082,
+     "divergent_ancestree_map_where_epo_calls": 771826.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 737138.9846754326,
+     "divergent_ancestree_map_where_epo_high_confidence": 736043.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 706067.8136205575
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 547081.0,
+     "divergent_ancestree_posterior_weighted": 530399.927113072,
+     "divergent_ancestree_map_where_epo_calls": 547072.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524616.6373485979,
+     "divergent_ancestree_map_where_epo_high_confidence": 521246.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503413.39979940286
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224760.0,
+     "divergent_ancestree_posterior_weighted": 213232.73750310292,
+     "divergent_ancestree_map_where_epo_calls": 224752.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 212520.34925781796,
+     "divergent_ancestree_map_where_epo_high_confidence": 214795.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202652.4163584544
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.0995694332318613,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9980690168035093,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9974627002008627
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.999972381994377,
+     "mean_posterior_on_epo_base": 0.9997640691014044
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9984321548144386,
+     "mean_posterior_on_epo_base": 0.9947897659428963
+    }
+   },
+   "one fitted scale per context": {
+    "scale": {
+     "non-CpG": 1.009939738793521,
+     "CpG": 4.064786766325511
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771457.0,
+     "divergent_ancestree_posterior_weighted": 745109.1025335154,
+     "divergent_ancestree_map_where_epo_calls": 771440.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 738961.4002156473,
+     "divergent_ancestree_map_where_epo_high_confidence": 735746.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 705803.6203489492
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 547118.0,
+     "divergent_ancestree_posterior_weighted": 529579.4147843923,
+     "divergent_ancestree_map_where_epo_calls": 547109.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524330.460736974,
+     "divergent_ancestree_map_where_epo_high_confidence": 521246.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503453.4191290699
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224337.0,
+     "divergent_ancestree_posterior_weighted": 215527.6022251249,
+     "divergent_ancestree_map_where_epo_calls": 224329.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 214628.9412377311,
+     "divergent_ancestree_map_where_epo_high_confidence": 214498.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202348.2034260964
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.085523998191702,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9982409421248177,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9977937827717112
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999702945869753,
+     "mean_posterior_on_epo_base": 0.9997579824103963
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9984471348717312,
+     "mean_posterior_on_epo_base": 0.9943548868564813
+    }
+   }
+  },
+  "HKY, kappa = 25/6, 40% GC": {
+   "EPO branch lengths": {
+    "scale": {
+     "non-CpG": 1.0,
+     "CpG": 1.0
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771640.0,
+     "divergent_ancestree_posterior_weighted": 743133.141292202,
+     "divergent_ancestree_map_where_epo_calls": 771635.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 737235.3420144152,
+     "divergent_ancestree_map_where_epo_high_confidence": 736129.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 706053.874311656
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 546984.0,
+     "divergent_ancestree_posterior_weighted": 529850.3322748092,
+     "divergent_ancestree_map_where_epo_calls": 546979.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524648.4901860555,
+     "divergent_ancestree_map_where_epo_high_confidence": 521291.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503412.04498061066
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224654.0,
+     "divergent_ancestree_posterior_weighted": 213280.72298313386,
+     "divergent_ancestree_map_where_epo_calls": 224654.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 212584.85256738472,
+     "divergent_ancestree_map_where_epo_high_confidence": 214836.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202639.8306472999
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.0860342590540912,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9992609749208672,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9986837454251227
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999729573694941,
+     "mean_posterior_on_epo_base": 0.9997637809146299
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9987347924583914,
+     "mean_posterior_on_epo_base": 0.9948071303149985
+    }
+   },
+   "one fitted scale": {
+    "scale": {
+     "non-CpG": 1.1870607150477681,
+     "CpG": 1.1870607150477681
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771640.0,
+     "divergent_ancestree_posterior_weighted": 744317.7303778405,
+     "divergent_ancestree_map_where_epo_calls": 771635.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 737804.8062485841,
+     "divergent_ancestree_map_where_epo_high_confidence": 736124.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 705973.6296759531
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 546981.0,
+     "divergent_ancestree_posterior_weighted": 530842.478490005,
+     "divergent_ancestree_map_where_epo_calls": 546976.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 525038.1234416631,
+     "divergent_ancestree_map_where_epo_high_confidence": 521288.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503360.1030654374
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224657.0,
+     "divergent_ancestree_posterior_weighted": 213473.14968076255,
+     "divergent_ancestree_map_where_epo_calls": 224657.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 212764.68350699754,
+     "divergent_ancestree_map_where_epo_high_confidence": 214834.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202611.52812398836
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.10220707293258,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9992999234748692,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9984865273783519
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999729239174524,
+     "mean_posterior_on_epo_base": 0.9997624146066214
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9987305413610515,
+     "mean_posterior_on_epo_base": 0.9946723981877806
+    }
+   },
+   "one fitted scale per context": {
+    "scale": {
+     "non-CpG": 1.0197304768926336,
+     "CpG": 4.102687089010644
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 770907.0,
+     "divergent_ancestree_posterior_weighted": 746271.4820909908,
+     "divergent_ancestree_map_where_epo_calls": 770900.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 740103.917137409,
+     "divergent_ancestree_map_where_epo_high_confidence": 735368.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 705656.4540830962
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 546983.0,
+     "divergent_ancestree_posterior_weighted": 529954.7653178292,
+     "divergent_ancestree_map_where_epo_calls": 546978.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524689.3192241626,
+     "divergent_ancestree_map_where_epo_high_confidence": 521291.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503406.44660203333
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 223922.0,
+     "divergent_ancestree_posterior_weighted": 216314.62903426727,
+     "divergent_ancestree_map_where_epo_calls": 223920.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 215412.59865082894,
+     "divergent_ancestree_map_where_epo_high_confidence": 214075.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202248.00881887937
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.087738894280171,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9992624175032345,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9986621835724434
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999677187797648,
+     "mean_posterior_on_epo_base": 0.9997541805028005
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.998722646465992,
+     "mean_posterior_on_epo_base": 0.9941261295992816
+    }
+   }
+  },
+  "JC69": {
+   "EPO branch lengths": {
+    "scale": {
+     "non-CpG": 1.0,
+     "CpG": 1.0
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771757.0,
+     "divergent_ancestree_posterior_weighted": 742098.9313543378,
+     "divergent_ancestree_map_where_epo_calls": 771633.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 736150.9314294565,
+     "divergent_ancestree_map_where_epo_high_confidence": 734307.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 705744.4942085834
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 547096.0,
+     "divergent_ancestree_posterior_weighted": 529288.7549669631,
+     "divergent_ancestree_map_where_epo_calls": 547033.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524043.50451785664,
+     "divergent_ancestree_map_where_epo_high_confidence": 520640.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503446.28081086476
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224659.0,
+     "divergent_ancestree_posterior_weighted": 212808.0931920566,
+     "divergent_ancestree_map_where_epo_calls": 224598.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 212105.42909102817,
+     "divergent_ancestree_map_where_epo_high_confidence": 213665.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202296.21594779738
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.083195318233351,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9978205717228814,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9974499213362922
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999604128538587,
+     "mean_posterior_on_epo_base": 0.9997620327049808
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9980973302906273,
+     "mean_posterior_on_epo_base": 0.9948663933088265
+    }
+   },
+   "one fitted scale": {
+    "scale": {
+     "non-CpG": 1.1787640835022088,
+     "CpG": 1.1787640835022088
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771731.0,
+     "divergent_ancestree_posterior_weighted": 743049.285838788,
+     "divergent_ancestree_map_where_epo_calls": 771607.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 736509.5054950626,
+     "divergent_ancestree_map_where_epo_high_confidence": 734289.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 705693.7939482965
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 547074.0,
+     "divergent_ancestree_posterior_weighted": 530121.5936901325,
+     "divergent_ancestree_map_where_epo_calls": 547011.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524295.1834600228,
+     "divergent_ancestree_map_where_epo_high_confidence": 520625.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503411.41701032117
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224655.0,
+     "divergent_ancestree_posterior_weighted": 212925.5940527647,
+     "divergent_ancestree_map_where_epo_calls": 224594.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 212212.32449687962,
+     "divergent_ancestree_map_where_epo_high_confidence": 213662.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202280.379915974
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.0980958907844975,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.997538160177009,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.997022001385139
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999602924265086,
+     "mean_posterior_on_epo_base": 0.9997612263346604
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9980989497562806,
+     "mean_posterior_on_epo_base": 0.9947815675887186
+    }
+   },
+   "one fitted scale per context": {
+    "scale": {
+     "non-CpG": 1.0096649570821883,
+     "CpG": 4.367041260041698
+    },
+    "all": {
+     "n_sites": 154920907.0,
+     "epo_high_confidence_calls": 149467708.0,
+     "epo_low_confidence_calls": 4939901.0,
+     "epo_no_call": 513298.0,
+     "divergent_epo_high_confidence": 739534.0,
+     "divergent_epo_all_calls": 780299.0,
+     "divergent_ancestree_map": 771602.0,
+     "divergent_ancestree_posterior_weighted": 744312.6426801227,
+     "divergent_ancestree_map_where_epo_calls": 771478.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 738135.9198047519,
+     "divergent_ancestree_map_where_epo_high_confidence": 734225.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 705479.94477694
+    },
+    "non-CpG": {
+     "n_sites": 146601012.0,
+     "epo_high_confidence_calls": 141499671.0,
+     "epo_low_confidence_calls": 4598591.0,
+     "epo_no_call": 502750.0,
+     "divergent_epo_high_confidence": 523766.0,
+     "divergent_epo_all_calls": 554148.0,
+     "divergent_ancestree_map": 547096.0,
+     "divergent_ancestree_posterior_weighted": 529333.7083634695,
+     "divergent_ancestree_map_where_epo_calls": 547033.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 524057.0142337313,
+     "divergent_ancestree_map_where_epo_high_confidence": 520640.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 503444.3712107849
+    },
+    "CpG": {
+     "n_sites": 8319754.0,
+     "epo_high_confidence_calls": 7967921.0,
+     "epo_low_confidence_calls": 341298.0,
+     "epo_no_call": 10535.0,
+     "divergent_epo_high_confidence": 215766.0,
+     "divergent_epo_all_calls": 226149.0,
+     "divergent_ancestree_map": 224504.0,
+     "divergent_ancestree_posterior_weighted": 214976.85031596362,
+     "divergent_ancestree_map_where_epo_calls": 224443.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 214076.90776656248,
+     "divergent_ancestree_map_where_epo_high_confidence": 213583.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 202033.57613959225
+    },
+    "context unknown": {
+     "n_sites": 141.0,
+     "epo_high_confidence_calls": 116.0,
+     "epo_low_confidence_calls": 12.0,
+     "epo_no_call": 13.0,
+     "divergent_epo_high_confidence": 2.0,
+     "divergent_epo_all_calls": 2.0,
+     "divergent_ancestree_map": 2.0,
+     "divergent_ancestree_posterior_weighted": 2.0840006897518335,
+     "divergent_ancestree_map_where_epo_calls": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_calls": 1.9978044581218752,
+     "divergent_ancestree_map_where_epo_high_confidence": 2.0,
+     "divergent_ancestree_posterior_weighted_where_epo_high_confidence": 1.9974265629570351
+    },
+    "agreement with EPO, high confidence": {
+     "n_sites": 149467708.0,
+     "map_equals_epo_base": 0.9999599579060917,
+     "mean_posterior_on_epo_base": 0.9997558103332201
+    },
+    "agreement with EPO, low confidence": {
+     "n_sites": 4939901.0,
+     "map_equals_epo_base": 0.9981137273803665,
+     "mean_posterior_on_epo_base": 0.9943987387618056
+    }
+   }
+  }
+ }
+}

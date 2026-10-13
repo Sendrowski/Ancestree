@@ -71,6 +71,7 @@ MANUSCRIPT_FIGURES = [
     "bench_scenario_sfs", "bench_site_scaling", "focal_cost",
     "focal_interpolation", "gallery", "gallery_root_examples",
     "msl_agreement_heatmap", "sfs_fractional_calls", "tmrca_distributions",
+    "epo_spectra",
 ]
 
 #: Generated LaTeX tables the manuscript \input's.
@@ -1504,6 +1505,21 @@ rule extract_msl_fixed_differences:
         "scripts/extract_msl_fixed_differences.py"
 
 
+rule extract_msl_ingroup_state:
+    """Per-chunk ingroup state at every listed position: the allele the MSL
+    ingroup has fixed, or a flag where it is polymorphic."""
+    input:
+        simplify_vcf = f"{DATA}/msl_pseudo_vcf_{{region}}.vcf.gz",
+    output:
+        npz = f"{DATA}/msl_ingroup_state_{{region}}.npz",
+    params:
+        outgroup_samples = MSL_OUTGROUPS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/extract_msl_ingroup_state.py"
+
+
 rule fit_infer_msl_vcf:
     """FixedTreeInference on a subsample of the cached .npz, emitting
     per-site MAP estimates in the PolarBEAR-comparable schema."""
@@ -1814,6 +1830,371 @@ rule report_msl_3way_chr1:
         "envs/bench.yml"
     script:
         "scripts/report_msl_3way.py"
+
+
+# ----------------------------- Ensembl EPO ancestral alleles on MSL chr1
+# The release-112 GRCh38 ancestral FASTA and the chr1 files of the 10-primate
+# EPO alignment it is built from.
+EPO_URL = "https://ftp.ensembl.org/pub/release-112"
+EPO_ROOT = "external/ensembl_epo"
+EPO_CHR1_PARTS = list(range(1, 10))
+EPO_SPECIES = [
+    "pan_troglodytes", "pan_paniscus", "gorilla_gorilla", "pongo_abelii",
+    "nomascus_leucogenys", "macaca_mulatta", "macaca_fascicularis",
+    "chlorocebus_sabaeus", "microcebus_murinus",
+]
+
+
+rule download_epo_ancestor:
+    """The Ensembl ancestral FASTA of GRCh38 chromosome 1."""
+    output:
+        fasta = f"{EPO_ROOT}/homo_sapiens_ancestor_GRCh38/homo_sapiens_ancestor_1.fa",
+    params:
+        url = f"{EPO_URL}/fasta/ancestral_alleles/homo_sapiens_ancestor_GRCh38.tar.gz",
+        root = EPO_ROOT,
+    conda:
+        "envs/bench.yml"
+    shell:
+        "mkdir -p {params.root} && "
+        "curl -sS --fail -L -o {params.root}/homo_sapiens_ancestor_GRCh38.tar.gz {params.url} && "
+        "tar xzf {params.root}/homo_sapiens_ancestor_GRCh38.tar.gz -C {params.root} && "
+        "touch {output.fasta}"
+
+
+rule download_epo_alignment:
+    """One chr1 file of the Ensembl 10-primate EPO alignment."""
+    output:
+        maf = f"{EPO_ROOT}/10_primates_chr1/10_primates.epo.1_{{part}}.maf.gz",
+    params:
+        url = (f"{EPO_URL}/maf/ensembl-compara/multiple_alignments/10_primates.epo/"
+               "10_primates.epo.1_{part}.maf.gz"),
+    conda:
+        "envs/bench.yml"
+    shell:
+        "curl -sS --fail -L -o {output.maf} {params.url}"
+
+
+rule download_hapmap_genetic_map:
+    """The HapMap II recombination map of chromosome 1 on GRCh38."""
+    output:
+        rec_map = "external/genetic_maps/HapMapII_GRCh38/genetic_map_Hg38_chr1.txt",
+    params:
+        url = "https://stdpopsim.s3-us-west-2.amazonaws.com/genetic_maps/HomSap/HapMapII_GRCh38.tar.gz",
+        root = "external/genetic_maps",
+    conda:
+        "envs/bench.yml"
+    shell:
+        "mkdir -p {params.root}/HapMapII_GRCh38 && "
+        "curl -sS --fail -L -o {params.root}/HapMapII_GRCh38.tar.gz {params.url} && "
+        "tar xzf {params.root}/HapMapII_GRCh38.tar.gz -C {params.root}/HapMapII_GRCh38 && "
+        "touch {output.rec_map}"
+
+
+rule extract_epo_alignment:
+    """One EPO alignment file projected onto human chr1 coordinates."""
+    input:
+        maf = f"{EPO_ROOT}/10_primates_chr1/10_primates.epo.1_{{part}}.maf.gz",
+    output:
+        npz = f"{DATA}/epo_alignment_chr1_{{part}}.npz",
+        meta = f"{DATA}/epo_alignment_chr1_{{part}}_meta.json",
+    params:
+        species = EPO_SPECIES,
+        chrom = "1",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/extract_epo_alignment.py"
+
+
+rule tabulate_epo_patterns:
+    """Site patterns of one EPO alignment file over the positions the MSL
+    ingroup has fixed, with the EPO ancestral call and the CpG context."""
+    input:
+        alignment = f"{DATA}/epo_alignment_chr1_{{part}}.npz",
+        states = expand(
+            f"{DATA}/msl_ingroup_state_{{region}}.npz",
+            region=MSL_CHR1_CHUNK_REGIONS,
+        ),
+        fasta = f"{EPO_ROOT}/homo_sapiens_ancestor_GRCh38/homo_sapiens_ancestor_1.fa",
+    output:
+        npz = f"{DATA}/epo_patterns_chr1_{{part}}.npz",
+        meta = f"{DATA}/epo_patterns_chr1_{{part}}_meta.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/tabulate_epo_patterns.py"
+
+
+rule report_epo_divergence:
+    """Human-branch divergence counts at the human-chimpanzee ancestor: the
+    EPO calls against Ancestree on the same alignment and species tree."""
+    input:
+        patterns = expand(
+            f"{DATA}/epo_patterns_chr1_{{part}}.npz", part=EPO_CHR1_PARTS),
+    output:
+        json = f"{REPORTS}/epo_divergence.json",
+        md = f"{REPORTS}/epo_divergence.md",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_epo_divergence.py"
+
+
+# EPO comparison: the unfolded spectrum of a sample of MSL haplotypes and its
+# divergence count, polarised by the Ensembl EPO ancestral base and by
+# Ancestree on the same nine outgroups, one shard per chr1 chunk and run.
+EPO_N_HAPLOTYPES = 20
+EPO_MU = 1.25e-8
+EPO_N_ENSEMBLE = 64
+EPO_REC_MAP = "external/genetic_maps/HapMapII_GRCh38/genetic_map_Hg38_chr1.txt"
+# Local-tree runs, ``<panel>_<node>_<rate>_out<n>``: the human tips (the
+# sample or the reference sequence), the ancestor read (``mrca`` of those tips
+# or their ``node`` with the Pan species), one mutation rate or one per CpG
+# context, and the number of outgroups.
+EPO_LOCAL_TREE_RUNS = [
+    "reference_node_class_rate_out9", "sample_node_class_rate_out9",
+    "sample_mrca_class_rate_out9", "sample_mrca_one_rate_out9",
+]
+EPO_SIMULATION_RUNS = EPO_LOCAL_TREE_RUNS + [
+    "reference_node_one_rate_out9", "sample_node_one_rate_out9",
+    "sample_mrca_class_rate_out3", "sample_node_class_rate_out3",
+    "sample_mrca_class_rate_out1", "sample_node_class_rate_out1",
+]
+EPO_SIMULATION_SEEDS = list(range(1, 9))
+# The chr1 chunks the comparison covers: 8 of the 40. Set to
+# MSL_CHR1_CHUNK_REGIONS for the whole chromosome.
+EPO_REGIONS = [
+    "chr1_6250000_12500000", "chr1_31250000_37500000",
+    "chr1_56250000_62500000", "chr1_93750000_100M", "chr1_175M_181250000",
+    "chr1_181250000_187500000", "chr1_212500000_218750000",
+    "chr1_231250000_237500000",
+]
+# Split times in generations on the topology of the EPO species tree, an
+# ingroup of 20,000 and ancestral sizes of 30,000 (60,000 above the
+# human-Pan split), with every 20th site mutating ten times faster.
+EPO_SIMULATION = dict(
+    length=2_000_000, n_haplotypes=EPO_N_HAPLOTYPES, mu=EPO_MU, rec_rate=1e-8,
+    fast_ratio=10.0, period=20, kappa=25.0 / 6.0, pi=[0.3, 0.2, 0.2, 0.3],
+    splits=dict(CB=220_000, HCB=528_000, HCBG=676_000, GA=1_355_000,
+                APE=1_568_000, MF=226_000, MFV=937_000, CAT=2_444_000,
+                ROOT=6_080_000),
+    ingroup_size=20_000, ancestral_size=30_000,
+    human_pan_ancestral_size=60_000,
+)
+
+wildcard_constraints:
+    epo_run = r"(sample|reference)_(mrca|node)_(one|class)_rate_out\d+",
+    epo_seed = r"\d+",
+
+
+rule build_epo_panel:
+    """Site panel of one chr1 chunk: the MSL sample, the GRCh38 reference,
+    the nine EPO outgroups, the EPO ancestral base and the CpG context."""
+    input:
+        state = f"{DATA}/msl_ingroup_state_{{region}}.npz",
+        polymorphic = f"{DATA}/msl_polymorphic_{{region}}.npz",
+        region_meta = f"{DATA}/msl_polymorphic_{{region}}_meta.json",
+        alignment = expand(
+            f"{DATA}/epo_alignment_chr1_{{part}}.npz", part=EPO_CHR1_PARTS),
+        fasta = f"{EPO_ROOT}/homo_sapiens_ancestor_GRCh38/homo_sapiens_ancestor_1.fa",
+        divergence = f"{REPORTS}/epo_divergence.json",
+    output:
+        npz = f"{DATA}/epo_panel_{{region}}.npz",
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+    params:
+        n_haplotypes = EPO_N_HAPLOTYPES,
+        mu = EPO_MU,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/build_epo_panel.py"
+
+
+rule infer_epo_fixed_tree:
+    """Fixed-tree posteriors at the human-Pan ancestor on the EPO species
+    tree, the human tip the reference sequence."""
+    input:
+        npz = f"{DATA}/epo_panel_{{region}}.npz",
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_fixed_tree_{{region}}.npz",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_fixed_tree.py"
+
+
+rule infer_epo_fixed_tree_sample:
+    """Fixed-tree posteriors of the ingroup sample on a fitted outgroup
+    ladder, at the ingroup MRCA and at its ancestor with chimpanzee."""
+    input:
+        npz = f"{DATA}/epo_panel_{{region}}.npz",
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_fixed_tree_sample_{{region}}.npz",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_fixed_tree_sample.py"
+
+
+rule infer_epo_local_tree:
+    """Local-tree posteriors of one run on one chr1 chunk."""
+    input:
+        npz = f"{DATA}/epo_panel_{{region}}.npz",
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+        rec_map = EPO_REC_MAP,
+    output:
+        npz = f"{DATA}/epo_local_tree_{{region}}_{{epo_run}}.npz",
+    params:
+        n_ensemble = EPO_N_ENSEMBLE,
+    threads: 2
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_local_tree.py"
+
+
+rule summarise_epo_region:
+    """Spectra and divergence counts of one chr1 chunk under EPO and every
+    Ancestree run."""
+    input:
+        npz = f"{DATA}/epo_panel_{{region}}.npz",
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+        fixed_tree = f"{DATA}/epo_fixed_tree_{{region}}.npz",
+        fixed_tree_sample = f"{DATA}/epo_fixed_tree_sample_{{region}}.npz",
+        local_tree = expand(
+            f"{DATA}/epo_local_tree_{{{{region}}}}_{{run}}.npz",
+            run=EPO_LOCAL_TREE_RUNS),
+    output:
+        json = f"{DATA}/epo_spectra_{{region}}.json",
+    params:
+        runs = EPO_LOCAL_TREE_RUNS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/summarise_epo_region.py"
+
+
+rule report_epo_spectra:
+    """Chromosome-wide spectra of the EPO comparison."""
+    input:
+        regions = expand(
+            f"{DATA}/epo_spectra_{{region}}.json", region=EPO_REGIONS),
+    output:
+        json = f"{REPORTS}/epo_spectra.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_epo_spectra.py"
+
+
+rule simulate_epo_scenario:
+    """One replicate of the simulation matched to the EPO comparison."""
+    output:
+        trees = f"{DATA}/epo_simulation_seed{{epo_seed}}.trees",
+        meta = f"{DATA}/epo_simulation_seed{{epo_seed}}_meta.json",
+    params:
+        config = EPO_SIMULATION,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_epo_scenario.py"
+
+
+rule build_epo_simulation_panel:
+    """Site panel of one simulated replicate, with the simulated state at the
+    two nodes a site is read at."""
+    input:
+        trees = f"{DATA}/epo_simulation_seed{{epo_seed}}.trees",
+        meta = f"{DATA}/epo_simulation_seed{{epo_seed}}_meta.json",
+        # The outgroup alignment gaps of one typical chr1 chunk.
+        gaps = f"{DATA}/epo_panel_chr1_100M_106250000.npz",
+    output:
+        npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
+        meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/build_epo_simulation_panel.py"
+
+
+rule infer_epo_simulation_fixed_tree:
+    """Fixed-tree posteriors of one simulated replicate on its species tree."""
+    input:
+        npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
+        meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_simulation_fixed_tree_seed{{epo_seed}}.npz",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_fixed_tree.py"
+
+
+rule infer_epo_simulation_fixed_tree_sample:
+    """Fixed-tree posteriors of the ingroup sample of one simulated replicate
+    on a fitted outgroup ladder."""
+    input:
+        npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
+        meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_simulation_fixed_tree_sample_seed{{epo_seed}}.npz",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_fixed_tree_sample.py"
+
+
+rule infer_epo_simulation_local_tree:
+    """Local-tree posteriors of one run on one simulated replicate."""
+    input:
+        npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
+        meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_simulation_local_tree_seed{{epo_seed}}_{{epo_run}}.npz",
+    params:
+        n_ensemble = EPO_N_ENSEMBLE,
+    threads: 2
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_local_tree.py"
+
+
+rule summarise_epo_simulation:
+    """Spectra and divergence counts of one simulated replicate under the
+    truth and every Ancestree run."""
+    input:
+        npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
+        meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
+        fixed_tree = f"{DATA}/epo_simulation_fixed_tree_seed{{epo_seed}}.npz",
+        fixed_tree_sample = f"{DATA}/epo_simulation_fixed_tree_sample_seed{{epo_seed}}.npz",
+        local_tree = expand(
+            f"{DATA}/epo_simulation_local_tree_seed{{{{epo_seed}}}}_{{run}}.npz",
+            run=EPO_SIMULATION_RUNS),
+    output:
+        json = f"{DATA}/epo_simulation_spectra_seed{{epo_seed}}.json",
+    params:
+        runs = EPO_SIMULATION_RUNS,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/summarise_epo_simulation.py"
+
+
+rule report_epo_simulation:
+    """Spectra of the matched simulation, summed over the replicates."""
+    input:
+        replicates = expand(
+            f"{DATA}/epo_simulation_spectra_seed{{seed}}.json",
+            seed=EPO_SIMULATION_SEEDS),
+    output:
+        json = f"{REPORTS}/epo_simulation.json",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/report_epo_simulation.py"
 
 
 rule fit_infer_msl_vcf_streaming:
