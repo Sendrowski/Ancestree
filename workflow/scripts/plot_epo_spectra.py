@@ -42,7 +42,7 @@ report = json.loads(IN_JSON.read_text())
 n = report["n_haplotypes"]
 x = np.arange(n + 1)
 
-fig, axes = plt.subplots(1, 2, figsize=(8.0, 4.0), gridspec_kw={"wspace": 0.2})
+fig, axes = plt.subplots(1, 2, figsize=(8.0, 4.0), sharey=True, gridspec_kw={"wspace": 0.08})
 for ax, (context, title) in zip(axes, COLUMNS):
     epo = np.asarray(report["methods"]["epo"][context]["spectrum_map"])
     ax.axhline(1.0, color="0.1", lw=0.8)
@@ -65,20 +65,25 @@ def heading(label):
     return Line2D([], [], lw=0, label=label)
 
 
-# Three columns, filled column by column: the two focal nodes, then the modes.
+# Two columns, filled column by column: focal node and ingroup by colour, mode by line style.
 colours = [colour for _, _, colour, _ in CONDITIONS]
+hc = "human\u2013chimpanzee ancestor"
 handles = [
-    heading("focal node: human\u2013chimpanzee ancestor"),
-    entry(colours[0], "reference genome"), entry(colours[1], "20 haplotypes"),
-    heading("focal node: ingroup MRCA"), entry(colours[2], "20 haplotypes"), heading(""),
+    heading("focal node, ingroup"),
+    entry(colours[0], f"{hc}, reference genome"), entry(colours[1], f"{hc}, 20 haplotypes"),
+    entry(colours[2], "ingroup MRCA, 20 haplotypes"),
     heading("mode"),
     *[Line2D([], [], color="0.3", ls=style, marker=marker, ms=3, lw=1.4, label=label)
       for label, style, marker in MODES],
+    heading(""),
 ]
-fig.legend(handles=handles, fontsize=7.5, ncol=3, framealpha=0.9,
-           loc="lower center", bbox_to_anchor=(0.5, 0.015),
-           borderpad=1.0, columnspacing=3.0, labelspacing=0.5)
-fig.subplots_adjust(left=0.09, right=0.99, top=0.93, bottom=0.4)
+legend = fig.legend(handles=handles, fontsize=7.5, ncol=2, framealpha=0.9,
+                    loc="lower center", bbox_to_anchor=(0.5, 0.015),
+                    borderpad=1.0, columnspacing=4.0, labelspacing=0.5)
+for text in legend.get_texts():
+    if text.get_text() in ("focal node, ingroup", "mode"):
+        text.set_fontweight("semibold")
+fig.subplots_adjust(left=0.09, right=0.99, top=0.93, bottom=0.355)
 FIG.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(FIG)
 print(f"wrote {FIG}", flush=True)
