@@ -2102,14 +2102,30 @@ rule simulate_epo_scenario:
         "scripts/simulate_epo_scenario.py"
 
 
+rule extract_epo_simulation_gaps:
+    """Outgroup gap mask of one simulated replicate, from the analysed chunk
+    of the same index."""
+    input:
+        region_meta = lambda wc: f"{DATA}/msl_polymorphic_{EPO_REGIONS[int(wc.epo_seed) - 1]}_meta.json",
+        panel = lambda wc: f"{DATA}/epo_panel_{EPO_REGIONS[int(wc.epo_seed) - 1]}.npz",
+        alignment = expand(f"{DATA}/epo_alignment_chr1_{{part}}.npz", part=EPO_CHR1_PARTS),
+    output:
+        npz = f"{DATA}/epo_simulation_gaps_seed{{epo_seed}}.npz",
+    params:
+        length = EPO_SIMULATION["length"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/extract_epo_simulation_gaps.py"
+
+
 rule build_epo_simulation_panel:
     """Site panel of one simulated replicate, with the simulated state at the
     two nodes a site is read at."""
     input:
         trees = f"{DATA}/epo_simulation_seed{{epo_seed}}.trees",
         meta = f"{DATA}/epo_simulation_seed{{epo_seed}}_meta.json",
-        # The outgroup alignment gaps of one typical chr1 chunk.
-        gaps = f"{DATA}/epo_panel_chr1_100M_106250000.npz",
+        gaps = f"{DATA}/epo_simulation_gaps_seed{{epo_seed}}.npz",
     output:
         npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
         meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
