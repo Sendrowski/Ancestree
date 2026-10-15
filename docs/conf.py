@@ -62,6 +62,7 @@ myst_enable_extensions = ["dollarmath", "amsmath", "deflist", "colon_fence"]
 # Render type hints from the function signature (not duplicated in docstrings).
 typehints_use_signature = True
 typehints_use_signature_return = True
+typehints_document_rtype = False
 typehints_fully_qualified = False
 always_document_param_types = True
 
