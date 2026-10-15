@@ -1,7 +1,7 @@
 # Ancestree  <img align="right" width="100" src="https://raw.githubusercontent.com/Sendrowski/Ancestree/main/docs/logo_thumbnail.png">
 [![Tests](https://github.com/Sendrowski/Ancestree/actions/workflows/run-tests.yml/badge.svg?branch=main)](https://github.com/Sendrowski/Ancestree/actions/workflows/run-tests.yml)
 [![codecov](https://codecov.io/gh/Sendrowski/Ancestree/branch/main/graph/badge.svg)](https://codecov.io/gh/Sendrowski/Ancestree)
-[![Documentation Status](https://readthedocs.org/projects/ancestree/badge/?version=latest)](https://ancestree.readthedocs.io/en/latest/?badge=latest)
+[![Documentation Status](https://img.shields.io/readthedocs/ancestree/latest)](https://ancestree.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/ancestree-popgen.svg)](https://badge.fury.io/py/ancestree-popgen)
 [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ancestree.svg?color=blue)](https://anaconda.org/conda-forge/ancestree)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
