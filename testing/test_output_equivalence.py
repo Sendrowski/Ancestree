@@ -45,6 +45,8 @@ def dataset(tmp_path_factory):
         recombination_rate=1e-8, random_seed=11,
     )
     ts = msprime.sim_mutations(ts, rate=5e-7, random_seed=11)
+    # VCF has no position 0, which the seeded simulation reaches on some platforms
+    ts = ts.delete_sites([site.id for site in ts.sites() if site.position == 0])
 
     vcf = tmp_path / "panel.vcf"
     with open(vcf, "w") as handle:

@@ -51,7 +51,8 @@ jobs:
         # which is where they are declared.
         run: uv pip install --system -e ".[all]" --group dev
       - name: Run tests
-        run: pytest --cov ancestree --cov-report=xml testing/ -m "not slow" -x
+        # Windows runs without -x so a run lists every platform-specific failure.
+        run: pytest --cov ancestree --cov-report=xml testing/ -m "not slow" ${{ runner.os != 'Windows' && '-x' || '' }}
       - name: Upload coverage to Codecov
         if: runner.os == 'Linux'
         uses: codecov/codecov-action@v5
