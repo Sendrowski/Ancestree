@@ -8,6 +8,6 @@
 [![Downloads](https://static.pepy.tech/badge/ancestree-popgen)](https://pepy.tech/project/ancestree-popgen)
 [![DOI](https://img.shields.io/badge/DOI-10.64898/2026.09.11.750934-blue)](https://doi.org/10.64898/2026.09.11.750934)
 
-``ancestree`` is a package for likelihood-based, per-site ancestral-allele annotation, unifying outgroup-based (EST-SFS-style) and ARG-based (PolarBEAR-style) inference behind a single likelihood kernel. It runs in three modes: fixed-tree, ARG, and local-tree, the last inferring its own local genealogies from the variant data rather than taking a supplied ARG. Every site receives a full posterior over the four nucleotide states, with multi-allelic sites, missing data and recurrent mutation handled natively.
+``ancestree`` is a package for likelihood-based, per-site ancestral-allele annotation, unifying outgroup-based and ARG-based inference behind a single likelihood kernel. It runs in three modes: fixed-tree, ARG, and local-tree, the last inferring its own local genealogies from the variant data rather than taking a supplied ARG. Every site receives a full posterior over the four nucleotide states, with multi-allelic sites, missing data and recurrent mutation handled natively.
 
 Please see the [documentation](https://ancestree.readthedocs.io/en/latest/) for all the details.
