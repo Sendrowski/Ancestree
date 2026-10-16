@@ -13,7 +13,6 @@ because numpy allocates outside the Python allocator and ``tracemalloc`` would
 not see the arrays that matter.
 """
 import multiprocessing as mp
-import resource
 import sys
 
 import numpy as np
@@ -68,6 +67,8 @@ def _one_run(window, n_ensemble, n_sites, q):
     span: at the reference rate this asked for 160 kb and yielded 178 sites,
     far too few for the scratch to be visible above the ~150 MB import floor.
     """
+    import resource
+
     import msprime
     from ancestree import JC69, LocalTreeInference
     from ancestree.sites import Site

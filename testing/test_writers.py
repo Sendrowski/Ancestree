@@ -820,19 +820,24 @@ class TestSubThresholdSitesKeepTheirGenotypes:
 
 
 def _unrepresentable_site_ts() -> tskit.TreeSequence:
-    """Two-sample tree sequence with a readable site and an all-indel one.
+    """Three-sample tree sequence ``((a, c), b)`` with a readable site and an all-indel one.
 
-    Position 2 carries ``A`` / ``T``. Position 6 carries ``AT`` / ``ATT``, so
-    no allele there maps to a model state.
+    Position 2 carries ``T`` in ``a`` and ``c``, which coalesce first, and
+    ``A`` in ``b``, so ``T`` is the MAP root state without a tie. Position 6
+    carries ``AT`` / ``ATT``, so no allele there maps to a model state.
     """
     tables = tskit.TableCollection(sequence_length=10.0)
     a = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
     b = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    c = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    ac = tables.nodes.add_row(flags=0, time=0.5)
     root = tables.nodes.add_row(flags=0, time=1.0)
-    for child in (a, b):
+    for child in (a, c):
+        tables.edges.add_row(left=0, right=10.0, parent=ac, child=child)
+    for child in (ac, b):
         tables.edges.add_row(left=0, right=10.0, parent=root, child=child)
     readable = tables.sites.add_row(position=2.0, ancestral_state="A")
-    tables.mutations.add_row(site=readable, node=a, derived_state="T")
+    tables.mutations.add_row(site=readable, node=ac, derived_state="T")
     opaque = tables.sites.add_row(position=6.0, ancestral_state="AT")
     tables.mutations.add_row(site=opaque, node=a, derived_state="ATT")
     tables.sort()
