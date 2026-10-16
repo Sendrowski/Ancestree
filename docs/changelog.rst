@@ -1,6 +1,10 @@
 Changelog
 =========
 
+[Unreleased]
+^^^^^^^^^^^^
+- Support Python 3.14.
+
 [0.2.0] - 2026-09-30
 ^^^^^^^^^^^^^^^^^^^^
 - The root prior follows the base composition in every mode, and ``--base-composition`` is available on every subcommand.

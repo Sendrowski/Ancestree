@@ -13,7 +13,7 @@ The package is distributed on PyPI as ``ancestree-popgen`` and imports as
 
    pip install ancestree-popgen
 
-``ancestree`` is compatible with Python 3.11 through 3.13.
+``ancestree`` is compatible with Python 3.11 through 3.14.
 
 Optional backends are lazy-imported on first use, so only the backends
 actually used need be installed. Select the matching extra:
