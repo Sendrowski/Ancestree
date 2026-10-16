@@ -33,7 +33,7 @@ dependencies = [
 
 # Optional backends, kept out of the core install so users who only need
 # the tskit path do not pay for them:
-#   pip install ancestree-popgen[vcf]       # CyVCF2Source + VCFWriter
+#   pip install ancestree-popgen[vcf]       # CyVCF2Source + VCFWriter, not on Windows (no cyvcf2 build)
 #   pip install ancestree-popgen[zarr]      # VcfZarrSource + ZarrWriter
 #   pip install ancestree-popgen[maps]      # local-tree --recombination-map / --mutation-map
 #   pip install ancestree-popgen[plotting]  # ancestree.plotting, which draws the focal node
@@ -41,12 +41,12 @@ dependencies = [
 # The reader and writer support zarr 2 and 3. msprime.RateMap parses the
 # local-tree recombination / mutation maps.
 [project.optional-dependencies]
-vcf = ["cyvcf2>=0.30"]
+vcf = ["cyvcf2>=0.30; sys_platform != 'win32'"]
 zarr = ["zarr>=2.16"]
 newick = ["newick>=1.9"]
 maps = ["msprime>=1.3"]
 plotting = ["matplotlib>=3.7"]
-all = ["cyvcf2>=0.30", "zarr>=2.16", "newick>=1.9", "msprime>=1.3", "matplotlib>=3.7"]
+all = ["cyvcf2>=0.30; sys_platform != 'win32'", "zarr>=2.16", "newick>=1.9", "msprime>=1.3", "matplotlib>=3.7"]
 
 [project.urls]
 Repository = "https://github.com/Sendrowski/Ancestree"
@@ -72,12 +72,13 @@ dev = [
     "pytest-timeout>=2.3",
     "msprime>=1.3",
     # The suite exercises the optional backends, so they are installed here too.
-    "cyvcf2>=0.30",
+    "cyvcf2>=0.30; sys_platform != 'win32'",
     "zarr>=3.1",
     "newick>=1.9",
     # The reference VCZ writer and reader, which the interop tests check the
     # stores against.
-    "bio2zarr[vcf]>=0.2",
+    "bio2zarr[vcf]>=0.2; sys_platform != 'win32'",
+    "bio2zarr>=0.2; sys_platform == 'win32'",
     "vcztools>=0.2",
     # Test-only downstream consumer of the AA / AA_prob / AA_post annotations.
     "sfsutils-popgen>=1.1",

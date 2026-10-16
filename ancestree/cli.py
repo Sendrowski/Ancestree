@@ -44,6 +44,7 @@ from ancestree import STATES, __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
 from ancestree.sites import _is_zarr_store, _path_format, _replaceable_store
+from ancestree._cyvcf2 import import_cyvcf2
 
 __all__ = ["main", "build_parser", "run"]
 
@@ -1131,7 +1132,7 @@ def _input_contigs(path: str) -> "list[str] | None":
                             for ext in (".tbi", ".csi")):
         import warnings
 
-        import cyvcf2
+        cyvcf2 = import_cyvcf2()
 
         vcf = cyvcf2.VCF(path)
         try:

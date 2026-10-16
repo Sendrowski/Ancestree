@@ -291,6 +291,8 @@ def test_annotation_is_additive_for_vcf_and_zarr(tmp_path):
     per-site mapping, so it is worth pinning against a custom INFO field rather
     than only the fields the writers happen to know about.
     """
+    import cyvcf2  # noqa: F401, the VCF half runs the CLI over a VCF
+
     vcf = tmp_path / "in.vcf"
     vcf.write_text(
         "##fileformat=VCFv4.2\n"

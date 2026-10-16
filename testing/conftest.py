@@ -20,6 +20,7 @@ if _worker:
     os.makedirs(os.environ["NUMBA_CACHE_DIR"], exist_ok=True)
 
 import logging
+import sys
 
 import msprime
 import pytest
@@ -53,3 +54,18 @@ def ancestree_log_level():
         yield
     finally:
         logger.setLevel(level)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """
+    On Windows, where cyvcf2 has no build, report a test that fails on the missing VCF backend as skipped.
+    Elsewhere cyvcf2 is a hard test dependency and its absence fails the suite.
+    """
+    outcome = yield
+    report = outcome.get_result()
+
+    if (sys.platform == "win32" and report.failed and call.excinfo is not None
+            and call.excinfo.errisinstance(ImportError) and "cyvcf2" in str(call.excinfo.value)):
+        report.outcome = "skipped"
+        report.longrepr = (str(item.path), item.location[1], "Skipped: cyvcf2 is not available on Windows")

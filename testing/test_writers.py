@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import cyvcf2
 import msprime
 import numpy as np
 import pytest
@@ -68,6 +67,7 @@ class TestVCFWriter:
         return p
 
     def test_writes_aa_and_aa_prob(self, in_vcf, hap_ts, tmp_path):
+        import cyvcf2
         out_vcf = tmp_path / "out.vcf"
         sites = list(TskitSource(hap_ts))
         pairs = _fake_posteriors(sites)
@@ -86,6 +86,8 @@ class TestVCFWriter:
 
     def test_unannotated_records_pass_through(self, in_vcf, hap_ts, tmp_path):
         """Sites missing from the posterior stream emit a record but no AA."""
+        import cyvcf2
+
         out_vcf = tmp_path / "partial.vcf"
         sites = list(TskitSource(hap_ts))
         partial = _fake_posteriors(sites[:1])  # only first site
@@ -108,6 +110,8 @@ class TestVCFWriter:
 
     def test_info_kwarg_adds_per_record_and_header(self, in_vcf, hap_ts, tmp_path):
         """info={'prior':'adaptive', 'model':'K2', 'kappa': 2.1} should land in header + each record."""
+        import cyvcf2
+
         out_vcf = tmp_path / "with_info.vcf"
         sites = list(TskitSource(hap_ts))
         pairs = _fake_posteriors(sites)
@@ -438,6 +442,8 @@ class TestVCFWriterStreamingParity:
         which is what a VCF source yields for a split multiallelic: one Site
         per line. Downstream that flipped the derived count from k to n-k.
         """
+        import cyvcf2
+
         in_vcf = tmp_path / "in.vcf"
         self._write_multiallelic_vcf(in_vcf)
         out_vcf = tmp_path / "out.vcf"
@@ -455,6 +461,7 @@ class TestVCFWriterStreamingParity:
         assert n == len(recovered) - 1
 
     def test_two_sites_at_one_position_keep_their_own_calls(self, tmp_path):
+        import cyvcf2
         in_vcf = tmp_path / "in.vcf"
         self._write_multiallelic_vcf(in_vcf)
         out_vcf = tmp_path / "out.vcf"
@@ -477,6 +484,7 @@ class TestVCFWriterContigAndWarning:
     the writer refuses a run in which nothing matched."""
 
     def test_to_vcf_uses_inference_chrom(self, hap_ts, tmp_path):
+        import cyvcf2
         from ancestree import ARGBasedInference, JC69
 
         inf = ARGBasedInference(hap_ts, JC69(), mu=5e-8, chrom="chr20", progress=False)
@@ -525,6 +533,8 @@ class TestMinConfidence:
 
     def test_vcf_writes_dot_when_below_threshold(self, in_vcf, hap_ts, tmp_path):
         """Uniform posterior over ≥2 alleles → ``max_prob ≤ 0.5`` → ``AA=.``."""
+        import cyvcf2
+
         out_vcf = tmp_path / "low_conf.vcf"
         sites = list(TskitSource(hap_ts))
         pairs = _uniform_posteriors(sites)
@@ -540,6 +550,8 @@ class TestMinConfidence:
 
     def test_vcf_writes_map_when_above_threshold(self, in_vcf, hap_ts, tmp_path):
         """Strongly biased posterior (0.85) → above threshold → MAP allele emitted."""
+        import cyvcf2
+
         out_vcf = tmp_path / "high_conf.vcf"
         sites = list(TskitSource(hap_ts))
         pairs = _fake_posteriors(sites)  # 0.85 mass on first allele
@@ -680,6 +692,8 @@ class TestFullPosteriorInEveryFormat:
 
     def test_vcf_declares_the_field(self, small_ts, tmp_path):
         """``AA_post`` is declared in the header with one value per state."""
+        import cyvcf2
+
         import cyvcf2
         import ancestree as anc
 
@@ -879,6 +893,7 @@ class TestRestrictSamples:
 
     @pytest.mark.parametrize("restrict", [False, True])
     def test_vcf_from_the_sites_holds_the_panel(self, tmp_path, restrict):
+        import cyvcf2
         out = str(tmp_path / "out.vcf")
         self._inference().to_vcf(out, restrict_samples=restrict)
         assert cyvcf2.VCF(out).samples == ING + OUT
@@ -905,6 +920,7 @@ class TestRestrictSamples:
 
 
 def test_an_explicit_partial_sample_map_names_the_columns(tmp_path):
+    import cyvcf2
     ts = tskit.load(QUICKSTART_TREES)
     smap = {s: n for s, n in TskitLocalTree.default_sample_map(ts).items()
             if s in ING + OUT}
@@ -977,6 +993,7 @@ class TestALocalTreeRunOnATreeSequence:
         assert tskit.load(out).num_samples == 5
 
     def test_vcf(self, tmp_path):
+        import cyvcf2
         out = str(tmp_path / "out.vcf")
         self._inference().to_vcf(out)
         assert cyvcf2.VCF(out).samples == ING + OUT
@@ -985,6 +1002,8 @@ class TestALocalTreeRunOnATreeSequence:
 def test_unnamed_samples_are_written_under_their_node_ids(tmp_path):
     """Samples of unnamed individuals are named by node id, so each is its own
     column under the name the sample lists use."""
+    import cyvcf2
+
     ts = msprime.sim_ancestry(4, sequence_length=1e4, population_size=1e4,
                               random_seed=1)
     ts = msprime.sim_mutations(ts, rate=1e-7, model=msprime.JC69(),
@@ -1079,6 +1098,8 @@ def test_a_store_to_a_vcf_is_written_from_the_sites(tmp_path, chunk_size):
     """Every site is a record, under the relabelled contig. A template
     exported from the panel's trees lost the records of sites monomorphic
     within the panel, whose alleles the trees no longer carry."""
+    import cyvcf2
+
     from testing._helpers import ts_to_vcz
 
     ts = msprime.sim_ancestry(6, ploidy=1, sequence_length=5e4,
@@ -1128,6 +1149,8 @@ def test_a_remote_vcf_is_annotated_only_as_a_vcf(tmp_path, out, annotated):
 def test_a_restricted_site_is_written_to_its_own_record(tmp_path):
     """Restriction keeps the record's alleles, so a SNP whose ALT only a
     dropped sample carries is not mistaken for an indel at its position."""
+    import cyvcf2
+
     template = tmp_path / "t.vcf"
     template.write_text(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1>\n"
@@ -1193,6 +1216,8 @@ class TestWritingFromTheSites:
 
     def test_the_annotations_match_those_of_an_annotated_file(self, tmp_path):
         """Both strategies write the same record for a site."""
+        import cyvcf2
+
         from testing._helpers import DEMO_VCF
 
         pairs = _fake_posteriors(self._sites())
@@ -1201,6 +1226,7 @@ class TestWritingFromTheSites:
         VCFWriter(None, written, samples=self.PANEL).write(pairs)
 
         def records(path):
+            import cyvcf2
             return [(r.CHROM, r.POS, r.REF, r.ALT, r.genotypes,
                      r.INFO.get("AA"), r.INFO.get("AA_prob"),
                      r.INFO.get("AA_post"))
@@ -1265,6 +1291,7 @@ class TestWritingFromTheSites:
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
     def test_an_empty_stream_keeps_its_sample_columns(self, tmp_path, suffix):
+        import cyvcf2
         import zarr
 
         out = str(tmp_path / f"out{suffix}")
@@ -1626,6 +1653,7 @@ class TestASiteWhoseTipsAreAllMissingIsBlanked:
         ]
 
     def test_the_vcf_writer_blanks_it(self, tmp_path):
+        import cyvcf2
         out = tmp_path / "blank.vcf"
         sites = self._sites()
         VCFWriter(None, str(out)).write(
@@ -1636,6 +1664,8 @@ class TestASiteWhoseTipsAreAllMissingIsBlanked:
 
     def test_a_site_carrying_one_read_tip_is_kept(self, tmp_path):
         """One readable tip is enough for the posterior to carry data."""
+        import cyvcf2
+
         out = tmp_path / "one.vcf"
         site = Site(chrom="1", pos=30, alleles=("A", "C"),
                     tip_alleles={"s0": "A", "s1": None})

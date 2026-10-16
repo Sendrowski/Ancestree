@@ -38,6 +38,7 @@ from ancestree.writers import (
     ZARR_AA_PROB_FIELD,
 )
 from ancestree._repr import ReprMixin
+from ancestree._cyvcf2 import import_cyvcf2
 
 if TYPE_CHECKING:
     import tskit
@@ -240,7 +241,7 @@ class Reader(ReprMixin):
                 elif software == "ancestree":
                     return Provenance(record)
         else:
-            import cyvcf2
+            cyvcf2 = import_cyvcf2()
 
             marker = VCF_PROVENANCE_MARKER
             vcf = cyvcf2.VCF(self._path)
@@ -358,7 +359,7 @@ class Reader(ReprMixin):
 
     def _vcf_annotations(self, limit: int | None) -> Iterator[Annotation]:
         """Per-site assignments from the ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` fields."""
-        import cyvcf2
+        cyvcf2 = import_cyvcf2()
 
         vcf = cyvcf2.VCF(self._path)
         try:

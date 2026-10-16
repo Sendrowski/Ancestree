@@ -16,7 +16,6 @@ import ancestree as anc
 
 from ancestree.sources import CyVCF2Source, TskitSource
 
-import cyvcf2
 from testing._helpers import write_vcf
 
 
@@ -68,6 +67,8 @@ class TestHaploidVCF:
 
     def test_samples_match_vcf_sample_names(self, vcf_path):
         """For haploid, sample ids pass through unchanged (no _h0 suffix)."""
+        import cyvcf2
+
         src = CyVCF2Source(vcf_path)
         vcf = cyvcf2.VCF(str(vcf_path))
         try:
@@ -421,5 +422,5 @@ class TestCyVCF2Source:
     def test_a_missing_backend_is_reported_at_construction(self, tmp_path, monkeypatch):
         path = write_vcf(tmp_path / "t.vcf", [])
         monkeypatch.setitem(sys.modules, "cyvcf2", None)
-        with pytest.raises(ImportError, match="CyVCF2Source requires cyvcf2"):
+        with pytest.raises(ImportError, match="VCF support in ancestree requires the optional cyvcf2"):
             CyVCF2Source(path)

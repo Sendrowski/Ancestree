@@ -26,6 +26,7 @@ from ancestree.writers import (
     ZARR_CONTIG_FIELD,
     ZARR_POSITION_FIELD,
 )
+from ancestree._cyvcf2 import import_cyvcf2
 
 if TYPE_CHECKING:
     import tskit
@@ -288,7 +289,7 @@ class CyVCF2Source(SiteSource):
         """
         import re
 
-        import cyvcf2
+        cyvcf2 = import_cyvcf2()
 
         vcf = cyvcf2.VCF(path)
         try:
@@ -308,13 +309,7 @@ class CyVCF2Source(SiteSource):
         :return: An open :class:`cyvcf2.VCF` handle.
         :raises ImportError: If cyvcf2 is not installed.
         """
-        try:
-            import cyvcf2
-        except ImportError as e:
-            raise ImportError(
-                "CyVCF2Source requires cyvcf2. Install with "
-                "`pip install cyvcf2` or `conda install -c bioconda cyvcf2`."
-            ) from e
+        cyvcf2 = import_cyvcf2()
 
         with warnings.catch_warnings():
             # Absent samples raise in _check_sample_filter.

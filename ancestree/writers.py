@@ -44,6 +44,7 @@ from ancestree import STATE_INDEX, STATES
 from ancestree.sites import (Site, SiteSource, _by_individual,
                              _individual_of, _named, _replaceable_store)
 from ancestree._repr import ReprMixin
+from ancestree._cyvcf2 import import_cyvcf2
 
 
 #: ``INFO`` / array names the writers emit and :mod:`ancestree.readers` reads.
@@ -799,7 +800,7 @@ class VCFWriter(Writer):
         is the O(n_variants) key and flag arrays, not the posterior stream.
         """
         self._refuse_template_overwrite()
-        import cyvcf2
+        cyvcf2 = import_cyvcf2()
         import numpy as np
 
         # Pass 1: integer key arrays in template file order.
@@ -944,7 +945,7 @@ class VCFWriter(Writer):
 
         :return: Number of records written.
         """
-        import cyvcf2
+        cyvcf2 = import_cyvcf2()
 
         columns: "list[tuple[str, list[str | None]]] | None" = None
         contigs: dict[str, None] = {}
