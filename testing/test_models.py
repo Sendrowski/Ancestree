@@ -157,6 +157,27 @@ class TestFullModeEigPath:
                 scipy.linalg.expm(Q * 0.037), atol=1e-13,
             )
 
+    #: ``(model, pi, t, P[A,C], P[A,G])`` from a 50-digit mpmath ``expm``.
+    SHORT_BRANCH_REFERENCE = [
+        (JC69(), None, 1e-8, 3.333333311111111e-09, 3.333333311111111e-09),
+        (JC69(), None, 1e-12, 3.333333333331111e-13, 3.333333333331111e-13),
+        (K2(kappa=4.0), None, 1e-8, 1.666666661111111e-09, 6.666666602777778e-09),
+        (K2(kappa=4.0), None, 1e-12, 1.666666666666111e-13, 6.666666666660277e-13),
+        (HKY(kappa=4.0), np.array([0.1, 0.2, 0.3, 0.4]), 1e-8, 1.4705882298875433e-09, 8.823529325800173e-09),
+        (HKY(kappa=4.0), np.array([0.1, 0.2, 0.3, 0.4]), 1e-12, 1.470588235293577e-13, 8.823529411756108e-13),
+    ]
+
+    @pytest.mark.parametrize("model, pi, t, p_ac, p_ag", SHORT_BRANCH_REFERENCE)
+    def test_short_branch_off_diagonals_keep_relative_precision(self, model, pi, t, p_ac, p_ag):
+        """An off-diagonal of order ``t`` must be accurate relative to its own size.
+
+        Reconstructing ``V diag(e^{λt}) V⁻¹`` forms it as a difference of order-one
+        terms, which left a relative error near ``1e-16 / t`` (``1e-8`` at ``t = 1e-8``,
+        ``1e-3`` at ``t = 1e-12``) and broke exact ties between symmetric states.
+        """
+        for P in (model.transition_probs(t, pi=pi), model.transition_probs(np.array([t]), pi=pi)[0]):
+            np.testing.assert_allclose([P[0, 1], P[0, 2]], [p_ac, p_ag], rtol=1e-13)
+
     def test_zero_branch_is_clean_identity(self):
         """``exp(Q·0)`` must be the exact identity with no negative
         reconstruction noise, since rows feed straight into samplers and logs."""

@@ -585,7 +585,7 @@ def score_ensemble(branch_t, lam, V, Vinv, pidx, poi,
     The tip partials depend on the site alone, so they are seeded once per
     window and reused across the members.
 
-    Each edge's ``P(t)`` is rebuilt here as ``V diag(e^{λt}) V⁻¹``, into a
+    Each edge's ``P(t)`` is rebuilt here as ``I + V diag(e^{λt} - 1) V⁻¹``, into a
     buffer private to the thread handling the window, so only windows carrying
     sites pay for the exponentials and no ``(M, W, nslot, S, S)`` array is
     formed.
@@ -627,15 +627,14 @@ def score_ensemble(branch_t, lam, V, Vinv, pidx, poi,
             for d in range(nslot):
                 t = branch_t[m, w, d]
                 for k in range(S):
-                    ev[k] = np.exp(lam[k] * t)
+                    ev[k] = np.expm1(lam[k] * t)
                 for i in range(S):
                     for j in range(S):
-                        acc = 0.0
+                        acc = 1.0 if i == j else 0.0
                         for k in range(S):
                             acc += V[i, k] * ev[k] * Vinv[k, j]
                         # exp(Q·t) is non-negative. Clip reconstruction
-                        # noise (~1e-16 off-diagonals at t = 0) as the
-                        # batched path does.
+                        # rounding as the batched path does.
                         Pw[d, i, j] = acc if acc > 0.0 else 0.0
             for d in range(nslot):
                 for b in range(B):

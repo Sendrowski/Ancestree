@@ -422,7 +422,9 @@ class SubstitutionModel(ReprMixin, ABC):
         eigendecomposition of ``Q``.
 
         With ``Q = V diag(λ) V⁻¹`` from :meth:`_eig_of`, the whole array is
-        exponentiated in one pass as ``P(t) = V diag(e^{λt}) V⁻¹``.
+        exponentiated in one pass as ``P(t) = I + V diag(e^{λt} - 1) V⁻¹``,
+        with ``e^{λt} - 1`` from ``expm1``, so the off-diagonals keep full
+        relative precision at short branches.
 
         :param Q: Rate matrix of shape ``(S, S)``.
         :param t_arr: Branch length(s), any shape (scalar ``ndim == 0`` allowed).
@@ -436,11 +438,11 @@ class SubstitutionModel(ReprMixin, ABC):
             return None
         lam, V, Vinv = eig
         flat = t_arr.ravel()
-        exp_lt = np.exp(np.outer(flat, lam))  # (N, S), complex iff λ is
-        # P[n] = V diag(exp_lt[n]) Vinv, batched over branches.
-        P = (V[None, :, :] * exp_lt[:, None, :]) @ Vinv
-        # exp(Q·t) is non-negative. Clip reconstruction noise (e.g. ~1e-16
-        # off-diagonals at t = 0) so rows stay valid probability vectors.
+        expm1_lt = np.expm1(np.outer(flat, lam))  # (N, S), complex iff λ is
+        # P[n] = I + V diag(expm1_lt[n]) Vinv, batched over branches.
+        P = np.eye(S) + (V[None, :, :] * expm1_lt[:, None, :]) @ Vinv
+        # exp(Q·t) is non-negative. Clip reconstruction rounding so rows stay
+        # valid probability vectors.
         P = np.maximum(P.real, 0.0).reshape(t_arr.shape + (S, S))
         return P
 
