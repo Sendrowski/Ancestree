@@ -129,8 +129,8 @@ def test_recap_and_mutate(tmp_path: Path) -> None:
             "--n-ingroup-haps", "100",
             "--seq-len", "10000",
         ],
-        capture_output=True, text=True, timeout=120,
-        env={**os.environ, "PYTHONPATH": str(REPO_ROOT)},
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT), "PYTHONIOENCODING": "utf-8"},
     )
     assert result.returncode == 0, (
         f"recap_and_mutate failed: stdout={result.stdout!r}, "
