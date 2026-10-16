@@ -1645,7 +1645,8 @@ class TestFittingInsideADaemonicWorker:
     def test_a_fit_inside_a_pool_worker_returns_results(self):
         import multiprocessing as mp
 
-        with mp.get_context("fork").Pool(1) as pool:
+        method = "fork" if "fork" in mp.get_all_start_methods() else "spawn"
+        with mp.get_context(method).Pool(1) as pool:
             params, prior_fitted = pool.apply(_fit_with_both_pools_requested)
         assert {"K1", "K2"} <= set(params)
         assert all(np.isfinite(v) for v in params.values())
