@@ -36,7 +36,7 @@ summary = rc.singer_merge_chunk_summary(scenario, method, n_out, chunk_idx,
                                         burn_in=burn_in)
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"chunk_idx": chunk_idx, **summary}, f)
 
 n_sites = sum(g[0] for g in summary["stats"].values())

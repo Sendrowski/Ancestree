@@ -127,7 +127,7 @@ out_payload = {
     },
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(out_payload, f, indent=2)
 
 
@@ -244,6 +244,6 @@ interp = (
     "``ingroup_fixed_derived`` row above is the size of that difference.\n\n"
 )
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(header + overall + truth_table + fixed_table + agree_table + interp)
 print(f"Wrote {out_md}", flush=True)

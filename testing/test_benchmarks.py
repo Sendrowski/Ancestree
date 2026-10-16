@@ -37,7 +37,7 @@ def _load_report(name: str) -> dict:
     path = REPORTS / name
     if not path.exists():
         pytest.skip(f"{path} not found — run `make benchmark` to generate it")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 # ------------------------------------------------------------------ B2: PolarBEAR

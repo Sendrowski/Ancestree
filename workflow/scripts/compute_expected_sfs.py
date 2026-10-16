@@ -39,7 +39,7 @@ except NameError:
 
 # The chunks are i.i.d. replicates of one scenario, so the panel description
 # is read from the first of them.
-meta = json.loads(METAS[0].read_text())
+meta = json.loads(METAS[0].read_text(encoding="utf-8"))
 ingroup_names = list(meta["ingroup_names"])
 mu = float(meta["mu"])
 n = int(meta["n_ingroup"])
@@ -102,5 +102,5 @@ out = {"n": n, "n_used": n_used,
        "true": T.tolist(), "map": M.tolist(), "expected": E.tolist(),
        "conf_hist": conf_hist}
 OUT.parent.mkdir(parents=True, exist_ok=True)
-OUT.write_text(json.dumps(out))
+OUT.write_text(json.dumps(out), encoding="utf-8")
 print("wrote", OUT, flush=True)

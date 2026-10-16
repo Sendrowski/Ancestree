@@ -55,7 +55,7 @@ except NameError:
     mu_slim = _args.mu_slim
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 ingroup_names: list[str] = list(meta["ingroup_names"])
 seq_len: int = int(meta["seq_len"])
@@ -188,5 +188,5 @@ side_meta = {
     "mu": mu_used,
     "time_units": str(ts_inferred.time_units),
 }
-with open(str(out_trees) + "_meta.json", "w") as f:
+with open(str(out_trees) + "_meta.json", "w", encoding="utf-8") as f:
     json.dump(side_meta, f, indent=2)

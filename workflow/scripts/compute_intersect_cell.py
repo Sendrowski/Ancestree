@@ -29,7 +29,7 @@ except NameError:
 
 summary = rc.intersect_cell_summary(scenario, method, n_out, from_shards=True)
 Path(out).parent.mkdir(parents=True, exist_ok=True)
-with open(out, "w") as f:
+with open(out, "w", encoding="utf-8") as f:
     json.dump(summary, f)
 
 n_sites = sum(g[0] for g in summary["stats"].values())

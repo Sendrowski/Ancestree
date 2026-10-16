@@ -254,7 +254,7 @@ def main() -> None:
                           f"n={rows[-1]['n_sites']:6d} "
                           f"brier={rows[-3]['mean_brier']}", flush=True)
 
-    with open(OUT_JSON, "w") as handle:
+    with open(OUT_JSON, "w", encoding="utf-8") as handle:
         json.dump({"trees": TREES, "mu": MU, "rows": rows}, handle, indent=1)
 
 

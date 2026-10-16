@@ -153,7 +153,7 @@ model = HKY(kappa=kappa_hat, fit_kappa=True)
 
 # n_target_sites: the fitted fraction of the positions the pseudo-VCF lists
 # in the region.
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     region_meta = json.load(f)
 n_target_sites = int(round(fit_fraction * region_meta["n_lines_in_range"]))
 
@@ -205,7 +205,7 @@ n_written = n_skipped = 0
 # MAP allele)) in addition to hard MAP-vs-MAP rates.
 post_positions: list[int] = []
 post_values: list[list[float]] = []
-with open(out_anc, "w") as f:
+with open(out_anc, "w", encoding="utf-8") as f:
     for site, posterior in inference.infer():
         allele = posterior.map_allele
         if allele not in STATE_INDEX:
@@ -274,6 +274,6 @@ meta = {
     "in_npz": str(in_npz),
 }
 Path(out_meta).parent.mkdir(parents=True, exist_ok=True)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"fit_infer_msl_vcf: wrote {out_meta} ({meta['timings_seconds']['total']:.1f}s total)", flush=True)

@@ -44,7 +44,7 @@ except NameError:
     out_meta = f"results/data/epo_simulation_panel_seed{seed}_meta.json"
 
 ts = tskit.load(in_trees)
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     cfg = json.load(f)
 n_hap, length, period = int(cfg["n_haplotypes"]), int(cfg["length"]), int(cfg["period"])
 samples = list(ts.samples())
@@ -192,7 +192,7 @@ meta = dict(
     non_silent_fraction=non_silent,
     discordant_fraction=discordant_span / length,
 )
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"build_epo_simulation_panel: {len(pos):,} rows, discordant fraction "
       f"{meta['discordant_fraction']:.3f}, fitted rate per generation {scale_slow:.3g} "

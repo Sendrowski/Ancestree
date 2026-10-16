@@ -48,9 +48,9 @@ except NameError:
 order = range(len(metas_in))
 
 n_written = 0
-with open(out_anc, "w") as fout:
+with open(out_anc, "w", encoding="utf-8") as fout:
     for i in order:
-        with open(calls_in[i]) as fin:
+        with open(calls_in[i], encoding="utf-8") as fin:
             for line in fin:
                 fout.write(line)
                 n_written += 1
@@ -73,11 +73,11 @@ np.savez_compressed(
 
 per_chunk, n_skipped, wall = [], 0, 0.0
 for i in order:
-    m = json.load(open(metas_in[i]))
+    m = json.load(open(metas_in[i], encoding="utf-8"))
     per_chunk.extend(m.get("per_chunk", []))
     n_skipped += int(m.get("n_sites_skipped", 0))
     wall += float(m.get("wall_total_s", 0.0))
-with open(out_meta, "w") as fh:
+with open(out_meta, "w", encoding="utf-8") as fh:
     json.dump({
         "mode": "local_tree_chr1",
         "n_written": n_written,

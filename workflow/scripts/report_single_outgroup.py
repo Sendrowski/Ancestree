@@ -84,7 +84,7 @@ def _load_arg_cell(path: Path) -> dict:
     :param path: Path to a ``single_outgroup_arg_d{depth}.json`` file.
     :return: Flat cell dict keyed for the report tables.
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     inference_meta = payload["inference_meta"]
     per_site = [
@@ -114,7 +114,7 @@ def _load_vcf_cell(path: Path) -> dict:
     :param path: Path to a ``single_outgroup_vcf_d{depth}.json`` file.
     :return: Flat cell dict keyed for the report tables.
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     per_site = [
         {
@@ -159,7 +159,7 @@ payload = {
     "vcf_cells": [vcf_cells[d] for d in depths_ordered if d in vcf_cells],
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
 
 
@@ -258,7 +258,7 @@ lines.append("## Take-aways\n\n")
 lines.append(_best(arg_cells, "arg"))
 lines.append(_best(vcf_cells, "vcf"))
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.writelines(lines)
 
 print(

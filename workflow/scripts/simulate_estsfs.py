@@ -160,7 +160,7 @@ outgroup_names = OutgroupLadderTree.order_outgroups_by_divergence(
 # ----------------------------------------------------------------- emit files
 
 ts.dump(out_trees)
-with open(out_vcf, "w") as f:
+with open(out_vcf, "w", encoding="utf-8") as f:
     ts.write_vcf(f)
 
 rng = np.random.default_rng(seed)
@@ -169,13 +169,13 @@ for site in ts.sites():
     idx = int(site.position)
     if 0 <= idx < len(seq) and site.ancestral_state in STATES:
         seq[idx] = site.ancestral_state
-with open(out_fasta, "w") as f:
+with open(out_fasta, "w", encoding="utf-8") as f:
     f.write(">1\n")
     seq_str = "".join(seq.tolist())
     for i in range(0, len(seq_str), 60):
         f.write(seq_str[i:i + 60] + "\n")
 
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump({
         "n_ingroup": n_ingroup,
         "n_outgroup": n_outgroup,

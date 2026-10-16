@@ -50,7 +50,7 @@ else:
         n_out, ft_polarize=ft, window=window, seed=seed)
 
 n = _singer.dump_args(draws, out_dir)
-with open(os.path.join(out_dir, "meta.json"), "w") as f:
+with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
     json.dump({
         "scenario": scenario, "method": method, "n_out": n_out,
         "chunk_idx": chunk_idx, "window_idx": window_idx, "seed": seed,

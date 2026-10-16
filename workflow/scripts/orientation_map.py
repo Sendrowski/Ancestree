@@ -152,7 +152,7 @@ class OrientationMapBuilder:
         A call that is neither of the site's two alleles cannot orient it. Such
         a site keeps the simulator-true ancestral state and is counted.
         """
-        meta = json.loads(self.meta_path.read_text())
+        meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
         scen = Scenario(key=f"orientation_ft_n{n_out}",
                         label=f"orientation fixed tree n_out={n_out}",
                         trees_path=self.trees_path, meta_path=self.meta_path,
@@ -227,6 +227,6 @@ payload = {
     "ancestral_allele_by_position": {
         str(int(pos[k])): str(alleles[k, anc_idx[k]]) for k in range(pos.size)},
 }
-Path(out_json).write_text(json.dumps(payload))
+Path(out_json).write_text(json.dumps(payload), encoding="utf-8")
 print(f"{scheme}: {n_mis:,} of {pos.size:,} sites mis-oriented "
       f"({payload['pct_mis_oriented']:.3f}%) {params}", flush=True)

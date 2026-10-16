@@ -74,7 +74,7 @@ end = _parse_bp(m.group(3))
 
 # -------------------------------------------------------- ingroup panel
 ingroup_individuals: list[str] = []
-with open(in_panel) as f:
+with open(in_panel, encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if not line or line.startswith("#"):
@@ -112,7 +112,7 @@ n_lines_polymorphic = 0
 t0 = time.perf_counter()
 report_every = 5_000_000
 
-with gzip.open(in_simplify_vcf, "rt") as f:
+with gzip.open(in_simplify_vcf, "rt", encoding="utf-8") as f:
     for line in f:
         n_lines_seen += 1
         if n_lines_seen % report_every == 0:
@@ -259,6 +259,6 @@ meta = {
     "in_panel": str(in_panel),
 }
 Path(out_meta).parent.mkdir(parents=True, exist_ok=True)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"extract_msl_polymorphic: wrote {out_meta}", flush=True)

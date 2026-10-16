@@ -71,7 +71,7 @@ except NameError:
     n_out = 0
 
 
-meta = json.loads(Path(in_meta).read_text())
+meta = json.loads(Path(in_meta).read_text(encoding="utf-8"))
 ingroup_names = list(meta["ingroup_names"])
 mu_true = float(meta["mu"])  # the TRUE simulation mutation rate
 r_true = float(meta["rec_rate"])
@@ -230,7 +230,7 @@ payload = {
     "runtime": runtime,
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
 print(
     f"Wrote {out_json}: window={window} rec={rec_rate_spec} mu={mu_spec} "

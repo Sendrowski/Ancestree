@@ -89,7 +89,7 @@ def aborting_seeds(path=None):
     :return: Set of tuples.
     """
     out = set()
-    for line in Path(path or ABORTING_FILE).read_text().splitlines():
+    for line in Path(path or ABORTING_FILE).read_text(encoding="utf-8").splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
             scenario, method, n_out, chunk, seed = line.split()

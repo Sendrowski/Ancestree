@@ -38,7 +38,7 @@ except NameError:
 KEEP = [1.0, 0.9, 0.8, 0.7, 0.6]
 COLORS = ["0.15", "#2ca02c", "#1f77b4", "#ff7f0e", "#d62728"]
 
-d = json.loads(SPECTRA.read_text())
+d = json.loads(SPECTRA.read_text(encoding="utf-8"))
 NING = int(d["n"])
 x = np.arange(1, NING)
 

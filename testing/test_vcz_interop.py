@@ -58,7 +58,7 @@ def _bio2zarr_store(tmp_path) -> str:
     import bio2zarr.vcf as bio2zarr_vcf
 
     vcf = tmp_path / "in.vcf"
-    vcf.write_text(_VCF)
+    vcf.write_text(_VCF, encoding="utf-8")
     vcz = tmp_path / "in.vcz"
     bio2zarr_vcf.convert([str(vcf)], str(vcz), show_progress=False)
     return str(vcz)
@@ -70,7 +70,7 @@ def _ts_vcf(ts, tmp_path) -> str:
     No indexing: CyVCF2Source reads a plain VCF.
     """
     vcf = tmp_path / "ts.vcf"
-    with open(vcf, "w") as f:
+    with open(vcf, "w", encoding="utf-8") as f:
         ts.write_vcf(f, contig_id="1")
     return str(vcf)
 
@@ -110,7 +110,7 @@ def test_vcztools_reads_writer_output(tmp_path):
     ]
     assert ZarrWriter(template, out).write(iter(pairs)) == 2
 
-    result = subprocess.run(["vcztools", "view", out], capture_output=True, text=True)
+    result = subprocess.run(["vcztools", "view", out], capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
 
     body = [ln for ln in result.stdout.splitlines() if ln and not ln.startswith("#")]
@@ -132,7 +132,7 @@ def test_missing_aa_prob_exports_as_missing_not_nan(tmp_path):
     # annotate only pos 10. Pos 20 is left unannotated.
     ZarrWriter(template, out).write(iter([(_site(10, "A", "T"), post("A", 0.9))]))
 
-    result = subprocess.run(["vcztools", "view", out], capture_output=True, text=True)
+    result = subprocess.run(["vcztools", "view", out], capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
     by_pos = {
         ln.split("\t")[1]: ln.split("\t")[7]
@@ -149,7 +149,7 @@ def test_missing_aa_prob_exports_as_missing_not_nan(tmp_path):
 
 def _all_aa_called(vcz_path) -> tuple[int, int]:
     """``(n_records, n_with_a_real_AA)`` from ``vcztools view`` over ``vcz_path``."""
-    result = subprocess.run(["vcztools", "view", vcz_path], capture_output=True, text=True)
+    result = subprocess.run(["vcztools", "view", vcz_path], capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
     body = [ln for ln in result.stdout.splitlines() if ln and not ln.startswith("#")]
     called = sum(
@@ -218,7 +218,7 @@ class TestToZarrReusesAZarrSource:
         ts = tskit.load(QUICKSTART_TREES)
         names = [f"i{i}" for i in range(6)] + ["o0", "o1"]
         vcf = tmp_path / "src.vcf"
-        with open(vcf, "w") as fh:
+        with open(vcf, "w", encoding="utf-8") as fh:
             ts.write_vcf(fh, individual_names=names, position_transform="legacy")
         store = str(tmp_path / "src.vcz")
         bio2zarr_vcf.convert([str(vcf)], store, show_progress=False)
@@ -244,7 +244,7 @@ def test_a_store_written_from_the_sites_answers_vcztools_queries(tmp_path):
                     ["view", "-H", "-r", "1:1000-5000"],
                     ["view", "-H", "-t", "1:1000-5000"]):
         result = subprocess.run(["vcztools", *command, out],
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding="utf-8")
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip()
 
@@ -305,7 +305,7 @@ def test_annotation_is_additive_for_vcf_and_zarr(tmp_path):
         "1\t1500\t.\tG\tT\t.\tPASS\tDP=51;MYTAG=two\tGT\t0\t1\t1\t0\t0\n"
         "1\t2600\t.\tC\tA\t.\tPASS\tDP=39;MYTAG=three\tGT\t1\t1\t0\t0\t0\n"
         "1\t4100\t.\tT\tG\t.\tPASS\tDP=60;MYTAG=four\tGT\t0\t1\t0\t1\t0\n"
-        "1\t5200\t.\tA\tG\t.\tPASS\tDP=12;MYTAG=five\tGT\t1\t0\t1\t0\t0\n")
+        "1\t5200\t.\tA\tG\t.\tPASS\tDP=12;MYTAG=five\tGT\t1\t0\t1\t0\t0\n", encoding="utf-8")
     out = tmp_path / "out.vcf"
     from ancestree.cli import main
     with pytest.raises(SystemExit) as exc:  # main() exits 0 on success
@@ -313,7 +313,7 @@ def test_annotation_is_additive_for_vcf_and_zarr(tmp_path):
               "--outgroups", "o0", "--mu", "2.5e-8", "--rec-rate", "1e-8",
               "--window", "2snp", "--sequence-length", "100000"])
     assert exc.value.code == 0
-    body = [ln for ln in out.read_text().splitlines() if not ln.startswith("#")]
+    body = [ln for ln in out.read_text(encoding="utf-8").splitlines() if not ln.startswith("#")]
     assert len(body) == 5
     for line, tag in zip(body, ("keepme", "two", "three", "four", "five")):
         info = line.split("\t")[7]
@@ -343,7 +343,7 @@ def test_vcztools_reads_an_output_whose_template_is_chunked(tmp_path):
     vcf = tmp_path / "many.vcf"
     vcf.write_text(_VCF.split("#CHROM", 1)[0]
                    + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA1\tNA2\n"
-                   + rows + "\n")
+                   + rows + "\n", encoding="utf-8")
     template = str(tmp_path / "many.vcz")
     # A chunk length below the variant count, as bio2zarr's 1000-variant
     # default is for any real dataset.
@@ -356,7 +356,7 @@ def test_vcztools_reads_an_output_whose_template_is_chunked(tmp_path):
     assert ZarrWriter(template, out).write(iter(pairs)) == n
 
     result = subprocess.run(["vcztools", "view", out],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
     body = [ln for ln in result.stdout.splitlines()
             if ln and not ln.startswith("#")]

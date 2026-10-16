@@ -67,7 +67,7 @@ if tree_type not in VALID_TREE_TYPES:
     )
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 ingroup_names: list[str] = list(meta["ingroup_names"])
 outgroups_by_pop: dict[str, list[str]] = dict(meta["outgroups_by_pop"])
@@ -254,7 +254,7 @@ inference_meta = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"per_site": per_site, "inference_meta": inference_meta}, f, indent=2)
 
 n_corr = sum(1 for s in per_site if s["map_correct"])

@@ -47,7 +47,7 @@ def diploid_ts():
 
 def _write_vcf(ts, path: Path, contig: str = "1") -> None:
     """Write ``ts`` to ``path`` with a single contig label."""
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         ts.write_vcf(f, contig_id=contig)
 
 
@@ -192,7 +192,7 @@ class TestNonSNPSkip:
             "1\t30\t.\tC\tT\t.\tPASS\t.\tGT\t1\t0\n"
         )
         p = tmp_path / "mixed.vcf"
-        p.write_text(vcf_text)
+        p.write_text(vcf_text, encoding="utf-8")
         sites = list(CyVCF2Source(p))
         assert [s.pos for s in sites] == [10, 30]
 
@@ -210,7 +210,7 @@ class TestAlleleCaseFolding:
             "1\t10\t.\ta\tg\t.\tPASS\t.\tGT\t0\t1\n"  # soft-masked
         )
         p = tmp_path / "soft.vcf"
-        p.write_text(vcf_text)
+        p.write_text(vcf_text, encoding="utf-8")
         sites = list(CyVCF2Source(p))
         assert len(sites) == 1
         assert sites[0].alleles == ("A", "G")
@@ -227,7 +227,7 @@ class TestAlleleCaseFolding:
             "1\t20\t.\tC\tT\t.\tPASS\t.\tGT\t1\t0\n"
         )
         p = tmp_path / "withN.vcf"
-        p.write_text(vcf_text)
+        p.write_text(vcf_text, encoding="utf-8")
         sites = list(CyVCF2Source(p))
         assert [s.pos for s in sites] == [20]
 
@@ -273,7 +273,7 @@ class TestPloidyResolution:
 
     def test_a_missing_first_call_does_not_halve_the_panel(self, tmp_path):
         path = tmp_path / "mixed.vcf"
-        path.write_text(_MIXED_PLOIDY_VCF)
+        path.write_text(_MIXED_PLOIDY_VCF, encoding="utf-8")
         source = CyVCF2Source(str(path))
         assert source.ploidy == 2
         assert source.samples() == ["s1_h0", "s1_h1", "s2_h0", "s2_h1"]
@@ -291,7 +291,7 @@ class TestPloidyResolution:
         ``(phase_seed, pos, sample, ploidy)``, so the whole panel is pinned.
         """
         path = tmp_path / "triploid.vcf"
-        path.write_text(_TRIPLOID_VCF)
+        path.write_text(_TRIPLOID_VCF, encoding="utf-8")
         source = CyVCF2Source(str(path))
         assert source.ploidy == 3
         assert len(source.samples()) == 6
@@ -375,7 +375,7 @@ class TestPloidyTruncationKeepsTheLeadingCalls:
         vcf.write_text(
             "##fileformat=VCFv4.2\n##contig=<ID=1,length=100000>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts0\ts1\n"
-            + "\n".join(rows) + "\n")
+            + "\n".join(rows) + "\n", encoding="utf-8")
         with caplog.at_level(logging.WARNING, logger="ancestree.CyVCF2Source"):
             list(anc.CyVCF2Source(str(vcf)))
         assert any("carries 3 haplotypes" in r.getMessage()
@@ -389,7 +389,7 @@ def test_cyvcf2_source_sites_only_vcf(tmp_path):
     vcf.write_text(
         "##fileformat=VCFv4.2\n##contig=<ID=1>\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-        "1\t10\t.\tA\tT\t.\t.\t.\n"
+        "1\t10\t.\tA\tT\t.\t.\t.\n", encoding="utf-8"
     )
     src = CyVCF2Source(str(vcf))
     assert src.ploidy == 2

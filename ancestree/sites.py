@@ -604,7 +604,7 @@ class BaseComposition:
         counts = {"A": 0, "C": 0, "G": 0, "T": 0}
         current_contig: str | None = None
         seen_target = contig is None
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

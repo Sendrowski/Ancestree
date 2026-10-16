@@ -24,14 +24,14 @@ class TestReadBed:
             "chr1\t100\t200\n"
             "chr1\t300\t450\n"
             "too short\n"  # < 3 fields -> skipped
-            "\n"
+            "\n", encoding="utf-8"
         )
         assert MapFiles.read_bed(str(bed)) == {
             "chr1": [(100.0, 200.0), (300.0, 450.0)]}
 
     def test_keeps_each_contig_apart(self, tmp_path):
         bed = tmp_path / "mask.bed"
-        bed.write_text("chr1\t0\t10\nchr2\t5\t25\nchr1\t40\t50\n")
+        bed.write_text("chr1\t0\t10\nchr2\t5\t25\nchr1\t40\t50\n", encoding="utf-8")
         assert MapFiles.read_bed(str(bed)) == {
             "chr1": [(0.0, 10.0), (40.0, 50.0)],
             "chr2": [(5.0, 25.0)],
@@ -46,7 +46,7 @@ class TestReadBedgraph:
         bg.write_text(
             "# header\n"
             "chr1\t300\t400\t2e-8\n"
-            "chr1\t100\t200\t1e-8\n"
+            "chr1\t100\t200\t1e-8\n", encoding="utf-8"
         )
         rm = MapFiles.read_bedgraph(str(bg), default_rate=5e-9)["chr1"]
         assert rm.position[0] == 0.0
@@ -56,7 +56,7 @@ class TestReadBedgraph:
 
     def test_one_map_per_contig(self, tmp_path):
         bg = tmp_path / "rates.bedgraph"
-        bg.write_text("chr1\t0\t100\t1e-8\nchr2\t0\t50\t3e-8\n")
+        bg.write_text("chr1\t0\t100\t1e-8\nchr2\t0\t50\t3e-8\n", encoding="utf-8")
         maps = MapFiles.read_bedgraph(str(bg), default_rate=5e-9)
         assert set(maps) == {"chr1", "chr2"}
         assert maps["chr1"].position[-1] == 100.0
@@ -64,7 +64,7 @@ class TestReadBedgraph:
 
     def test_no_usable_intervals_raises(self, tmp_path):
         bg = tmp_path / "empty.bedgraph"
-        bg.write_text("# only a comment\nchr1\t10\n")  # second row too short
+        bg.write_text("# only a comment\nchr1\t10\n", encoding="utf-8")  # second row too short
         with pytest.raises(ValueError, match="no usable intervals"):
             MapFiles.read_bedgraph(str(bg), default_rate=1e-8)
 
@@ -75,7 +75,7 @@ class TestReadBedgraph:
         bg.write_text(
             "chr1\t0\t200\t1e-8\n"
             "chr1\t100\t300\t2e-8\n"  # overlaps [0,200): clipped to start at 200
-            "chr1\t300\t300\t9e-8\n"  # zero-length: skipped
+            "chr1\t300\t300\t9e-8\n", encoding="utf-8"  # zero-length: skipped
         )
         rm = MapFiles.read_bedgraph(str(bg), default_rate=5e-9)["chr1"]
         assert rm.position[0] == 0.0
@@ -94,7 +94,7 @@ class TestMutationMapGapRate:
     def _bedgraph(self, tmp_path):
         # A deliberate gap over [0, 100): the map starts at 100.
         p = tmp_path / "mu.bedGraph"
-        p.write_text("1\t100\t200\t2e-8\n")
+        p.write_text("1\t100\t200\t2e-8\n", encoding="utf-8")
         return str(p)
 
     def test_gap_uses_default_mu_when_mu_omitted(self, tmp_path):
@@ -121,7 +121,7 @@ class TestReadHapmap:
             "chr1\t100\t1.0\t0\n"
             "chr1\t2000\t0\t0.0019\n"
             "chr2\t50\t3.0\t0\n"
-            "chr2\t9000\t0\t0.02685\n")
+            "chr2\t9000\t0\t0.02685\n", encoding="utf-8")
         maps = MapFiles.read_hapmap(str(hm))
         assert sorted(maps) == ["chr1", "chr2"]
         np.testing.assert_allclose(maps["chr1"].rate[1:], [1e-8])

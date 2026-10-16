@@ -73,7 +73,7 @@ for r, (key, label) in enumerate(SCEN):
     for c, n_out in enumerate(N_OUTS):
         ax = axes[r][c]
         f = CELLS[f"robustness_cell_{key}_anc_arg_n{n_out}_summary.json"]
-        x, Tn, Mn, En = _spectra(json.loads(Path(f).read_text()))
+        x, Tn, Mn, En = _spectra(json.loads(Path(f).read_text(encoding="utf-8")))
         ax.plot(x, Tn, "o-", ms=3, lw=1.5, color="0.15", alpha=0.7, label="true SFS")
         ax.plot(x, Mn, "s-", ms=3, lw=1.3, color="#d62728", alpha=0.6, label="MAP estimates")
         ax.plot(x, En, "^-", ms=3, lw=1.3, color="#1f77b4", alpha=0.6, label="posterior-weighted (expected)")

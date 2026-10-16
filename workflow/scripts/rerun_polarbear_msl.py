@@ -90,7 +90,7 @@ if not prob_file.exists():
     raise RuntimeError(f"expected {prob_file} after stage 1 but not found")
 prob_full = work_dir / "prob_ancstate_full.txt"
 shutil.move(prob_file, prob_full)
-with open(prob_full) as fin, open(prob_file, "w") as fout:
+with open(prob_full, encoding="utf-8") as fin, open(prob_file, "w", encoding="utf-8") as fout:
     for line in fin:
         parts = line.rstrip("\n").split("\t")
         fout.write("\t".join(parts[:6]) + "\n")
@@ -113,7 +113,7 @@ print(f"  stage 2 wall: {t_filter:.1f}s", flush=True)
 
 
 # Count emitted sites + write meta.
-n_calls = sum(1 for _ in open(out_anc))
+n_calls = sum(1 for _ in open(out_anc, encoding="utf-8"))
 t_total = time.perf_counter() - t0
 meta = {
     "in_trees": str(in_trees),
@@ -130,7 +130,7 @@ meta = {
     "work_dir": str(work_dir),
 }
 Path(out_meta).parent.mkdir(parents=True, exist_ok=True)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(
     f"\nrerun_polarbear_msl: wrote {n_calls:,} calls to {out_anc} "

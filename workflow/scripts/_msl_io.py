@@ -161,7 +161,7 @@ class MslVariantNpzSource(MslPolymorphicNpzSource):
 def load_pos_idx(path: str) -> dict[int, int]:
     """Parse a ``pos<TAB>allele_idx`` ancestral-call file into ``{pos: idx}``."""
     out: dict[int, int] = {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             p = line.split()
             if len(p) < 2:
@@ -179,7 +179,7 @@ def load_pos_idx(path: str) -> dict[int, int]:
 def load_estsfs(path: str) -> dict[int, int]:
     """Parse EST-SFS ``est-sfs_ancstate.txt`` (``chrom pos idx_or_letter``)."""
     out: dict[int, int] = {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             p = line.split()
             if len(p) < 3:

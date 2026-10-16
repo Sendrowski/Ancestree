@@ -57,6 +57,6 @@ inference_meta = {
     "inference_seconds": inference_seconds,
 }
 
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"sites": results, "inference_meta": inference_meta}, f)
 print(f"Wrote {out_json}: {len(results)} sites", flush=True)

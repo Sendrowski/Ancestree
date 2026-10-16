@@ -35,7 +35,7 @@ window = rc.method_windows(scenario, "tsinfer_arg", chunk_idx)[0]
 Path(out_dir).mkdir(parents=True, exist_ok=True)
 draws, offset, runtime, mu = sc.tsinfer_infer_chunk(n_out, window=window)
 n = _singer.dump_args(draws, out_dir)
-with open(os.path.join(out_dir, "meta.json"), "w") as f:
+with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
     json.dump({
         "scenario": scenario, "method": "tsinfer_arg", "n_out": n_out,
         "chunk_idx": chunk_idx, "runtime": runtime, "offset": offset,

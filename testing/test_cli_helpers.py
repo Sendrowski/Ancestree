@@ -401,7 +401,7 @@ class TestBaseCompositionFlag:
         from ancestree.cli import _base_composition
 
         fa = tmp_path / "ref.fa"
-        fa.write_text(">c\n" + "AT" * 400 + "CG" * 100 + "\n")
+        fa.write_text(">c\n" + "AT" * 400 + "CG" * 100 + "\n", encoding="utf-8")
         bc = _base_composition(str(fa))
         assert bc.n_total == 1000
         np.testing.assert_allclose(bc.pi, [0.4, 0.1, 0.1, 0.4])

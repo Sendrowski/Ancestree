@@ -54,7 +54,7 @@ def _tick(label: str) -> str:
     return label.rsplit(" ", 1)[-1].strip("(],")
 
 
-payload = json.loads(Path(in_json).read_text())
+payload = json.loads(Path(in_json).read_text(encoding="utf-8"))
 tools = [t for t in payload["tools"] if t in TOOL_LABELS]
 
 fig, axes = plt.subplots(1, len(tools), figsize=(9.8, 4.0), sharey=True)

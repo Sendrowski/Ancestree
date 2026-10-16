@@ -52,7 +52,7 @@ def _write_vcf(ts, path, orient_by_pos):
     With ``orient_by_pos`` the ancestral allele is placed as REF."""
     names = [f"tsk_{i}" for i in range(ts.num_samples)]
     refalt: dict[int, tuple[str, str]] = {}
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write("##fileformat=VCFv4.2\n##contig=<ID=1>\n")
         f.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
         f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
@@ -213,13 +213,13 @@ def singer_infer(ts_ingroup, *, mu, rec_rate=1e-8, polar="0.5",
              "-output", out_pre, "-start", str(start), "-end", str(end),
              "-polar", str(polar), "-n", str(n_iters), "-thin", str(thin),
              "-seed", str(int(seed)), "-ploidy", "1"],
-            check=True, capture_output=True, text=True)
+            check=True, capture_output=True, text=True, encoding="utf-8")
         n_samples = max(n_iters // thin, 1)
         subprocess.run(
             [sys.executable, os.path.join(sdir, "convert_to_tskit"), "-input", out_pre,
              "-output", os.path.join(wd, "arg"), "-start", "0",
              "-end", str(n_samples)],
-            check=True, capture_output=True, text=True)
+            check=True, capture_output=True, text=True, encoding="utf-8")
         draws = [tskit.load(os.path.join(wd, f"arg_{k}.trees"))
                  for k in range(n_samples)
                  if os.path.exists(os.path.join(wd, f"arg_{k}.trees"))]

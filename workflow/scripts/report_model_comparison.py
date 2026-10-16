@@ -59,7 +59,7 @@ MODE_ORDER = ["arg", "vcf"]
 # {(model, mode): cell_summary}
 cells: dict[tuple[str, str], dict] = {}
 for path in inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     info = payload["inference_meta"]
     sites = payload["sites"]
@@ -126,7 +126,7 @@ for path in inputs:
 # ---------- Carry sim-truth into the report so the markdown can label it
 sim_meta: dict = {}
 if Path(in_meta).exists():
-    with open(in_meta) as f:
+    with open(in_meta, encoding="utf-8") as f:
         sim_meta = json.load(f)
 
 out_payload = {
@@ -139,7 +139,7 @@ out_payload = {
     },
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(out_payload, f, indent=2)
 
 
@@ -363,6 +363,6 @@ interp = (
     "  truth. See the fitted-vs-truth table above.\n\n"
 )
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(header + table + baseline_para + params_table + truth_table + mac_table + interp)
 print(f"Wrote {out_md}", flush=True)

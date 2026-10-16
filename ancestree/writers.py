@@ -959,7 +959,7 @@ class VCFWriter(Writer):
                 seps += [inner] * (len(slots) - 1) + ["\t"]
             return seps[:-1] + [""]
 
-        with tempfile.TemporaryFile("w+") as body:
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as body:
             for site, posterior in posteriors:
                 if columns is None:
                     columns = self._columns(site)
@@ -1553,7 +1553,7 @@ class ZarrWriter(Writer):
         v3_root = os.path.join(store, "zarr.json")
         consolidated = os.path.exists(os.path.join(store, ".zmetadata"))
         if not consolidated and os.path.exists(v3_root):
-            with open(v3_root) as fh:
+            with open(v3_root, encoding="utf-8") as fh:
                 consolidated = bool(json.load(fh).get("consolidated_metadata"))
         if consolidated:
             zarr.consolidate_metadata(store)

@@ -113,7 +113,7 @@ manifest = {
 
 
 Path(out_manifest).parent.mkdir(parents=True, exist_ok=True)
-with open(out_manifest, "w") as f:
+with open(out_manifest, "w", encoding="utf-8") as f:
     json.dump(manifest, f, indent=2)
 
 if missing:

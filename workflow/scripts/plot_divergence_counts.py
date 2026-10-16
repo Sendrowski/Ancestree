@@ -79,13 +79,13 @@ for key, _ in SCEN:
     for mode, _ in MODES:
         for n_out in N_OUTS:
             f = CELLS[f"robustness_cell_{key}_{mode}_n{n_out}_summary.json"]
-            t, m, e = _counts(json.loads(Path(f).read_text()))
+            t, m, e = _counts(json.loads(Path(f).read_text(encoding="utf-8")))
             table[f"{key}|{mode}|{n_out}"] = dict(
                 true=t, map=m, expected=e,
                 map_rel_error=m / t - 1, expected_rel_error=e / t - 1,
             )
 OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-OUT_JSON.write_text(json.dumps(table, indent=1))
+OUT_JSON.write_text(json.dumps(table, indent=1), encoding="utf-8")
 
 fig, axes = plt.subplots(len(N_OUTS_PLOT), len(MODES), figsize=(9.4, 4.6),
                          sharex=True, sharey=True,

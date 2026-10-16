@@ -34,7 +34,7 @@ except NameError:
 summary = rc.compute_cell_summary(scenario, method, n_out)
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(summary, f)
 
 # Optional heavy per-site dump (debug only). Not available for the chunked
@@ -45,7 +45,7 @@ if rc.dump_persite_enabled() and scenario not in rc.CHUNKED_MSP_SCENARIOS:
     else:
         sc = rc._get_scenario(scenario)
         recs, _ = getattr(sc, rc._METHOD_DISPATCH[method])(n_out)
-    with open(out_json.replace("_summary.json", "_persite.json"), "w") as f:
+    with open(out_json.replace("_summary.json", "_persite.json"), "w", encoding="utf-8") as f:
         json.dump({"scenario": scenario, "method": method, "n_out": n_out,
                    "n_ingroup": summary["n_ingroup"], "runtime": summary["runtime"],
                    "per_site": [list(r) for r in recs]}, f)

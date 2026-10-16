@@ -35,7 +35,7 @@ def _mean_std(values: list[float]) -> tuple[float, float]:
 
 cells_by_group: dict[tuple[int, int], list[dict]] = defaultdict(list)
 for path in cell_inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         d = json.load(f)
     n_sub = int(d["n_sub"])
     n_sites = int(d["n_sites_kept"])
@@ -83,7 +83,7 @@ for (n_sub, n_sites), cells in sorted(cells_by_group.items()):
 
 out_payload = {"summary": summary, "sim_config": sim_config}
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(out_payload, f, indent=2)
 
 
@@ -103,6 +103,6 @@ for key in sorted(summary.keys()):
     )
 
 Path(out_md).parent.mkdir(parents=True, exist_ok=True)
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.writelines(lines)
 print(f"Wrote {out_json} + {out_md}: {len(summary)} cells")

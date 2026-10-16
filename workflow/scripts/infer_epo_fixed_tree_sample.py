@@ -33,7 +33,7 @@ except NameError:
     out_npz = f"results/data/epo_fixed_tree_sample_{region}.npz"
 
 panel = np.load(in_npz)
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 n_rows = len(panel["pos"])
 tips = [f"h{i}" for i in range(panel["sample"].shape[1])]

@@ -18,7 +18,7 @@ except NameError:
     in_regions = sorted(glob.glob("results/data/epo_spectra_chr1_*.json"))
     out_json = "results/reports/epo_spectra.json"
 
-regions = [json.loads(Path(p).read_text()) for p in in_regions]
+regions = [json.loads(Path(p).read_text(encoding="utf-8")) for p in in_regions]
 n = regions[0]["n_haplotypes"]
 contexts = ["non-CpG", "CpG"]
 n_eligible = {c: sum(r["n_eligible"][c] for r in regions) for c in contexts}
@@ -49,7 +49,7 @@ for method in regions[0]["methods"]:
     result["methods"][method] = by_context
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=1)
 print(f"report_epo_spectra: {len(regions)} regions, {result['n_eligible']['all']:,} positions "
       f"-> {out_json}", flush=True)

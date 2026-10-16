@@ -139,7 +139,7 @@ for c in CLASSES:
 report = {"pb_theta": PB_THETA, "rows": rows}
 out = Path(out_json)
 out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(json.dumps(report, indent=2))
+out.write_text(json.dumps(report, indent=2), encoding="utf-8")
 print(f"wrote {out}")
 for r in rows:
     print(f"  {r['class']:24s} outgroups={r['outgroups'] is not None}  "

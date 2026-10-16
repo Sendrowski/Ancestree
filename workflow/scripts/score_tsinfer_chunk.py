@@ -32,7 +32,7 @@ except NameError:
 # the wildcards inside tsinfer_chunk_summary --- no need to read input[0] here.
 summary = rc.tsinfer_chunk_summary(scenario, n_out, chunk_idx)
 n_sites = sum(g[0] for g in summary["stats"].values())
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(summary, f)
 
 print(f"Wrote {out_json}: {n_sites} sites, "

@@ -26,7 +26,7 @@ def diploid_vcf(tmp_path):
         "1\t10\t.\tA\tC\t.\tPASS\t.\tGT\t0|0\t0|1\n"
         "1\t20\t.\tG\tT\t.\tPASS\t.\tGT\t1|1\t.|0\n"
     )
-    with gzip.open(p, "wt") as fh:
+    with gzip.open(p, "wt", encoding="utf-8") as fh:
         fh.write(body)
     return str(p)
 
@@ -80,7 +80,7 @@ class TestUnphasedOrderIsIndependentOfThePanel:
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             "##contig=<ID=1,length=1000>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
-            "\ts0\ts1\ts2\n" + rows + "\n"
+            "\ts0\ts1\ts2\n" + rows + "\n", encoding="utf-8"
         )
         return str(p)
 
@@ -156,7 +156,7 @@ class TestTheDrawCoversEveryOrdering:
             "##contig=<ID=1,length=100000>\n"
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts0\n"
-            + rows + "\n"
+            + rows + "\n", encoding="utf-8"
         )
         orderings = {
             tuple(site.tip_alleles[f"s0_h{h}"] for h in range(3))

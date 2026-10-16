@@ -113,7 +113,7 @@ def _report_module(name: str):
     if name in _REPORT_MODULES:
         return _REPORT_MODULES[name]
     path = Path(__file__).resolve().parent / f"{name}.py"
-    source = path.read_text()
+    source = path.read_text(encoding="utf-8")
     marker = "\nmain()\n"
     if not source.endswith(marker):
         raise ValueError(f"{path} does not end in a bare main() call")
@@ -366,7 +366,7 @@ class Scenario:
                                  simplify=False)
 
     def load(self) -> None:
-        meta = json.loads(self.meta_path.read_text())
+        meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
         self.ingroup_names = list(meta["ingroup_names"])
         self.n_ingroup = len(self.ingroup_names)
         outgroups_by_pop = dict(meta["outgroups_by_pop"])
@@ -649,7 +649,7 @@ class Scenario:
         if key is not None and ci is not None:
             cache = ftmap_cache_path(key, ci, n_out, window)
         if cache is not None and _cache_fresh(cache, key, ci):
-            d = json.loads(cache.read_text())
+            d = json.loads(cache.read_text(encoding="utf-8"))
             return {int(p): a for p, a in d.items()}
         sel = self._select_outgroups(n_out)
         sites = self._sites_with_alleles(sel, window)
@@ -695,7 +695,7 @@ class Scenario:
             # never see a half-written file.
             try:
                 tmp = cache.with_suffix(cache.suffix + f".tmp{os.getpid()}")
-                tmp.write_text(json.dumps({str(p): a for p, a in result.items()}))
+                tmp.write_text(json.dumps({str(p): a for p, a in result.items()}), encoding="utf-8")
                 os.replace(tmp, cache)
             except OSError as exc:
                 # A cache that cannot be written means every later shard
@@ -1352,7 +1352,7 @@ def _scenario_ils_parts(sc) -> "list[tuple[Path | None, Path]]":
 
 def _slim_chunk_meta(chunk_idx: int) -> dict:
     p = DATA / f"slim_outgroup_bias10_fdel{SLIM_FDEL}_chunk{chunk_idx}_meta.json"
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 # ----------------------------------------- per-scenario ILS (figure header)
@@ -1400,7 +1400,7 @@ def compute_scenario_ils(*, use_cache: bool = True) -> dict[str, float]:
     scenario's true tree(s) and writes the cache."""
     global ils_by_scenario
     if use_cache and _ILS_CACHE_PATH.exists():
-        ils_by_scenario = json.loads(_ILS_CACHE_PATH.read_text())
+        ils_by_scenario = json.loads(_ILS_CACHE_PATH.read_text(encoding="utf-8"))
         return ils_by_scenario
     out: dict[str, float] = {}
     for sc in SCENARIOS:
@@ -1413,7 +1413,7 @@ def compute_scenario_ils(*, use_cache: bool = True) -> dict[str, float]:
         for trees_path, meta_path in _scenario_ils_parts(sc):
             if not meta_path.exists():
                 continue
-            meta = json.loads(meta_path.read_text())
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
             if trees_path is None:
                 ts = _slim_local_trees(meta)
             elif trees_path.exists():
@@ -1425,7 +1425,7 @@ def compute_scenario_ils(*, use_cache: bool = True) -> dict[str, float]:
         out[sc.key] = float(np.mean(vals)) if vals else float("nan")
     ils_by_scenario = out
     try:
-        _ILS_CACHE_PATH.write_text(json.dumps(out, indent=2))
+        _ILS_CACHE_PATH.write_text(json.dumps(out, indent=2), encoding="utf-8")
     except OSError as exc:
         print(f"WARNING: could not write cache: {exc}", flush=True)
     return out
@@ -2221,7 +2221,7 @@ def _write_json_atomic(path, payload) -> None:
     :param payload: JSON-serialisable object.
     """
     tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
-    tmp.write_text(json.dumps(payload))
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
     os.replace(tmp, path)
 
 
@@ -2233,7 +2233,7 @@ def _chunk_seg_and_length(scenario_key: str, chunk_idx: int) -> tuple[int, float
     which have no msprime meta JSON."""
     cache = singer_seg_cache_path(scenario_key, chunk_idx)
     if _cache_fresh(cache, scenario_key, chunk_idx):
-        d = json.loads(cache.read_text())
+        d = json.loads(cache.read_text(encoding="utf-8"))
         if "length" in d:
             return int(d["n_ingroup_seg"]), float(d["length"])
     sc = _chunk_scenario(scenario_key, chunk_idx)
@@ -2384,13 +2384,13 @@ def _shard_inference_runtime(tool: str, scenario_key: str, method_key: str,
     path_of = singer_shard_path if tool == "singer" else relate_shard_path
     p = path_of(scenario_key, method_key, n_out, chunk_idx, w, seed)
     if p.exists():
-        rt = json.loads(p.read_text()).get("runtime")
+        rt = json.loads(p.read_text(encoding="utf-8")).get("runtime")
         if rt is not None:
             return float(rt)
     meta = arg_shard_dir(tool, scenario_key, method_key, n_out, chunk_idx,
                          w, seed) / "meta.json"
     if meta.exists():
-        rt = json.loads(meta.read_text()).get("runtime")
+        rt = json.loads(meta.read_text(encoding="utf-8")).get("runtime")
         if rt is not None:
             return float(rt)
     return None
@@ -2566,7 +2566,7 @@ def tsinfer_chunk_summary(scenario_key: str, n_out: int, chunk_idx: int,
     arg_dir = tsinfer_arg_dir(scenario_key, n_out, chunk_idx)
     draws = _singer.load_args(str(arg_dir))
     meta_p = arg_dir / "meta.json"
-    meta = json.loads(meta_p.read_text()) if meta_p.exists() else {}
+    meta = json.loads(meta_p.read_text(encoding="utf-8")) if meta_p.exists() else {}
     runtime = float(meta.get("runtime", 0.0))
     mu = meta.get("mu")  # fitted (dated) tsinfer rate; None -> sc.mu
     window = method_windows(scenario_key, "tsinfer_arg", chunk_idx)[0]
@@ -2645,7 +2645,7 @@ def intersect_mask_for_chunk(scenario_key: str, chunk_idx: int,
              for s in arg_shard_seeds("singer", scenario_key,
                                       "singer_arg_panel", n_out, chunk_idx, 0)]
     if _cache_fresh(cache, scenario_key, chunk_idx, also_newer_than=deps):
-        return [tuple(iv) for iv in json.loads(cache.read_text())["mask"]]
+        return [tuple(iv) for iv in json.loads(cache.read_text(encoding="utf-8"))["mask"]]
     hi = float(singer_windows(scenario_key, chunk_idx)[0][1])
     for tool, method in (("relate", "relate_arg_panel_ft"),
                          ("tsinfer", "tsinfer_arg")):
@@ -2755,7 +2755,7 @@ def intersect_cell_summary(scenario_key: str, method_key: str,
     """
     if from_shards:
         parts = [json.loads(intersect_chunk_summary_path(
-            scenario_key, method_key, n_out, c).read_text())
+            scenario_key, method_key, n_out, c).read_text(encoding="utf-8"))
             for c in scored_chunks(scenario_key, method_key, n_out)]
     else:
         parts = [intersect_chunk_summary(scenario_key, method_key, n_out, c)
@@ -2803,7 +2803,7 @@ def _chunked_msp_meta0(scenario_key: str) -> dict:
     """chunk-0 meta for a chunked msprime scenario (all chunks share the
     sample/population layout)."""
     p = DATA / f"{_MSP_STEM[scenario_key]}_chunk0_meta.json"
-    return json.loads(p.read_text())
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def _scenario_n_outgroups(scenario_key: str) -> int:
@@ -2815,7 +2815,7 @@ def _scenario_n_outgroups(scenario_key: str) -> int:
         meta = _chunked_msp_meta0(scenario_key)
         return sum(len(v) for v in meta["outgroups_by_pop"].values())
     sc = _SCENARIO_BY_KEY[scenario_key]
-    meta = json.loads(sc.meta_path.read_text())
+    meta = json.loads(sc.meta_path.read_text(encoding="utf-8"))
     return sum(len(v) for v in meta["outgroups_by_pop"].values())
 
 
@@ -2826,7 +2826,7 @@ def _cell_n_ingroup(scenario_key: str) -> int:
     if scenario_key in CHUNKED_MSP_SCENARIOS:
         return len(_chunked_msp_meta0(scenario_key)["ingroup_names"])
     sc = _SCENARIO_BY_KEY[scenario_key]
-    meta = json.loads(sc.meta_path.read_text())
+    meta = json.loads(sc.meta_path.read_text(encoding="utf-8"))
     return len(meta["ingroup_names"])
 
 
@@ -2886,7 +2886,7 @@ def chunk_aggregate_summary(scenario_key: str, method_key: str,
     for c in scored_chunks(scenario_key, method_key, n_out):
         p = chunk_summary_path(scenario_key, method_key, n_out, c)
         if p.exists():
-            parts.append(json.loads(p.read_text()))
+            parts.append(json.loads(p.read_text(encoding="utf-8")))
         else:
             missing.append(c)
     if missing:
@@ -2945,7 +2945,7 @@ def load_cell_summaries(paths) -> None:
     labels work unchanged). Peak memory is a few MB regardless of site count.
     """
     for p in paths:
-        d = json.loads(Path(p).read_text())
+        d = json.loads(Path(p).read_text(encoding="utf-8"))
         key = (d["scenario"], d["method"], int(d["n_out"]))
         cell_summaries[key] = d
         runtimes[key] = float(d.get("runtime", float("nan")))
@@ -2956,7 +2956,7 @@ def load_cell_summaries(paths) -> None:
 
 def load_summary(path) -> dict:
     """Load a single cell summary JSON."""
-    return json.loads(Path(path).read_text())
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 # ----------------------------------------------------------- aggregation
@@ -3492,7 +3492,7 @@ def _write_runtime_table(out_json: Path, out_md: Path) -> None:
                 for sc in FIG_SCENARIOS
             }
     out_json.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_json, "w") as f:
+    with open(out_json, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
     # MD table: rows = method×n_out, cols = scenario.
@@ -3518,7 +3518,7 @@ def _write_runtime_table(out_json: Path, out_md: Path) -> None:
             md_lines.append(
                 f"| {label} | {n_out} | " + " | ".join(cell_strs) + " |"
             )
-    out_md.write_text("\n".join(md_lines) + "\n")
+    out_md.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
     print(f"Wrote {out_json} and {out_md}")
 
 

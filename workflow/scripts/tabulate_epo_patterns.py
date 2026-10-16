@@ -43,7 +43,7 @@ z = np.load(in_alignment, allow_pickle=True)
 pos, human, species = z["pos"].astype(np.int64), z["human"], z["species"]
 species_names = list(z["species_names"].astype(str))
 
-with open(in_fasta) as f:
+with open(in_fasta, encoding="utf-8") as f:
     f.readline()
     ancestor = np.frombuffer("".join(line.strip() for line in f).encode(), dtype=np.uint8)
 EPO_CODE = np.full(256, 8, dtype=np.int8)
@@ -107,6 +107,6 @@ meta = {
     "n_kept": int(keep.sum()),
     "n_patterns": int(len(unique)),
 }
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"tabulate_epo_patterns: {json.dumps(meta)}", flush=True)

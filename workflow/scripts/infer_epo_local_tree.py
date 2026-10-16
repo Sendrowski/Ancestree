@@ -43,7 +43,7 @@ numba.set_num_threads(max(1, min(threads, numba.config.NUMBA_NUM_THREADS)))
 
 spec = parse_run(run)
 panel = np.load(in_npz)
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 n_rows = len(panel["pos"])
 length = int(meta["sequence_length"])

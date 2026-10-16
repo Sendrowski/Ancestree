@@ -46,8 +46,8 @@ except NameError:
     out_pdf = f"results/reports/bench_local_tree_{which}_outgroups.pdf"
 
 
-wbs = [json.loads(Path(p).read_text()) for p in window_jsons]
-gens = [json.loads(Path(p).read_text()) for p in gen_jsons] if gen_jsons else []
+wbs = [json.loads(Path(p).read_text(encoding="utf-8")) for p in window_jsons]
+gens = [json.loads(Path(p).read_text(encoding="utf-8")) for p in gen_jsons] if gen_jsons else []
 
 
 def _accuracy(axL, wb):

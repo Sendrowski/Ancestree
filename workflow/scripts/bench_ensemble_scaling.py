@@ -101,7 +101,7 @@ cell = {
     "peak_mib": peak_mib,
     "baseline_mib": baseline_mib,
 }
-with open(out_json, "w") as handle:
+with open(out_json, "w", encoding="utf-8") as handle:
     json.dump(cell, handle, indent=2)
 print(f"M={n_ensemble} workers={n_workers}: {wall_s:.1f}s, "
       f"{peak_mib:.0f} MiB peak over {n_scored:,} sites", flush=True)

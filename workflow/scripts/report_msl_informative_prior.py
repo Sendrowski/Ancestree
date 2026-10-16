@@ -55,7 +55,7 @@ for v in VCF(PB_VCF):
 print("reading PolarBEAR posteriors on informative sites ...", flush=True)
 pb_post: dict[int, np.ndarray] = {}
 kingman_post: dict[int, np.ndarray] = {}
-for line in open(PB_FULL):
+for line in open(PB_FULL, encoding="utf-8"):
     p = line.rstrip("\n").split("\t")
     if len(p) < 10:
         continue
@@ -146,7 +146,7 @@ for name, loaded in sources.items():
 
 result = {"n_informative_sites": n_info, "reference": "PolarBEAR", "rows": rows}
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-Path(out_json).write_text(json.dumps(result, indent=2))
+Path(out_json).write_text(json.dumps(result, indent=2), encoding="utf-8")
 print(f"wrote {out_json}", flush=True)
 for r in rows:
     print(f"  {r['method']:46s} brier={r['brier']:.4f} "

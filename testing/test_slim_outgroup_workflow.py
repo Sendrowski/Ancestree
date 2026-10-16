@@ -87,7 +87,7 @@ def test_the_slim_script_runs(tmp_path: Path) -> None:
          *[arg for global_ in SLIM_GLOBALS for arg in ("-d", global_)],
          "-d", f"OUT_TREES='{out_trees}'",
          str(SLIM_SCRIPT)],
-        capture_output=True, text=True, timeout=180,
+        capture_output=True, text=True, timeout=180, encoding="utf-8",
     )
     assert result.returncode == 0, (
         f"SLiM failed: stdout={result.stdout!r}, stderr={result.stderr!r}")
@@ -139,7 +139,7 @@ def test_recap_and_mutate(tmp_path: Path) -> None:
     assert out_vcf.exists()
     assert out_meta.exists()
 
-    meta = json.loads(out_meta.read_text())
+    meta = json.loads(out_meta.read_text(encoding="utf-8"))
     assert len(meta["outgroup_names"]) == 3
     assert all(name.startswith("out_T") for name in meta["outgroup_names"])
     assert len(meta["positions"]) == len(meta["truth_ancestral_states"])
@@ -147,7 +147,7 @@ def test_recap_and_mutate(tmp_path: Path) -> None:
     assert all(s in ("A", "C", "G", "T")
                for s in meta["truth_ancestral_states"])
 
-    header_line = next(line for line in out_vcf.read_text().splitlines()
+    header_line = next(line for line in out_vcf.read_text(encoding="utf-8").splitlines()
                        if line.startswith("#CHROM"))
     for outgroup in meta["outgroup_names"]:
         assert outgroup in header_line, (

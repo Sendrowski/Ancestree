@@ -62,7 +62,7 @@ except NameError:
     length = 2e6
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 ingroup_names: list[str] = list(meta["ingroup_names"])
 # Subset to first n_out outgroups (closest-first order from the simulator).
@@ -190,6 +190,6 @@ if isinstance(prior, AdaptiveIngroupWeight):
     }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"sites": out, "inference_meta": inference_meta}, f, indent=2)
 print(f"Wrote {out_json}: {len(out)} sites", flush=True)

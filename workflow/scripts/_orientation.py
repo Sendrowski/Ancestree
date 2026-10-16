@@ -216,7 +216,7 @@ class OrientationPanel:
 
         :return: This instance, so the call chains off the constructor.
         """
-        self.meta = json.loads(self.meta_path.read_text())
+        self.meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
         self.ingroup_names = list(self.meta["ingroup_names"])
         ts = tskit.load(str(self.trees_path))
         node_for_name = {f"tsk_{ind.id}": int(ind.nodes[0])
@@ -334,7 +334,7 @@ def load_orientation(path, n_sites: int) -> tuple[np.ndarray, dict]:
         ancestral allele, aligned with the shared-site order, and the map's
         summary fields with the position map itself removed.
     """
-    d = json.loads(Path(path).read_text())
+    d = json.loads(Path(path).read_text(encoding="utf-8"))
     idx = np.asarray(d["ancestral_allele_index"], dtype=np.int8)
     if idx.size != n_sites:
         raise ValueError(

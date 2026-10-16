@@ -52,9 +52,9 @@ def _load(n_out=3):
 
     :return: ``(sites, ingroup_counts, p_est, rates)``.
     """
-    lines = [l for l in (_dir(n_out) / "sites.txt").read_text().split("\n")
+    lines = [l for l in (_dir(n_out) / "sites.txt").read_text(encoding="utf-8").split("\n")
              if l.strip()]
-    out = (_dir(n_out) / "p_anc.txt").read_text().splitlines()
+    out = (_dir(n_out) / "p_anc.txt").read_text(encoding="utf-8").splitlines()
     rates = [float(x) for x in
              next(l for l in out if l.startswith("0 Rates")).split()[3::2]]
     p_est = np.array([float(l.split()[2]) for l in out if not l.startswith("0 ")])
@@ -163,7 +163,7 @@ class TestInternalNodePosteriors:
     def _setup():
         """Fixture sites, est-sfs marginals at ``n_1`` and ``n_2``, and seeds."""
         sites, counts, _, rates = _load()
-        out = (_dir(3) / "p_anc.txt").read_text().splitlines()
+        out = (_dir(3) / "p_anc.txt").read_text(encoding="utf-8").splitlines()
         ptree = np.array([[float(x) for x in l.split()[3:19]]
                           for l in out if not l.startswith("0 ")])
         # Index: n_1 = (i - 1) mod 4, n_2 = (i - 1) div 4.

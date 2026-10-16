@@ -70,14 +70,14 @@ def test_a_path_holding_no_store_is_not_replaced(tmp_path, existing):
     """The store would replace whatever sits at the path."""
     out = tmp_path / "out.vcz"
     if existing == "file":
-        out.write_text("kept")
+        out.write_text("kept", encoding="utf-8")
     else:
         out.mkdir()
-        (out / "notes.txt").write_text("kept")
+        (out / "notes.txt").write_text("kept", encoding="utf-8")
     with pytest.raises(ValueError, match="is not a Zarr store"):
         ZarrWriter(None, str(out))
     kept = out if existing == "file" else out / "notes.txt"
-    assert kept.read_text() == "kept"
+    assert kept.read_text(encoding="utf-8") == "kept"
 
 
 def test_a_different_output_path_is_allowed(tmp_path):
@@ -124,7 +124,7 @@ def test_two_sites_on_one_integer_position_get_their_own_rows(tmp_path):
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n"
         "1\t10\t.\tA\tC\t.\tPASS\t.\tGT\t0\n"
-        "1\t10\t.\tG\tT\t.\tPASS\t.\tGT\t0\n")
+        "1\t10\t.\tG\tT\t.\tPASS\t.\tGT\t0\n", encoding="utf-8")
     out = tmp_path / "out.vcf"
 
     def _p(a):
@@ -140,7 +140,7 @@ def test_two_sites_on_one_integer_position_get_their_own_rows(tmp_path):
     ]
     assert anc.VCFWriter(vcf, out).write(pairs) == 2
 
-    calls = [line.split("\t")[7] for line in out.read_text().splitlines()
+    calls = [line.split("\t")[7] for line in out.read_text(encoding="utf-8").splitlines()
              if not line.startswith("#")]
     assert "AA=A" in calls[0], f"row 1 got {calls[0]}"
     assert "AA=G" in calls[1], f"row 2 got {calls[1]}"
@@ -310,7 +310,7 @@ class TestReAnnotationCarriesNothingFromTheEarlierRun:
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             "##contig=<ID=1,length=100000>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n"
-            + rows + "\n")
+            + rows + "\n", encoding="utf-8")
         return str(path)
 
     @staticmethod
@@ -403,7 +403,7 @@ class TestThePosteriorMatrixIsOnlyAllocatedWhenItIsStored:
             "##fileformat=VCFv4.2\n##contig=<ID=1,length=1000>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
             "1\t100\t.\tA\tC\t.\t.\t.\n"
-            "1\t200\t.\tA\tC\t.\t.\t.\n"
+            "1\t200\t.\tA\tC\t.\t.\t.\n", encoding="utf-8"
         )
         out = str(tmp_path / "out.vcf")
         seen = self._watch(monkeypatch)
@@ -487,22 +487,22 @@ class TestStagedFiles:
 
     def test_a_failed_rename_removes_the_staged_file(self, tmp_path):
         staged = tmp_path / ".partial-x"
-        staged.write_text("partial")
+        staged.write_text("partial", encoding="utf-8")
         output = tmp_path / "out"
         output.mkdir()
-        (output / "keep").write_text("keep")
+        (output / "keep").write_text("keep", encoding="utf-8")
         with pytest.raises(OSError):
             Writer._finish_staged(str(staged), str(output))
         assert not staged.exists()
-        assert (output / "keep").read_text() == "keep"
+        assert (output / "keep").read_text(encoding="utf-8") == "keep"
 
     def test_a_failed_swap_restores_the_original_store(self, tmp_path):
         dst = tmp_path / "store.vcz"
         dst.mkdir()
-        (dst / "marker").write_text("original")
+        (dst / "marker").write_text("original", encoding="utf-8")
         with pytest.raises(FileNotFoundError):
             ZarrWriter._swap_into_place(str(tmp_path / "missing"), str(dst))
-        assert (dst / "marker").read_text() == "original"
+        assert (dst / "marker").read_text(encoding="utf-8") == "original"
         assert not glob.glob(str(tmp_path / "store.vcz.old-*"))
 
 

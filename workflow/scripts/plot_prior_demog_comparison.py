@@ -70,7 +70,7 @@ def _cell(scenario: str, method: str, n_out: int) -> dict:
     :return: the summary as loaded from JSON.
     """
     name = f"robustness_cell_{scenario}_{method}_n{n_out}_summary.json"
-    return json.loads(Path(CELLS[name]).read_text())
+    return json.loads(Path(CELLS[name]).read_text(encoding="utf-8"))
 
 
 def _spectra(summary):

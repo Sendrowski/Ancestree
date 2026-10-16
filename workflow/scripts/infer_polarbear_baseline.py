@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix="polarbear_baseline_") as tmp:
     # external/polarbear/code/polarize/site_polarize.py):
     #   pos \t max_prob \t inferred_state_idx \t f1 \t f2 \t f3 \t p0 \t p1 \t p2 \t p3
     out: dict[int, dict] = {}
-    with open(result_file) as f:
+    with open(result_file, encoding="utf-8") as f:
         for line in f:
             parts = line.rstrip("\n").split("\t")
             if len(parts) < 3:
@@ -139,6 +139,6 @@ inference_meta = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"sites": out, "inference_meta": inference_meta}, f)
 print(f"Wrote {out_json}: {len(out)} sites", flush=True)

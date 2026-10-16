@@ -117,7 +117,7 @@ meta = {
 }
 Path(out_trees).parent.mkdir(parents=True, exist_ok=True)
 ts.dump(out_trees)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 _desc = "ingroup-only" if n_outgroup_pops <= 0 else f"{n_outgroup_pops} outgroup pops"
 print(

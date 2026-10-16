@@ -201,7 +201,7 @@ def write_skeleton_vcf(path, *, sample_ids, alleles_per_site, genotypes):
         lines.append(
             f"chr1\t{i + 1}\t.\t{ref}\t{','.join(alts)}\t.\tPASS\t.\tGT\t{gts}"
         )
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def ts_to_vcz(ts, path, *, contig: str = "1", sample_prefix: str = "n") -> list[str]:
@@ -266,7 +266,7 @@ def ladder_panel(tmp_path_factory):
         genotypes=gt[:, :, None],
     )
     nwk = d / "species.nwk"
-    nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
+    nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);", encoding="utf-8")
     return vcf, vcz, nwk, alleles, gt
 
 
@@ -440,10 +440,10 @@ def write_vcf(path, rows, samples=("s1",), extra_header=()):
     ]
     text = "\n".join(header + body) + "\n"
     if str(path).endswith(".gz"):
-        with gzip.open(path, "wt") as fh:
+        with gzip.open(path, "wt", encoding="utf-8") as fh:
             fh.write(text)
     else:
-        with open(path, "w") as fh:
+        with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
     return str(path)
 

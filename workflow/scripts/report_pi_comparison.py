@@ -43,11 +43,11 @@ except NameError:
     }
 
 
-with open(in_ancestree) as f:
+with open(in_ancestree, encoding="utf-8") as f:
     anc_meta = json.load(f).get("inference_meta", {})
-with open(in_fastdfe) as f:
+with open(in_fastdfe, encoding="utf-8") as f:
     fd_meta = json.load(f).get("inference_meta", {})
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     sim_meta = json.load(f)
 
 
@@ -116,7 +116,7 @@ report = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
 print(f"Wrote {out_json}", flush=True)
 
@@ -177,6 +177,6 @@ biallelic + fully-observed ingroup sites count). Bins ``i=0`` and
 {chr(10).join(summary_lines)}
 """
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(md)
 print(f"Wrote {out_md}", flush=True)

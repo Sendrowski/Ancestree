@@ -47,13 +47,13 @@ draws = _singer.load_args(arg_dir)
 meta_p = os.path.join(arg_dir, "meta.json")
 # meta.json carries the real (inference) runtime for the strip, and the rate the
 # kernel must score with (tsinfer dates its trees, so it differs from sc.mu).
-meta = json.load(open(meta_p)) if os.path.exists(meta_p) else {}
+meta = json.load(open(meta_p, encoding="utf-8")) if os.path.exists(meta_p) else {}
 runtime = meta.get("runtime", 0.0)
 mu = meta.get("mu")  # None -> score_arg_shard falls back to sc.mu
 
 # The runtime read above is the only field the merge consumes.
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({
         "scenario": scenario, "method": method, "n_out": n_out,
         "chunk_idx": chunk_idx, "window_idx": window_idx, "seed": seed,

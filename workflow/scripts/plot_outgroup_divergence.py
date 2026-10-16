@@ -22,7 +22,7 @@ except NameError:
     in_json = Path("results/reports/outgroup_divergence.json")
     out_pdf = Path("results/reports/bench_outgroup_divergence.pdf")
 
-d = json.loads(in_json.read_text())
+d = json.loads(in_json.read_text(encoding="utf-8"))
 depths = d["depths"]
 spacings = d["spacings"]
 mu = float(d["sim_config"]["mu"])

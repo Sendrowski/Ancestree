@@ -113,7 +113,7 @@ def main():
             n_snp += 1
         vcf.close()
     except ImportError:
-        with gzip.open(IN_MSL_POPULATION_VCF, "rt") as f:
+        with gzip.open(IN_MSL_POPULATION_VCF, "rt", encoding="utf-8") as f:
             for line in f:
                 if line.startswith("#"):
                     continue
@@ -196,7 +196,7 @@ def main():
             per_region[region] = {"missing": True}
             continue
         region_positions: set[int] = set()
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -237,10 +237,10 @@ def main():
         "per_region": per_region,
     }
     if Path(IN_VCF_META).exists():
-        payload["ancestree_vcf_meta"] = json.loads(Path(IN_VCF_META).read_text())
+        payload["ancestree_vcf_meta"] = json.loads(Path(IN_VCF_META).read_text(encoding="utf-8"))
 
     Path(OUT_JSON).parent.mkdir(parents=True, exist_ok=True)
-    Path(OUT_JSON).write_text(json.dumps(payload, indent=2))
+    Path(OUT_JSON).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     # Markdown summary
     lines = [
@@ -307,7 +307,7 @@ def main():
             lines.append(f"| {p['a_name']} | {p['b_name']} | {p['n_overlap']:,} | {p['n_agree']:,} | {rate_str} |")
         lines.append("")
 
-    Path(OUT_MD).write_text("\n".join(lines) + "\n")
+    Path(OUT_MD).write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {OUT_JSON}", flush=True)
     print(f"wrote {OUT_MD}", flush=True)
 

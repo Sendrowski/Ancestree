@@ -66,7 +66,7 @@ def tiny_trees_path(tiny_ts, tmp_path_factory):
 def _aa_calls(path) -> list[str]:
     """The ``AA`` INFO values of every record in an annotated VCF."""
     calls = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("#"):
             continue
         info = dict(kv.split("=", 1) for kv in line.split("\t")[7].split(";")
@@ -342,7 +342,7 @@ class TestArgSubcommandE2E:
         write_skeleton_vcf(vcf_in, sample_ids=sample_ids,
                             alleles_per_site=alleles, genotypes=gt)
         nwk = tmp_path / "species.nwk"
-        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
+        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);", encoding="utf-8")
 
         out_path = tmp_path / "annot.vcf"
         code = run([
@@ -483,7 +483,7 @@ class TestFixedTreeVczInput:
                             alleles_per_site=alleles, genotypes=gt)
 
         nwk = tmp_path / "species.nwk"
-        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
+        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);", encoding="utf-8")
 
         out_path = tmp_path / "annot.vcf"
         code = run([
@@ -562,7 +562,7 @@ class TestFixedTreeHandler:
             "--ingroup", "i0,i1", "--out", str(out),
         ]) == 0
         inf = anc.FixedTreeInference(
-            str(vcf), tree=anc.FixedTree.from_newick(nwk.read_text().strip()),
+            str(vcf), tree=anc.FixedTree.from_newick(nwk.read_text(encoding="utf-8").strip()),
             ingroup_samples=["i0", "i1"], progress=False)
         expected = [post.max_prob for _, post in inf.infer()]
         rdr = cyvcf2.VCF(str(out))
@@ -729,7 +729,7 @@ class TestLocalTreeE2E:
         assert not (ts.num_sites == 0), "simulation produced zero sites; bump --rate"
         d = tmp_path_factory.mktemp("cli_localtree")
         vcf = d / "panel.vcf"
-        with open(vcf, "w") as f:
+        with open(vcf, "w", encoding="utf-8") as f:
             ts.write_vcf(f, contig_id="1")
         return vcf, float(ts.sequence_length)
 
@@ -744,7 +744,7 @@ class TestLocalTreeE2E:
         ts = msprime.sim_mutations(ts, rate=1e-7, random_seed=7)
         assert not (ts.num_sites == 0), "simulation produced zero sites"
         src = tmp_path / "chr7.vcf"
-        with open(src, "w") as f:
+        with open(src, "w", encoding="utf-8") as f:
             ts.write_vcf(f, contig_id="chr7")
 
         out = tmp_path / "annotated.vcf"
@@ -855,7 +855,7 @@ class TestLocalTreeE2E:
         store = tmp_path / "input.vcz"
         bio2zarr_vcf.convert([str(skel)], str(store), show_progress=False)
         nwk = tmp_path / "species.nwk"
-        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);")
+        nwk.write_text("(((i0:0.05,i1:0.05):0.05,o1:0.10):0.10,o2:0.20);", encoding="utf-8")
         out = tmp_path / "annot.vcf"
         assert run([
             "fixed-tree", "--vcf", str(store), "--tree", str(nwk),
@@ -876,14 +876,14 @@ def test_recombination_map_reaches_the_inference(tmp_path):
     ts = msprime.sim_mutations(ts, rate=1e-7, random_seed=3)
     assert ts.num_sites > 0
     vcf = tmp_path / "panel.vcf"
-    with open(vcf, "w") as f:
+    with open(vcf, "w", encoding="utf-8") as f:
         ts.write_vcf(f, contig_id="1")
     hapmap = tmp_path / "map.txt"
     hapmap.write_text(
         "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n"
         "chr1\t0\t1.0\t0.0\n"
         "chr1\t50000\t2.0\t0.05\n"
-        "chr1\t100000\t0.0\t0.15\n"
+        "chr1\t100000\t0.0\t0.15\n", encoding="utf-8"
     )
     out = tmp_path / "annot.vcf"
     code = run([
@@ -956,7 +956,7 @@ class TestNoPosteriorFlag:
                         "--out", str(out), *flag]) == 0
             declared = any(
                 line.startswith("##INFO=<ID=AA_post")
-                for line in gzip.open(out, "rt")
+                for line in gzip.open(out, "rt", encoding="utf-8")
             )
             assert declared is expected
 
@@ -1027,7 +1027,7 @@ class TestDerivedIngroupFollowsThePanel:
         ts = tskit.load(QUICKSTART_TREES)
         names = [f"i{i}" for i in range(6)] + ["o0", "o1"]
         p = tmp_path / "panel.vcf"
-        with open(p, "w") as fh:
+        with open(p, "w", encoding="utf-8") as fh:
             ts.write_vcf(fh, individual_names=names,
                          position_transform="legacy")
         return str(p)
@@ -1104,7 +1104,7 @@ def test_an_existing_directory_that_is_no_store_is_not_replaced(tmp_path):
     or is empty."""
     out = tmp_path / "results"
     out.mkdir()
-    (out / "notes.txt").write_text("kept")
+    (out / "notes.txt").write_text("kept", encoding="utf-8")
     with pytest.raises(SystemExit, match="is not a Zarr store"):
         run(["arg", "--trees", str(QUICKSTART_TREES), "--mu", "1e-7",
              "--out", str(out)])
@@ -1250,7 +1250,7 @@ def test_local_tree_reads_a_tree_sequence_through_the_cli(tmp_path):
                 "--out", str(out), "--mu", "2e-8", "--rec-rate", "1e-8",
                 "--chunk-size", "none", "--no-ensemble"])
     assert code == 0
-    assert sum(1 for line in open(out) if not line.startswith("#")) > 0
+    assert sum(1 for line in open(out, encoding="utf-8") if not line.startswith("#")) > 0
 
 
 class TestInputChecks:
@@ -1294,7 +1294,7 @@ def test_restrict_samples_keeps_the_panel_columns(tmp_path):
         assert run(["fixed-tree", "--vcf", QUICKSTART_VCF, "--ingroup",
                     "i0,i1,i2", "--outgroups", "o0", "--n-target-sites",
                     "50000", "--out", str(out), *extra]) == 0
-        header = next(line for line in out.read_text().splitlines()
+        header = next(line for line in out.read_text(encoding="utf-8").splitlines()
                       if line.startswith("#CHROM"))
         return header.split("\t")[9:]
 

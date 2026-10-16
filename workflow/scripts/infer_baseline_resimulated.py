@@ -159,7 +159,7 @@ for n_out in n_outs:
     }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({
         "summary": summary,
         "per_seed": {str(n): per_seed[n] for n in n_outs},

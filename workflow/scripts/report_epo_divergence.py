@@ -186,7 +186,7 @@ for name, (make_model, reads_composition) in MODELS.items():
     print(name, {t: e["scale"] for t, e in result["models"][name].items()}, flush=True)
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-Path(out_json).write_text(json.dumps(result, indent=1))
+Path(out_json).write_text(json.dumps(result, indent=1), encoding="utf-8")
 
 lines = ["# Human-branch divergence at the human-chimpanzee ancestor, MSL chr1", ""]
 for name, by_treatment in result["models"].items():
@@ -204,5 +204,5 @@ for name, by_treatment in result["models"].items():
                 f"{t['divergent_epo_all_calls']:,.0f} | {t['divergent_ancestree_map']:,.0f} | "
                 f"{t['divergent_ancestree_posterior_weighted']:,.0f} |")
         lines.append("")
-Path(out_md).write_text("\n".join(lines))
+Path(out_md).write_text("\n".join(lines), encoding="utf-8")
 print(f"wrote {out_json} + {out_md}", flush=True)

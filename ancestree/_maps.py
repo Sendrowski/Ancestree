@@ -72,7 +72,7 @@ class MapFiles:
         :return: Generator over the split rows, skipping ``track``, ``browser``,
             comment and blank lines.
         """
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith(("#", "track", "browser")):
@@ -143,7 +143,7 @@ class MapFiles:
         :raises ValueError: If the file holds no data row.
         """
         msprime = MapFiles.msprime()
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             lines = [line for line in fh if line.strip()]
         header, rows = lines[:1], lines[1:]
         per_contig: dict[str, list[str]] = {}

@@ -55,7 +55,7 @@ report = OrientationDamageReport(
     {(tool, "true_aa"): in_persite_true_aa, (tool, scheme): in_persite_scheme},
     n_boot=n_boot, boot_seed=boot_seed,
     n_threads=max(1, min(n_threads, BOOTSTRAP_THREADS)))
-block = report.comparison(tool, scheme, json.loads(Path(in_meta).read_text()))
-Path(out_json).write_text(json.dumps(block, indent=1))
+block = report.comparison(tool, scheme, json.loads(Path(in_meta).read_text(encoding="utf-8")))
+Path(out_json).write_text(json.dumps(block, indent=1), encoding="utf-8")
 print(f"wrote {out_json}: {block['n_tmrca_points_total']:,} TMRCA points "
       f"over {block['n_sites_scored']:,} scored sites", flush=True)

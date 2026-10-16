@@ -20,7 +20,7 @@ except NameError:
     in_replicates = sorted(glob.glob("results/data/epo_simulation_spectra_seed*.json"))
     out_json = "results/reports/epo_simulation.json"
 
-replicates = [json.loads(Path(p).read_text()) for p in in_replicates]
+replicates = [json.loads(Path(p).read_text(encoding="utf-8")) for p in in_replicates]
 n = replicates[0]["n_haplotypes"]
 classes = ["normal", "hypermutable"]
 n_eligible = {c: sum(r["n_eligible"][c] for r in replicates) for c in classes}
@@ -59,6 +59,6 @@ for method in replicates[0]["brier"]:
     result["brier"][method] = by_class
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=1)
 print(f"report_epo_simulation: {len(replicates)} replicates -> {out_json}", flush=True)

@@ -60,11 +60,11 @@ def _snp(spec: str) -> int:
 
 cells: dict[str, dict] = {}
 for path in in_cells:
-    payload = json.loads(Path(path).read_text())
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
     cells[f"{payload['window']}__{payload['block']}"] = payload
 
-meta = json.loads(Path(in_meta).read_text())
-ceiling = json.loads(Path(in_ceiling).read_text())
+meta = json.loads(Path(in_meta).read_text(encoding="utf-8"))
+ceiling = json.loads(Path(in_ceiling).read_text(encoding="utf-8"))
 
 #: Matrices assembled here so the plotting rule reads a single JSON.
 METRICS = [
@@ -111,7 +111,7 @@ report = {
     },
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
 
 
@@ -170,7 +170,7 @@ if best_key is not None:
     w_best, b_best = best_key.split("__")
     md += ["", f"Lowest mean Brier: window={w_best}, block={b_best} "
                f"({report['best_mean_brier']:.4f}).", ""]
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write("\n".join(md) + "\n")
 
 print(f"Wrote {out_json} and {out_md}: {len(cells)} cells", flush=True)

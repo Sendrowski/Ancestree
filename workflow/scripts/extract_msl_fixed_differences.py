@@ -42,7 +42,7 @@ NUC = {"A": 0, "C": 1, "G": 2, "T": 3}
 n_outgroup = len(outgroup_samples)
 
 ingroup_names: list[str] = []
-with open(in_panel) as f:
+with open(in_panel, encoding="utf-8") as f:
     for line in f:
         line = line.strip()
         if line and not line.startswith("#"):
@@ -54,7 +54,7 @@ ingroup_alleles: list[int] = []
 outgroup_rows: list[list[int]] = []
 n_lines = n_polymorphic = n_invariant = 0
 t0 = time.perf_counter()
-with gzip.open(in_simplify_vcf, "rt") as f:
+with gzip.open(in_simplify_vcf, "rt", encoding="utf-8") as f:
     for line in f:
         head = line.split(None, 3)
         if len(head) < 4:
@@ -109,6 +109,6 @@ meta = {
     "elapsed_seconds": elapsed,
     "in_simplify_vcf": str(in_simplify_vcf),
 }
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"extract_msl_fixed_differences: {json.dumps(meta)}", flush=True)

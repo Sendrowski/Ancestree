@@ -61,7 +61,7 @@ if not 0.0 <= missing_frac <= 1.0:
     raise ValueError(f"missing_frac must be in [0, 1]; got {missing_frac}")
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 ingroup_names: list[str] = list(meta["ingroup_names"])
 outgroups_by_pop: dict[str, list[str]] = dict(meta["outgroups_by_pop"])
@@ -217,6 +217,6 @@ inference_meta = {
     "mode": "vcf",
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"sites": results, "inference_meta": inference_meta}, f, indent=2)
 print(f"Wrote {out_json}: {len(results)} sites", flush=True)

@@ -37,7 +37,7 @@ except NameError:
     out_trees = f"{DATA}/orientation_arg_tsinfer_{scheme}.trees"
 
 
-meta = json.loads(open(in_meta).read())
+meta = json.loads(open(in_meta, encoding="utf-8").read())
 mu = float(meta["mu"])
 rec_rate = float(meta["rec_rate"])
 

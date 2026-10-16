@@ -654,7 +654,7 @@ def render(cases, out_pdf: Path) -> None:
             "max_prob": float(np.max(post)),
         })
     json_path = out_pdf.with_suffix(".json")
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
     print(f"Wrote {json_path}")
 

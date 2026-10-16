@@ -43,12 +43,12 @@ summary = rc.summarize_persite(
 )
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"chunk_idx": chunk_idx, **summary}, f)
 
 if rc.dump_persite_enabled():
     persite_path = out_json.replace("_summary.json", "_persite.json")
-    with open(persite_path, "w") as f:
+    with open(persite_path, "w", encoding="utf-8") as f:
         json.dump({"scenario": scenario, "method": method, "n_out": n_out,
                    "chunk_idx": chunk_idx, "runtime": runtime,
                    "per_site": [list(r) for r in records]}, f)

@@ -55,7 +55,7 @@ except NameError:
     mu_slim = _args.mu_slim
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 ingroup_names: list[str] = list(meta["ingroup_names"])
 n_ingroup = len(ingroup_names)
@@ -75,7 +75,7 @@ ts_inferred = tskit.load(in_inferred)
 _side_meta_path = str(in_inferred) + "_meta.json"
 _side_meta = {}
 if os.path.exists(_side_meta_path):
-    with open(_side_meta_path) as f:
+    with open(_side_meta_path, encoding="utf-8") as f:
         _side_meta = json.load(f)
 mu_use = float(_side_meta.get("mu", mu_slim))
 mu_matches_time_units = (
@@ -164,7 +164,7 @@ infer_seconds = float(time.perf_counter() - _t0)
 tsinfer_meta_path = Path(str(in_inferred) + "_meta.json")
 tsinfer_build_meta: dict = {}
 if tsinfer_meta_path.exists():
-    with open(tsinfer_meta_path) as f:
+    with open(tsinfer_meta_path, encoding="utf-8") as f:
         tsinfer_build_meta = json.load(f)
 
 result = {
@@ -184,7 +184,7 @@ result = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
 print(
     f"Wrote {out_json}: {len(per_site)} sites scored "

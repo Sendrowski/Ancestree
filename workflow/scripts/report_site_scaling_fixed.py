@@ -58,7 +58,7 @@ def _mean_std(values: list[float]) -> tuple[float, float]:
 
 reference: dict[tuple[str, int], dict] = {}
 for path in ref_inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         d = json.load(f)
     key = (d["model"], int(d["n_out"]))
     reference[key] = {
@@ -71,7 +71,7 @@ for path in ref_inputs:
 
 cells_by_group: dict[tuple[str, int, int], list[dict]] = defaultdict(list)
 for path in cell_inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         d = json.load(f)
     model = d["model"]
     n_out = int(d["n_out"])
@@ -145,7 +145,7 @@ out_payload = {
     "sim_config": sim_config,
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(out_payload, f, indent=2)
 
 
@@ -167,6 +167,6 @@ for key, ref in sorted(reference.items()):
     lines.append(f"- {key[0]} n_out={key[1]} (n_sites_fit={ref['n_sites_kept']}): K=[{K_fmt}]{kappa_str}\n")
 
 Path(out_md).parent.mkdir(parents=True, exist_ok=True)
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.writelines(lines)
 print(f"Wrote {out_json} + {out_md}: {len(summary)} cells")

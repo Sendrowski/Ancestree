@@ -111,5 +111,5 @@ for n_ing in SIZES:
           f"fixed={t_ft:6.1f}s  local={t_lt:7.1f}s", flush=True)
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-Path(out_json).write_text(json.dumps(rows, indent=2))
+Path(out_json).write_text(json.dumps(rows, indent=2), encoding="utf-8")
 print(f"wrote {out_json}", flush=True)

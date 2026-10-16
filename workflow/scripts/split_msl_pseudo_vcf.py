@@ -67,7 +67,7 @@ print(
 # Open all chunk output files for writing. Keep them open through the stream.
 Path(out_chunks[0]).parent.mkdir(parents=True, exist_ok=True)
 chunk_files = {
-    region: gzip.open(region_to_out[region], "wt")
+    region: gzip.open(region_to_out[region], "wt", encoding="utf-8")
     for region in chunk_regions
 }
 chunk_line_counts = {region: 0 for region in chunk_regions}
@@ -78,7 +78,7 @@ t0 = time.perf_counter()
 report_every = 10_000_000
 
 try:
-    with gzip.open(in_simplify_vcf, "rt") as fin:
+    with gzip.open(in_simplify_vcf, "rt", encoding="utf-8") as fin:
         for line in fin:
             n_lines_seen += 1
             if n_lines_seen % report_every == 0:
@@ -139,6 +139,6 @@ manifest = {
     ],
 }
 Path(out_manifest).parent.mkdir(parents=True, exist_ok=True)
-with open(out_manifest, "w") as f:
+with open(out_manifest, "w", encoding="utf-8") as f:
     json.dump(manifest, f, indent=2)
 print(f"split_msl_pseudo_vcf: wrote {out_manifest}", flush=True)

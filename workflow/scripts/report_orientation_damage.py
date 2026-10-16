@@ -60,11 +60,11 @@ comparisons: dict[str, dict] = {}
 for p in in_comparisons:
     tool, scheme = (Path(p).stem.replace("orientation_comparison_", "")
                     .split("_", 1))
-    comparisons.setdefault(tool, {})[scheme] = json.loads(Path(p).read_text())
+    comparisons.setdefault(tool, {})[scheme] = json.loads(Path(p).read_text(encoding="utf-8"))
 
 report = OrientationDamageReport(load_sites(in_sites), maps, {},
                                  n_boot=n_boot, boot_seed=boot_seed)
-payload = report.merge(json.loads(Path(in_meta).read_text()), comparisons)
-Path(out_json).write_text(json.dumps(payload, indent=1))
-Path(out_md).write_text(_markdown(payload))
+payload = report.merge(json.loads(Path(in_meta).read_text(encoding="utf-8")), comparisons)
+Path(out_json).write_text(json.dumps(payload, indent=1), encoding="utf-8")
+Path(out_md).write_text(_markdown(payload), encoding="utf-8")
 print(f"wrote {out_json} and {out_md}", flush=True)

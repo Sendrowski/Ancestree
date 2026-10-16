@@ -58,7 +58,7 @@ def _brier(site: dict) -> float:
 
 cells: dict[int, dict] = {}
 for path in inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     n_out = int(payload["inference_meta"]["n_out"])
     sites = payload["sites"]
@@ -140,7 +140,7 @@ for path in inputs:
 
 out_payload = {"cells": cells, "sim_config": sim_config}
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(out_payload, f, indent=2)
 
 # ------------------------------- Markdown summary --------------------------
@@ -236,7 +236,7 @@ per_class += "\n"
 
 resim_table = ""
 if Path(resimulated_json).exists():
-    with open(resimulated_json) as f:
+    with open(resimulated_json, encoding="utf-8") as f:
         resim = json.load(f)
     n_seeds = resim["config"]["seeds"]
     resim_table = (
@@ -261,6 +261,6 @@ if Path(resimulated_json).exists():
         )
     resim_table += "\n"
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(header + table + interp + baseline_para + resim_table + per_class)
 print(f"Wrote {out_md}", flush=True)

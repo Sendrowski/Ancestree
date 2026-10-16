@@ -79,7 +79,7 @@ report = {
     "sweep": sweep,
 }
 
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
 print(f"Wrote {out_json}", flush=True)
 
@@ -127,6 +127,6 @@ compensate.
 {table}
 """
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(md)
 print(f"Wrote {out_md}", flush=True)

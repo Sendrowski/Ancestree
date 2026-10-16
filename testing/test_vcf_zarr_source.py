@@ -235,7 +235,7 @@ class TestAbsentPhaseArray:
             "##contig=<ID=1,length=100000>\n"
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
-            "\ts0\ts1\n" + rows + "\n"
+            "\ts0\ts1\n" + rows + "\n", encoding="utf-8"
         )
         return store, str(vcf)
 

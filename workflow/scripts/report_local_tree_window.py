@@ -76,29 +76,29 @@ except NameError:
     out_pdf = None
 
 
-meta = json.loads(Path(in_meta).read_text())
+meta = json.loads(Path(in_meta).read_text(encoding="utf-8"))
 
 # Load every window/rec cell, keyed by (window, rec_spec).
 cells: dict[tuple[str, str], dict] = {}
 for p in in_cells:
-    d = json.loads(Path(p).read_text())
+    d = json.loads(Path(p).read_text(encoding="utf-8"))
     cells[(d["window"], d["rec_rate_spec"])] = d
 # Load the mu-misspecification sweep, keyed by mu_spec.
 mu_cells: dict[str, dict] = {}
 for p in in_mu_cells:
-    d = json.loads(Path(p).read_text())
+    d = json.loads(Path(p).read_text(encoding="utf-8"))
     mu_cells[d["mu_spec"]] = d
 # Load the phasing-switch-error sweep, keyed by switch_spec.
 switch_cells: dict[str, dict] = {}
 for p in in_switch_cells:
-    d = json.loads(Path(p).read_text())
+    d = json.loads(Path(p).read_text(encoding="utf-8"))
     switch_cells[d["switch_spec"]] = d
 # Load the recombination-misspecification scan at the default window.
 rec_scan_cells: dict[str, dict] = {}
 for p in in_rec_scan_cells:
-    d = json.loads(Path(p).read_text())
+    d = json.loads(Path(p).read_text(encoding="utf-8"))
     rec_scan_cells[d["rec_rate_spec"]] = d
-ceiling = json.loads(Path(in_ceiling).read_text())
+ceiling = json.loads(Path(in_ceiling).read_text(encoding="utf-8"))
 
 
 def _win_snps(w: str) -> int:
@@ -145,7 +145,7 @@ payload = {
     },
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
 
 
@@ -275,7 +275,7 @@ lines.append(
     + f" | {_fmt_secs(ceiling['runtime'])} |"
 )
 lines.append("")
-Path(out_md).write_text("\n".join(lines))
+Path(out_md).write_text("\n".join(lines), encoding="utf-8")
 
 
 # ------------------------------------------------------------------- figure

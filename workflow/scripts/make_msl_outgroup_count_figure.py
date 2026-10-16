@@ -82,7 +82,7 @@ def main() -> None:
     ingroup_names = list(npz["ingroup_names"].astype(str))
     outgroup_names_all = list(npz["outgroup_names"].astype(str))
     n_ingroup = len(ingroup_names)
-    with open(META) as f:
+    with open(META, encoding="utf-8") as f:
         region_meta = json.load(f)
 
     print(

@@ -99,10 +99,10 @@ config_local = work_dir / "config.txt"
 config_local.write_text(
     f"n_outgroup {n_outgroup}\n"
     f"model {model_code}\n"
-    f"nrandom {nrandom}\n"
+    f"nrandom {nrandom}\n", encoding="utf-8"
 )
 seed_file = work_dir / "seedfile.txt"
-seed_file.write_text("42\n")
+seed_file.write_text("42\n", encoding="utf-8")
 sfs_out = work_dir / "output-file-sfs.txt"
 pvalues_out = work_dir / "output-file-pvalues.txt"
 t1 = time.perf_counter()
@@ -141,7 +141,7 @@ if not canonical_out.exists():
     raise RuntimeError(f"stage 3 did not produce {canonical_out}")
 Path(out_anc).parent.mkdir(parents=True, exist_ok=True)
 shutil.copyfile(canonical_out, out_anc)
-n_calls = sum(1 for _ in open(out_anc))
+n_calls = sum(1 for _ in open(out_anc, encoding="utf-8"))
 
 
 t_total = time.perf_counter() - t0
@@ -162,7 +162,7 @@ meta = {
     "work_dir": str(work_dir),
 }
 Path(out_meta).parent.mkdir(parents=True, exist_ok=True)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(
     f"\nrerun_estsfs_msl: wrote {n_calls:,} calls to {out_anc} "

@@ -21,7 +21,7 @@ except NameError:
     out_pdf = "results/reports/sample_scaling.pdf"
     out_copy = "reports/manuscripts/latex/figures/sample_scaling.pdf"
 
-rows = json.loads(Path(in_json).read_text())
+rows = json.loads(Path(in_json).read_text(encoding="utf-8"))
 
 fig, ax = plt.subplots(figsize=(5.6, 2.6))
 xs = [r["n_ingroup"] for r in rows]

@@ -89,7 +89,7 @@ def load_polarbear_calls(filter_condition: int = PB_FILTER_CONDITION) -> dict[in
     from ancestree import STATE_INDEX
     alleles_by_pos = {v.POS: [v.REF, *v.ALT] for v in VCF(PB_VCF)}
     out: dict[int, int] = {}
-    for line in open(PB_FULL):
+    for line in open(PB_FULL, encoding="utf-8"):
         p = line.rstrip("\n").split("\t")
         # Six columns is the published layout: pos, confidence, best,
         # non_info, n_mut, polytomy --- every field this loop reads. The
@@ -178,8 +178,8 @@ for mode, paths in post_npz.items():
 
 ES_post: dict[int, np.ndarray] = {}
 if Path(ES_PVALS).exists() and Path(ES_IDXPOS).exists():
-    ip = [int(l.split()[2]) for l in open(ES_IDXPOS) if len(l.split()) >= 3]
-    for line in open(ES_PVALS):
+    ip = [int(l.split()[2]) for l in open(ES_IDXPOS, encoding="utf-8") if len(l.split()) >= 3]
+    for line in open(ES_PVALS, encoding="utf-8"):
         p = line.split()
         if len(p) < 7:
             continue
@@ -202,7 +202,7 @@ if Path(PB_FULL).exists() and Path(PB_VCF).exists():
     for v in VCF(PB_VCF):
         if v.POS in all_map_pos:
             pb_alleles[v.POS] = [STATE_INDEX.get(a.upper(), -1) for a in (v.REF, *v.ALT)]
-    for line in open(PB_FULL):
+    for line in open(PB_FULL, encoding="utf-8"):
         p = line.split("\t")
         if len(p) < 10:
             continue
@@ -284,7 +284,7 @@ result = {
     "brier": brier.tolist(),
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
 print(f"wrote {out_json}", flush=True)
 

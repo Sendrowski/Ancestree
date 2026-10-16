@@ -25,7 +25,7 @@ except NameError:
     in_json = "results/reports/local_tree_grid.json"
     out_pdf = "results/reports/bench_local_tree_grid.pdf"
 
-report = json.loads(Path(in_json).read_text())
+report = json.loads(Path(in_json).read_text(encoding="utf-8"))
 windows = report["windows"]
 blocks = report["blocks"]
 brier = np.array(

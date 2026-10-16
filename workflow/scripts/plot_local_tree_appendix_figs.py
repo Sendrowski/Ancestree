@@ -39,8 +39,8 @@ LEGEND = dict(frameon=True, framealpha=0.95, edgecolor="0.5", fontsize=7.5 * FS,
               handlelength=1.8, handletextpad=0.5, columnspacing=1.0,
               borderpad=0.45, labelspacing=0.3)
 
-wb = json.loads(Path(in_window).read_text())
-gen = json.loads(Path(in_genealogy).read_text())
+wb = json.loads(Path(in_window).read_text(encoding="utf-8"))
+gen = json.loads(Path(in_genealogy).read_text(encoding="utf-8"))
 
 FIG_H = 4.6
 fig = plt.figure(figsize=(11.0, FIG_H))

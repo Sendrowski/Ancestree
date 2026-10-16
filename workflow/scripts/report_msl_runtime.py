@@ -40,7 +40,7 @@ def _load(path):
     """The meta at ``path``, or ``None`` when it was never produced."""
     if not path or not os.path.exists(path):
         return None
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -74,6 +74,6 @@ rows = [
 ]
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
-with open(OUT, "w") as handle:
+with open(OUT, "w", encoding="utf-8") as handle:
     json.dump({"rows": rows}, handle, indent=2)
 print(f"report_msl_runtime: wrote {OUT}")

@@ -48,7 +48,7 @@ ts = msprime.sim_ancestry(
 )
 ts = msprime.sim_mutations(ts, rate=mu, random_seed=seed)
 ts.dump(out_trees)
-with open(out_vcf, "w") as f:
+with open(out_vcf, "w", encoding="utf-8") as f:
     ts.write_vcf(f)
 print(
     f"Wrote {out_trees} + {out_vcf}: {ts.num_sites} sites, "

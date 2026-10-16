@@ -52,7 +52,7 @@ except NameError:
     mu = 1.25e-8
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 ingroup_names: list[str] = list(meta["ingroup_names"])
 n_ingroup_max = int(meta["n_ingroup_max"])
@@ -131,6 +131,6 @@ inference_meta = {
     "mode": "arg_ingroup_only",
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"sites": results, "inference_meta": inference_meta}, f, indent=2)
 print(f"Wrote {out_json}: {len(results)} sites", flush=True)

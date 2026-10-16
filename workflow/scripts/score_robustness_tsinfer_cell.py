@@ -46,7 +46,7 @@ except NameError:
 
 summary = rc.compute_cell_summary(scenario, "tsinfer_arg", n_out)
 Path(out).parent.mkdir(parents=True, exist_ok=True)
-with open(out, "w") as f:
+with open(out, "w", encoding="utf-8") as f:
     json.dump(summary, f)
 n_sites = sum(g[0] for g in summary["stats"].values())
 print(

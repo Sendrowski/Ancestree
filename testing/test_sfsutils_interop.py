@@ -105,7 +105,7 @@ class TestPosteriorAndConfidenceGiveOneSpectrum:
             "##contig=<ID=1,length=100000>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\ts3\n"
             + "".join(f"1\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\tGT\t{gts}\n"
-                      for pos, ref, alt, gts, _ in sites))
+                      for pos, ref, alt, gts, _ in sites), encoding="utf-8")
         pairs = [
             (anc.Site(chrom="1", pos=pos, alleles=(ref, alt), tip_alleles={}),
              Posterior(alleles=("A", "C", "G", "T"), values=np.array(post)))

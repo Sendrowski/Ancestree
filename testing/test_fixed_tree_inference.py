@@ -813,7 +813,7 @@ class TestSourceDispatch:
         """
         from ancestree.sources import CyVCF2Source
         vcf_path = tmp_path / "src.vcf"
-        with open(vcf_path, "w") as f:
+        with open(vcf_path, "w", encoding="utf-8") as f:
             small_ts.write_vcf(f, contig_id="1", allow_position_zero=True)
         hap_names = CyVCF2Source(vcf_path).samples()
         ingroup, outgroup = hap_names[:-4], hap_names[-4:]
@@ -1181,7 +1181,7 @@ class TestRedundantOutgroupCheckStreaming:
             ig = "1" if k % 2 else "0"
             lines.append(f"1\t{k+1}\t.\t{ref}\t{alt}\t.\tPASS\t.\tGT\t{ig}\t0\t0")
         vcf = tmp_path / "redundant.vcf"
-        vcf.write_text("\n".join(lines) + "\n")
+        vcf.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         with caplog.at_level(logging.WARNING, logger="ancestree.FixedTreeInference"):
             FixedTreeInference(

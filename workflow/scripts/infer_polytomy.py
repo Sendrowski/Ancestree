@@ -258,7 +258,7 @@ stats = {
     "mu": mu,
 }
 
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"stats": stats, "per_site": per_site}, f, indent=2)
 print(
     f"Wrote {out_json}: {len(per_site)} sites, "

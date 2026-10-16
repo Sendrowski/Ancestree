@@ -118,45 +118,45 @@ class TestBaseComposition:
 
     def test_from_fasta_single_contig(self, tmp_path):
         f = tmp_path / "test.fasta"
-        f.write_text(">contig1\nACGTACGT\nACGTNN\n")
+        f.write_text(">contig1\nACGTACGT\nACGTNN\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(f)
         # 3xA + 3xC + 3xG + 3xT, two Ns skipped
         assert bc.counts == {"A": 3, "C": 3, "G": 3, "T": 3}
 
     def test_from_fasta_case_insensitive(self, tmp_path):
         f = tmp_path / "test.fasta"
-        f.write_text(">contig1\naCgTaCgT\n")
+        f.write_text(">contig1\naCgTaCgT\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(f)
         assert bc.counts == {"A": 2, "C": 2, "G": 2, "T": 2}
 
     def test_from_fasta_multi_contig(self, tmp_path):
         f = tmp_path / "test.fasta"
-        f.write_text(">contig1\nACGT\n>contig2\nAAAA\n")
+        f.write_text(">contig1\nACGT\n>contig2\nAAAA\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(f)
         assert bc.counts == {"A": 5, "C": 1, "G": 1, "T": 1}
 
     def test_from_fasta_specific_contig(self, tmp_path):
         f = tmp_path / "test.fasta"
-        f.write_text(">contig1\nAAAA\n>contig2\nCCCC\n")
+        f.write_text(">contig1\nAAAA\n>contig2\nCCCC\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(f, contig="contig2")
         assert bc.counts == {"A": 0, "C": 4, "G": 0, "T": 0}
 
     def test_from_fasta_missing_contig_raises(self, tmp_path):
         f = tmp_path / "test.fasta"
-        f.write_text(">contig1\nAAAA\n")
+        f.write_text(">contig1\nAAAA\n", encoding="utf-8")
         with pytest.raises(ValueError, match="does not contain contig 'nope'"):
             BaseComposition.from_fasta(f, contig="nope")
 
     def test_from_fasta_skips_iupac_and_gaps(self, tmp_path):
         f = tmp_path / "test.fasta"
-        f.write_text(">x\nACGT-RYNW\n")
+        f.write_text(">x\nACGT-RYNW\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(f)
         assert bc.counts == {"A": 1, "C": 1, "G": 1, "T": 1}
 
     # 5. from_fasta tolerates a bare ">" header instead of crashing.
     def test_from_fasta_tolerates_empty_header(self, tmp_path):
         fa = tmp_path / "x.fa"
-        fa.write_text(">\nACGT\n>chr1\nAAAA\n")
+        fa.write_text(">\nACGT\n>chr1\nAAAA\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(str(fa))  # must not raise IndexError
         assert sum(dict(bc.counts).values()) == 8
 

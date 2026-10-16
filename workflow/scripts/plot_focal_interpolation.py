@@ -71,7 +71,7 @@ def series(rows: list, n_out: int, site_classes: tuple, mode: str) -> list:
 
 def main() -> None:
     """Render the scan to a four-row figure."""
-    with open(IN_JSON) as handle:
+    with open(IN_JSON, encoding="utf-8") as handle:
         payload = json.load(handle)
     rows = payload["rows"]
 

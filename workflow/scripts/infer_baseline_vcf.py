@@ -56,7 +56,7 @@ except NameError:
 
 
 ts = tskit.load(in_trees)
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 
 ingroup_names = list(meta["ingroup_names"])
@@ -80,7 +80,7 @@ nodes = TskitLocalTree.sample_map_from_individuals(ts) or {
 ordered = ingroup_names + outgroup_names
 work = Path(tempfile.mkdtemp(prefix="outgroup_vcf_"))
 in_vcf = work / "snps.vcf"
-with open(in_vcf, "w") as f:
+with open(in_vcf, "w", encoding="utf-8") as f:
     ts.write_vcf(
         f,
         contig_id="1",
@@ -162,7 +162,7 @@ result = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
 
 print(

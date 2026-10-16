@@ -182,19 +182,19 @@ def _aggregate_cell(chunk_payloads: list[dict]) -> dict:
 # The tsinfer-ARG mode has no n_out (ingroup-only) — keyed by n_out=0.
 per_cell_chunks: dict[tuple[str, float, int], list[dict]] = defaultdict(list)
 for path in cell_inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     f_del = float(payload["f_del"])
     n_out = int(payload["n_out"])
     per_cell_chunks[("vcf", f_del, n_out)].append(payload)
 for path in cell_inputs_arg:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     f_del = float(payload["f_del"])
     n_out = int(payload["n_out"])
     per_cell_chunks[("arg_true", f_del, n_out)].append(payload)
 for path in cell_inputs_tsinfer:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     f_del = float(payload["f_del"])
     # tsinfer-ARG is ingroup-only — collapse to a single sentinel n_out=0.
@@ -225,7 +225,7 @@ for (mode, f_del, n_out), payload_list in per_cell_chunks.items():
 
 # ---------------------------------------------------------- JSON output -----
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"cells": cells, "sim_config": sim_config}, f, indent=2)
 
 # ---------------------------------------------------------- Markdown output -
@@ -442,7 +442,7 @@ for f_del in f_dels:
 md.append("")
 
 Path(out_md).parent.mkdir(parents=True, exist_ok=True)
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write("\n".join(md) + "\n")
 print(f"Wrote {out_md}", flush=True)
 print(f"Wrote {out_json}", flush=True)

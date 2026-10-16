@@ -88,7 +88,7 @@ def flush(block: list[list[str]]) -> None:
 
 t0 = time.perf_counter()
 block: list[list[str]] = []
-with gzip.open(in_maf, "rt") as f:
+with gzip.open(in_maf, "rt", encoding="utf-8") as f:
     for line in f:
         if line.startswith("s "):
             block.append(line.split())
@@ -122,6 +122,6 @@ meta = {
     "elapsed_seconds": time.perf_counter() - t0,
     "in_maf": str(in_maf),
 }
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"extract_epo_alignment: {json.dumps(meta)}", flush=True)

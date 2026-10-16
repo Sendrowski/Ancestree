@@ -70,7 +70,7 @@ def series(rows: list, n_out: int, curves: tuple, mode: str) -> list:
 
 def main() -> None:
     """Render the cost curves."""
-    with open(IN_JSON) as handle:
+    with open(IN_JSON, encoding="utf-8") as handle:
         rows = json.load(handle)["rows"]
     n_outs = sorted({r["n_out"] for r in rows})
     modes = [m for m in COLOURS if any(r["mode"] == m for r in rows)]

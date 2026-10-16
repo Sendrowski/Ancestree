@@ -65,7 +65,7 @@ except NameError:
     seed = 100
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 full_ingroup_names: list[str] = list(meta["ingroup_names"])
 outgroup_names: list[str] = list(meta["outgroup_names"])[:3]
@@ -190,7 +190,7 @@ result = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
 print(
     f"Wrote {out_json}: pi[1]={fitted_pi.get(1):.4f} vs Kingman {kingman_truth[1]:.4f}; "

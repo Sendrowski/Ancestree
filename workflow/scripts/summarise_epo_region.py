@@ -33,7 +33,7 @@ except NameError:
     out_json = f"results/data/epo_spectra_{region}.json"
 
 panel = np.load(in_npz)
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 sample = panel["sample"]
 counts = np.stack([(sample == base).sum(1) for base in range(4)], axis=1)
@@ -67,6 +67,6 @@ for run, path in in_local_tree.items():
     result["seconds"]["local_tree_" + run] = float(z["seconds"])
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=1)
 print(f"summarise_epo_region: {len(sample):,} rows -> {out_json}", flush=True)

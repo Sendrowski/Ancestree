@@ -77,7 +77,7 @@ except NameError:
 ingroup_names: list[str] | None = None
 all_outgroup_names: list[str] | None = None
 for meta_path in in_metas:
-    with open(meta_path) as f:
+    with open(meta_path, encoding="utf-8") as f:
         meta = json.load(f)
     ing = list(meta["ingroup_names"])
     out = list(meta["outgroup_names"])
@@ -160,7 +160,7 @@ result = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(result, f, indent=2)
 print(
     f"Wrote {out_json}: n_sites={len(pooled_sites)}, "

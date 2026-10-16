@@ -163,7 +163,7 @@ def _load_sites_cell(path: Path) -> dict:
     stratification is skipped for the ARG cells, which carry only the overall
     accuracy plus the ingroup-polymorphic flag.
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     sites = payload["sites"]
     inference_meta = payload["inference_meta"]
@@ -208,7 +208,7 @@ def _load_vcf_cell(path: Path) -> dict:
     SFS bin is approximated from the (truth, map_allele) alone, which is only
     good enough for an overall report.
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     per_site_in = payload["per_site"]
     per_site: list[dict] = []
@@ -339,7 +339,7 @@ payload = {
     "local_tree_best": local_tree_best,
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
 
 
@@ -559,7 +559,7 @@ lines.append(
 )
 
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.writelines(lines)
 
 print(

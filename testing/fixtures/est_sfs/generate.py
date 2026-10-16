@@ -127,10 +127,10 @@ def write_inputs(out_dir, n_out, counts, outgroups, ancestral, derived_count,
             one_hot[outgroups[i, k]] = 1
             blocks.append(",".join(str(c) for c in one_hot))
         lines.append(" ".join(blocks))
-    (out_dir / "sites.txt").write_text("\n".join(lines) + "\n")
+    (out_dir / "sites.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out_dir / "config.txt").write_text(
-        f"n_outgroup {n_out}\nmodel 0\nnrandom 10\n")
-    (out_dir / "seed.txt").write_text("60754485\n")
+        f"n_outgroup {n_out}\nmodel 0\nnrandom 10\n", encoding="utf-8")
+    (out_dir / "seed.txt").write_text("60754485\n", encoding="utf-8")
 
     internal = [k for k in hidden if k != "ingroup_mrca"]
     truth = []
@@ -138,7 +138,7 @@ def write_inputs(out_dir, n_out, counts, outgroups, ancestral, derived_count,
         row = [STATES[ancestral[i]], str(derived_count[i]), STATES[derived[i]]]
         row += [STATES[hidden[k][i]] for k in internal]
         truth.append("\t".join(row))
-    (out_dir / "truth.txt").write_text("\n".join(truth) + "\n")
+    (out_dir / "truth.txt").write_text("\n".join(truth) + "\n", encoding="utf-8")
     np.savez(out_dir / "hidden_states.npz", **hidden)
 
 

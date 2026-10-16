@@ -49,7 +49,7 @@ def dataset(tmp_path_factory):
     ts = ts.delete_sites([site.id for site in ts.sites() if site.position == 0])
 
     vcf = tmp_path / "panel.vcf"
-    with open(vcf, "w") as handle:
+    with open(vcf, "w", encoding="utf-8") as handle:
         ts.write_vcf(handle, contig_id="1")
 
     import bio2zarr.vcf as bio2zarr_vcf
@@ -199,7 +199,7 @@ class TestSplitMultiallelicInputIsReported:
 
     def test_split_input_warns(self, tmp_path, caplog):
         path = tmp_path / "split.vcf"
-        path.write_text(_SPLIT_VCF)
+        path.write_text(_SPLIT_VCF, encoding="utf-8")
         with caplog.at_level("WARNING"):
             sites = list(CyVCF2Source(str(path)))
         assert len(sites) == 2
@@ -207,7 +207,7 @@ class TestSplitMultiallelicInputIsReported:
 
     def test_joined_input_is_quiet(self, tmp_path, caplog):
         path = tmp_path / "joined.vcf"
-        path.write_text(_JOINED_VCF)
+        path.write_text(_JOINED_VCF, encoding="utf-8")
         with caplog.at_level("WARNING"):
             sites = list(CyVCF2Source(str(path)))
         assert len(sites) == 1
@@ -224,7 +224,7 @@ class TestSplitMultiallelicInputIsReported:
         import bio2zarr.vcf as bio2zarr_vcf
 
         vcf = tmp_path / "indel_split.vcf"
-        vcf.write_text(_SPLIT_INDEL_VCF)
+        vcf.write_text(_SPLIT_INDEL_VCF, encoding="utf-8")
         vcz = tmp_path / "indel_split.vcz"
         bio2zarr_vcf.convert([str(vcf)], str(vcz), show_progress=False)
         for source in (CyVCF2Source(str(vcf)), VcfZarrSource(str(vcz))):
@@ -237,7 +237,7 @@ class TestSplitMultiallelicInputIsReported:
         import bio2zarr.vcf as bio2zarr_vcf
 
         vcf = tmp_path / "split.vcf"
-        vcf.write_text(_SPLIT_VCF)
+        vcf.write_text(_SPLIT_VCF, encoding="utf-8")
         vcz = tmp_path / "split.vcz"
         bio2zarr_vcf.convert([str(vcf)], str(vcz), show_progress=False)
         with caplog.at_level("WARNING"):
@@ -273,7 +273,7 @@ def test_the_two_readers_agree_on_a_triploid_panel(tmp_path):
     import bio2zarr.vcf as bio2zarr_vcf
 
     vcf = tmp_path / "triploid.vcf"
-    vcf.write_text(_TRIPLOID_VCF)
+    vcf.write_text(_TRIPLOID_VCF, encoding="utf-8")
     vcz = tmp_path / "triploid.vcz"
     bio2zarr_vcf.convert([str(vcf)], str(vcz), show_progress=False)
 
@@ -304,7 +304,7 @@ def test_a_leading_uncalled_record_does_not_halve_the_panel(tmp_path):
     every sample for the whole file.
     """
     path = tmp_path / "leading_missing.vcf"
-    path.write_text(_LEADING_MISSING_VCF)
+    path.write_text(_LEADING_MISSING_VCF, encoding="utf-8")
     source = CyVCF2Source(str(path))
     assert source.ploidy == 2
     assert sorted(source.samples()) == ["s1_h0", "s1_h1", "s2_h0", "s2_h1"]
@@ -324,7 +324,7 @@ def test_a_call_lands_on_the_record_its_alleles_describe(tmp_path):
     left unannotated.
     """
     vcf = tmp_path / "indel_beside_snp.vcf"
-    vcf.write_text(_SPLIT_INDEL_VCF)
+    vcf.write_text(_SPLIT_INDEL_VCF, encoding="utf-8")
     tree = OutgroupLadderTree(["s0", "s1"], ["s2"])
     tree.set_params(np.array([0.02]))
     inference = FixedTreeInference(
@@ -335,7 +335,7 @@ def test_a_call_lands_on_the_record_its_alleles_describe(tmp_path):
     out = tmp_path / "annotated.vcf"
     inference.to_vcf(str(out), input_vcf=str(vcf))
 
-    rows = [ln.split("\t") for ln in out.read_text().splitlines()
+    rows = [ln.split("\t") for ln in out.read_text(encoding="utf-8").splitlines()
             if not ln.startswith("#")]
     by_alt = {r[4]: r[7] for r in rows}
     assert by_alt["AT"] == ".", "the indel must carry no ancestral call"
@@ -386,7 +386,7 @@ def test_aa_post_survives_a_near_certain_call(tmp_path, dataset):
 
     worst = 0.0
     n_seen = 0
-    for line in out.read_text().splitlines():
+    for line in out.read_text(encoding="utf-8").splitlines():
         if line.startswith("#"):
             continue
         info = line.split("\t")[7]
@@ -428,7 +428,7 @@ class TestUnphasedGenotypes:
 
     def test_the_written_order_is_not_taken_as_phase(self, tmp_path, caplog):
         path = tmp_path / "unphased.vcf"
-        path.write_text(_UNPHASED_VCF)
+        path.write_text(_UNPHASED_VCF, encoding="utf-8")
         with caplog.at_level("INFO"):
             sites = list(CyVCF2Source(str(path)))
         first_hap = [s.tip_alleles["s1_h0"] for s in sites]
@@ -438,14 +438,14 @@ class TestUnphasedGenotypes:
 
     def test_phased_true_takes_the_file_at_its_word(self, tmp_path):
         path = tmp_path / "unphased.vcf"
-        path.write_text(_UNPHASED_VCF)
+        path.write_text(_UNPHASED_VCF, encoding="utf-8")
         sites = list(CyVCF2Source(str(path), phased=True))
         assert [s.tip_alleles["s1_h0"] for s in sites] == ["A"] * 6
 
     def test_the_assignment_is_stable_across_passes(self, tmp_path):
         """Fixed-tree mode reads the source twice, and the writers again."""
         path = tmp_path / "unphased.vcf"
-        path.write_text(_UNPHASED_VCF)
+        path.write_text(_UNPHASED_VCF, encoding="utf-8")
         first = [s.tip_alleles["s1_h0"] for s in CyVCF2Source(str(path))]
         second = [s.tip_alleles["s1_h0"] for s in CyVCF2Source(str(path))]
         assert first == second
@@ -454,7 +454,7 @@ class TestUnphasedGenotypes:
         import bio2zarr.vcf as bio2zarr_vcf
 
         vcf = tmp_path / "unphased.vcf"
-        vcf.write_text(_UNPHASED_VCF)
+        vcf.write_text(_UNPHASED_VCF, encoding="utf-8")
         vcz = tmp_path / "unphased.vcz"
         bio2zarr_vcf.convert([str(vcf)], str(vcz), show_progress=False)
         from_vcf = [s.tip_alleles["s1_h0"] for s in CyVCF2Source(str(vcf))]
@@ -479,7 +479,7 @@ def test_ingroup_fixed_sites_are_reported_once_per_pass(tmp_path, caplog):
     count is reported at the end of the pass rather than per site.
     """
     path = tmp_path / "ingroup_fixed.vcf"
-    path.write_text(_INGROUP_FIXED_VCF)
+    path.write_text(_INGROUP_FIXED_VCF, encoding="utf-8")
     tree = OutgroupLadderTree(["s0", "s1", "s2"], ["s3"])
     tree.set_params(np.array([0.02]))
     inference = FixedTreeInference(

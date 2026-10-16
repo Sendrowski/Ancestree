@@ -28,7 +28,7 @@ except NameError:
 NUC = {"A": 0, "C": 1, "G": 2, "T": 3}
 positions: list[int] = []
 states: list[int] = []
-with gzip.open(in_simplify_vcf, "rt") as f:
+with gzip.open(in_simplify_vcf, "rt", encoding="utf-8") as f:
     for line in f:
         head = line.split(None, 3)
         if len(head) < 4:

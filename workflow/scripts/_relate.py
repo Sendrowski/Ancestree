@@ -47,7 +47,7 @@ def _write_genetic_map(path, start, end, rec_rate):
     (``1`` cM/Mb == ``1e-8`` per bp)."""
     rate_cm_mb = rec_rate * 1e8
     lo, hi = int(start), max(int(end), int(start) + 1)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write("Position(bp) Rate(cM/Mb) Map(cM)\n")
         f.write(f"{lo} {rate_cm_mb:.8f} 0.0\n")
         f.write(f"{hi} {rate_cm_mb:.8f} {rate_cm_mb * (hi - lo) / 1e6:.8f}\n")
@@ -87,18 +87,18 @@ def relate_infer(ts_ingroup, *, mu, rec_rate=1e-8, orient_by_pos=None,
         subprocess.run(
             [rff, "--mode", "ConvertFromVcf", "--haps", os.path.join(wd, "in.haps"),
              "--sample", os.path.join(wd, "in.sample"), "-i", os.path.join(wd, "in")],
-            check=True, capture_output=True, text=True)
+            check=True, capture_output=True, text=True, encoding="utf-8")
         # Build + date the trees. Relate writes <prefix>.anc/.mut into its CWD,
         # so run it inside the temp dir with a bare output prefix.
         subprocess.run(
             [relate, "--mode", "All", "--haps", os.path.join(wd, "in.haps"),
              "--sample", os.path.join(wd, "in.sample"), "--map", gmap,
              "-N", f"{n_hap:.0f}", "-m", f"{mu:.3e}", "-o", "out", "--seed", str(int(seed))],
-            check=True, capture_output=True, text=True, cwd=wd)
+            check=True, capture_output=True, text=True, cwd=wd, encoding="utf-8")
         # Relate -> tskit tree sequence (only its topology is used downstream).
         subprocess.run(
             [rff, "--mode", "ConvertToTreeSequence", "-i", os.path.join(wd, "out"),
              "-o", os.path.join(wd, "out")],
-            check=True, capture_output=True, text=True)
+            check=True, capture_output=True, text=True, encoding="utf-8")
         arg = tskit.load(os.path.join(wd, "out.trees"))
     return arg, time.perf_counter() - t0

@@ -62,7 +62,7 @@ class TestVCFWriter:
     @pytest.fixture
     def in_vcf(self, hap_ts, tmp_path_factory):
         p = tmp_path_factory.mktemp("inv") / "in.vcf"
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8") as f:
             hap_ts.write_vcf(f, contig_id="1")
         return p
 
@@ -104,7 +104,7 @@ class TestVCFWriter:
     def test_header_declares_aa_info_fields(self, in_vcf, tmp_path):
         out_vcf = tmp_path / "hdr.vcf"
         VCFWriter(in_vcf, out_vcf).write([])
-        header_text = Path(out_vcf).read_text()
+        header_text = Path(out_vcf).read_text(encoding="utf-8")
         assert "ID=AA," in header_text
         assert "ID=AA_prob," in header_text
 
@@ -120,7 +120,7 @@ class TestVCFWriter:
             info={"prior": "adaptive", "model": "K2", "kappa": 2.13},
         )
 
-        header_text = Path(out_vcf).read_text()
+        header_text = Path(out_vcf).read_text(encoding="utf-8")
         assert "ID=AA_prior," in header_text
         assert "ID=AA_model," in header_text
         assert "ID=AA_kappa," in header_text
@@ -164,7 +164,7 @@ class TestReservedInfoKeys:
             "##fileformat=VCFv4.2\n"
             "##contig=<ID=1,length=1000>\n"
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-            "1\t5\t.\tA\tT\t.\t.\t.\n"
+            "1\t5\t.\tA\tT\t.\t.\t.\n", encoding="utf-8"
         )
         out = str(tmp_path / "out.vcf")
         site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
@@ -419,7 +419,7 @@ class TestVCFWriterStreamingParity:
             "1\t20\t.\tG\tC\t.\tPASS\t.\tGT\t1\t0",
             "1\t30\t.\tT\tA\t.\tPASS\t.\tGT\t0\t1",
         ]
-        path.write_text("\n".join(lines) + "\n")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _posteriors(self):
         return [
@@ -506,7 +506,7 @@ class TestVCFWriterContigAndWarning:
         """
         # Template on contig "1". Posteriors carry a non-matching chrom.
         template = tmp_path / "tmpl.vcf"
-        with open(template, "w") as f:
+        with open(template, "w", encoding="utf-8") as f:
             hap_ts.write_vcf(f, contig_id="1")
         sites = [
             Site(chrom="nomatch", pos=s.pos, alleles=s.alleles,
@@ -527,7 +527,7 @@ class TestMinConfidence:
     @pytest.fixture
     def in_vcf(self, hap_ts, tmp_path_factory):
         p = tmp_path_factory.mktemp("inv_thresh") / "in.vcf"
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8") as f:
             hap_ts.write_vcf(f, contig_id="1")
         return p
 
@@ -775,7 +775,7 @@ class TestStorePosteriorSymmetry:
             out = self._write(inference, tmp_path / f"h{store}.vcf.gz", store)
             declared = any(
                 line.startswith("##INFO=<ID=AA_post")
-                for line in gzip.open(out, "rt")
+                for line in gzip.open(out, "rt", encoding="utf-8")
             )
             assert declared is store
 
@@ -958,7 +958,7 @@ def test_a_relabel_keeps_the_contig_length_of_a_single_contig(tmp_path):
 
     ts = tskit.load(QUICKSTART_TREES)
     vcf, store = str(tmp_path / "in.vcf"), str(tmp_path / "in.vcz")
-    with open(vcf, "w") as fh:
+    with open(vcf, "w", encoding="utf-8") as fh:
         ts.write_vcf(fh, position_transform="legacy",
                      individual_names=ING + ["i4", "i5"] + OUT + ["o1"])
     bio2zarr_vcf.convert([vcf], store, show_progress=False)
@@ -968,7 +968,7 @@ def test_a_relabel_keeps_the_contig_length_of_a_single_contig(tmp_path):
                                    progress=False)
     out = str(tmp_path / "out.vcf")
     inference.to_vcf(out)
-    assert "##contig=<ID=X,length=50000>" in open(out).read()
+    assert "##contig=<ID=X,length=50000>" in open(out, encoding="utf-8").read()
 
 
 def test_a_relabel_refuses_a_source_spanning_several_contigs():
@@ -1162,7 +1162,7 @@ def test_a_restricted_site_is_written_to_its_own_record(tmp_path):
         "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
         "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
         "chr1\t5\tindel\tC\tCT\t.\tPASS\t.\tGT\t0\t0\n"
-        "chr1\t5\tsnp\tC\tA\t.\tPASS\t.\tGT\t0\t1\n")
+        "chr1\t5\tsnp\tC\tA\t.\tPASS\t.\tGT\t0\t1\n", encoding="utf-8")
     site = Site(chrom="chr1", pos=5, alleles=("C", "A"),
                 tip_alleles={"a": "C", "b": "A"}).restricted_to({"a"})
     out = str(tmp_path / "out.vcf")
@@ -1256,7 +1256,7 @@ class TestWritingFromTheSites:
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\n"
             "1\t5\t.\tA\tG\t.\tPASS\t.\tGT\t0|1\t1/1\n"
-            "1\t9\t.\tA\tG\t.\tPASS\t.\tGT\t1|0\t./.\n")
+            "1\t9\t.\tA\tG\t.\tPASS\t.\tGT\t1|0\t./.\n", encoding="utf-8")
         store = str(tmp_path / "in.vcz")
         bio2zarr_vcf.convert([str(vcf)], store, show_progress=False)
         for sites in (list(CyVCF2Source(str(vcf))), list(VcfZarrSource(store))):
@@ -1268,7 +1268,7 @@ class TestWritingFromTheSites:
         written = str(tmp_path / "out.vcf")
         VCFWriter(None, written).write(
             _fake_posteriors(list(VcfZarrSource(store))))
-        records = [line.split("\t")[9:] for line in open(written)
+        records = [line.split("\t")[9:] for line in open(written, encoding="utf-8")
                    if not line.startswith("#")]
         assert records == [["0|1", "1/1\n"], ["1|0", "./.\n"]]
         converted = str(tmp_path / "out.vcz")
@@ -1320,7 +1320,7 @@ class TestWritingFromTheSites:
             _fake_posteriors(sites))
         ZarrWriter(None, vcz, contig_lengths=lengths).write(
             _fake_posteriors(sites))
-        header = open(vcf).read()
+        header = open(vcf, encoding="utf-8").read()
         assert "##contig=<ID=chr1,length=2000>" in header
         assert "##contig=<ID=chr2>" in header
         assert "contig_length" not in zarr.open(vcz, mode="r")
@@ -1334,7 +1334,7 @@ class TestWritingFromTheSites:
         out = str(tmp_path / f"out{suffix}")
         self._writer(suffix)(None, out).write(_fake_posteriors([site]))
         if suffix == ".vcf":
-            record = [line for line in open(out) if not line.startswith("#")]
+            record = [line for line in open(out, encoding="utf-8") if not line.startswith("#")]
             assert record[0].rstrip("\n").split("\t")[9:] == ["1|.", "0"]
         else:
             root = zarr.open(out, mode="r")
@@ -1360,12 +1360,12 @@ class TestWritingFromTheSites:
         self._writer(suffix)(None, out).write([pair])
         if suffix == ".vcz":
             result = subprocess.run(["vcztools", "view", "-H", out],
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, encoding="utf-8")
             assert result.returncode == 0, result.stderr
             out = str(tmp_path / "exported.vcf")
-            with open(out, "w") as fh:
+            with open(out, "w", encoding="utf-8") as fh:
                 fh.write(result.stdout)
-        record = [line for line in open(out) if not line.startswith("#")]
+        record = [line for line in open(out, encoding="utf-8") if not line.startswith("#")]
         assert record[0].split("\t")[3] == "."
 
     @pytest.mark.parametrize("mode", ["arg", "local_tree", "fixed_tree"])
@@ -1383,7 +1383,7 @@ class TestWritingFromTheSites:
         vcf, vcz = str(tmp_path / "out.vcf"), str(tmp_path / "out.vcz")
         inference.to_vcf(vcf)
         inference.to_zarr(vcz)
-        assert "##contig=<ID=1,length=50000>" in open(vcf).read()
+        assert "##contig=<ID=1,length=50000>" in open(vcf, encoding="utf-8").read()
         assert zarr.open(vcz, mode="r")["contig_length"][:].tolist() == [50000]
 
     @pytest.mark.parametrize("fmt", ["vcf", "vcz"])
@@ -1395,7 +1395,7 @@ class TestWritingFromTheSites:
 
         ts = tskit.load(QUICKSTART_TREES)
         vcf = str(tmp_path / "in.vcf")
-        with open(vcf, "w") as fh:
+        with open(vcf, "w", encoding="utf-8") as fh:
             ts.write_vcf(fh, position_transform="legacy",
                          individual_names=ING + ["i4", "i5"] + OUT + ["o1"])
         source = vcf
@@ -1412,7 +1412,7 @@ class TestWritingFromTheSites:
         else:
             out = str(tmp_path / "out.vcf")
             inference.to_vcf(out)
-            assert "##contig=<ID=1,length=50000>" in open(out).read()
+            assert "##contig=<ID=1,length=50000>" in open(out, encoding="utf-8").read()
 
     def test_the_store_fields_match_bio2zarr(self, tmp_path, monkeypatch):
         """Over several chunks, the fixed fields and the region index equal
@@ -1438,7 +1438,7 @@ class TestWritingFromTheSites:
         assert a["variant_quality"][:].tobytes() == b["variant_quality"][:].tobytes()
         assert a.attrs["vcf_zarr_version"] == b.attrs["vcf_zarr_version"]
         assert a.metadata.zarr_format == b.metadata.zarr_format
-        fields = [line.split("\t") for line in open(vcf)
+        fields = [line.split("\t") for line in open(vcf, encoding="utf-8")
                   if not line.startswith("#")]
         assert {(f[2], f[5], f[6]) for f in fields} == {(".", ".", "PASS")}
 
@@ -1457,7 +1457,7 @@ class TestWritingFromTheSites:
         lo, hi = sites[40].pos, sites[52].pos
         result = subprocess.run(
             ["vcztools", "view", "-H", "-r", f"chr2:{lo}-{hi}", out],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8")
         assert result.returncode == 0, result.stderr
         assert [int(line.split("\t")[1])
                 for line in result.stdout.splitlines()] == [
@@ -1587,7 +1587,7 @@ class TestAHaploidCallInADiploidFileStaysHaploid:
         sites = list(anc.SiteSource.resolve(self._input(tmp_path, read_from)))
         out = str(tmp_path / "out.vcf")
         VCFWriter(None, out).write(_fake_posteriors(sites))
-        calls = [line.split("\t")[9:] for line in open(out)
+        calls = [line.split("\t")[9:] for line in open(out, encoding="utf-8")
                  if not line.startswith("#")]
         assert calls == [["0|1", "1", "0|0\n"], ["1|1", ".", "0|0\n"]]
 
@@ -1619,7 +1619,7 @@ class TestAnUnphasedCallNarrowerThanThePloidyKeepsItsAlleles:
         assert all(site.padded == {"S_h2", "S_h3"} for site in sites)
         out = str(tmp_path / "out.vcf")
         VCFWriter(None, out).write(_fake_posteriors(sites))
-        calls = [line.split("\t")[9].strip() for line in open(out)
+        calls = [line.split("\t")[9].strip() for line in open(out, encoding="utf-8")
                  if not line.startswith("#")]
         assert sorted(set(calls)) <= ["0/1", "1/0"]
 

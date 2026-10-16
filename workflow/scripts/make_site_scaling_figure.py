@@ -30,8 +30,8 @@ except NameError:
     ADAPTIVE_JSON = REPORTS / "site_scaling_adaptive.json"
     OUT = Path("reports/manuscripts/latex/figures/bench_site_scaling.pdf")
 
-fixed = json.loads(FIXED_JSON.read_text())
-adaptive = json.loads(ADAPTIVE_JSON.read_text())
+fixed = json.loads(FIXED_JSON.read_text(encoding="utf-8"))
+adaptive = json.loads(ADAPTIVE_JSON.read_text(encoding="utf-8"))
 
 
 fig, axes = plt.subplots(1, 2, figsize=(8.8, 2.9))

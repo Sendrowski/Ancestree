@@ -41,10 +41,10 @@ class ManuscriptDiff:
         :param path: The document to copy.
         :return: ``(temporary path, the bibliography that was removed)``.
         """
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         found = BIB.search(text)
         tmp = path.with_name(f"_nobib_{path.name}")
-        tmp.write_text(BIB.sub(SENTINEL, text) if found else text)
+        tmp.write_text(BIB.sub(SENTINEL, text) if found else text, encoding="utf-8")
         return tmp, found.group(0) if found else None
 
     def run(self) -> None:
@@ -55,7 +55,7 @@ class ManuscriptDiff:
             diff = subprocess.run(
                 ["latexdiff", "--flatten", "--graphics-markup=none",
                  str(old_tmp), str(new_tmp)],
-                capture_output=True, text=True, check=True,
+                capture_output=True, text=True, check=True, encoding="utf-8",
             ).stdout
         finally:
             old_tmp.unlink(missing_ok=True)
@@ -67,7 +67,7 @@ class ManuscriptDiff:
                     "the marked-up document would carry no bibliography")
             diff = diff.replace(SENTINEL, new_bib)
         self.out.parent.mkdir(parents=True, exist_ok=True)
-        self.out.write_text(diff)
+        self.out.write_text(diff, encoding="utf-8")
 
 
 try:

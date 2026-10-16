@@ -151,7 +151,7 @@ meta = {
 }
 Path(out_trees).parent.mkdir(parents=True, exist_ok=True)
 ts.dump(out_trees)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(
     f"Wrote {out_trees}: {ts.num_sites} sites, outgroup CLADE "

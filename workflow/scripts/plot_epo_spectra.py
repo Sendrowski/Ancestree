@@ -38,7 +38,7 @@ CONDITIONS = [
 MODES = [("fixed-tree", "-", "s"), ("local-tree", "--", "o")]
 COLUMNS = [("all", "all sites"), ("CpG", "CpG sites")]
 
-report = json.loads(IN_JSON.read_text())
+report = json.loads(IN_JSON.read_text(encoding="utf-8"))
 n = report["n_haplotypes"]
 x = np.arange(n + 1)
 

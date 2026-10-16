@@ -147,7 +147,7 @@ class TestADaemonicWorkerDoesNotOpenItsOwnPool:
 
     def test_local_tree_runs_under_the_global_switch(self, arg, tmp_path):
         vcf = tmp_path / "seg.vcf"
-        with open(vcf, "w") as fh:
+        with open(vcf, "w", encoding="utf-8") as fh:
             arg.write_vcf(fh, individual_names=list(SAMPLE_MAP),
                           position_transform="legacy")
         Settings.parallelize = True

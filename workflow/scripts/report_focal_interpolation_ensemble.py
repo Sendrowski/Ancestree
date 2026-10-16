@@ -480,9 +480,9 @@ def main() -> None:
     meta = {"trees": TREES, "mu": MU, "rec_rate": REC_RATE, "window": WINDOW,
             "n_members": N_MEMBERS, "n_subsets": N_SUBSETS, "seed": SEED,
             "n_out": n_out}
-    with open(OUT_JSON, "w") as handle:
+    with open(OUT_JSON, "w", encoding="utf-8") as handle:
         json.dump({**meta, "rows": rows}, handle, indent=1)
-    with open(OUT_DIAGNOSTICS, "w") as handle:
+    with open(OUT_DIAGNOSTICS, "w", encoding="utf-8") as handle:
         json.dump({**meta, "rows": diagnostics}, handle, indent=1)
     print(f"wrote {OUT_JSON} and {OUT_DIAGNOSTICS}")
 

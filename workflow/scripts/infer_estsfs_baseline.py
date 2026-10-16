@@ -90,7 +90,7 @@ STATE_IDX = {s: i for i, s in enumerate(STATES)}
 
 import cyvcf2  # noqa: E402 — imported after the binary check to fail fast
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 outgroup_names = list(meta["outgroup_names"])[:n_out]
 ingroup_names = list(meta["ingroup_names"])
@@ -204,7 +204,7 @@ with config_path.open("w") as cfg_f:
 
 # est-sfs reads a seed from this file and writes a fresh one back. The
 # exact bytes don't matter for reproducibility under nrandom>1.
-seed_path.write_text("42\n")
+seed_path.write_text("42\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------- run binary
@@ -218,7 +218,7 @@ print(f"$ {' '.join(cmd)}", file=sys.stderr)
 # Wall-clock for the est-sfs binary call only (post data prep, pre output parse);
 # reported in the meta block for the manuscript runtime column.
 _t_inference_start = time.perf_counter()
-proc = subprocess.run(cmd, capture_output=True, text=True)
+proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
 inference_seconds = float(time.perf_counter() - _t_inference_start)
 if proc.returncode != 0:
     sys.stderr.write(proc.stdout)
@@ -320,7 +320,7 @@ inference_meta = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"meta": inference_meta, "sites": results}, f, indent=2)
 
 print(

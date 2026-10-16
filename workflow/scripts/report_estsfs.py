@@ -90,7 +90,7 @@ def _load_cell(path: str) -> "dict | None":
     treating the fastDFE column as N/A for that row.
     """
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return None
@@ -166,7 +166,7 @@ for s in sims:
                     cell["baseline"] = _load_cell(base_path)
                 cells[(s, m, p, n)] = cell
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     sim_meta = json.load(f)
 
 # ------------------------------------------------------ per-site ground truth
@@ -405,7 +405,7 @@ report = {
 }
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
 print(f"Wrote {out_json}", flush=True)
 
@@ -669,6 +669,6 @@ in ``priors`` (other priors run at near-identical cost).
 {chr(10).join(runtime_rows)}
 """
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(md)
 print(f"Wrote {out_md}", flush=True)

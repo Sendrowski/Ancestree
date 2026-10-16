@@ -78,7 +78,7 @@ def main() -> None:
         "n_time_grids": len(steps),
         "grid_step_log10": float(np.median(steps)),
     }
-    with open(OUT_META, "w") as handle:
+    with open(OUT_META, "w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=1)
     print(f"wrote {OUT_NPZ} and {OUT_META}: {summary['n_shards']} chunks, "
           f"{summary['sequence_length_total'] / 1e6:.0f} Mb, "

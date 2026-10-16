@@ -330,7 +330,7 @@ for s in range(n_sites):
     ]))
 
 Path(out_vcf).parent.mkdir(parents=True, exist_ok=True)
-with open(out_vcf, "w") as f:
+with open(out_vcf, "w", encoding="utf-8") as f:
     f.write("\n".join(vcf_lines) + "\n")
 print(
     f"  Wrote VCF: {out_vcf} ({n_sites} sites, {len(all_sample_names)} haplotypes)",
@@ -362,6 +362,6 @@ meta = {
     "vcf_path": str(Path(out_vcf).resolve()),
     "trees_path": str(Path(out_trees).resolve()),
 }
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"  Wrote meta: {out_meta}", flush=True)

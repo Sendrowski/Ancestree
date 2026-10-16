@@ -61,7 +61,7 @@ except NameError:
 EPO_KAPPA, EPO_PI = 25.0 / 6.0, [0.3, 0.2, 0.2, 0.3]
 EPO_MODEL_KEY = "HKY, kappa = 25/6, 40% GC"
 
-with open(in_region_meta) as f:
+with open(in_region_meta, encoding="utf-8") as f:
     region_meta = json.load(f)
 start, end = int(region_meta["start"]), int(region_meta["end"])
 size = end - start + 1  # index r = position - start, r in 1..end-start
@@ -83,7 +83,7 @@ for path in in_alignment:
     reference[r] = aln["human"][inside]
     n_blocks[r] += 1
 
-with open(in_fasta) as f:
+with open(in_fasta, encoding="utf-8") as f:
     f.readline()
     ancestor = np.frombuffer("".join(line.strip() for line in f).encode(),
                              dtype=np.uint8)[start:end]
@@ -141,7 +141,7 @@ if len(rows):
 base_counts = np.bincount(reference[eligible], minlength=4)[:4]
 pi = (base_counts / max(base_counts.sum(), 1)).tolist() if n_eligible else EPO_PI
 
-with open(in_divergence) as f:
+with open(in_divergence, encoding="utf-8") as f:
     scale = json.load(f)["models"][EPO_MODEL_KEY]["one fitted scale per context"]["scale"]
 
 Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +162,7 @@ meta = dict(
              scale_slow=float(scale["non-CpG"]), scale_fast=float(scale["CpG"])),
     ],
 )
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"build_epo_panel: {json.dumps({k: meta[k] for k in ('n_rows', 'n_eligible', 'n_eligible_fast', 'kappa')})}",
       flush=True)

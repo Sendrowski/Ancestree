@@ -125,7 +125,7 @@ for chunk_idx, (in_npz, out_anc, out_meta, out_post) in enumerate(
     n_multi_root = int(stats["n_multi_root"])
     total_written += n_written
 
-    with open(out_anc, "w") as fout:
+    with open(out_anc, "w", encoding="utf-8") as fout:
         for s_pos, a_idx in zip(written_pos, map_idx):
             fout.write(f"{int(s_pos)}\t{int(a_idx)}\n")
 
@@ -158,7 +158,7 @@ for chunk_idx, (in_npz, out_anc, out_meta, out_post) in enumerate(
         "in_npz": str(in_npz),
     }
     Path(out_meta).parent.mkdir(parents=True, exist_ok=True)
-    with open(out_meta, "w") as f:
+    with open(out_meta, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     print(
         f"  done  {n_written:,} calls  ({t_chunk:.1f}s; "
@@ -182,7 +182,7 @@ overall = {
     "recurrence": "full",
 }
 Path(out_overall_meta).parent.mkdir(parents=True, exist_ok=True)
-with open(out_overall_meta, "w") as f:
+with open(out_overall_meta, "w", encoding="utf-8") as f:
     json.dump(overall, f, indent=2)
 print(
     f"\nstream_infer_msl_arg: total {total_written:,} sites written "

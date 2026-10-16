@@ -76,7 +76,7 @@ except NameError:
 
 
 def _meta(path):
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -106,7 +106,7 @@ post_values: list[list[float]] = []
 per_chunk_timings: list[dict] = []
 t_all0 = time.perf_counter()
 
-with open(out_anc, "w") as fout:
+with open(out_anc, "w", encoding="utf-8") as fout:
     for npz_path, meta_path in zip(npz_paths, meta_paths):
         m = _meta(meta_path)
         start, end = int(m["start"]), int(m["end"])
@@ -175,6 +175,6 @@ meta = {
     "wall_total_s": t_all,
     "per_chunk": per_chunk_timings,
 }
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"infer_msl_local_tree: wrote {out_anc} + {out_meta}", flush=True)

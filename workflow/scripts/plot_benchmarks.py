@@ -334,13 +334,13 @@ def main() -> None:
             "plot_benchmarks: missing input(s): "
             + ", ".join(str(p) for p in missing)
         )
-    with open(B7_JSON) as f:
+    with open(B7_JSON, encoding="utf-8") as f:
         plot_ingroup_size(json.load(f), B7_PDF)
     single = None
     if SINGLE_JSON.exists():
-        with open(SINGLE_JSON) as f:
+        with open(SINGLE_JSON, encoding="utf-8") as f:
             single = json.load(f)
-    with open(B8_JSON) as f:
+    with open(B8_JSON, encoding="utf-8") as f:
         b8 = json.load(f)
     plot_outgroup_divergence(b8, B8_PDF)
     plot_outgroup_divergence_lines(b8, B8_LINES_PDF, single)

@@ -47,7 +47,7 @@ MIN_PER_BAND = 500
 
 rows = []
 for npz, meta in zip(in_npz, in_meta):
-    rows.append((np.load(npz), json.load(open(meta))))
+    rows.append((np.load(npz), json.load(open(meta, encoding="utf-8"))))
 
 # One x range for every row. The grid is fixed across scenarios, so this is
 # the grid's own span; taken as a union it also survives per-row calibration.

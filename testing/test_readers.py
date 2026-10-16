@@ -163,7 +163,7 @@ class TestReaderDispatch:
     @staticmethod
     def _suffix_maps_to(tmp_path, name, expected):
         """Write ``name`` and assert its resolved format."""
-        (tmp_path / name).write_text("")
+        (tmp_path / name).write_text("", encoding="utf-8")
         assert anc.Reader(tmp_path / name).format == expected
 
     def test_suffixes(self, tmp_path):
@@ -228,7 +228,7 @@ class TestMissingData:
     def test_plain_vcf_has_no_calls(self, inference, tmp_path, small_ts):
         """A VCF never annotated reads back with every call empty."""
         out = tmp_path / "plain.vcf.gz"
-        with open(tmp_path / "plain.vcf", "w") as fh:
+        with open(tmp_path / "plain.vcf", "w", encoding="utf-8") as fh:
             small_ts.write_vcf(fh)
         import gzip, shutil
         with open(tmp_path / "plain.vcf", "rb") as src, gzip.open(out, "wb") as dst:
@@ -363,7 +363,7 @@ class TestProvenanceOfAReAnnotatedOutput:
         """Guard the test below against passing because only one record exists."""
         second = self._two_runs(small_ts, tmp_path)
         marker = "##ancestree_provenance="
-        lines = [ln for ln in second.read_text().splitlines()
+        lines = [ln for ln in second.read_text(encoding="utf-8").splitlines()
                  if ln.startswith(marker)]
         assert len(lines) == 2
 

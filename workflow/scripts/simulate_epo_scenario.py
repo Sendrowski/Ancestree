@@ -61,6 +61,6 @@ ts = msprime.sim_mutations(
 
 Path(out_trees).parent.mkdir(parents=True, exist_ok=True)
 ts.dump(out_trees)
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(dict(seed=seed, n_sites=int(ts.num_sites), n_trees=int(ts.num_trees), **cfg), f, indent=2)
 print(f"simulate_epo_scenario: seed {seed}, {ts.num_sites:,} sites, {ts.num_trees:,} trees", flush=True)

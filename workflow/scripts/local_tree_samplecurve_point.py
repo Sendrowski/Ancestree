@@ -38,5 +38,5 @@ summary = rc.summarize_persite(
     recs, scenario=scen, method="local_tree_unphased", n_out=n_out,
     n_ingroup=rc._cell_n_ingroup(scen), runtime=runtime)
 
-with open(_out_path, "w") as fh:
+with open(_out_path, "w", encoding="utf-8") as fh:
     json.dump(summary, fh)

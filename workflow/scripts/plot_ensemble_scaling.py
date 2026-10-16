@@ -22,11 +22,11 @@ except NameError:
     out_pdf = "results/reports/ensemble_scaling.pdf"
     out_json = "results/reports/ensemble_scaling.json"
 
-cells = [json.load(open(p)) for p in in_cells]
+cells = [json.load(open(p, encoding="utf-8")) for p in in_cells]
 if not cells:
     # Direct execution with the per-cell JSONs absent: the committed summary
     # holds the same records, so the figure still reproduces from the repo.
-    cells = json.load(open(out_json))
+    cells = json.load(open(out_json, encoding="utf-8"))
 cells.sort(key=lambda c: (c["n_workers"], c["n_ensemble"]))
 workers = sorted({c["n_workers"] for c in cells})
 draws = sorted({c["n_ensemble"] for c in cells})
@@ -74,5 +74,5 @@ plt.close(fig)
 
 import shutil  # noqa: E402
 from pathlib import Path  # noqa: E402
-Path(out_json).write_text(json.dumps(cells, indent=2))
+Path(out_json).write_text(json.dumps(cells, indent=2), encoding="utf-8")
 print(f"wrote {out_pdf} and {out_json}")

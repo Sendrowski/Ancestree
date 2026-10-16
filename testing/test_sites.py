@@ -176,7 +176,7 @@ class TestBaseCompositionEdges:
 
     def test_from_fasta_skips_blank_lines(self, tmp_path):
         path = tmp_path / "ref.fa"
-        path.write_text(">c1 first\nACGT\n\nAC\n\n>c2\n\nGG\n")
+        path.write_text(">c1 first\nACGT\n\nAC\n\n>c2\n\nGG\n", encoding="utf-8")
         bc = BaseComposition.from_fasta(path)
         assert dict(bc.counts) == {"A": 2, "C": 2, "G": 3, "T": 1}
 
@@ -228,7 +228,7 @@ def vcf_path(tmp_path_factory):
     )
     ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=11)
     path = tmp_path_factory.mktemp("resolve") / "h.vcf"
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         ts.write_vcf(f, contig_id="1")
     return path
 

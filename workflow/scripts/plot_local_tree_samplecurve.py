@@ -38,7 +38,7 @@ except NameError:
 # (scenario, k) -> [per-chunk Brier]
 by: dict[tuple[str, int], list[float]] = defaultdict(list)
 for path in in_jsons:
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         summ = json.load(fh)
     stem = os.path.basename(path).rsplit(".", 1)[0]
     k = int(stem.rsplit("_k", 1)[1])

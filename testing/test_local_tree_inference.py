@@ -492,7 +492,7 @@ def test_runs_from_vcf_path(tmp_path):
     ts = _sim(samples=6, length=50_000, seed=2)
     names = [f"n{i}" for i in range(int(ts.num_samples))]
     vcf = tmp_path / "snps.vcf"
-    with open(vcf, "w") as f:
+    with open(vcf, "w", encoding="utf-8") as f:
         ts.write_vcf(f, individual_names=names, allow_position_zero=True)
 
     # No sample_names passed, they must be derived from the VCF.
@@ -543,7 +543,7 @@ def test_local_tree_non_default_contig(tmp_path, chunk_size):
     ts = msprime.sim_mutations(ts, rate=1e-7, random_seed=4)
     assert ts.num_sites > 0
     vcf = tmp_path / "panel.vcf"
-    with open(vcf, "w") as f:
+    with open(vcf, "w", encoding="utf-8") as f:
         ts.write_vcf(f, contig_id="chr2")
 
     kw = dict(mu=1e-8, rec_rate=1e-8, progress=False)
@@ -593,12 +593,12 @@ def test_pairwise_tmrcas_export(tmp_path):
     # long-form CSV / TSV: header + one row per pair × block
     pcsv = tmp_path / "t.csv"
     inf.write_pairwise_tmrcas(pcsv)
-    rows = list(csv.reader(open(pcsv)))
+    rows = list(csv.reader(open(pcsv, encoding="utf-8")))
     assert rows[0] == ["hap_i", "hap_j", "block_midpoint", "tmrca"]
     assert len(rows) - 1 == n_pairs * pt.tmrca.shape[1]
     ptsv = tmp_path / "t.tsv"
     inf.write_pairwise_tmrcas(ptsv)
-    assert next(csv.reader(open(ptsv), delimiter="\t"))[0] == "hap_i"
+    assert next(csv.reader(open(ptsv, encoding="utf-8"), delimiter="\t"))[0] == "hap_i"
 
     # NPZ round-trips the raw arrays
     pnpz = tmp_path / "t.npz"
@@ -2568,7 +2568,7 @@ class TestSegmentDiagnosticsCountCoreSitesOnly:
                                   population_size=1e4, random_seed=11)
         ts = msprime.sim_mutations(ts, rate=2e-7, random_seed=11)
         vcf = tmp_path / "halo.vcf"
-        with open(vcf, "w") as fh:
+        with open(vcf, "w", encoding="utf-8") as fh:
             ts.write_vcf(fh, individual_names=list(SAMPLE_MAP),
                          position_transform="legacy")
         plain = self._reported(caplog, str(vcf), chunk_size=None, n_ensemble=None)

@@ -93,7 +93,7 @@ except NameError:
 # Per-cell aggregation: one entry per (n_ingroup, seed).
 per_cell: dict[tuple[int, int], dict] = {}
 for path in inputs:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     meta = payload["inference_meta"]
     n_ingroup = int(meta["n_ingroup"])
@@ -314,7 +314,7 @@ out_payload = {
     "sim_config": sim_config,
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(out_payload, f, indent=2)
 
 
@@ -419,6 +419,6 @@ interp = (
     "  too small in B6.\n\n"
 )
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(header + table + bin_table + count_table + baseline_note + interp)
 print(f"Wrote {out_md}", flush=True)

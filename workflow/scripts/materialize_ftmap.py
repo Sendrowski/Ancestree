@@ -47,5 +47,5 @@ if n_out > len(sc.all_outgroup_names):
 else:
     m = sc._fixed_tree_map_by_pos(n_out, window=window)
 
-Path(out_path).write_text(json.dumps({str(p): a for p, a in m.items()}))
+Path(out_path).write_text(json.dumps({str(p): a for p, a in m.items()}), encoding="utf-8")
 print(f"Wrote {len(m)} fixed-tree MAP calls to {out_path}", flush=True)

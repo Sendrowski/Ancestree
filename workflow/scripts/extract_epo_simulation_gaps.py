@@ -33,7 +33,7 @@ except NameError:
     out_npz = "results/data/epo_simulation_gaps_seed1.npz"
     length = 2_000_000
 
-with open(in_region_meta) as f:
+with open(in_region_meta, encoding="utf-8") as f:
     region_meta = json.load(f)
 start, end = int(region_meta["start"]), int(region_meta["end"])
 size = end - start + 1

@@ -58,7 +58,7 @@ except NameError:
     block = "4snp"
 
 
-meta = json.loads(Path(in_meta).read_text())
+meta = json.loads(Path(in_meta).read_text(encoding="utf-8"))
 ingroup_names = list(meta["ingroup_names"])
 mu_true = float(meta["mu"])
 r_true = float(meta["rec_rate"])
@@ -151,7 +151,7 @@ payload = {
     "runtime": runtime,
 }
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(payload, f, indent=2)
 print(
     f"Wrote {out_json}: window={window} block={block} "

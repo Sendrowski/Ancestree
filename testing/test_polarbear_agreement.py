@@ -29,7 +29,7 @@ SAMPLES, LENGTH, MU, REC, NE, SEED = 20, 2_000_000, 1e-8, 1e-8, 1e4, 42
 
 @pytest.fixture(scope="module")
 def baseline():
-    with gzip.open(FIXTURE, "rt") as fh:
+    with gzip.open(FIXTURE, "rt", encoding="utf-8") as fh:
         return json.load(fh)
 
 

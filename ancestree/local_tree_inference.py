@@ -580,7 +580,7 @@ class PairwiseTmrcas:
         """Write a long ``hap_i, hap_j, block_midpoint, tmrca`` table."""
         import csv
 
-        with open(path, "w", newline="") as fh:
+        with open(path, "w", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh, delimiter=sep)
             w.writerow(["hap_i", "hap_j", "block_midpoint", "tmrca"])
             mids = self.block_midpoints

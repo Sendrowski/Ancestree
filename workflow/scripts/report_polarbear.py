@@ -50,7 +50,7 @@ def _load_sites_and_meta(path: str) -> tuple[dict[int, dict], dict]:
     Accepts the wrapped layout (``{"sites": {...}, "inference_meta":
     {...}}``) and the flat ``{pos: result}`` one.
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         raw = json.load(f)
     if isinstance(raw, dict) and "sites" in raw and isinstance(raw["sites"], dict):
         sites = {int(k): v for k, v in raw["sites"].items()}
@@ -213,7 +213,7 @@ report = {
     "inference_seconds_polarbear": pb_meta.get("inference_seconds"),
 }
 
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
 print(f"Wrote {out_json}", flush=True)
 
@@ -290,6 +290,6 @@ md = f"""# B2 — Ancestree vs PolarBEAR agreement
 | PolarBEAR labels non-informative | {_fmt_meanprob(report['ancestree_mean_max_prob_on_pb_non_informative'])} |
 """
 
-with open(out_md, "w") as f:
+with open(out_md, "w", encoding="utf-8") as f:
     f.write(md)
 print(f"Wrote {out_md}", flush=True)

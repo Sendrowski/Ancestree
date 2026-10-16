@@ -17,7 +17,7 @@ def _load(path: str) -> dict:
     :param path: Path to the file.
     :return: The decoded object.
     """
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

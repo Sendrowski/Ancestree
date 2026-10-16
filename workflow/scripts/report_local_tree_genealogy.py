@@ -63,7 +63,7 @@ except NameError:
     shard_inputs = []
 
 
-with open(in_meta) as f:
+with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 mu_true = float(meta["mu"])
 r_true = float(meta["rec_rate"])
@@ -320,7 +320,7 @@ if shard is not None:
     else:
         payload = {"window": _window_recovery(int(shard))}
     Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-    with open(out_json, "w") as f:
+    with open(out_json, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     print(f"genealogy shard {shard}: wrote {out_json}", flush=True)
     raise SystemExit(0)
@@ -328,7 +328,7 @@ if shard is not None:
 if shard_inputs:
     by_window, tsinfer_ref = {}, None
     for path in shard_inputs:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             d = json.load(f)
         if "tsinfer" in d:
             tsinfer_ref = d["tsinfer"]
@@ -349,7 +349,7 @@ else:
     tsinfer_ref = _tsinfer_recovery() if run_tsinfer else None
 
 Path(out_json).parent.mkdir(parents=True, exist_ok=True)
-with open(out_json, "w") as f:
+with open(out_json, "w", encoding="utf-8") as f:
     json.dump({"meta": meta, "windows": results, "tsinfer": tsinfer_ref},
               f, indent=2)
 
@@ -367,6 +367,6 @@ for r in results:
         f"{r['rf_norm']:.3f} | {r['kc_lambda1']:.3g} |"
     )
 if out_md is not None:
-    with open(out_md, "w") as f:
+    with open(out_md, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 print(f"genealogy bench: wrote {out_json} + {out_md}", flush=True)

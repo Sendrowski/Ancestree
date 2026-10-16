@@ -1010,7 +1010,7 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     # Build the tree first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
     # taken as closest-first and the rates are fitted.
     if st:
-        with open(args.tree) as fh:
+        with open(args.tree, encoding="utf-8") as fh:
             tree: Tree = FixedTree.from_newick(fh.read().strip())
     else:
         tree = OutgroupLadderTree(ingroup, args.outgroups)

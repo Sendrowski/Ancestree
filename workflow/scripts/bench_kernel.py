@@ -320,7 +320,7 @@ def _tree_rss_mb() -> float:
     try:
         out = subprocess.run(
             ["ps", "-o", "rss=", "-g", str(os.getpgrp())],
-            capture_output=True, text=True, timeout=10).stdout
+            capture_output=True, text=True, timeout=10, encoding="utf-8").stdout
     except Exception:
         return 0.0
     return sum(int(v) for v in out.split() if v.isdigit()) / 1024
@@ -403,7 +403,7 @@ def _run_subprocess(mode: str, use_numba: bool, n_workers: int,
            str(threads)]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=SUBPROC_TIMEOUT)
+                              timeout=SUBPROC_TIMEOUT, encoding="utf-8")
     except subprocess.TimeoutExpired:
         return {"mode": mode, "use_numba": use_numba, "n_workers": n_workers,
                 "chunk_size": chunk, "n_threads": str(threads),
@@ -477,7 +477,7 @@ Path(out_json).write_text(json.dumps({
     "worker_grid": worker_grid,
     "subproc_timeout_s": SUBPROC_TIMEOUT,
     "configs": results,
-}, indent=2))
+}, indent=2), encoding="utf-8")
 
 
 def _cell(mode: str, n_workers: int, use_numba: bool,
@@ -534,5 +534,5 @@ for label, mode, n_w, chunk, threads in row_specs:
     lines.append(f"| {label} | {wall} | {mem} |")
 lines.append("")
 Path(out_md).parent.mkdir(parents=True, exist_ok=True)
-Path(out_md).write_text("\n".join(lines))
+Path(out_md).write_text("\n".join(lines), encoding="utf-8")
 print(f"\nwrote {out_md} + {out_json}", flush=True)

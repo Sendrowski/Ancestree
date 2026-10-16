@@ -26,7 +26,7 @@ except NameError:
     out_pdf = "results/reports/bench_single_outgroup_depth.pdf"
     out_png = "results/reports/bench_single_outgroup_depth.png"
 
-payload = json.loads(Path(in_json).read_text())
+payload = json.loads(Path(in_json).read_text(encoding="utf-8"))
 cfg = payload.get("sim_config", {})
 Ne = float(cfg.get("pop_size", 3e4))
 mu = float(cfg.get("mu", 1.25e-8))

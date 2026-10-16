@@ -62,7 +62,7 @@ except NameError:
 
 # Sort chunks by genomic start so the stream is position-ordered.
 def _start(meta_path: str) -> int:
-    with open(meta_path) as f:
+    with open(meta_path, encoding="utf-8") as f:
         return int(json.load(f)["start"])
 
 
@@ -96,7 +96,7 @@ print(
 # The variant / invariant ratio is what the rate fit reads.
 n_target_sites = 0
 for mp in meta_paths:
-    with open(mp) as f:
+    with open(mp, encoding="utf-8") as f:
         n_target_sites += int(json.load(f)["n_lines_in_range"])
 
 prior = KingmanIngroupWeight(ingroup_samples=ingroup_names)
@@ -149,7 +149,7 @@ scoring = FixedTreeInference(
     progress=False,
     stream=True,
 )
-with open(out_anc, "w") as f:
+with open(out_anc, "w", encoding="utf-8") as f:
     for site, posterior in scoring.infer():
         allele = posterior.map_allele
         if allele not in STATE_INDEX:
@@ -195,6 +195,6 @@ meta = {
     "wall_infer_s": t_infer,
     "wall_total_s": t_fit + t_infer,
 }
-with open(out_meta, "w") as f:
+with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
 print(f"stream_msl_vcf: wrote meta to {out_meta}", flush=True)
