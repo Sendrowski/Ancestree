@@ -488,6 +488,21 @@ rule manuscript_diff:
 DOCS_NOTEBOOKS = sorted(glob.glob("docs/reference/Python/*.ipynb"))
 
 
+rule docs_requirements:
+    """Compile the pinned docs/requirements.txt that Read the Docs installs from
+    the ``docs`` dependency group and the ``all`` extra of pyproject.toml.
+    """
+    input:
+        "pyproject.toml",
+    output:
+        "docs/requirements.txt",
+    conda:
+        "envs/uv.yml"
+    shell:
+        "uv pip compile {input} --extra all --group docs --universal "
+        "--python-version 3.11 --quiet -o {output}"
+
+
 rule cli_transcripts:
     """Regenerate the CLI example output embedded in the docs."""
     input:

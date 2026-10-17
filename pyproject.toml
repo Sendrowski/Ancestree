@@ -88,6 +88,20 @@ dev = [
     # test_slim_outgroup_workflow imports it at module scope.
     "pyslim>=1.0",
 ]
+# The Sphinx stack. The docs_requirements rule compiles it with the ``all``
+# extra into docs/requirements.txt, which Read the Docs installs, and
+# docs/environment.yml is the conda mirror.
+docs = [
+    "sphinx>=7.0,<10",
+    # 1.4.0 (pydata-sphinx-theme 0.20) breaks the mobile sidebar toggle.
+    "sphinx-book-theme>=1.3,<1.4",
+    "sphinx-autodoc-typehints>=2.0,<4",
+    "sphinx-copybutton>=0.5",
+    "autodocsumm>=0.2",
+    "myst-nb>=1.0",
+    "sphinx-paramlinks>=0.6",
+    "sphinx-argparse>=0.6",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0"]

@@ -1,0 +1,6 @@
+# uv for the docs_requirements rule, which compiles docs/requirements.txt.
+name: uv-ancestree
+channels:
+  - conda-forge
+dependencies:
+  - uv=0.13.1
