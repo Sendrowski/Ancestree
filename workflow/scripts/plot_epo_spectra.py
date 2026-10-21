@@ -52,7 +52,7 @@ for ax, (context, title) in zip(axes, COLUMNS):
             spectrum = np.asarray(report["methods"][key][context]["spectrum_weighted"])
             ax.plot(bins, spectrum[bins] / epo[bins], color=colour, ls=style, marker=marker,
                     ms=2.8, lw=1.4, alpha=0.7)
-    ax.set_title(title, fontsize=11.5)
+    ax.set_title(title, fontsize=13.5)
     ax.grid(True, alpha=0.2, lw=0.4)
     ax.set_xticks(x[::2])
     ax.set_xlabel("derived-allele count", fontsize=10)
