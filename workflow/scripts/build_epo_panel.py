@@ -20,7 +20,8 @@ Output schema (``.npz``), coordinates relative to the region start:
 - ``fast_start`` / ``fast_end`` — half-open runs of CpG-context positions
 
 The metadata JSON carries the eligible-position counts, the substitution model
-estimated from the data, the EPO tree and its branch-length multipliers.
+estimated from the data, the EPO tree and its branch-length multipliers, fitted
+per CpG context under that model.
 """
 import json
 import sys
@@ -29,7 +30,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _epo_common import REFERENCE, SPECIES, epo_tree, sites_from_rows  # noqa: E402
+from _epo_common import REFERENCE, SPECIES, epo_tree, fitted_scale, sites_from_rows  # noqa: E402
 
 from ancestree import BaseComposition  # noqa: E402
 
@@ -39,7 +40,6 @@ try:
     in_region_meta = snakemake.input.region_meta  # type: ignore[name-defined]
     in_alignment = list(snakemake.input.alignment)  # type: ignore[name-defined]
     in_fasta = snakemake.input.fasta  # type: ignore[name-defined]
-    in_divergence = snakemake.input.divergence  # type: ignore[name-defined]
     out_npz = snakemake.output.npz  # type: ignore[name-defined]
     out_meta = snakemake.output.meta  # type: ignore[name-defined]
     n_hap = int(snakemake.params.n_haplotypes)  # type: ignore[name-defined]
@@ -51,7 +51,6 @@ except NameError:
     in_region_meta = f"results/data/msl_polymorphic_{region}_meta.json"
     in_alignment = [f"results/data/epo_alignment_chr1_{part}.npz" for part in range(1, 10)]
     in_fasta = "external/ensembl_epo/homo_sapiens_ancestor_GRCh38/homo_sapiens_ancestor_1.fa"
-    in_divergence = "results/reports/epo_divergence.json"
     out_npz = f"results/data/epo_panel_{region}.npz"
     out_meta = f"results/data/epo_panel_{region}_meta.json"
     n_hap, mu = 20, 1.25e-8
@@ -59,7 +58,6 @@ except NameError:
 #: The Ortheus defaults EPO runs with: HKY at 40% GC with an expected
 #: transition/transversion ratio of 2, which is kappa = 25/6 there.
 EPO_KAPPA, EPO_PI = 25.0 / 6.0, [0.3, 0.2, 0.2, 0.3]
-EPO_MODEL_KEY = "HKY, kappa = 25/6, 40% GC"
 
 with open(in_region_meta, encoding="utf-8") as f:
     region_meta = json.load(f)
@@ -131,18 +129,27 @@ fast_runs = runs(fast)
 n_eligible = int(eligible.sum())
 n_eligible_fast = int((eligible & fast).sum())
 
-# Kappa from the transition and transversion counts at the sample's variant
-# sites, base frequencies from the reference over the eligible positions.
+# Base frequencies from the reference over the eligible positions. Kappa from
+# the transition/transversion count ratio R at the variant sites, which HKY
+# expects to be kappa (pi_A pi_G + pi_C pi_T) / (pi_R pi_Y).
+base_counts = np.bincount(reference[eligible], minlength=4)[:4]
+pi = (base_counts / max(base_counts.sum(), 1)).tolist() if n_eligible else EPO_PI
 kappa = EPO_KAPPA
 if len(rows):
     names = [f"h{i}" for i in range(n_hap)] + SPECIES
     variant_sites, _ = sites_from_rows(rows, panel[rows], names)
-    kappa = float(BaseComposition.from_polymorphic_sites(variant_sites).kappa_estimate)
-base_counts = np.bincount(reference[eligible], minlength=4)[:4]
-pi = (base_counts / max(base_counts.sum(), 1)).tolist() if n_eligible else EPO_PI
+    tally = BaseComposition.from_polymorphic_sites(variant_sites)
+    a, c, g, t = pi
+    kappa = float(tally.n_ts / tally.n_tv * (a + g) * (c + t) / (a * g + c * t))
 
-with open(in_divergence, encoding="utf-8") as f:
-    scale = json.load(f)["models"][EPO_MODEL_KEY]["one fitted scale per context"]["scale"]
+# One branch-length multiplier per CpG context, fitted to the reference and
+# outgroup columns of the eligible positions under that model.
+tips = np.column_stack([reference, species])
+scale = {}
+for label, mask in (("non-CpG", ~fast), ("CpG", fast)):
+    columns, weights = np.unique(tips[eligible & mask], axis=0, return_counts=True)
+    scale[label] = fitted_scale(columns, weights, epo_tree(REFERENCE), kappa, pi,
+                                max(n_eligible, 1), guess=1.0)
 
 Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
 np.savez_compressed(
@@ -164,5 +171,5 @@ meta = dict(
 )
 with open(out_meta, "w", encoding="utf-8") as f:
     json.dump(meta, f, indent=2)
-print(f"build_epo_panel: {json.dumps({k: meta[k] for k in ('n_rows', 'n_eligible', 'n_eligible_fast', 'kappa')})}",
+print(f"build_epo_panel: {json.dumps({k: meta[k] for k in ('n_rows', 'n_eligible', 'n_eligible_fast', 'kappa', 'rate_ratio')})}",
       flush=True)

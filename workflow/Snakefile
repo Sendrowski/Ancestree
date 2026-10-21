@@ -1967,11 +1967,12 @@ EPO_REC_MAP = "external/genetic_maps/HapMapII_GRCh38/genetic_map_Hg38_chr1.txt"
 # or their ``node`` with the Pan species), one mutation rate or one per CpG
 # context, and the number of outgroups.
 EPO_LOCAL_TREE_RUNS = [
-    "reference_node_class_rate_out9", "sample_node_class_rate_out9",
-    "sample_mrca_class_rate_out9", "sample_mrca_one_rate_out9",
+    "reference_node_one_rate_out9", "reference_node_class_rate_out9",
+    "sample_node_class_rate_out9", "sample_mrca_class_rate_out9",
+    "sample_mrca_one_rate_out9",
 ]
 EPO_SIMULATION_RUNS = EPO_LOCAL_TREE_RUNS + [
-    "reference_node_one_rate_out9", "sample_node_one_rate_out9",
+    "sample_node_one_rate_out9",
     "sample_mrca_class_rate_out3", "sample_node_class_rate_out3",
     "sample_mrca_class_rate_out1", "sample_node_class_rate_out1",
 ]
@@ -1985,8 +1986,8 @@ EPO_REGIONS = [
     "chr1_231250000_237500000",
 ]
 # Split times in generations on the topology of the EPO species tree, an
-# ingroup of 20,000 and ancestral sizes of 30,000 (60,000 above the
-# human-Pan split), with every 20th site mutating ten times faster.
+# ingroup of 20,000 and ancestral sizes of 30,000 (60,000 in the
+# human-Pan ancestor), with every 20th site mutating ten times faster.
 EPO_SIMULATION = dict(
     length=2_000_000, n_haplotypes=EPO_N_HAPLOTYPES, mu=EPO_MU, rec_rate=1e-8,
     fast_ratio=10.0, period=20, kappa=25.0 / 6.0, pi=[0.3, 0.2, 0.2, 0.3],
@@ -2012,7 +2013,6 @@ rule build_epo_panel:
         alignment = expand(
             f"{DATA}/epo_alignment_chr1_{{part}}.npz", part=EPO_CHR1_PARTS),
         fasta = f"{EPO_ROOT}/homo_sapiens_ancestor_GRCh38/homo_sapiens_ancestor_1.fa",
-        divergence = f"{REPORTS}/epo_divergence.json",
     output:
         npz = f"{DATA}/epo_panel_{{region}}.npz",
         meta = f"{DATA}/epo_panel_{{region}}_meta.json",

@@ -20,14 +20,9 @@ from pathlib import Path
 import msprime
 import numpy as np
 import tskit
-from scipy.optimize import minimize_scalar
-from scipy.special import logsumexp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _epo_common import REFERENCE, SPECIES  # noqa: E402
-
-from ancestree import STATES, BaseComposition, FixedTree, HKY, Site  # noqa: E402
-from ancestree.likelihood import Likelihood  # noqa: E402
+from _epo_common import REFERENCE, SPECIES, fitted_scale  # noqa: E402
 
 try:
     in_trees = snakemake.input.trees  # type: ignore[name-defined]
@@ -140,36 +135,20 @@ def class_columns() -> dict[bool, dict[tuple, float]]:
     return out
 
 
-def fitted_scale(weights: dict[tuple, float], guess: float) -> float:
+def class_scale(weights: dict[tuple, float], guess: float) -> float:
     """ML substitution rate per generation of the species tree for the
     columns weighted."""
-    names = [REFERENCE] + SPECIES
-    keys = list(weights)
-    w = np.array([weights[k] for k in keys])
-    sites = [Site(chrom="1", pos=i + 1,
-                  alleles=tuple(dict.fromkeys(STATES[a] for a in key if a >= 0)),
-                  tip_alleles={n: STATES[a] if a >= 0 else None for n, a in zip(names, key)})
-             for i, key in enumerate(keys)]
-    engine = Likelihood(HKY(kappa=model["kappa"]), base_composition=BaseComposition.from_n_target_sites(
-        length, stationary=np.asarray(model["pi"])))
-    log_pi = np.log(model["pi"])
-
-    def negative_log_likelihood(log_scale):
-        tree = FixedTree.from_newick(tree_newick(), time_scale=float(np.exp(log_scale)))
-        return -float((w * logsumexp(engine.log_likelihoods(tree, sites) + log_pi, axis=1)).sum())
-
-    best = minimize_scalar(negative_log_likelihood, bounds=(np.log(guess / 20), np.log(guess * 20)),
-                           method="bounded", options={"xatol": 1e-4})
-    return float(np.exp(best.x))
+    return fitted_scale(np.array(list(weights)), np.array(list(weights.values())), tree_newick(),
+                        model["kappa"], model["pi"], length, guess)
 
 
 by_class = class_columns()
-scale_slow = fitted_scale(by_class[False], slow)
-scale_fast = fitted_scale(by_class[True], slow * ratio)
+scale_slow = class_scale(by_class[False], slow)
+scale_fast = class_scale(by_class[True], slow * ratio)
 pooled = dict(by_class[False])
 for key, c in by_class[True].items():
     pooled[key] = pooled.get(key, 0.0) + c
-scale_one = fitted_scale(pooled, mean_rate)
+scale_one = class_scale(pooled, mean_rate)
 
 Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
 np.savez_compressed(

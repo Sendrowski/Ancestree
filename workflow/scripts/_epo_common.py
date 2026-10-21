@@ -10,12 +10,16 @@
   matrix.
 - :func:`parse_run` and :func:`interval_rate_map`: the run name and the
   per-class mutation map of a local-tree run.
+- :func:`fitted_scale`: the ML multiplier of a fixed tree's branch lengths.
 """
 from __future__ import annotations
 
 import numpy as np
+from scipy.optimize import minimize_scalar
+from scipy.special import logsumexp
 
-from ancestree import STATES, Site
+from ancestree import STATES, BaseComposition, FixedTree, HKY, Site
+from ancestree.likelihood import Likelihood
 from ancestree.local_tree_inference import LocalTreeInference
 
 #: The outgroups of the 10-primate EPO alignment, in the order of the
@@ -126,6 +130,41 @@ def sites_from_rows(positions: np.ndarray, alleles: np.ndarray, names: list[str]
             tip_alleles={n: (STATES[a] if a >= 0 else None) for n, a in zip(names, row)}))
         rows.append(k)
     return sites, np.asarray(rows, dtype=np.int64)
+
+
+def fitted_scale(columns: np.ndarray, weights: np.ndarray, newick: str, kappa: float,
+                 pi, n_sites: int, guess: float) -> float:
+    """ML multiplier of the branch lengths of ``newick`` under HKY, for
+    weighted columns of the human tip and the outgroups.
+
+    :param columns: ``(K, 1 + len(SPECIES))`` base index of :data:`REFERENCE`
+        and each outgroup, ``-1`` where unaligned.
+    :param weights: ``(K,)`` site count of each column.
+    :param newick: Tree whose branch lengths are scaled.
+    :param kappa: HKY transition/transversion rate ratio.
+    :param pi: Stationary frequencies of A, C, G, T, also the root prior.
+    :param n_sites: Number of sites the composition describes.
+    :param guess: Centre of the search interval, which spans a factor of 20
+        either side.
+    :return: The fitted multiplier.
+    """
+    names = [REFERENCE] + SPECIES
+    sites = [Site(chrom="1", pos=i + 1,
+                  alleles=tuple(dict.fromkeys(STATES[a] for a in col if a >= 0)),
+                  tip_alleles={n: STATES[a] if a >= 0 else None for n, a in zip(names, col)})
+             for i, col in enumerate(np.asarray(columns, int))]
+    w = np.asarray(weights, float)
+    engine = Likelihood(HKY(kappa=kappa), base_composition=BaseComposition.from_n_target_sites(
+        n_sites, stationary=np.asarray(pi)))
+    log_pi = np.log(pi)
+
+    def negative_log_likelihood(log_scale):
+        tree = FixedTree.from_newick(newick, time_scale=float(np.exp(log_scale)))
+        return -float((w * logsumexp(engine.log_likelihoods(tree, sites) + log_pi, axis=1)).sum())
+
+    best = minimize_scalar(negative_log_likelihood, bounds=(np.log(guess / 20), np.log(guess * 20)),
+                           method="bounded", options={"xatol": 1e-4})
+    return float(np.exp(best.x))
 
 
 def posterior_matrix(n_rows: int, rows: np.ndarray, posteriors,
