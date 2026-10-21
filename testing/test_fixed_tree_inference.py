@@ -2203,3 +2203,55 @@ class TestAnOutgroupOnlyFitNeedsANonStationaryRootPrior:
         assert varying == total > 0, (
             f"only {varying} of {total} configurations vary with the root "
             f"state, so the weight cannot place the ingroup MRCA")
+
+
+class TestHaploidOutgroupNames:
+    """A haploid outgroup is named by its sample name or by ``<name>_h0``,
+    whether the file reads it as a bare tip or, beside diploid individuals,
+    as ``<name>_h0`` with a padded ``<name>_h1``."""
+
+    @staticmethod
+    def _posteriors(vcf, outgroups, **kwargs):
+        inf = anc.Inference.from_fixed_tree(
+            vcf, outgroup_samples=outgroups, model=anc.JC69(),
+            n_target_sites=100_000, n_starts=1, progress=False, **kwargs)
+        inf.fit()
+        return [p.values for _, p in inf.infer()]
+
+    @pytest.fixture(scope="class")
+    def ts(self):
+        import msprime
+
+        ts = msprime.sim_ancestry(8, ploidy=1, sequence_length=100_000,
+                                  recombination_rate=1e-8, population_size=1e4,
+                                  random_seed=3)
+        return msprime.sim_mutations(ts, rate=5e-8, random_seed=3)
+
+    @pytest.mark.parametrize("stream", [True, False])
+    def test_a_bare_name_in_a_diploid_file(self, ts, tmp_path, stream):
+        from testing._helpers import write_panel_vcf
+
+        vcf = write_panel_vcf(ts, tmp_path / "mixed.vcf")
+        np.testing.assert_array_equal(
+            self._posteriors(vcf, ["o0", "o1"], stream=stream),
+            self._posteriors(vcf, ["o0_h0", "o1_h0"], stream=stream))
+
+    def test_a_haplotype_id_in_a_haploid_file(self, ts, tmp_path):
+        from testing._helpers import write_panel_vcf
+
+        vcf = write_panel_vcf(ts, tmp_path / "haploid.vcf", diploid=False)
+        np.testing.assert_array_equal(
+            self._posteriors(vcf, ["o0_h0", "o1_h0"], ploidy=1),
+            self._posteriors(vcf, ["o0", "o1"], ploidy=1))
+
+    def test_a_diploid_outgroup_still_needs_one_haplotype(self, tmp_path):
+        from testing._helpers import write_vcf
+
+        vcf = write_vcf(tmp_path / "in.vcf", [
+            ("1", 10, "A", "G", ".", ("0|1", "0|1")),
+            ("1", 20, "C", "T", ".", ("1|1", "0|1")),
+        ], samples=("A", "O"))
+        with pytest.raises(ValueError, match="name one haplotype"):
+            anc.Inference.from_fixed_tree(
+                vcf, outgroup_samples=["O"], model=anc.JC69(),
+                n_target_sites=1000, progress=False)

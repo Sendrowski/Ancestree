@@ -10,6 +10,7 @@ ancestral-state truth is read.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 import re
 
 import numpy as np
@@ -39,6 +40,7 @@ from testing._helpers import (
     toy_chunked_inference,
     toy_inference,
     toy_sites,
+    write_panel_vcf,
 )
 
 
@@ -1971,6 +1973,57 @@ def test_chunk_size_convergence_with_halo():
         sites, JC69(), chunk_size=int(L), halo=8000, **common).infer()}
     full = float(np.max([np.abs(big[pos] - ref[pos]).max() for pos in ref]))
     assert full < 0.03
+
+
+def test_haploid_outgroups_in_a_diploid_file_are_one_tip_each(tmp_path, caplog):
+    """A haploid outgroup beside diploid individuals reads as ``o0_h0`` plus a
+    padded ``o0_h1`` that no call reaches. Kept as a tip, the padded slot
+    took the panel's median coalescence time in the pairwise HMM and moved
+    the posteriors. Left out, the run matches the same data written with
+    every sample haploid under the same tip names, which seed the ensemble
+    draws.
+    """
+    ts = _sim(samples=8, length=100_000, seed=3)
+    common = dict(model=JC69(), mu=1.25e-8, rec_rate=1e-8,
+                  outgroup_samples=["o0", "o1"], sequence_length=100_001,
+                  n_ensemble=4, progress=False)
+    with caplog.at_level(logging.INFO, logger="ancestree.LocalTreeInference"):
+        mixed = LocalTreeInference(
+            write_panel_vcf(ts, tmp_path / "mixed.vcf"), **common)
+    assert mixed.sample_names[-2:] == ["o0_h0", "o1_h0"]
+    assert any("o0_h1, o1_h1" in r.getMessage() for r in caplog.records)
+    haploid = LocalTreeInference(
+        write_panel_vcf(ts, tmp_path / "haploid.vcf", diploid=False,
+                        outgroups=("o0_h0", "o1_h0")),
+        ploidy=1, **common)
+    got = [p.values for _, p in mixed.infer()]
+    want = [p.values for _, p in haploid.infer()]
+    np.testing.assert_array_equal(got, want)
+
+
+def test_a_haplotype_id_names_a_haploid_tip(tmp_path):
+    """``o0_h0`` names the haploid tip ``o0`` as ``o0`` itself does."""
+    ts = _sim(samples=8, length=100_000, seed=3)
+    vcf = write_panel_vcf(ts, tmp_path / "haploid.vcf", diploid=False)
+    common = dict(model=JC69(), mu=1.25e-8, rec_rate=1e-8, ploidy=1,
+                  sequence_length=100_001, n_ensemble=4, progress=False)
+    bare = LocalTreeInference(vcf, outgroup_samples=["o0", "o1"], **common)
+    suffixed = LocalTreeInference(vcf, outgroup_samples=["o0_h0", "o1_h0"], **common)
+    assert suffixed._resolved_outgroups == ("o0", "o1")
+    np.testing.assert_array_equal([p.values for _, p in suffixed.infer()],
+                                  [p.values for _, p in bare.infer()])
+
+
+def test_a_sample_present_but_never_called_raises_on_the_chunked_path():
+    """A sample whose key every site carries with no allele is refused on the
+    chunked path too, where per-chunk builders skip their own coverage check.
+    """
+    sites, names = toy_sites(range(0, 1000, 50))
+    blank = [replace(s, tip_alleles={**s.tip_alleles, "hx": None}) for s in sites]
+    with pytest.raises(ValueError, match=r"no observed genotype.*hx"):
+        LocalTreeInference(blank, JC69(), mu=MU, rec_rate=REC,
+                           sample_names=[*names, "hx"], chunk_size=1000,
+                           sequence_length=1000.0, progress=False)
 
 
 def test_unmatched_sample_name_raises():

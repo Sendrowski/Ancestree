@@ -289,6 +289,19 @@ def _named(sample_id: str, names: "Collection[str]") -> bool:
     return sample_id in names or _individual_of(sample_id) in names
 
 
+def _as_tips(names: "Iterable[str]", tips: "Iterable[str]") -> "list[str]":
+    """``names`` with an ``<x>_h0`` that is no tip standing for the haploid
+    tip ``<x>``, so a haplotype id names a haploid sample in either form.
+
+    :param names: Requested sample names.
+    :param tips: The panel's tip ids.
+    :return: The names, in the given order.
+    """
+    tips = set(tips)
+    return [n[:-3] if n not in tips and n.endswith("_h0") and n[:-3] in tips
+            else n for n in names]
+
+
 def _by_individual(ids: "Iterable[str]") -> "frozenset[str]":
     """``ids`` together with the individuals they belong to."""
     ids = tuple(ids)
@@ -360,7 +373,7 @@ def _resolve_panel(
         lists, or if ``chosen_by`` is given and a sample is in neither.
     """
     panel = list(panel)
-    ins, outs = set(ingroup), set(outgroup)
+    ins, outs = set(_as_tips(ingroup, panel)), set(_as_tips(outgroup, panel))
     present = _by_individual(panel)
     for label, named in (("ingroup", ins), ("outgroup", outs)):
         absent = sorted(s for s in named if s not in present)

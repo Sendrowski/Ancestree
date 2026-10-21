@@ -458,3 +458,29 @@ def site_pair(pos, allele="A", p=0.9, chrom="1", handle=None):
 def staged_files(directory):
     """The staged partial files left in ``directory``."""
     return glob.glob(os.path.join(str(directory), ".partial-*"))
+
+
+def write_panel_vcf(ts, path, diploid=True, outgroups=("o0", "o1")):
+    """Haplotypes 0-5 of ``ts`` as ingroup and 6-7 as two haploid outgroups.
+
+    :param ts: Tree sequence with eight sample haplotypes.
+    :param path: Destination.
+    :param diploid: Whether the ingroup is three phased diploids ``i0``-``i2``,
+        beside which the outgroups read as padded diploids, or six haploid
+        samples ``i0_h0`` ... ``i2_h1``.
+    :param outgroups: The two outgroup sample names.
+    :return: The path as a string.
+    """
+    if diploid:
+        samples = [f"i{k}" for k in range(3)]
+    else:
+        samples = [f"i{k}_h{h}" for k in range(3) for h in (0, 1)]
+    rows = []
+    for var in ts.variants():
+        g = var.genotypes
+        ingroup = ([f"{g[2 * k]}|{g[2 * k + 1]}" for k in range(3)] if diploid
+                   else [str(a) for a in g[:6]])
+        rows.append(("1", int(var.site.position) + 1, var.alleles[0],
+                     ",".join(var.alleles[1:]), ".",
+                     ingroup + [str(g[6]), str(g[7])]))
+    return write_vcf(path, rows, samples=samples + list(outgroups))

@@ -37,8 +37,8 @@ from tqdm import tqdm  # not tqdm.auto: avoids ipywidgets dep and per-line outpu
 from ancestree import DEFAULT_MU, STATE_INDEX, STATES
 from ancestree._repr import ReprMixin
 from ancestree.sites import (
-    _NEITHER, _SIBLING, _by_individual, _individual_of, _named, _path_format,
-    _refuse_overlap, _resolve_panel, _unlabelled,
+    _NEITHER, _SIBLING, _as_tips, _by_individual, _individual_of, _named,
+    _path_format, _refuse_overlap, _resolve_panel, _unlabelled,
 )
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
@@ -2785,6 +2785,9 @@ class FixedTreeInference(Inference):
                     "FixedTreeInference: outgroup_samples is required to build "
                     "the OutgroupLadderTree (or pass a pre-built one via "
                     "tree=).")
+            ingroup_samples, outgroup_samples = self._as_panel_ids(
+                ingroup_samples, outgroup_samples,
+                self._stream_source if self._streaming else actual_sites)
             if ingroup_samples is None:
                 ingroup_samples = self.default_ingroup(
                     self._stream_source if self._streaming else actual_sites,
@@ -3262,6 +3265,46 @@ class FixedTreeInference(Inference):
         on an unfitted instance (matching their documented behaviour)."""
         if self.fit_required and self._params_mle is None:
             self.fit()
+
+    @staticmethod
+    def _as_panel_ids(ingroup_samples: "Sequence[str] | None",
+                      outgroup_samples: Sequence[str], source,
+                      ) -> "tuple[list[str] | None, list[str]]":
+        """The named ids as the panel spells them.
+
+        An ``<x>_h0`` names the haploid tip ``<x>``, and an outgroup
+        individual's name stands for its one called haplotype where its other
+        slots are padding at every site, as for a haploid sample in a diploid
+        file.
+
+        :param ingroup_samples: Named ingroup ids, or ``None``.
+        :param outgroup_samples: Named outgroup ids.
+        :param source: The sites, or a source whose panel lists the tips.
+        :return: The ingroup and outgroup ids, each in the given order.
+        """
+        panel = getattr(source, "samples", None)
+        if callable(panel):
+            tips = list(panel())
+        else:
+            first = next(iter(source), None)
+            tips = list(first.tip_alleles) if first is not None else []
+        if ingroup_samples is not None:
+            ingroup_samples = _as_tips(ingroup_samples, tips)
+        named = _as_tips(outgroup_samples, tips)
+        tip_set = set(tips)
+        members = {name: [t for t in tips if _individual_of(t) == name]
+                   for name in named if name not in tip_set}
+        members = {name: m for name, m in members.items() if len(m) > 1}
+        if not members:
+            return ingroup_samples, named
+        called: dict[str, set] = {name: set() for name in members}
+        for site in source:
+            for name, m in members.items():
+                called[name].update(t for t in m if site.tip_alleles.get(t) is not None)
+            if all(len(c) > 1 for c in called.values()):
+                return ingroup_samples, named
+        one = {name: next(iter(c)) for name, c in called.items() if len(c) == 1}
+        return ingroup_samples, [one.get(name, name) for name in named]
 
     @staticmethod
     def default_ingroup(source, outgroup_samples: Sequence[str], *,

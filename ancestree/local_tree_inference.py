@@ -1446,21 +1446,32 @@ class LocalTreeInference(Inference):
         )
 
     @staticmethod
-    def _assert_samples_observed(sites, sample_names) -> None:
-        """Full-panel coverage check: raise if any sample is absent from every
-        site's ``tip_alleles``. Early-exits once all samples are seen, so the
+    def _padding_tips(sites, sample_names) -> "list[str]":
+        """Full-panel coverage check: the samples called at no site that are
+        padding, a slot past the ploidy of their calls (a haploid sample in a
+        diploid file). Early-exits once every sample is called, so the
         overhead is a handful of sites for well-formed input.
+
+        :raises ValueError: If a sample is called at no site and is not padding.
         """
         need = set(sample_names)
         seen: set = set()
+        padded: set = set()
         any_site = False
         for site in sites:
             any_site = True
-            seen |= need & site.tip_alleles.keys()
+            seen.update(n for n, a in site.tip_alleles.items()
+                        if a is not None and n in need)
+            padded |= need & site.padded
             if len(seen) >= len(need):
-                return
-        if any_site and len(seen) < len(need):
-            LocalTreeInference._raise_unobserved_samples([n for n in sample_names if n not in seen])
+                return []
+        if not any_site:
+            return []
+        unseen = [n for n in sample_names if n not in seen]
+        absent = [n for n in unseen if n not in padded]
+        if absent:
+            LocalTreeInference._raise_unobserved_samples(absent)
+        return unseen
 
 
     @property
@@ -1602,15 +1613,6 @@ class LocalTreeInference(Inference):
             raise ValueError(
                 f"rec_rate must be positive, got {rec_rate}")
         self.rec_rate = float(rec_rate)
-        self.sample_names = list(
-            self._resolve_panel(sample_names, explicit=explicit_panel))
-        if len(self.sample_names) < len(sample_names):
-            source = _PanelSites(
-                list(source) if hasattr(source, "__next__") else source,
-                self.sample_names)
-        if not self._resolved_ingroup:
-            self._refuse_empty_ingroup(len(self.sample_names))
-        self._warn_single_ingroup(len(self._resolved_ingroup))
         self.window = window
         # The raw spec. None and "<N>snp" resolve from the SNP density later.
         self.block_size = block_size
@@ -1619,41 +1621,58 @@ class LocalTreeInference(Inference):
             n_time_bins = self.time_grid.size - 1
         PairwiseCoalescentHMM._check_n_time_bins(n_time_bins)
         self.n_time_bins = int(n_time_bins)
+        # Every width is parsed before the source is touched, so a malformed
+        # spec is reported without a streaming pre-pass. A "<N>snp" spec
+        # resolves against the real density later.
+        if chunk_size is not None:
+            self._chunk_size = _parse_bp(chunk_size, name="chunk_size")
+            LocalTreeBuilder._resolve_widths(window, block_size, 1, 1.0)
+            if not (isinstance(halo, str) and halo.strip().lower() == "auto"):
+                _parse_bp(halo, name="halo")
+        elif sequence_length is None:
+            raise ValueError(
+                "building requires sequence_length (--sequence-length), or "
+                "chunk_size (--chunk-size) for the chunked path, which "
+                "derives it per segment"
+            )
+
+        self.sample_names = list(
+            self._resolve_panel(sample_names, explicit=explicit_panel))
+        # A one-shot iterator is materialised, a list or SiteSource is
+        # re-iterated lazily.
+        if hasattr(source, "__next__"):
+            source = list(source)
+        # A tip that is padding at every site is no lineage, and as a tip the
+        # pairwise HMM would give it the panel's median coalescence time.
+        padding = set(self._padding_tips(source, self.sample_names))
+        if padding:
+            self._log.info(
+                "Leaving out %d haplotype(s) that no call reaches, the second "
+                "slot of a haploid sample in a diploid file: %s", len(padding),
+                ", ".join(n for n in self.sample_names if n in padding))
+            self.sample_names = [n for n in self.sample_names if n not in padding]
+            self._resolved_ingroup = tuple(
+                n for n in self._resolved_ingroup if n not in padding)
+            self._resolved_outgroups = tuple(
+                n for n in self._resolved_outgroups if n not in padding)
+        if len(self.sample_names) < len(sample_names):
+            source = _PanelSites(source, self.sample_names)
+        if not self._resolved_ingroup:
+            self._refuse_empty_ingroup(len(self.sample_names))
+        self._warn_single_ingroup(len(self._resolved_ingroup))
 
         if chunk_size is not None:
             # Chunked / segmented build path: defer all work to infer(), which
             # processes one contiguous segment at a time (bounded memory) and
             # severs contigs / slices large contigs with a halo overlap.
             self._segmented = True
-            # Every width is parsed before the source is touched, so a
-            # malformed spec is reported without a streaming pre-pass. A
-            # "<N>snp" spec resolves against the real density later.
-            self._chunk_size = _parse_bp(chunk_size, name="chunk_size")
-            LocalTreeBuilder._resolve_widths(window, block_size, 1, 1.0)
-            if not (isinstance(halo, str) and halo.strip().lower() == "auto"):
-                _parse_bp(halo, name="halo")
-            # Keep the source for streaming. Only a one-shot iterator is
-            # materialised (a list / SiteSource is re-iterated lazily).
-            self._source: "Iterable[Site] | SiteSource" = (
-                list(source) if hasattr(source, "__next__") else source
-            )
-            # One full-panel coverage check up front (per-chunk builders skip
-            # it, since a chunk may legitimately not span every sample).
-            LocalTreeInference._assert_samples_observed(self._source, self.sample_names)
+            self._source: "Iterable[Site] | SiteSource" = source
             self._halo = ("auto" if isinstance(halo, str)
                           and halo.strip().lower() == "auto" else halo)
             self._declared_length = sequence_length
             return
 
-        if sequence_length is None:
-            raise ValueError(
-                "building requires sequence_length (--sequence-length), or "
-                "chunk_size (--chunk-size) for the chunked path, which "
-                "derives it per segment"
-            )
         self._log_start()
-        if hasattr(source, "__next__"):
-            source = list(source)
         first = next(iter(source), None)
         maps = self._maps_on(str(first.chrom)) if first is not None else {}
         self.builder = LocalTreeBuilder(
