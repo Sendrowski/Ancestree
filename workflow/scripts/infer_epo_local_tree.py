@@ -2,8 +2,9 @@
 
 The run name ``<panel>_<node>_<rate>_out<n>`` selects the human tips (the
 sample or the reference sequence), the node (the ancestor of those tips, or
-their ancestor with the Pan species), a single mutation rate or one rate per
-site class, and the outgroup subset. A row that does not vary within the run's
+their ancestor with the Pan species), a single mutation rate, one rate per
+site class or the Roulette map rescaled to the same mean rate over the
+eligible positions, and the outgroup subset. A row that does not vary within the run's
 panel takes its one base with certainty.
 """
 import json
@@ -25,6 +26,7 @@ try:
     in_npz = snakemake.input.npz  # type: ignore[name-defined]
     in_meta = snakemake.input.meta  # type: ignore[name-defined]
     in_rec_map = snakemake.input.get("rec_map")  # type: ignore[name-defined]
+    in_roulette = snakemake.input.get("roulette") or None  # type: ignore[name-defined]
     out_npz = snakemake.output.npz  # type: ignore[name-defined]
     run = str(snakemake.wildcards.epo_run)  # type: ignore[name-defined]
     n_ensemble = int(snakemake.params.n_ensemble)  # type: ignore[name-defined]
@@ -35,6 +37,7 @@ except NameError:
     in_meta = f"results/data/epo_panel_{region}_meta.json"
     in_rec_map = "external/genetic_maps/HapMapII_GRCh38/genetic_map_Hg38_chr1.txt"
     out_npz = f"results/data/epo_local_tree_{region}_{run}.npz"
+    in_roulette = f"results/data/roulette_{region}.npz" if "_roulette_" in run else None
     n_ensemble, threads = 64, 2
 
 import numba  # noqa: E402
@@ -80,7 +83,21 @@ if sites:
         kwargs["recombination_map"] = rec.slice(
             left=int(meta["start"]), right=int(meta["start"]) + length, trim=True)
     mu, ratio = float(meta["mu"]), float(meta["rate_ratio"])
-    if spec["class_rate"]:
+    if spec["rate"] == "roulette":
+        import msprime
+
+        rate = np.load(in_roulette)["rate"].astype(np.float64)
+        eligible = np.zeros(length, bool)
+        for lo, hi in panel["access"]:
+            eligible[lo:hi] = True
+        known = eligible & np.isfinite(rate)
+        rate = np.where(np.isfinite(rate), rate, np.nanmean(rate[known]))
+        # The mean over the eligible positions stays mu.
+        rate *= mu / rate[eligible].mean()
+        kwargs["mu"] = mu
+        kwargs["mutation_map"] = msprime.RateMap(
+            position=np.arange(length + 1, dtype=float), rate=rate)
+    elif spec["rate"] == "class":
         # The mean over the eligible positions stays mu.
         share = meta["n_eligible_fast"] / max(meta["n_eligible"], 1)
         slow = mu / (1.0 - share + share * ratio)

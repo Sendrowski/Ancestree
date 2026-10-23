@@ -30,8 +30,9 @@ except NameError:
     in_fixed_tree_sample = f"results/data/epo_fixed_tree_sample_{region}.npz"
     in_fixed_tree_reference_ladder = f"results/data/epo_fixed_tree_reference_ladder_{region}.npz"
     in_local_tree = {r: f"results/data/epo_local_tree_{region}_{r}.npz" for r in (
-        "reference_node_class_rate_out9", "sample_node_class_rate_out9",
-        "sample_mrca_class_rate_out9", "sample_mrca_one_rate_out9")}
+        "reference_node_one_rate_out9", "reference_node_roulette_rate_out9",
+        "sample_node_roulette_rate_out9", "sample_mrca_roulette_rate_out9",
+        "sample_mrca_one_rate_out9", "sample_node_one_rate_out9")}
     out_json = f"results/data/epo_spectra_{region}.json"
 
 panel = np.load(in_npz)

@@ -42,7 +42,8 @@ CONFIGURATIONS = [
     ("local_tree_sample_node_one_rate_out9", "map", "local-tree, 20 haplotypes", "#EE6677"),
     ("local_tree_sample_mrca_one_rate_out9", "map", "local-tree, 20 haplotypes, ingroup MRCA",
      "#AA3377"),
-    ("local_tree_sample_mrca_class_rate_out9", "weighted", "all changes", "#66CCEE"),
+    ("local_tree_sample_mrca_class_rate_out9" if SIMULATION
+     else "local_tree_sample_mrca_roulette_rate_out9", "weighted", "all changes", "#66CCEE"),
 ]
 if SIMULATION:
     CONFIGURATIONS.insert(0, (*EPO, "EPO model, MAP", "0.1"))

@@ -1962,16 +1962,23 @@ EPO_N_HAPLOTYPES = 20
 EPO_MU = 1.25e-8
 EPO_N_ENSEMBLE = 64
 EPO_REC_MAP = "external/genetic_maps/HapMapII_GRCh38/genetic_map_Hg38_chr1.txt"
+# Roulette germline mutation rates (Seplyarskiy et al. 2023), GRCh38 chr1,
+# read remotely through its index.
+ROULETTE_CHR1_URL = ("http://genetics.bwh.harvard.edu/downloads/Vova/Roulette/"
+                     "1_rate_v5.2_TFBS_correction_all.vcf.bgz")
 # Local-tree runs, ``<panel>_<node>_<rate>_out<n>``: the human tips (the
 # sample or the reference sequence), the ancestor read (``mrca`` of those tips
-# or their ``node`` with the Pan species), one mutation rate or one per CpG
-# context, and the number of outgroups.
+# or their ``node`` with the Pan species), one mutation rate, the Roulette map
+# (data) or one rate per site class (simulation), and the number of outgroups.
 EPO_LOCAL_TREE_RUNS = [
+    "reference_node_one_rate_out9", "reference_node_roulette_rate_out9",
+    "sample_node_roulette_rate_out9", "sample_mrca_roulette_rate_out9",
+    "sample_mrca_one_rate_out9", "sample_node_one_rate_out9",
+]
+EPO_SIMULATION_RUNS = [
     "reference_node_one_rate_out9", "reference_node_class_rate_out9",
     "sample_node_class_rate_out9", "sample_mrca_class_rate_out9",
     "sample_mrca_one_rate_out9", "sample_node_one_rate_out9",
-]
-EPO_SIMULATION_RUNS = EPO_LOCAL_TREE_RUNS + [
     "sample_mrca_class_rate_out3", "sample_node_class_rate_out3",
     "sample_mrca_class_rate_out1", "sample_node_class_rate_out1",
 ]
@@ -1998,7 +2005,7 @@ EPO_SIMULATION = dict(
 )
 
 wildcard_constraints:
-    epo_run = r"(sample|reference)_(mrca|node)_(one|class)_rate_out\d+",
+    epo_run = r"(sample|reference)_(mrca|node)_(one|class|roulette)_rate_out\d+",
     epo_seed = r"\d+",
 
 
@@ -2068,12 +2075,28 @@ rule infer_epo_fixed_tree_reference_ladder:
         "scripts/infer_epo_fixed_tree_sample.py"
 
 
+rule fetch_roulette:
+    """Roulette per-site germline mutation rates over one chr1 chunk."""
+    input:
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+    output:
+        npz = f"{DATA}/roulette_{{region}}.npz",
+    params:
+        url = ROULETTE_CHR1_URL,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/fetch_roulette.py"
+
+
 rule infer_epo_local_tree:
     """Local-tree posteriors of one run on one chr1 chunk."""
     input:
         npz = f"{DATA}/epo_panel_{{region}}.npz",
         meta = f"{DATA}/epo_panel_{{region}}_meta.json",
         rec_map = EPO_REC_MAP,
+        roulette = lambda w: (f"{DATA}/roulette_{w.region}.npz"
+                              if "_roulette_" in w.epo_run else []),
     output:
         npz = f"{DATA}/epo_local_tree_{{region}}_{{epo_run}}.npz",
     params:

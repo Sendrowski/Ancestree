@@ -213,11 +213,11 @@ def parse_run(run: str) -> dict:
     :param run: For example ``sample_mrca_class_rate_out9``.
     :return: ``panel`` (``"sample"`` or ``"reference"``), ``node`` (``"mrca"``
         for the ancestor of the panel's human tips, ``"node"`` for their
-        ancestor with the Pan species present), ``class_rate`` and
-        ``outgroups``.
+        ancestor with the Pan species present), ``rate`` (``"one"``,
+        ``"class"`` or ``"roulette"``) and ``outgroups``.
     """
     panel, node, rate, _, out = run.split("_")
-    return dict(panel=panel, node=node, class_rate=rate == "class",
+    return dict(panel=panel, node=node, rate=rate,
                 outgroups=OUTGROUP_SUBSETS[int(out.removeprefix("out"))])
 
 
