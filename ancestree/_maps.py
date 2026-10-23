@@ -1,10 +1,12 @@
 """Readers for the genome map files local-tree mode accepts.
 
 A BED accessibility mask, a bedGraph mutation map and a HapMap recombination
-map carry a contig column, so each is read into one entry per contig.
+map carry a contig column, so each is read into one entry per contig. Each
+may be plain text or gzip-compressed.
 """
 from __future__ import annotations
 
+import gzip
 import io
 import os
 
@@ -64,6 +66,19 @@ class MapFiles:
         return msprime
 
     @staticmethod
+    def _open(path: "str | os.PathLike"):
+        """A text handle on a plain or gzip-compressed file.
+
+        :param path: The file.
+        :return: The open handle.
+        """
+        with open(path, "rb") as fh:
+            compressed = fh.read(2) == b"\x1f\x8b"
+        if compressed:
+            return gzip.open(path, "rt", encoding="utf-8")
+        return open(path, encoding="utf-8")
+
+    @staticmethod
     def _rows(path: "str | os.PathLike", n_fields: int):
         """The data rows of a BED-like file.
 
@@ -72,7 +87,7 @@ class MapFiles:
         :return: Generator over the split rows, skipping ``track``, ``browser``,
             comment and blank lines.
         """
-        with open(path, encoding="utf-8") as fh:
+        with MapFiles._open(path) as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith(("#", "track", "browser")):
@@ -82,20 +97,24 @@ class MapFiles:
                     yield fields
 
     @staticmethod
-    def read_bed(path: "str | os.PathLike") -> dict[str, list[tuple[float, float]]]:
+    def read_bed(path: "str | os.PathLike",
+                 base: int = 0) -> dict[str, list[tuple[float, float]]]:
         """Half-open ``(start, end)`` intervals of a BED file, per contig.
 
         :param path: The BED file, 0-based half-open.
+        :param base: Coordinate of a contig's first base in the returned
+            intervals, ``1`` to match the positions of a VCF.
         :return: ``{contig: intervals}``, in file order.
         """
         intervals: dict[str, list[tuple[float, float]]] = {}
         for f in MapFiles._rows(path, 3):
-            intervals.setdefault(f[0], []).append((float(f[1]), float(f[2])))
+            intervals.setdefault(f[0], []).append(
+                (float(f[1]) + base, float(f[2]) + base))
         return intervals
 
     @staticmethod
     def read_bedgraph(path: "str | os.PathLike",
-                      default_rate: float) -> dict:
+                      default_rate: float, base: int = 0) -> dict:
         """One :class:`msprime.RateMap` per contig of a 4-column bedGraph
         (contig, start, end, rate).
 
@@ -105,6 +124,8 @@ class MapFiles:
 
         :param path: The bedGraph file.
         :param default_rate: Rate of the gaps.
+        :param base: Coordinate of a contig's first base in the returned maps,
+            ``1`` to match the positions of a VCF.
         :return: ``{contig: RateMap}`` covering ``[0, last end]``.
         :raises ValueError: If the file yields no usable interval.
         """
@@ -112,7 +133,7 @@ class MapFiles:
         rows: dict[str, list[tuple[float, float, float]]] = {}
         for f in MapFiles._rows(path, 4):
             rows.setdefault(f[0], []).append(
-                (float(f[1]), float(f[2]), float(f[3])))
+                (float(f[1]) + base, float(f[2]) + base, float(f[3])))
         maps = {}
         for contig, intervals in rows.items():
             position, rate = [0.0], []
@@ -143,7 +164,7 @@ class MapFiles:
         :raises ValueError: If the file holds no data row.
         """
         msprime = MapFiles.msprime()
-        with open(path, encoding="utf-8") as fh:
+        with MapFiles._open(path) as fh:
             lines = [line for line in fh if line.strip()]
         header, rows = lines[:1], lines[1:]
         per_contig: dict[str, list[str]] = {}

@@ -1396,7 +1396,8 @@ class LocalTreeInference(Inference):
         :class:`msprime.RateMap` (in the input's bp coordinates) driving the
         HMM's TMRCA-reset rate in place of the constant ``rec_rate``.
     :param accessibility: Optional BED file path, or sequence of half-open
-        ``(start, end)`` bp intervals, marking the callable genome.
+        ``(start, end)`` intervals (in the input's bp coordinates), marking
+        the callable genome.
     :param mutation_map: Optional bedGraph file path or
         :class:`msprime.RateMap` (in the input's bp coordinates) giving the
         local mutation rate, with ``mu`` the reference rate. The HMM emission
@@ -1404,9 +1405,11 @@ class LocalTreeInference(Inference):
         branches of each site by the map's rate at that site.
 
         Each of the three also accepts a ``{contig: map}`` dict, whose entry
-        for the sites' contig applies. A file is read into one entry per
-        contig. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
-        On the chunked path each map is sliced per segment.
+        for the sites' contig applies. A file, plain or gzip-compressed, is
+        read into one entry per contig, its 0-based BED and bedGraph intervals
+        placed on the 1-based positions of a VCF. See
+        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. On the
+        chunked path each map is sliced per segment.
     :param outgroup_samples: Sample ids treated as outgroups, used by the
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
@@ -1548,11 +1551,6 @@ class LocalTreeInference(Inference):
             raise ValueError(f"n_workers must be >= 1; got {n_workers}")
         self.n_workers = int(n_workers)
         self.progress = bool(progress)
-        self._map_paths: dict[str, str] = {}
-        self.recombination_map = self._load_map(
-            recombination_map, "recombination_map")
-        self.accessibility = self._load_map(accessibility, "accessibility")
-        self.mutation_map = self._load_map(mutation_map, "mutation_map")
         self.n_ensemble = None if n_ensemble is None else int(n_ensemble)
         self.ensemble_seed = int(ensemble_seed)
         self.member_chunk = int(member_chunk)
@@ -1582,6 +1580,13 @@ class LocalTreeInference(Inference):
                 "directly.")
             if sequence_length is None:
                 sequence_length = source._ts.sequence_length
+        # BED and bedGraph files are 0-based, read onto the sites' coordinates.
+        base = getattr(source, "position_base", 0)
+        self._map_paths: dict[str, str] = {}
+        self.recombination_map = self._load_map(
+            recombination_map, "recombination_map")
+        self.accessibility = self._load_map(accessibility, "accessibility", base)
+        self.mutation_map = self._load_map(mutation_map, "mutation_map", base)
         if ingroup_samples and outgroup_samples:
             self._check_filter_labelled(sample_filter, ingroup_samples,
                                         outgroup_samples)
@@ -1997,13 +2002,15 @@ class LocalTreeInference(Inference):
         if cur is not None:
             yield from flush(buf, core_lo)
 
-    def _load_map(self, value, name: str):
+    def _load_map(self, value, name: str, base: int = 0):
         """A map as passed, read from its file where a path is given.
 
         :param value: A map, a ``{contig: map}`` dict, a file path, or
             ``None``.
         :param name: The parameter: ``recombination_map`` reads a HapMap file,
             ``accessibility`` a BED file and ``mutation_map`` a bedGraph.
+        :param base: Coordinate of a contig's first base in the sites, onto
+            which the 0-based BED and bedGraph intervals are shifted.
         :return: The map, one entry per contig where read from a file.
         """
         if not isinstance(value, (str, os.PathLike)):
@@ -2015,8 +2022,8 @@ class LocalTreeInference(Inference):
         if name == "recombination_map":
             return MapFiles.read_hapmap(value)
         if name == "accessibility":
-            return MapFiles.read_bed(value)
-        return MapFiles.read_bedgraph(value, default_rate=float(self.mu))
+            return MapFiles.read_bed(value, base)
+        return MapFiles.read_bedgraph(value, default_rate=float(self.mu), base=base)
 
     def _maps_on(self, contig: str) -> dict:
         """The recombination map, accessibility mask and mutation map for

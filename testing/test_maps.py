@@ -4,6 +4,7 @@ All three formats carry a contig column, so each is read into one entry
 per contig and :meth:`ancestree._maps.MapFiles.on_contig` picks the one the
 sites live on.
 """
+import gzip
 import sys
 
 import msprime
@@ -12,6 +13,8 @@ import pytest
 
 from ancestree import DEFAULT_MU
 from ancestree._maps import MapFiles
+from ancestree.local_tree_inference import LocalTreeInference
+from testing._helpers import write_panel_vcf
 
 
 class TestReadBed:
@@ -127,6 +130,62 @@ class TestReadHapmap:
         np.testing.assert_allclose(maps["chr1"].rate[1:], [1e-8])
         np.testing.assert_allclose(maps["chr2"].rate[1:], [3e-8])
         assert maps["chr2"].position[-1] == 9000.0
+
+
+class TestGzipped:
+    """A gzip-compressed map file reads like the plain one."""
+
+    @pytest.mark.parametrize("read, text", [
+        (MapFiles.read_bed, "chr1\t10\t20\nchr2\t0\t5\n"),
+        (lambda path: MapFiles.read_bedgraph(path, default_rate=5e-9),
+         "chr1\t100\t200\t1e-8\nchr1\t300\t400\t2e-8\n"),
+        (MapFiles.read_hapmap,
+         "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n"
+         "chr1\t100\t1.0\t0\nchr1\t2000\t0\t0.0019\n"),
+    ])
+    def test_matches_the_plain_file(self, tmp_path, read, text):
+        plain, packed = tmp_path / "map.txt", tmp_path / "map.txt.gz"
+        plain.write_text(text, encoding="utf-8")
+        with gzip.open(packed, "wt", encoding="utf-8") as fh:
+            fh.write(text)
+        def arrays(maps):
+            return {contig: (np.asarray(m.position).tolist(), np.asarray(m.rate).tolist())
+                    if hasattr(m, "rate") else m for contig, m in maps.items()}
+
+        np.testing.assert_equal(arrays(read(str(packed))), arrays(read(str(plain))))
+
+
+class TestFileCoordinates:
+    """BED and bedGraph intervals are 0-based, so a line for one base must land
+    on the site at that base: VCF ``POS`` ``p`` is BED ``[p - 1, p)``, and a
+    tree-sequence position ``p`` is ``[p, p + 1)``. Read without the shift, a
+    VCF site took its right neighbour's rate."""
+
+    @pytest.fixture
+    def ts(self):
+        return msprime.sim_mutations(
+            msprime.sim_ancestry(4, sequence_length=10_000, recombination_rate=1e-8,
+                                 population_size=10_000, random_seed=1),
+            rate=2e-8, random_seed=1, discrete_genome=True)
+
+    @pytest.mark.parametrize("as_vcf", [True, False])
+    def test_a_one_base_line_lands_on_its_site(self, ts, tmp_path, as_vcf):
+        pos = int(ts.site(0).position)
+        if as_vcf:
+            source, contig, site = write_panel_vcf(ts, tmp_path / "p.vcf"), "1", pos + 1
+        else:
+            source, contig, site = ts, "1", pos
+        start = site - 1 if as_vcf else site
+        (tmp_path / "mu.bedgraph").write_text(f"{contig}\t{start}\t{start + 1}\t1e-7\n")
+        (tmp_path / "a.bed").write_text(f"{contig}\t{start}\t{start + 1}\n")
+        inference = LocalTreeInference(
+            source, mu=1e-8, rec_rate=1e-8, sequence_length=10_000,
+            mutation_map=str(tmp_path / "mu.bedgraph"),
+            accessibility=str(tmp_path / "a.bed"), progress=False)
+        rates = inference.mutation_map[contig]
+        assert rates.get_rate(site) == 1e-7
+        assert rates.get_rate(site - 1) == 1e-8
+        assert inference.accessibility[contig] == [(site, site + 1)]
 
 
 class TestOnContig:

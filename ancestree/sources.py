@@ -202,6 +202,8 @@ class CyVCF2Source(SiteSource):
     :raises KeyError: If ``sample_filter`` names samples absent from the VCF.
     """
 
+    position_base = 1
+
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
@@ -450,6 +452,8 @@ class VcfZarrSource(SiteSource):
     :raises ValueError: If ``call_genotype`` is not a 3-D
         ``(n_variants, n_samples, ploidy)`` array.
     """
+
+    position_base = 1
 
     @property
     def _repr_params(self) -> dict[str, object]:

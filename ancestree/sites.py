@@ -1193,6 +1193,9 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     :meth:`SiteSource.samples() <ancestree.sites.SiteSource.samples>`.
     """
 
+    #: Coordinate of a contig's first base in :attr:`Site.pos <ancestree.sites.Site.pos>`:
+    #: ``1`` for VCF and VCF-Zarr sources, ``0`` for tree sequences.
+    position_base: int = 0
     #: Whether the unphased-genotype notice has been emitted.
     _noted_unphased: bool = False
     _phase_seed: int = 0
