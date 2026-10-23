@@ -39,7 +39,11 @@ with open(in_meta, encoding="utf-8") as f:
     meta = json.load(f)
 sample = panel["sample"]
 counts = np.stack([(sample == base).sum(1) for base in range(4)], axis=1)
-classes = {"non-CpG": ~panel["fast"], "CpG": panel["fast"]}
+# Polymorphic sites whose EPO base is neither sample allele have no EPO
+# polarisation and are left out of every spectrum, so all share one site set.
+present = counts > 0
+unpolarised = (present.sum(1) == 2) & ~present[np.arange(len(sample)), panel["epo"] % 4]
+classes = {"non-CpG": ~panel["fast"] & ~unpolarised, "CpG": panel["fast"] & ~unpolarised}
 
 result = dict(
     n_eligible={"non-CpG": meta["n_eligible"] - meta["n_eligible_fast"],
