@@ -19,6 +19,7 @@ try:
     in_meta = snakemake.input.meta  # type: ignore[name-defined]
     in_fixed_tree = snakemake.input.fixed_tree  # type: ignore[name-defined]
     in_fixed_tree_sample = snakemake.input.fixed_tree_sample  # type: ignore[name-defined]
+    in_fixed_tree_reference_ladder = snakemake.input.fixed_tree_reference_ladder  # type: ignore[name-defined]
     in_local_tree = dict(zip(snakemake.params.runs, snakemake.input.local_tree))  # type: ignore[name-defined]
     out_json = snakemake.output.json  # type: ignore[name-defined]
 except NameError:
@@ -27,6 +28,7 @@ except NameError:
     in_meta = f"results/data/epo_panel_{region}_meta.json"
     in_fixed_tree = f"results/data/epo_fixed_tree_{region}.npz"
     in_fixed_tree_sample = f"results/data/epo_fixed_tree_sample_{region}.npz"
+    in_fixed_tree_reference_ladder = f"results/data/epo_fixed_tree_reference_ladder_{region}.npz"
     in_local_tree = {r: f"results/data/epo_local_tree_{region}_{r}.npz" for r in (
         "reference_node_class_rate_out9", "sample_node_class_rate_out9",
         "sample_mrca_class_rate_out9", "sample_mrca_one_rate_out9")}
@@ -61,6 +63,8 @@ fixed_tree_sample = np.load(in_fixed_tree_sample)
 for name in ("sample_mrca", "sample_node"):
     result["methods"]["fixed_tree_" + name] = summarise(
         fixed_tree_sample[name].astype(float), counts, classes, n)
+result["methods"]["fixed_tree_reference_ladder_node"] = summarise(
+    np.load(in_fixed_tree_reference_ladder)["reference_node"].astype(float), counts, classes, n)
 for run, path in in_local_tree.items():
     z = np.load(path)
     result["methods"]["local_tree_" + run] = summarise(z["post"].astype(float), counts, classes, n)

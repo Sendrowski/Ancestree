@@ -21,6 +21,7 @@ try:
     in_meta = snakemake.input.meta  # type: ignore[name-defined]
     in_fixed_tree = snakemake.input.fixed_tree  # type: ignore[name-defined]
     in_fixed_tree_sample = snakemake.input.fixed_tree_sample  # type: ignore[name-defined]
+    in_fixed_tree_reference_ladder = snakemake.input.fixed_tree_reference_ladder  # type: ignore[name-defined]
     in_local_tree = dict(zip(snakemake.params.runs, snakemake.input.local_tree))  # type: ignore[name-defined]
     out_json = snakemake.output.json  # type: ignore[name-defined]
 except NameError:
@@ -30,6 +31,8 @@ except NameError:
     in_meta = f"results/data/epo_simulation_panel_seed{seed}_meta.json"
     in_fixed_tree = f"results/data/epo_simulation_fixed_tree_seed{seed}.npz"
     in_fixed_tree_sample = f"results/data/epo_simulation_fixed_tree_sample_seed{seed}.npz"
+    in_fixed_tree_reference_ladder = (
+        f"results/data/epo_simulation_fixed_tree_reference_ladder_seed{seed}.npz")
     in_local_tree = {
         Path(p).stem.split(f"seed{seed}_", 1)[1]: p
         for p in sorted(glob.glob(f"results/data/epo_simulation_local_tree_seed{seed}_*.npz"))}
@@ -67,6 +70,8 @@ for name in fixed_tree.files:
 fixed_tree_sample = np.load(in_fixed_tree_sample)
 for name in ("sample_mrca", "sample_node"):
     posteriors["fixed_tree_" + name] = fixed_tree_sample[name].astype(float)
+posteriors["fixed_tree_reference_ladder_node"] = (
+    np.load(in_fixed_tree_reference_ladder)["reference_node"].astype(float))
 for run, path in in_local_tree.items():
     posteriors["local_tree_" + run] = np.load(path)["post"].astype(float)
 for method, post in posteriors.items():

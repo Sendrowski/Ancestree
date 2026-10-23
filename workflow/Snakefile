@@ -71,7 +71,7 @@ MANUSCRIPT_FIGURES = [
     "bench_scenario_sfs", "bench_site_scaling", "focal_cost",
     "focal_interpolation", "gallery", "gallery_root_examples",
     "msl_agreement_heatmap", "sfs_fractional_calls", "tmrca_distributions",
-    "epo_spectra",
+    "epo_spectra", "epo_simulation_spectra",
 ]
 
 #: Generated LaTeX tables the manuscript \input's.
@@ -1969,10 +1969,9 @@ EPO_REC_MAP = "external/genetic_maps/HapMapII_GRCh38/genetic_map_Hg38_chr1.txt"
 EPO_LOCAL_TREE_RUNS = [
     "reference_node_one_rate_out9", "reference_node_class_rate_out9",
     "sample_node_class_rate_out9", "sample_mrca_class_rate_out9",
-    "sample_mrca_one_rate_out9",
+    "sample_mrca_one_rate_out9", "sample_node_one_rate_out9",
 ]
 EPO_SIMULATION_RUNS = EPO_LOCAL_TREE_RUNS + [
-    "sample_node_one_rate_out9",
     "sample_mrca_class_rate_out3", "sample_node_class_rate_out3",
     "sample_mrca_class_rate_out1", "sample_node_class_rate_out1",
 ]
@@ -2053,6 +2052,22 @@ rule infer_epo_fixed_tree_sample:
         "scripts/infer_epo_fixed_tree_sample.py"
 
 
+rule infer_epo_fixed_tree_reference_ladder:
+    """Fixed-tree posteriors of the reference sequence on the same fitted
+    outgroup ladder as the ingroup sample, at its ancestor with chimpanzee."""
+    input:
+        npz = f"{DATA}/epo_panel_{{region}}.npz",
+        meta = f"{DATA}/epo_panel_{{region}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_fixed_tree_reference_ladder_{{region}}.npz",
+    params:
+        ingroup = "reference",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_fixed_tree_sample.py"
+
+
 rule infer_epo_local_tree:
     """Local-tree posteriors of one run on one chr1 chunk."""
     input:
@@ -2078,6 +2093,7 @@ rule summarise_epo_region:
         meta = f"{DATA}/epo_panel_{{region}}_meta.json",
         fixed_tree = f"{DATA}/epo_fixed_tree_{{region}}.npz",
         fixed_tree_sample = f"{DATA}/epo_fixed_tree_sample_{{region}}.npz",
+        fixed_tree_reference_ladder = f"{DATA}/epo_fixed_tree_reference_ladder_{{region}}.npz",
         local_tree = expand(
             f"{DATA}/epo_local_tree_{{{{region}}}}_{{run}}.npz",
             run=EPO_LOCAL_TREE_RUNS),
@@ -2177,6 +2193,22 @@ rule infer_epo_simulation_fixed_tree_sample:
         "scripts/infer_epo_fixed_tree_sample.py"
 
 
+rule infer_epo_simulation_fixed_tree_reference_ladder:
+    """Fixed-tree posteriors of the reference sequence of one simulated
+    replicate on the same fitted outgroup ladder as the ingroup sample."""
+    input:
+        npz = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}.npz",
+        meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
+    output:
+        npz = f"{DATA}/epo_simulation_fixed_tree_reference_ladder_seed{{epo_seed}}.npz",
+    params:
+        ingroup = "reference",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/infer_epo_fixed_tree_sample.py"
+
+
 rule infer_epo_simulation_local_tree:
     """Local-tree posteriors of one run on one simulated replicate."""
     input:
@@ -2201,6 +2233,7 @@ rule summarise_epo_simulation:
         meta = f"{DATA}/epo_simulation_panel_seed{{epo_seed}}_meta.json",
         fixed_tree = f"{DATA}/epo_simulation_fixed_tree_seed{{epo_seed}}.npz",
         fixed_tree_sample = f"{DATA}/epo_simulation_fixed_tree_sample_seed{{epo_seed}}.npz",
+        fixed_tree_reference_ladder = f"{DATA}/epo_simulation_fixed_tree_reference_ladder_seed{{epo_seed}}.npz",
         local_tree = expand(
             f"{DATA}/epo_simulation_local_tree_seed{{{{epo_seed}}}}_{{run}}.npz",
             run=EPO_SIMULATION_RUNS),

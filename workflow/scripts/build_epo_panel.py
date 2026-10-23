@@ -143,13 +143,16 @@ if len(rows):
     kappa = float(tally.n_ts / tally.n_tv * (a + g) * (c + t) / (a * g + c * t))
 
 # One branch-length multiplier per CpG context, fitted to the reference and
-# outgroup columns of the eligible positions under that model.
+# outgroup columns of the eligible positions, under the estimated model and
+# under EPO's.
 tips = np.column_stack([reference, species])
-scale = {}
+scale, scale_epo = {}, {}
 for label, mask in (("non-CpG", ~fast), ("CpG", fast)):
     columns, weights = np.unique(tips[eligible & mask], axis=0, return_counts=True)
     scale[label] = fitted_scale(columns, weights, epo_tree(REFERENCE), kappa, pi,
                                 max(n_eligible, 1), guess=1.0)
+    scale_epo[label] = fitted_scale(columns, weights, epo_tree(REFERENCE), EPO_KAPPA, EPO_PI,
+                                    max(n_eligible, 1), guess=1.0)
 
 Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
 np.savez_compressed(
@@ -165,6 +168,8 @@ meta = dict(
     tree=epo_tree(REFERENCE),
     fixed_tree_runs=[
         dict(name="epo_model_one_rate", kappa=EPO_KAPPA, pi=EPO_PI, scale_slow=1.0, scale_fast=1.0),
+        dict(name="epo_model_class_rate", kappa=EPO_KAPPA, pi=EPO_PI,
+             scale_slow=float(scale_epo["non-CpG"]), scale_fast=float(scale_epo["CpG"])),
         dict(name="estimated_model_class_rate", kappa=kappa, pi=pi,
              scale_slow=float(scale["non-CpG"]), scale_fast=float(scale["CpG"])),
     ],
