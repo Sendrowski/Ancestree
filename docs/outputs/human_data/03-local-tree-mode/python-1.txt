@@ -1,0 +1,8 @@
+INFO:ancestree.CyVCF2Source: Reading variants from msl.vcf.gz (38 haplotype samples)
+INFO:ancestree.LocalTreeInference: Leaving out 9 haplotype(s) that no call reaches, the second slot of a haploid sample in a diploid file: chimpanzee_h1, bonobo_h1, gorilla_h1, orangutan_h1, gibbon_h1, rhesus_h1, cynomolgus_h1, vervet_h1, mouse_lemur_h1
+INFO:ancestree.LocalTreeInference: Inferring local trees from genotypes (29 samples, window=8snp)
+INFO:ancestree.LocalTreeInference: Using 20 ingroup sample(s): HG03052_h0, HG03052_h1, HG03054_h0, HG03054_h1, HG03055_h0, HG03055_h1, HG03057_h0, HG03057_h1, HG03058_h0, HG03058_h1, HG03060_h0, HG03060_h1, HG03061_h0, HG03061_h1, HG03063_h0, HG03063_h1, HG03064_h0, HG03064_h1, HG03066_h0, HG03066_h1
+INFO:ancestree.LocalTreeInference: Using 9 outgroup sample(s): chimpanzee_h0, bonobo_h0, gorilla_h0, orangutan_h0, gibbon_h0, rhesus_h0, cynomolgus_h0, vervet_h0, mouse_lemur_h0
+LocalTreeInference: 1 segments [--:--, --segments/s]
+WARNING:ancestree.LocalTreeInference: 829514 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup's own allele is the answer.
+INFO:ancestree.LocalTreeInference: Focal node: reported at "ingroup_mrca"

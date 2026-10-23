@@ -62,6 +62,7 @@ Three inference modes:
    reference/Python/focal_node
    reference/Python/substitution_models
    reference/Python/io
+   reference/Python/human_data
 
 .. toctree::
    :caption: CLI Reference

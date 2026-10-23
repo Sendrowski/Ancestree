@@ -2143,6 +2143,29 @@ rule report_epo_spectra:
         "scripts/report_epo_spectra.py"
 
 
+rule docs_msl_data:
+    """Human example data of the docs: chr1:95-100 Mb of the MSL sample and
+    the nine EPO outgroups, cut from one chunk of the EPO comparison."""
+    input:
+        npz = f"{DATA}/epo_panel_chr1_93750000_100M.npz",
+        meta = f"{DATA}/epo_panel_chr1_93750000_100M_meta.json",
+        polymorphic = f"{DATA}/msl_polymorphic_chr1_93750000_100M.npz",
+        rec_map = EPO_REC_MAP,
+        roulette = f"{DATA}/roulette_chr1_93750000_100M.npz",
+    output:
+        vcf = "docs/_static/msl.vcf.gz",
+        access = "docs/_static/msl.bed",
+        mu = "docs/_static/msl_mu.bedgraph.gz",
+        rec = "docs/_static/msl_rec.txt",
+    params:
+        region = (95_000_000, 100_000_000),
+        mu = EPO_MU,
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/build_docs_msl.py"
+
+
 rule simulate_epo_scenario:
     """One replicate of the simulation matched to the EPO comparison."""
     output:
