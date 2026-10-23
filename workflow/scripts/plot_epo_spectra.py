@@ -1,5 +1,6 @@
-"""Unfolded spectrum of the MSL sample under Ancestree relative to the one
-under the Ensembl EPO ancestral base, over all sites and over the CpG context.
+"""Unfolded spectrum of the MSL sample under Ancestree as a percent difference
+from the one under the Ensembl EPO ancestral base, over all sites and over the
+CpG context.
 
 Count 0 holds the sites the sample has fixed for the ancestral base and count
 ``n`` those it has fixed for a derived one. EPO contributes one base per site,
@@ -45,18 +46,18 @@ x = np.arange(n + 1)
 fig, axes = plt.subplots(1, 2, figsize=(8.0, 4.0), sharey=True, gridspec_kw={"wspace": 0.08})
 for ax, (context, title) in zip(axes, COLUMNS):
     epo = np.asarray(report["methods"]["epo"][context]["spectrum_map"])
-    ax.axhline(1.0, color="0.1", lw=0.8)
+    ax.axhline(0.0, color="0.1", lw=0.8)
     for keys, _, colour, polymorphic_only in CONDITIONS:
         bins = x[1:n] if polymorphic_only else x
         for key, (_, style, marker) in zip(keys, MODES):
             spectrum = np.asarray(report["methods"][key][context]["spectrum_weighted"])
-            ax.plot(bins, spectrum[bins] / epo[bins], color=colour, ls=style, marker=marker,
+            ax.plot(bins, 100 * (spectrum[bins] / epo[bins] - 1), color=colour, ls=style, marker=marker,
                     ms=2.8, lw=1.4, alpha=0.7)
     ax.set_title(title, fontsize=13.5)
     ax.grid(True, alpha=0.2, lw=0.4)
     ax.set_xticks(x[::2])
     ax.set_xlabel("derived-allele count", fontsize=10)
-axes[0].set_ylabel("sites relative to EPO", fontsize=10)
+axes[0].set_ylabel("difference from EPO (%)", fontsize=10)
 def entry(colour, label):
     return Line2D([], [], color=colour, lw=1.8, alpha=0.8, label=label)
 
