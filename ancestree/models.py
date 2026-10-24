@@ -90,8 +90,9 @@ class SubstitutionModel(ReprMixin, ABC):
         def _cached(
             t: float,
             pi_key: tuple[float, ...] | None,
+            q_key: bytes,
         ) -> np.ndarray:
-            """Per-(t, pi) cached transition matrix."""
+            """Transition matrix cached per ``t``, ``pi`` and rate matrix."""
             pi = np.asarray(pi_key, dtype=float) if pi_key is not None else None
             return self._transition_probs_full(t, pi=pi)
 
@@ -196,9 +197,10 @@ class SubstitutionModel(ReprMixin, ABC):
     ) -> np.ndarray:
         """Return ``P(t)`` with ``P(t)[i, j] = P(state j at child | state i at parent)``.
 
-        Scalar ``t`` is looked up in an LRU cache keyed by ``(t, pi)``.
-        A hit returns the cached matrix unchanged. Array ``t`` bypasses
-        the cache (no vector-keyed cache).
+        Scalar ``t`` is looked up in an LRU cache keyed by ``t``, ``pi`` and
+        the current rate matrix, so a change to the model's parameters is
+        never served a stale matrix. A hit returns the cached matrix
+        unchanged. Array ``t`` bypasses the cache (no vector-keyed cache).
 
         :param t: Branch length(s). May be a scalar or any-shape array. The
             returned array has shape ``t.shape + (n_states, n_states)``.
@@ -217,26 +219,19 @@ class SubstitutionModel(ReprMixin, ABC):
             raise ValueError(
                 f"transition_probs requires t >= 0 (and not NaN); got {t!r}"
             )
+        pi_arr = np.asarray(pi, dtype=float) if pi is not None else None
         if np.ndim(t) == 0:
-            pi_key = self._pi_to_key(np.asarray(pi) if pi is not None else None)
             # A read-only view of the cached matrix: the cache is shared across
             # every call at this key, so a caller mutating it would poison them.
-            cached = self._cached_P(float(t), pi_key)
+            cached = self._cached_P(float(t), self._pi_to_key(pi_arr),
+                                    self.Q(pi=pi_arr).tobytes())
             view = cached.view()
             view.flags.writeable = False
             return view
-        pi_arr = np.asarray(pi, dtype=float) if pi is not None else None
         return self._transition_probs_full(t, pi=pi_arr)
 
     def clear_cache(self) -> None:
-        """Drop all cached transition matrices on this model instance.
-
-        Any in-place parameter change invalidates every cached ``P(t)``, so
-        :meth:`K2.set_free_params`, :meth:`HKY.set_free_params` and
-        :meth:`GTR.set_free_params` call this after writing a new value.
-        Custom :class:`~ancestree.models.SubstitutionModel` subclasses that mutate state should
-        do the same.
-        """
+        """Drop all cached transition matrices on this model instance."""
         self._cached_P.cache_clear()
 
     def cache_info(self):
@@ -265,9 +260,7 @@ class SubstitutionModel(ReprMixin, ABC):
         """Update the free parameters from the optimiser's solution.
 
         Default: no-op. Override in subclasses with non-trivial
-        :attr:`free_params`. Implementations should also call
-        :meth:`clear_cache` if the change invalidates the transition
-        matrix cache.
+        :attr:`free_params`.
 
         :param values: Mapping from parameter name (must be a key in
             :attr:`free_params`) to the new value.
@@ -463,8 +456,6 @@ class _KappaMixin:
     if TYPE_CHECKING:
         n_states: int
 
-        def clear_cache(self) -> None: ...
-
         def _warn_bound(self, name: str, value: float, bounds: tuple[float, float], bounds_arg: str) -> None: ...
 
     kappa: float
@@ -518,7 +509,7 @@ class _KappaMixin:
         return {}
 
     def set_free_params(self, values: dict[str, float]) -> None:
-        """Update ``kappa`` (if provided) and invalidate the transition cache.
+        """Update ``kappa`` if provided.
 
         :raises ValueError: If ``kappa`` is not strictly positive.
         """
@@ -527,7 +518,6 @@ class _KappaMixin:
             if new_kappa <= 0:
                 raise ValueError(f"kappa must be positive, got {new_kappa}")
             self.kappa = new_kappa
-            self.clear_cache()
 
     def warn_if_bounds_hit(self) -> None:
         """Warn if MLE-fit ``kappa`` landed within 2% of ``kappa_bounds``."""
@@ -989,23 +979,18 @@ class GTR(_PiModel):
         }
 
     def set_free_params(self, values: dict[str, float]) -> None:
-        """Update rate entries from the optimiser. Invalidate the cache.
+        """Update rate entries from the optimiser.
 
-        Entries absent from ``values`` are left untouched, and the cache is
-        cleared only when at least one rate actually changed.
+        Entries absent from ``values`` are left untouched.
 
         :raises ValueError: If any supplied rate is not strictly positive.
         """
-        changed = False
         for i, name in enumerate(self.RATE_NAMES):
             if name in values:
                 v = float(values[name])
                 if v <= 0:
                     raise ValueError(f"{name} must be positive, got {v}")
                 self.rates[i] = v
-                changed = True
-        if changed:
-            self.clear_cache()
 
     def warn_if_bounds_hit(self) -> None:
         """Warn if any MLE-fit rate landed within 2% of ``rate_bounds``."""

@@ -2620,8 +2620,9 @@ class TestInferSiteAgreesWithInferInLocalTreeMode:
             sites, JC69(), mu=self.MU, rec_rate=1e-8, sample_names=names,
             sequence_length=50_000, n_ensemble=None, progress=False)
 
-    def test_the_rate_reaches_the_supplied_tree(self, panel):
-        """Guard the equality below against passing on an unscaled tree."""
+    def test_the_rate_reaches_the_kernel(self, panel):
+        """Guard the equality below against passing on an unscaled tree,
+        whose saturated branches give the flat JC69 prior."""
         from ancestree.trees import TskitLocalTree
 
         names, sites = panel
@@ -2630,9 +2631,9 @@ class TestInferSiteAgreesWithInferInLocalTreeMode:
         tsq = inference.point_tree_sequence()
         tree = TskitLocalTree(tsq, tsq.sequence_length / 2,
                               sample_map={n: i for i, n in enumerate(names)})
+        post = inference.infer_site(tree, sites[0])
+        assert post.max_prob > 0.5
         assert tree.time_scale == 1.0
-        inference.infer_site(tree, sites[0])
-        assert tree.time_scale == pytest.approx(self.MU)
 
     def test_infer_site_matches_infer(self, panel):
         from ancestree.trees import TskitLocalTree

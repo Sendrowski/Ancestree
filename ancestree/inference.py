@@ -1082,17 +1082,18 @@ class Inference(ReprMixin, ABC):
         """``tree`` viewed from the node this run reports at.
 
         :param tree: The tree supplied to :meth:`Inference.infer_site`.
-        :return: ``tree`` itself when the run reports at the tree's own root,
-            otherwise a re-rooted view reporting at the focal node.
+        :return: The view ``tree`` resolves at the focal node itself, else
+            ``tree`` when the run reports at its own root, else a re-rooted
+            view reporting at the focal node.
         :raises ValueError: If a non-root focal node is configured and ``tree``
             offers no way to resolve it.
         """
         focal = self.focal
-        if focal.is_root:
-            return tree
         view = tree.at_focal(focal)
         if view is not None:
             return view
+        if focal.is_root:
+            return tree
         ts_tree = tree.tskit_tree
         if ts_tree is not None:
             return self._tskit_focal_view(tree, ts_tree, focal)
@@ -1158,24 +1159,29 @@ class Inference(ReprMixin, ABC):
         bc = self.base_composition
         engine = Likelihood(self.model, base_composition=bc)
         scale = self._scale_for(tree, site)
+        # The tree is scored at the site's rate and handed back at its own.
+        own_scale = tree.time_scale
         if scale is not None:
             tree.time_scale = scale
-        tree = self._focal_view(tree)
-        # Seed the ingroup weight as infer() does.
-        seeds = None
-        weight = self.ingroup_weight
-        if weight is not None:
-            anchor = tree.ingroup_mrca
-            if anchor is None:
-                raise ValueError(
-                    "infer_site: an ingroup weight is configured but the tree "
-                    f"supplied ({type(tree).__name__}) has no ingroup MRCA to "
-                    "seed it on. Pass the ladder (or a focal view of it), or "
-                    "use a mode without an ingroup weight."
-                )
-            with np.errstate(under="ignore"):
-                seeds = {anchor: np.exp(weight.log_probs([site]))}
-        log_L = engine.log_likelihoods(tree, [site], node_seeds=seeds)[0]
+        try:
+            view = self._focal_view(tree)
+            # Seed the ingroup weight as infer() does.
+            seeds = None
+            weight = self.ingroup_weight
+            if weight is not None:
+                anchor = view.ingroup_mrca
+                if anchor is None:
+                    raise ValueError(
+                        "infer_site: an ingroup weight is configured but the "
+                        f"tree supplied ({type(view).__name__}) has no ingroup "
+                        "MRCA to seed it on. Pass the ladder (or a focal view "
+                        "of it), or use a mode without an ingroup weight."
+                    )
+                with np.errstate(under="ignore"):
+                    seeds = {anchor: np.exp(weight.log_probs([site]))}
+            log_L = engine.log_likelihoods(view, [site], node_seeds=seeds)[0]
+        finally:
+            tree.time_scale = own_scale
         if self.prior is not None:
             log_prior = self.prior.log_probs([site])[0]
         else:
@@ -3111,8 +3117,6 @@ class FixedTreeInference(Inference):
         :return: The resolved sub-sample size.
         """
         n_in_resolve = self._ingroup_haplotype_count()
-        if n_in_resolve and hasattr(ingroup_weight, "_bind_haplotype_count"):
-            ingroup_weight._bind_haplotype_count(n_in_resolve)
         if subsample_size is not None:
             resolved = int(subsample_size)
             if resolved < 2:
@@ -3125,7 +3129,10 @@ class FixedTreeInference(Inference):
                     f"subsample_size must be in [2, {n_in_resolve}] for an "
                     f"ingroup of {n_in_resolve} haplotype(s); got {resolved}"
                 )
-        else:
+        if n_in_resolve and hasattr(ingroup_weight, "_bind_haplotype_count"):
+            ingroup_weight._bind_haplotype_count(
+                n_in_resolve, subsample_size=subsample_size)
+        if subsample_size is None:
             weight_ss = getattr(ingroup_weight, "subsample_size", None)
             if weight_ss is not None:
                 resolved = int(weight_ss)
@@ -3913,17 +3920,15 @@ class FixedTreeInference(Inference):
 
     @property
     def _focal_tree(self) -> "Tree | None":
-        """The ladder as seen from the focal node, built on demand since
+        """The tree as seen from the focal node, built on demand since
         :meth:`fit` sets the branch rates in place.
 
-        :return: The ladder itself when reading at its own root, else a
+        :return: The tree itself when reading at its own root, else a
             re-rooted view of it.
         """
         if self.tree is None:
             return None
-        if self._given_tree:
-            return self._focal_view(self.tree)
-        return self.tree.at_focal(self.focal)
+        return self._focal_view(self.tree)
 
     _MODE = "fixed-tree"
 

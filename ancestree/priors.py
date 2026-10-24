@@ -465,12 +465,14 @@ class AdaptiveIngroupWeight(IngroupWeight):
         self._n_sites_per_bin: dict[int, float] = {}
         self._n_sites_fallback_kingman: int = 0
 
-    def _bind_haplotype_count(self, n: int, *, check: bool = True) -> None:
+    def _bind_haplotype_count(
+        self, n: int, *, check: bool = True, subsample_size: int | None = None,
+    ) -> None:
         """Size the weight to ``n`` ingroup haplotypes.
 
         An inference passes the count its ids resolve to in the panel, so an
         ingroup named per individual is sized by its haplotypes. A default
-        ``subsample_size`` follows as ``min(n, 11)``.
+        ``subsample_size`` follows the inference's, or ``min(n, 11)``.
 
         A fitted weight keeps its size. Until a fit, the per-bin ``π_j`` are
         the Kingman values ``(n_sub - j) / n_sub``.
@@ -478,6 +480,8 @@ class AdaptiveIngroupWeight(IngroupWeight):
         :param n: Number of ingroup haplotypes.
         :param check: Whether to refuse an explicit ``subsample_size`` above
             ``n``.
+        :param subsample_size: The inference's explicit sub-sample size, taken
+            by a weight constructed without one.
         :raises ValueError: If ``check`` is set and ``subsample_size`` exceeds
             ``n``.
         """
@@ -486,7 +490,8 @@ class AdaptiveIngroupWeight(IngroupWeight):
         self.n_ingroup = int(n)
         if self._subsample_size_was_default:
             # A one-haplotype ingroup resolves to 1 and never fits a bin.
-            self.subsample_size = min(self.n_ingroup, 11)
+            self.subsample_size = (int(subsample_size) if subsample_size
+                                   is not None else min(self.n_ingroup, 11))
         elif check and self.subsample_size > self.n_ingroup:
             raise ValueError(
                 f"subsample_size must be in [2, n_ingroup={self.n_ingroup}]; "

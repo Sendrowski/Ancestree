@@ -628,8 +628,8 @@ def test_infer_site_applies_mu_scaling(small_ts):
     assert tree.time_scale == 1.0  # as built
     post = inf.infer_site(tree, site)
 
-    # mu is applied to the supplied tree,
-    assert tree.time_scale == mu
+    # the supplied tree is handed back at its own scale,
+    assert tree.time_scale == 1.0
     # the posterior is informative rather than the uniform prior,
     assert post.max_prob > 0.25
     # and it agrees with the full-walk posterior for that site.

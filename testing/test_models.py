@@ -262,6 +262,21 @@ class TestTransitionCache:
         assert m1.cache_info().hits == 1
         assert m2.cache_info().hits == 0
 
+    @pytest.mark.parametrize("model, change", [
+        (K2(kappa=2.0), lambda m: setattr(m, "kappa", 10.0)),
+        (HKY(kappa=2.0), lambda m: setattr(m, "kappa", 10.0)),
+        (GTR(), lambda m: m.rates.__setitem__(1, 5.0)),
+    ])
+    def test_a_parameter_change_is_not_served_a_stale_matrix(self, model, change):
+        """The scalar cache was keyed on (t, pi) alone, so assigning a
+        parameter outside set_free_params kept returning the old matrix."""
+        before = model.transition_probs(0.1).copy()
+        change(model)
+        after = model.transition_probs(0.1)
+        assert not np.allclose(after, before)
+        np.testing.assert_allclose(
+            after, model.transition_probs(np.array([0.1]))[0], atol=1e-15)
+
     def test_cached_value_matches_uncached(self):
         m = JC69()
         cached = m.transition_probs(0.42)  # caches

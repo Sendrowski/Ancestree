@@ -1606,6 +1606,21 @@ class TestSubsampleSizeReconciliation:
         )
         assert inf.subsample_size == 7
 
+    def test_a_weight_without_a_size_takes_the_inference_size(self):
+        """An AdaptiveIngroupWeight built without subsample_size was sized to
+        min(n, 11) before the explicit inference value was compared, so the
+        two were reported as a mismatch."""
+        prior = AdaptiveIngroupWeight(self.ingroup)
+        tree = OutgroupLadderTree(self.ingroup, self.outgroup)
+        site = _biallelic_site(1, self.ingroup, self.outgroup)
+        inf = FixedTreeInference(
+            [site], JC69(), _no_counts(), tree=tree,
+            subsample_size=5, ingroup_weight=prior,
+            fit_required=False, progress=False,
+        )
+        assert inf.subsample_size == prior.subsample_size == 5
+        assert sorted(prior.pi) == list(range(6))
+
 
 class TestOptimizerTotalFailure:
     def test_all_starts_fail_raises(self, monkeypatch):
@@ -1980,6 +1995,28 @@ def test_infer_site_needs_an_ingroup_mrca_to_seed_the_weight(small_ts):
     site = Site(chrom="1", pos=1, alleles=("A",), tip_alleles={"0": "A"})
     with pytest.raises(ValueError, match="no ingroup MRCA"):
         inf.infer_site(tree, site)
+
+
+def test_infer_site_reads_a_ladder_at_the_configured_focal_node():
+    """infer_site returned a ladder unchanged at focal='panel_root', reading
+    at the ingroup MRCA while infer() read at the deep end of the backbone."""
+    ing = [f"i{k}" for k in range(4)]
+    tree = OutgroupLadderTree(ing, ["o1", "o2"])
+    tree.set_params([0.05, 0.1, 0.2])
+    sites = [
+        Site(chrom="1", pos=1, alleles=("A", "C"), tip_alleles={
+            "i0": "A", "i1": "A", "i2": "A", "i3": "A", "o1": "C", "o2": "C"}),
+        Site(chrom="1", pos=2, alleles=("A", "C"), tip_alleles={
+            "i0": "A", "i1": "C", "i2": "C", "i3": "C", "o1": "A", "o2": "G"}),
+    ]
+    inf = FixedTreeInference(
+        sites, JC69(), BaseComposition.no_counts(), tree=tree,
+        fit_required=False, focal="panel_root", progress=False,
+        baseline_check=False,
+    )
+    for (site, post) in inf.infer():
+        np.testing.assert_allclose(
+            inf.infer_site(tree, site).values, post.values, atol=1e-12)
 
 
 def test_bound_warning_is_silent_before_the_fit(caplog):
