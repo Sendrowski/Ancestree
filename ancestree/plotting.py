@@ -158,7 +158,8 @@ class FocalTreePlot:
             mrca = self.canvas.ingroup_mrca
             return int(mrca) if mrca is not None else int(self.canvas.root)
         # The MRCA of the ingroup tips: the deepest node every one of them
-        # descends from, found by intersecting their root-ward paths.
+        # descends from, found by intersecting their root-ward paths. A single
+        # ingroup sample is its own MRCA, as in FocalNode.locate().
         paths = []
         for tip in tips:
             path, node = [], tip
@@ -167,11 +168,7 @@ class FocalTreePlot:
                 node = self._parent.get(node)
             paths.append(path)
         common = set(paths[0]).intersection(*(set(p) for p in paths[1:]))
-        anchor = min(common, key=lambda n: self._position[n][1])
-        # A ladder has no ingroup tip, so the anchor is the MRCA itself.
-        if anchor in tips and self._parent.get(anchor) is not None:
-            anchor = self._parent[anchor]
-        return int(anchor)
+        return int(min(common, key=lambda n: self._position[n][1]))
 
     def _resolve(self) -> "tuple[int, float]":
         """The canvas node below the focal position, and the distance above it."""

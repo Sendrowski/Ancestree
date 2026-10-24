@@ -140,11 +140,22 @@ class TestFocalTreePlotAnchors:
         # The canvas is six units tall, so a node at time 3 sits at y = 3.
         assert plot.focal_point()[1] == pytest.approx(3.0)
 
-    def test_a_single_ingroup_tip_anchors_on_the_node_above_it(self):
+    @pytest.mark.parametrize("focal", [
+        "ingroup_mrca",
+        FocalNode("ingroup_mrca", fraction=0.5),
+        FocalNode("ingroup_mrca", coalescences=1),
+        FocalNode("ingroup_mrca", depth=0.5),
+    ])
+    def test_a_single_ingroup_tip_is_placed_where_the_library_reads(self, focal):
+        """Regression: the plot anchored a one-sample ingroup on the tip's
+        parent, while :meth:`FocalNode.locate` reads at the tip itself, so
+        every placement measured from the anchor was drawn one branch high."""
         ts, ids = panel_ts()
-        plot = FocalTreePlot(TskitLocalTree(ts, position=0.0),
+        plot = FocalTreePlot(TskitLocalTree(ts, position=0.0), focal,
                              ingroup_samples=[str(ids["a"])])
-        assert plot.focal_point()[1] == pytest.approx(1.0)
+        read = FocalNode.parse(focal).locate(ts.first(), [ids["a"]])
+        node, tau = plot._resolve()
+        assert (int(node), tau) == (read.node, pytest.approx(read.tau))
 
     def test_a_fraction_above_a_root_anchor_stays_on_the_root(self):
         ts, ids = panel_ts()

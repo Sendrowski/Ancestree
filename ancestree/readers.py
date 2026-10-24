@@ -272,8 +272,10 @@ class Reader(ReprMixin):
     ) -> "Grade":
         """Grade the file's assignments against a truth.
 
-        A record written without its posterior is scored as a point mass on
-        its MAP allele.
+        A record carrying its posterior is scored on it, including one whose
+        ``AA`` was blanked by ``min_confidence``. A record written without its
+        posterior is scored as a point mass on its MAP allele, and one carrying
+        neither is skipped.
 
         :param truth: ``{position: allele}``, an iterable of such pairs, or a
             :class:`tskit.TreeSequence` carrying the true mutations, whose
@@ -318,12 +320,12 @@ class Reader(ReprMixin):
 
         def pairs():
             for a in self.annotations():
-                if a.aa is None:
-                    continue
                 if a.posterior is not None:
                     values = [float(a.posterior.get(s, 0.0)) for s in STATES]
-                else:
+                elif a.aa is not None:
                     values = [1.0 if s == a.aa else 0.0 for s in STATES]
+                else:
+                    continue
                 site = Site(chrom=a.chrom or "", pos=a.pos,
                             alleles=tuple(a.alleles), tip_alleles={})
                 yield site, Posterior(tuple(STATES), np.asarray(values))

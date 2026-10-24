@@ -417,6 +417,27 @@ class TestReader:
         assert grade.map_recovery == pytest.approx(0.5)
         assert grade.brier == pytest.approx(1.0)
 
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_grade_scores_the_stored_posterior_of_a_blanked_site(
+            self, tmp_path, suffix):
+        """Regression: a site whose ``AA`` was blanked by ``min_confidence``
+        was skipped although its posterior is on disk, so grading a
+        thresholded output scored only the confident sites.
+
+        Both sites fall below the 0.9 cut-off, peaked at 0.6 on ``A``, against
+        a truth of ``A`` at site 100 and ``C`` at site 200.
+        """
+        from ancestree.writers import ZarrWriter
+
+        out = str(tmp_path / f"out{suffix}")
+        writer = VCFWriter if suffix == ".vcf" else ZarrWriter
+        writer(None, out, min_confidence=0.9).write(
+            [site_pair(100, p=0.6), site_pair(200, p=0.6)])
+        assert all(a.aa is None for a in Reader(out).annotations())
+        grade = Reader(out).grade({100: "A", 200: "C"})
+        assert grade.n_sites == 2
+        assert grade.map_recovery == pytest.approx(0.5)
+
     def test_a_non_numeric_probability_reads_as_none(self):
         assert Reader._as_prob("abc") is None
         assert Reader._as_prob("0.25") == pytest.approx(0.25)

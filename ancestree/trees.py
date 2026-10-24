@@ -47,6 +47,26 @@ class Tree(ReprMixin, ABC):
 
     _time_scale: float = 1.0
 
+    @staticmethod
+    def _newick_leaves(root, caller: str) -> dict:
+        """The leaves of a parsed Newick tree, keyed by unquoted name.
+
+        :param root: Root :class:`newick.Node`.
+        :param caller: Method name prefixed to the error message.
+        :return: ``{name: leaf}`` in walk order.
+        :raises ValueError: If a leaf is unnamed or two leaves share a name.
+        """
+        leaves: dict = {}
+        for leaf in (n for n in root.walk() if n.is_leaf):
+            name = leaf.unquoted_name
+            if not name:
+                raise ValueError(f"{caller}: every leaf needs a name")
+            if name in leaves:
+                raise ValueError(
+                    f"{caller}: the leaf name {name!r} appears more than once")
+            leaves[name] = leaf
+        return leaves
+
     @property
     def time_scale(self) -> float:
         """Scalar multiplier applied to every branch length by the kernel.
@@ -394,9 +414,10 @@ class TskitLocalTree(Tree):
     ) -> "TskitLocalTree":
         """Build a :class:`~ancestree.trees.TskitLocalTree` from a Newick string.
 
-        Leaf names become caller-facing sample ids in the resulting
-        ``sample_map``, and the wrapped tree sequence carries no sites or
-        mutations. Intended for hand-built example trees and, through
+        Leaf names, with Newick quoting removed, become caller-facing sample
+        ids in the resulting ``sample_map``, and the wrapped tree sequence
+        carries no sites or mutations. Intended for hand-built example trees
+        and, through
         :class:`~ancestree.trees.FixedTree`, for a tree that
         :class:`~ancestree.inference.FixedTreeInference` uses as given, not
         for production ARGs.
@@ -414,9 +435,10 @@ class TskitLocalTree(Tree):
         :return: A :class:`~ancestree.trees.TskitLocalTree` wrapping the
             single local tree of the constructed tree sequence.
         :raises ImportError: If the ``newick`` package is not installed.
-        :raises ValueError: If ``newick_str`` parses to multiple roots, a
-            branch length leaves a parent no later than one of its children,
-            or ``time_scale`` is not positive.
+        :raises ValueError: If ``newick_str`` parses to multiple roots, a leaf
+            is unnamed or shares its name with another, a branch length
+            leaves a parent no later than one of its children, or
+            ``time_scale`` is not positive.
         """
         try:
             import newick as _newick
@@ -434,7 +456,8 @@ class TskitLocalTree(Tree):
                 f"tree; got {len(forest)} top-level entries."
             )
         root = forest[0]
-        leaves = [n for n in root.walk() if n.is_leaf]
+        named = cls._newick_leaves(root, "TskitLocalTree.from_newick")
+        leaves = list(named.values())
         internals = [n for n in root.walk() if not n.is_leaf]
 
         # Assign times from the root down, the deepest leaf at time 0.
@@ -456,7 +479,7 @@ class TskitLocalTree(Tree):
                     raise ValueError(
                         f"TskitLocalTree.from_newick needs a positive branch "
                         f"length on every non-root edge; the edge into "
-                        f"{c.name or '<unnamed>'} leaves its parent at the "
+                        f"{c.unquoted_name or '<unnamed>'} leaves its parent at the "
                         f"same time ({time_at[id(n)]})"
                     )
 
@@ -481,7 +504,7 @@ class TskitLocalTree(Tree):
         ts = tables.tree_sequence()
         tree = cls(
             ts, position=0.0,
-            sample_map={leaf.name: node_id[id(leaf)] for leaf in leaves},
+            sample_map={name: node_id[id(leaf)] for name, leaf in named.items()},
         )
         tree.time_scale = time_scale
         return tree
@@ -1033,8 +1056,9 @@ class OutgroupLadderTree(Tree):
         :param outgroup_samples: Ids of the outgroup haplotypes, in any order.
         :return: A ladder whose branch rates are populated from the Newick.
         :raises ImportError: If the ``newick`` package is not installed.
-        :raises ValueError: On missing samples, overlap between ingroup and
-            outgroup, a non-monophyletic ingroup, or a ladder violation.
+        :raises ValueError: On missing samples, an unnamed or duplicated leaf,
+            overlap between ingroup and outgroup, a non-monophyletic ingroup,
+            or a ladder violation.
         """
         try:
             import newick as _newick
@@ -1066,11 +1090,10 @@ class OutgroupLadderTree(Tree):
         nw_root = forest[0]
 
         # Validate that every supplied sample appears as a leaf.
-        leaf_names_in_newick = {
-            n.name for n in nw_root.walk() if n.is_leaf and n.name
-        }
-        missing_ingroup = set(ingroup_list) - leaf_names_in_newick
-        missing_outgroup = set(outgroup_list) - leaf_names_in_newick
+        newick_leaves = cls._newick_leaves(
+            nw_root, "OutgroupLadderTree.from_newick")
+        missing_ingroup = set(ingroup_list) - newick_leaves.keys()
+        missing_outgroup = set(outgroup_list) - newick_leaves.keys()
         if missing_ingroup or missing_outgroup:
             parts = []
             if missing_ingroup:
@@ -1085,8 +1108,9 @@ class OutgroupLadderTree(Tree):
         # Prune the Newick to keep only the listed samples. Collapse
         # any degree-2 internals produced by pruning (their branch
         # lengths sum into the surviving edges).
-        keep = list(ingroup_list) + list(outgroup_list)
-        nw_root.prune_by_names(keep, inverse=True)
+        keep = set(ingroup_list) | set(outgroup_list)
+        nw_root.prune([leaf for name, leaf in newick_leaves.items()
+                       if name in keep], inverse=True)
         nw_root.remove_redundant_nodes()
 
         # Build a parent map: id(node) -> parent node.
@@ -1101,7 +1125,7 @@ class OutgroupLadderTree(Tree):
         _set_parents(nw_root)
 
         leaves: dict[str, "_newick.Node"] = {
-            n.name: n for n in nw_root.walk() if n.is_leaf and n.name
+            n.unquoted_name: n for n in nw_root.walk() if n.is_leaf
         }
         ingroup_set = set(ingroup_list)
 
@@ -1119,7 +1143,7 @@ class OutgroupLadderTree(Tree):
 
         # Check that the MRCA's descendants are exactly the ingroup samples
         # (no outgroup leaves nested inside the ingroup subtree).
-        mrca_leaves = {d.name for d in mrca.walk() if d.is_leaf and d.name}
+        mrca_leaves = {d.unquoted_name for d in mrca.walk() if d.is_leaf}
         extra = mrca_leaves - ingroup_set
         if extra:
             raise ValueError(
@@ -1163,13 +1187,13 @@ class OutgroupLadderTree(Tree):
             if grandparent is None:
                 # Last step: fold the degree-2 Newick root into a single K.
                 K_values.append(cur_len + sib_len)
-                outgroup_order.append(sibling.name)
+                outgroup_order.append(sibling.unquoted_name)
                 break
             # Non-last step: append K{2i} (current's branch up) and K{2i+1}
             # (sibling outgroup's branch).
             K_values.append(cur_len)
             K_values.append(sib_len)
-            outgroup_order.append(sibling.name)
+            outgroup_order.append(sibling.unquoted_name)
             cur = parent
 
         n = len(outgroup_order)

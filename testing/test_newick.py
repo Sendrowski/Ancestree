@@ -168,6 +168,36 @@ class TestFromNewickErrors:
             OutgroupLadderTree.from_newick("(a:1,b:1):0;", ["x"], ["y"])
 
 
+class TestNewickLeafNames:
+    """Regression: leaf names were keyed as written, so a duplicated name
+    merged two tips into one sample (the other an unnamed, always-marginalised
+    tip), an empty name became the key ``None``, and a quoted name kept its
+    quotes and matched no sample."""
+
+    @pytest.mark.parametrize("nwk, match", [
+        ("(a:1,a:1,b:2);", "'a' appears more than once"),
+        ("(a:1,:1,b:2);", "every leaf needs a name"),
+    ])
+    def test_a_fixed_tree_refuses_a_duplicated_or_empty_name(self, nwk, match):
+        with pytest.raises(ValueError, match=match):
+            TskitLocalTree.from_newick(nwk)
+
+    def test_a_fixed_tree_unquotes_its_names(self):
+        tree = TskitLocalTree.from_newick("('a b':1,'x''y':1,c:2);")
+        assert all(tree.tip_for_sample(s) is not None
+                   for s in ("a b", "x'y", "c"))
+
+    def test_a_ladder_refuses_a_duplicated_name(self):
+        with pytest.raises(ValueError, match="'a' appears more than once"):
+            OutgroupLadderTree.from_newick("((a:1,a:1):1,o:2);", ["a"], ["o"])
+
+    def test_a_ladder_unquotes_its_names(self):
+        tree = OutgroupLadderTree.from_newick(
+            "(('a b':1,c:1):1,'o':2);", ["a b", "c"], ["o"])
+        assert tree.outgroup_samples == ("o",)
+        assert tree.ingroup_samples == ("a b", "c")
+
+
 class TestFromNewickLadderViolations:
     """Topologies that are not an outgroup ladder are refused by name."""
 

@@ -281,6 +281,19 @@ class TestPloidyResolution:
         assert dict(sites[-1].tip_alleles) == {
             "s1_h0": "C", "s1_h1": "G", "s2_h0": "C", "s2_h1": "C"}
 
+    def test_ploidy_is_read_on_the_filtered_contig(self, tmp_path):
+        """Regression: the probe read the haploid contig 1 record ahead of
+        contig 2, so ``chrom_filter="2"`` resolved ploidy 1 and dropped the
+        second haplotype of every diploid call on contig 2."""
+        path = write_vcf(tmp_path / "hx.vcf", [
+            ("1", 5, "A", "G", ".", ["0", "1"]),
+            ("2", 5, "A", "G", ".", ["0|1", "1|1"]),
+        ], samples=("A", "B"))
+        source = CyVCF2Source(path, chrom_filter="2")
+        assert source.ploidy == 2
+        assert dict(next(iter(source)).tip_alleles) == {
+            "A_h0": "A", "A_h1": "G", "B_h0": "G", "B_h1": "G"}
+
     def test_triploid_genotypes_are_decoded(self, tmp_path):
         """Every haplotype of a ploidy-3 record reaches the panel.
 

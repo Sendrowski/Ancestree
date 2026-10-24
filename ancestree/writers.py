@@ -84,6 +84,9 @@ ZARR_AA_FIELD = "variant_AA"
 ZARR_AA_PROB_FIELD = "variant_AA_prob"
 ZARR_AA_POST_FIELD = "variant_AA_post"
 
+#: htslib's header-record type of an ``##INFO`` line (``BCF_HL_INFO``).
+_BCF_HL_INFO = 1
+
 
 class Writer(ReprMixin, ABC):
     """ABC for output writers that persist annotated ancestral alleles.
@@ -566,12 +569,15 @@ class Writer(ReprMixin, ABC):
 class VCFWriter(Writer):
     """Write a VCF with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` annotations.
 
-    An input VCF is used as a template: its full header and every variant
-    field other than the ``AA`` ``INFO`` fields, which each run rewrites,
-    are passed through to the output. For each variant the writer
-    looks up the posterior by ``(chrom, pos)`` and, if found, sets the
-    ``INFO`` fields. Variants without a matching posterior are
-    written unannotated. Without an input VCF, each site is written as one
+    An input VCF is used as a template: its header and every variant field
+    other than the ``AA`` ``INFO`` fields, which each run rewrites, are
+    passed through to the output. The header declares ``AA``, ``AA_prob``
+    and ``AA_post`` as ancestree's, replacing any declaration the template
+    carries. For each variant the writer looks up the posterior by
+    ``(chrom, pos)`` and, if found, sets the ``INFO`` fields. Variants
+    without a matching posterior are written unannotated, and an ``AA`` value
+    the template carries on them is cleared, since the header declares ``AA``
+    as ancestree's. Without an input VCF, each site is written as one
     ``PASS`` record carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`. An individual's
@@ -704,7 +710,9 @@ class VCFWriter(Writer):
             parameters). Written once to the VCF header as a human-readable
             ``##source=ancestree <version> (<mode>)`` line plus a
             machine-readable ``##ancestree_provenance=<json>`` line. Not
-            emitted per record.
+            emitted per record. A template's own ancestree lines are kept
+            ahead of the new ones, and dropped when ``provenance`` is ``None``
+            or empty.
         :return: Number of records annotated.
         :raises ValueError: If ``store_posterior`` is set for a ``.bcf``
             destination, which cannot carry a multi-valued ``Type=Float``
@@ -728,6 +736,17 @@ class VCFWriter(Writer):
             info=info, provenance=provenance,
         )
 
+    @staticmethod
+    def _declare(vcf, header: Mapping[str, str]) -> None:
+        """Declare an ``INFO`` field, replacing the template's declaration of it.
+
+        :param vcf: The open ``cyvcf2.VCF`` template or ``cyvcf2.Writer``.
+        :param header: The ``##INFO`` line's fields, ``ID`` included.
+        """
+        with contextlib.suppress(KeyError):
+            vcf.remove_header(header["ID"], order=[_BCF_HL_INFO])
+        vcf.add_info_to_header(dict(header))
+
     def _add_headers(
         self,
         in_vcf,
@@ -745,10 +764,10 @@ class VCFWriter(Writer):
         :return: ``[(field_id, vcf_type, value), ...]`` for the ``info`` fields,
             to be emitted per annotated record.
         """
-        in_vcf.add_info_to_header(self.AA_INFO_HEADER)
-        in_vcf.add_info_to_header(self.AA_PROB_INFO_HEADER)
+        self._declare(in_vcf, self.AA_INFO_HEADER)
+        self._declare(in_vcf, self.AA_PROB_INFO_HEADER)
         if store_posterior:
-            in_vcf.add_info_to_header(self.AA_POST_INFO_HEADER)
+            self._declare(in_vcf, self.AA_POST_INFO_HEADER)
         if provenance:
             version = str(provenance.get("version", ""))
             mode = str(provenance.get("mode", ""))
@@ -771,7 +790,7 @@ class VCFWriter(Writer):
                         f"rename it"
                     )
                 vcf_type = self._vcf_type_of(value)
-                in_vcf.add_info_to_header({
+                self._declare(in_vcf, {
                     "ID": field_id,
                     "Number": "1",
                     "Type": vcf_type,
@@ -847,13 +866,24 @@ class VCFWriter(Writer):
         in_vcf = cyvcf2.VCF(self._input, samples=kept)
         info_fields = self._add_headers(in_vcf, info, provenance, store_posterior)
         staged = self._staged_path(self._output)
-        writer = cyvcf2.Writer(staged, in_vcf, mode=self._mode())
+        # A run writing no provenance drops the template's ancestree lines,
+        # which describe another run, and re-reads each record under the
+        # header without them.
+        header = in_vcf.raw_header
+        stale = not provenance and f"\n{VCF_PROVENANCE_MARKER}" in header
+        writer = (cyvcf2.Writer.from_string(
+                      staged, self._without_provenance(header),
+                      mode=self._mode())
+                  if stale else cyvcf2.Writer(staged, in_vcf, mode=self._mode()))
         try:
             n_annotated = 0
             # Pass 2 walks the template in the same order pass 1 built the
             # arrays, so the row is the record index. Re-locating by key would
             # discard pass 1's choice among rows sharing a position.
             for row, variant in enumerate(in_vcf):
+                if stale:
+                    variant = writer.variant_from_string(
+                        str(variant).rstrip("\n"))
                 if row < n and annotated[row]:
                     self._annotate(variant, str(aa[row]), float(prob[row]),
                                    None if post is None else post[row],
@@ -884,6 +914,17 @@ class VCFWriter(Writer):
         self._log.info("Wrote %s annotated sites to %s",
                        f"{n_annotated:,}", self._output)
         return n_annotated
+
+    @staticmethod
+    def _without_provenance(header: str) -> str:
+        """A VCF header without its ancestree provenance and source lines.
+
+        :param header: The header text.
+        :return: The header with those lines removed.
+        """
+        return "".join(
+            line for line in header.splitlines(True)
+            if not line.startswith((VCF_PROVENANCE_MARKER, "##source=ancestree")))
 
     def _mode(self) -> str:
         """The cyvcf2 write mode the output suffix names."""
@@ -1578,7 +1619,9 @@ class ZarrWriter(Writer):
         :param info: Optional run-level constants stored in the root group's
             ``attrs`` under ``ancestree_info`` (run-level, not per variant).
         :param provenance: Optional structured run record stored in the root
-            group's ``attrs`` under ``ancestree_provenance``.
+            group's ``attrs`` under ``ancestree_provenance``. A template's
+            ``info`` or ``provenance`` record is removed when the
+            corresponding argument is ``None`` or empty.
         :return: Number of variants annotated.
         """
         import zarr
@@ -1734,17 +1777,13 @@ class ZarrWriter(Writer):
         :param info: Run-level constants, or ``None``.
         :param provenance: Structured run record, or ``None``.
         """
-        # A run passing no info clears an earlier run's block.
-        if info:
-            root.attrs["ancestree_info"] = json.loads(
-                json.dumps(dict(info), default=str)
-            )
-        elif "ancestree_info" in root.attrs:
-            del root.attrs["ancestree_info"]
-        if provenance:
-            root.attrs[PROVENANCE_HEADER] = json.loads(
-                json.dumps(provenance, default=str)
-            )
+        # A run passing no info or provenance clears an earlier run's record.
+        for key, record in (("ancestree_info", info),
+                            (PROVENANCE_HEADER, provenance)):
+            if record:
+                root.attrs[key] = json.loads(json.dumps(dict(record), default=str))
+            elif key in root.attrs:
+                del root.attrs[key]
         # An exporter builds ##INFO lines from the arrays' description attributes.
         header = root.attrs.get("vcf_header")
         if isinstance(header, str) and "ID=AA," not in header:

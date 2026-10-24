@@ -110,6 +110,19 @@ class TestZarrWriter:
         assert dict(r.attrs["ancestree_provenance"])["mode"] == "fixed-tree"
         assert dict(r.attrs["ancestree_info"]) == {"prior": "adaptive"}
 
+    @pytest.mark.parametrize("provenance", [None, {}])
+    def test_a_run_without_provenance_clears_the_template_s(
+            self, vcz_store, tmp_path, provenance):
+        """Regression: the template's ``ancestree_provenance`` survived a run
+        that wrote none, so the output named a run that did not produce its
+        calls."""
+        first, second = str(tmp_path / "a.vcz"), str(tmp_path / "b.vcz")
+        ZarrWriter(vcz_store, first).write(
+            iter([(_site(100), post("A", 0.9))]), provenance={"version": "x"})
+        ZarrWriter(first, second).write(
+            iter([(_site(100), post("A", 0.9))]), provenance=provenance)
+        assert "ancestree_provenance" not in zarr.open(second, mode="r").attrs
+
     def test_embedded_header_gains_aa_info_lines(self, vcz_store, tmp_path):
         out = str(tmp_path / "out.vcz")
         ZarrWriter(vcz_store, out).write(iter([(_site(100), post("A", 0.9))]))

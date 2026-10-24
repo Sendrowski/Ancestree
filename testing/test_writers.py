@@ -174,6 +174,66 @@ class TestReservedInfoKeys:
             )
 
 
+class TestTheTemplateHeaderDefersToTheRun:
+    """A template's ``AA`` declaration and provenance describe another run."""
+
+    _HEADER = (
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=1,length=1000>\n"
+        '##ancestree_provenance={"version":"OLD"}\n'
+        "##source=ancestree OLD (arg)\n"
+        '##INFO=<ID=AA,Number=A,Type=Integer,Description="old AA">\n'
+        '##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n"
+        "1\t5\t.\tA\tT\t.\tPASS\tAA=3;DP=10\tGT\t0|1\n"
+        "1\t9\t.\tC\tG\t.\tPASS\tAA=2;DP=4\tGT\t1|1\n"
+    )
+
+    def _write(self, tmp_path, suffix, provenance):
+        """Annotate site 5 of the template, leaving site 9 unscored."""
+        template = tmp_path / "in.vcf"
+        template.write_text(self._HEADER, encoding="utf-8")
+        out = str(tmp_path / f"out{suffix}")
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        VCFWriter(str(template), out).write(
+            iter([(site, post("A", 0.9))]), provenance=provenance,
+            store_posterior=suffix != ".bcf")
+        return out
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcf.gz", ".bcf"])
+    def test_aa_is_declared_as_ancestree_s(self, tmp_path, suffix):
+        """Regression: the template's ``AA`` line won over ancestree's, so the
+        header kept its description and type, and an ``Integer`` declaration
+        left the written call unreadable."""
+        import cyvcf2
+
+        out = self._write(tmp_path, suffix, {"version": "NEW"})
+        vcf = cyvcf2.VCF(out)
+        assert vcf.get_header_type("AA")["Description"] == (
+            '"Inferred ancestral allele (ancestree)"')
+        records = list(vcf)
+        assert [r.INFO.get("AA") for r in records] == ["A", None]
+        assert [r.INFO.get("DP") for r in records] == [10, 4]
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcf.gz", ".bcf"])
+    @pytest.mark.parametrize("provenance", [None, {}])
+    def test_a_run_without_provenance_drops_the_template_s(
+            self, tmp_path, suffix, provenance):
+        """Regression: the template's ancestree provenance survived a run that
+        wrote none, so ``Reader.provenance()`` named a run that did not produce
+        the calls."""
+        out = self._write(tmp_path, suffix, provenance)
+        with pytest.raises(ValueError, match="no ancestree provenance"):
+            Reader(out).provenance()
+        assert [a.aa for a in Reader(out).annotations()] == ["A", None]
+
+    def test_a_run_with_provenance_keeps_the_template_s_record(self, tmp_path):
+        out = self._write(tmp_path, ".vcf", {"version": "NEW"})
+        assert Reader(out).provenance()["version"] == "NEW"
+        assert '##ancestree_provenance={"version":"OLD"}' in Path(out).read_text()
+
+
 def test_a_missing_backend_names_the_writer_and_the_module(tmp_path):
     writer = VCFWriter(tmp_path / "in.vcf", tmp_path / "out.vcf")
     with pytest.raises(ImportError, match="VCFWriter requires ancestree_no_such"):

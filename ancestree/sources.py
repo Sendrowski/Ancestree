@@ -177,8 +177,8 @@ class CyVCF2Source(SiteSource):
     Per-haplotype tip naming: a diploid sample ``S`` is split into two
     haplotype-samples ``S_h0`` and ``S_h1`` (Ancestree's Felsenstein
     likelihood is per-haplotype). For haploid VCFs the original sample
-    name is kept unchanged. Ploidy is auto-detected from the first
-    variant. Pass ``ploidy=`` explicitly to override.
+    name is kept unchanged. Ploidy is auto-detected from the first called
+    variant on ``chrom_filter``. Pass ``ploidy=`` explicitly to override.
 
     Non-SNP variants (indels, complex alleles, alleles outside the
     A/C/G/T alphabet) are silently skipped.
@@ -239,10 +239,13 @@ class CyVCF2Source(SiteSource):
             self._genotype_rows = [row_of[s] for s in self._vcf_samples]
             # Ploidy is len(genotype) - 1. A bare "." reaches htslib as one
             # value, so records are probed until one carries a called
-            # genotype. A sites-only VCF defaults to diploid.
+            # genotype. A sites-only VCF defaults to diploid. Records outside
+            # chrom_filter are passed over without counting toward the probe.
             detected = None
+            records = (r for r in vcf if chrom_filter is None
+                       or r.CHROM == chrom_filter)
             for _ in range(_PLOIDY_PROBE_RECORDS):
-                record = next(iter(vcf), None)
+                record = next(records, None)
                 if record is None:
                     break
                 gts = record.genotypes
