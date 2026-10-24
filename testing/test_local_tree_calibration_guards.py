@@ -133,7 +133,8 @@ def test_uncalled_blocks_do_not_deflate_the_pair_prior_mean():
             counts[0, :k] = 0.0
             called[0, :k] = 0.0
         return float(np.asarray(
-            hmm.calibrate(counts, called_frac=called)[-1]).ravel()[0])
+            hmm.calibrate(counts, called=called,
+                          block_sites=np.ones(n_blocks))[-1]).ravel()[0])
 
     reference = t_bar(0.0)
     # Half the blocks uncalled must not halve the prior mean. The bound is
@@ -154,7 +155,7 @@ def test_calibrate_gives_a_never_called_pair_the_median_prior_mean(caplog):
     called[0] = 0.0
     with caplog.at_level(logging.WARNING, logger="ancestree"):
         _edges, _t_rep, _lam, _log_lam, _r, t_bar = hmm.calibrate(
-            counts, called_frac=called)
+            counts, called=called, block_sites=np.ones(4))
     per_block = 2.0 * hmm.mu * hmm.block_size
     np.testing.assert_allclose(t_bar[1], 3.0 / per_block)
     np.testing.assert_allclose(t_bar[2], 1.0 / per_block)
@@ -171,7 +172,7 @@ def test_calibrate_with_every_pair_blind_falls_back_to_the_grid_mean(caplog):
     called = np.zeros((1, 4), dtype=np.float64)
     with caplog.at_level(logging.WARNING, logger="ancestree"):
         _edges, t_rep, _lam, _log_lam, _r, t_bar = hmm.calibrate(
-            counts, called_frac=called)
+            counts, called=called, block_sites=np.ones(4))
     assert t_bar.shape == (1,)
     assert t_bar[0] == pytest.approx(float(np.mean(t_rep)))
 

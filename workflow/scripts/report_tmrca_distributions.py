@@ -118,7 +118,7 @@ def _deepen_floor(builder, scale):
     hmm = PairwiseCoalescentHMM(
         g.shape[1], mu=builder.mu, rec_rate=builder.rec_rate,
         block_size=builder.block_size, n_time_bins=builder.n_time_bins)
-    counts, _called = hmm._pair_block_counts(g, block_of_site, n_blocks)
+    counts, _called, _sites = hmm._pair_block_counts(g, block_of_site, n_blocks)
     edges, _ = hmm._calibrate_time_grid(counts)
     step = np.log10(edges[1] / edges[0])
     # Calibration puts the floor at the median over pairs of each pair's mean

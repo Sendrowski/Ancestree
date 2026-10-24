@@ -388,7 +388,8 @@ class EnsembleFocalScan:
         for start in range(0, self.n_members, M):
             ffbs_paths(ens.hmm_counts, ens.hmm_lam, ens.hmm_log_lam,
                        ens.alpha_ck, ens.ckpt_stride, ens.n_blocks, ens.hmm_r,
-                       ens.hmm_pi, ens.hmm_esc, self.seed + start, ens.pair_key,
+                       ens.hmm_pi, ens.hmm_called, ens.hmm_block_sites,
+                       self.seed + start, ens.pair_key,
                        path)
             paths_to_condensed(path, ens.edge_lo, ens.edge_hi, ens.t_bar,
                                ens.needed, ens.blk_lo, ens.blk_hi, 0,

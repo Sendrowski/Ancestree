@@ -32,12 +32,13 @@ def test_odd_block_count_keeps_members_independent():
     pi = np.full((P, T), 1.0 / T)
 
     # stride=1 makes every block its own checkpoint, so alpha is read as the
-    # forward matrix and nothing is replayed: counts, lam and esc go unused.
+    # forward matrix and nothing is replayed: counts, lam and the exposure go unused.
     counts = np.zeros((P, K), dtype=np.int64)
     lam = np.ones((K, T))
     path = np.empty((M, P, K), dtype=np.int8)
     _ensemble.ffbs_paths(counts, lam, np.log(lam), alpha, 1, K, r, pi,
-                         np.ones((P, K)), 1, np.arange(P, dtype=np.uint64),
+                         np.ones((P, K)), np.ones(K), 1,
+                         np.arange(P, dtype=np.uint64),
                          path)
     blk_lo = 2 * needed
     blk_hi = np.minimum(blk_lo + 2, K)

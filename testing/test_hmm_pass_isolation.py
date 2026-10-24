@@ -147,14 +147,13 @@ def test_the_ensemble_forward_matches_the_smc_forward():
     lam2 = np.tile(lam, (N, 1))
     log_lam2 = np.tile(log_lam, (N, 1))
     r2 = np.tile(r, (N, 1))
-    esc = np.ones(counts.shape[0])
     a_prev, a_cur = np.empty(T), np.empty(T)
     e, nu = np.empty(T), np.empty(T)
 
-    _ensemble._forward_init(counts, lam2, log_lam2, pi, esc, a_prev, e, T)
+    _ensemble._forward_init(counts, lam2, log_lam2, pi, 1.0, a_prev, e, T)
     np.testing.assert_allclose(a_prev, ref[0], rtol=1e-10, atol=1e-12)
     for k in range(1, counts.shape[0]):
-        _ensemble._forward_step(counts, lam2, log_lam2, r2, pi, esc, k,
+        _ensemble._forward_step(counts, lam2, log_lam2, r2, pi, 1.0, k,
                                 a_prev, a_cur, e, nu, T)
         np.testing.assert_allclose(
             a_cur, ref[k], rtol=1e-10, atol=1e-12,

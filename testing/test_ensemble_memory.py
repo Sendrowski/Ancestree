@@ -187,3 +187,60 @@ def test_posterior_is_independent_of_the_window_block():
         for pos in ref:
             assert np.array_equal(ref[pos], got[pos]), (
                 f"window block {block} changed the posterior at {pos}")
+
+
+def _hmm_counts(n_hap=30, n_blocks=4000, seed=0):
+    """Poisson block counts in int16, as the ensemble holds them."""
+    from ancestree import PairwiseCoalescentHMM
+    hmm = PairwiseCoalescentHMM(n_hap, mu=1e-8, rec_rate=1e-8, block_size=1000)
+    rng = np.random.default_rng(seed)
+    n_pairs = n_hap * (n_hap - 1) // 2
+    counts = rng.poisson(3.0, size=(n_pairs, n_blocks)).astype(np.int16)
+    return hmm, counts, rng
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_calibrate_holds_one_float_copy_of_the_counts(monkeypatch, missing):
+    """Calibration scratch is one float64 copy of the counts plus row chunks.
+
+    Each division, column selection and mask product used to allocate a full
+    ``(n_pairs, n_blocks)`` float64 temporary, taking the transient peak to
+    about 20 times the int16 counts (1.4 GB at 60 haplotypes and 20,000
+    blocks).
+    """
+    import tracemalloc
+
+    from ancestree import _ensemble
+    monkeypatch.setattr(_ensemble, "ROW_CHUNK_BYTES", 2**20, raising=False)
+    hmm, counts, rng = _hmm_counts()
+    n_blocks = counts.shape[1]
+    kw = {}
+    if missing:
+        kw = dict(called=rng.integers(1, 5, size=counts.shape).astype(np.int16),
+                  block_sites=np.full(n_blocks, 4, dtype=np.int64))
+    emit_scale = np.full(n_blocks, 0.9)
+    block_mask = np.ones(n_blocks, dtype=bool)
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        hmm.calibrate(counts, emit_scale=emit_scale, block_mask=block_mask, **kw)
+        peak = tracemalloc.get_traced_memory()[1] - before
+    finally:
+        tracemalloc.stop()
+    # The float64 copy alone is 4 times the int16 counts.
+    assert peak < 6 * counts.nbytes, (
+        f"calibrate peaked at {peak / counts.nbytes:.1f}x the int16 counts")
+
+
+def test_a_fully_called_panel_allocates_no_exposure_array():
+    """Without a missing call every exposure is 1 and no array holds it."""
+    from ancestree import PairwiseCoalescentHMM
+    rng = np.random.default_rng(1)
+    n_hap, n_blocks = 6, 50
+    genotypes = rng.integers(0, 2, size=(4 * n_blocks, n_hap)).astype(np.int8)
+    block_of_site = np.repeat(np.arange(n_blocks), 4)
+    hmm = PairwiseCoalescentHMM(n_hap, mu=1e-8, rec_rate=1e-8, block_size=100)
+    _counts, called, block_sites = hmm._pair_block_counts(
+        genotypes, block_of_site, n_blocks, dtype=np.int16)
+    assert called is None
+    assert block_sites.shape == (n_blocks,)

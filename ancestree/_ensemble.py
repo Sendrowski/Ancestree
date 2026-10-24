@@ -40,6 +40,9 @@ S_STATES = 4
 #: Linkage weight of a pair with no exposure in a window: small enough that any
 #: called pair outweighs it, positive so uncalled pairs average among themselves.
 _WEIGHT_FLOOR = 1e-9
+#: Float64 bytes a pair-by-block reduction holds per chunk of rows, which
+#: bounds its scratch to a fraction of the ``(P, K)`` count array.
+ROW_CHUNK_BYTES = 32 * 2**20
 
 
 # --------------------------------------------------------------- UPGMA
@@ -265,24 +268,40 @@ def upgma_batch(condensed, n, Zout, weights):
                 Zout[w, i, c] = Z[i, c]
 
 
-def window_exposure(called_frac, blk_lo, blk_hi):
+def row_chunks(n_rows, n_cols):
+    """Row ranges of at most :data:`ROW_CHUNK_BYTES` of float64 each.
+
+    :param n_rows: Rows to cover.
+    :param n_cols: Columns per row.
+    :return: ``(start, stop)`` ranges partitioning ``[0, n_rows)`` in order.
+    """
+    step = max(1, ROW_CHUNK_BYTES // (8 * max(n_cols, 1)))
+    return [(a, min(a + step, n_rows)) for a in range(0, n_rows, step)]
+
+
+def window_exposure(called, block_sites, blk_lo, blk_hi):
     """Linkage weight of each pair in each window.
 
-    :param called_frac: ``(P, K)`` fraction of each block over which the pair
-        is called.
+    :param called: ``(P, K)`` number of each block's sites at which the pair is
+        called, or ``None`` for fully called.
+    :param block_sites: ``(K,)`` site count each ``called`` entry is out of.
     :param blk_lo: ``(n_w,)`` first block of each window.
     :param blk_hi: ``(n_w,)`` one past its last block.
     :return: ``(n_w, P)`` mean called fraction over the window's blocks, plus
-        :data:`_WEIGHT_FLOOR`. Zero rows where every pair is fully called,
-        which :func:`upgma_batch` reads as the plain average.
+        :data:`_WEIGHT_FLOOR`. Empty where every pair is fully called, which
+        :func:`upgma_batch` reads as the plain average.
     """
-    if not (called_frac < 1.0).any():
-        return np.empty((0, called_frac.shape[0]))
-    csum = np.concatenate(
-        [np.zeros((called_frac.shape[0], 1)), np.cumsum(called_frac, axis=1)],
-        axis=1)
-    return np.ascontiguousarray(
-        ((csum[:, blk_hi] - csum[:, blk_lo]) / (blk_hi - blk_lo)).T) + _WEIGHT_FLOOR
+    if called is None or not (called < block_sites).any():
+        return np.empty((0, 0))
+    P, K = called.shape
+    out = np.empty((len(blk_lo), P))
+    for a, b in row_chunks(P, K + 1):
+        csum = np.concatenate(
+            [np.zeros((b - a, 1)), np.cumsum(called[a:b] / block_sites, axis=1)],
+            axis=1)
+        out[:, a:b] = ((csum[:, blk_hi] - csum[:, blk_lo])
+                       / (blk_hi - blk_lo)).T + _WEIGHT_FLOOR
+    return out
 
 
 # ------------------------------------------------------- dense tree packing
@@ -681,15 +700,15 @@ def _ckpt_stride(n_blocks: int, n_pairs: int, n_time_bins: int) -> int:
 
 
 @njit(cache=True, inline="always")
-def _forward_init(counts_p, lam, log_lam, pi_p, esc_p, a, e, T):
+def _forward_init(counts_p, lam, log_lam, pi_p, esc, a, e, T):
     """Filtered distribution at block 0, in place into ``a``.
 
-    ``esc_p[k]`` is the fraction of block ``k`` over which this pair is called,
-    so the Poisson mean is the exposure the count was actually generated from.
+    ``esc`` is the fraction of block 0 over which this pair is called, so the
+    Poisson mean is the exposure the count was actually generated from.
     """
     mx = -1e300
     for i in range(T):
-        ll = -esc_p[0] * lam[0, i] + counts_p[0] * log_lam[0, i]
+        ll = -esc * lam[0, i] + counts_p[0] * log_lam[0, i]
         e[i] = ll
         if ll > mx:
             mx = ll
@@ -736,13 +755,13 @@ def _reset_row_k(pi_p, r, k, nu, T):
 
 
 @njit(cache=True, fastmath=True, inline="always")
-def _forward_step(counts_p, lam, log_lam, r, pi_p, esc_p, k, a_prev, a_cur,
+def _forward_step(counts_p, lam, log_lam, r, pi_p, esc, k, a_prev, a_cur,
                   e, nu, T):
-    """One forward step into block ``k``."""
+    """One forward step into block ``k``, called over fraction ``esc`` of it."""
     _reset_row_k(pi_p, r, k, nu, T)
     mx = -1e300
     for i in range(T):
-        ll = -esc_p[k] * lam[k, i] + counts_p[k] * log_lam[k, i]
+        ll = -esc * lam[k, i] + counts_p[k] * log_lam[k, i]
         e[i] = ll
         if ll > mx:
             mx = ll
@@ -828,9 +847,13 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
 
 
 @njit(cache=True, parallel=True)
-def hmm_forward_ckpt(counts, lam, log_lam, r, pi, esc, stride, alpha_ck):
+def hmm_forward_ckpt(counts, lam, log_lam, r, pi, called, block_sites, stride,
+                     alpha_ck):
     """Forward pass retaining only every ``stride``-th block's distribution.
 
+    :param called: ``(P, K)`` number of each block's sites at which the pair
+        is called.
+    :param block_sites: ``(K,)`` site count each ``called`` entry is out of.
     :param stride: Blocks between checkpoints. See :func:`_ckpt_stride`.
     :param alpha_ck: ``(P, ceil(K / stride), T) float64`` out.
     """
@@ -841,11 +864,13 @@ def hmm_forward_ckpt(counts, lam, log_lam, r, pi, esc, stride, alpha_ck):
         nu = np.empty(T, np.float64)
         a_prev = np.empty(T, np.float64)
         a_cur = np.empty(T, np.float64)
-        _forward_init(counts[p], lam, log_lam, pi[p], esc[p], a_prev, e, T)
+        _forward_init(counts[p], lam, log_lam, pi[p],
+                      called[p, 0] / block_sites[0], a_prev, e, T)
         for i in range(T):
             alpha_ck[p, 0, i] = a_prev[i]
         for k in range(1, K):
-            _forward_step(counts[p], lam, log_lam, r, pi[p], esc[p], k,
+            _forward_step(counts[p], lam, log_lam, r, pi[p],
+                          called[p, k] / block_sites[k], k,
                           a_prev, a_cur, e, nu, T)
             for j in range(T):
                 a_prev[j] = a_cur[j]
@@ -856,8 +881,8 @@ def hmm_forward_ckpt(counts, lam, log_lam, r, pi, esc, stride, alpha_ck):
 
 
 @njit(cache=True, inline="always")
-def _replay_segment(counts_p, lam, log_lam, r, pi_p, esc_p, alpha_ck_p, c,
-                    stride, K, seg, e, nu, T):
+def _replay_segment(counts_p, lam, log_lam, r, pi_p, called_p, block_sites,
+                    alpha_ck_p, c, stride, K, seg, e, nu, T):
     """Rebuild blocks ``[c*stride, min(c*stride+stride, K))`` into ``seg``.
 
     Seeded from the checkpoint at ``c*stride``, which is the exact filtered
@@ -873,7 +898,8 @@ def _replay_segment(counts_p, lam, log_lam, r, pi_p, esc_p, alpha_ck_p, c,
     for j in range(T):
         seg[0, j] = alpha_ck_p[c, j]
     for k in range(lo + 1, hi):
-        _forward_step(counts_p, lam, log_lam, r, pi_p, esc_p, k,
+        _forward_step(counts_p, lam, log_lam, r, pi_p,
+                      called_p[k] / block_sites[k], k,
                       seg[k - lo - 1], seg[k - lo], e, nu, T)
     return hi - lo
 
@@ -902,9 +928,8 @@ def _pair_stream_keys(sample_names, pairs) -> np.ndarray:
 
 
 @njit(cache=True, parallel=True)
-def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, esc, seed0,
-               pair_key,
-               path):
+def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
+               block_sites, seed0, pair_key, path):
     """Joint forward-filtering backward-sampling draws of the TMRCA path.
 
     Writes the sampled time-bin index per member, pair and block into ``path``
@@ -918,6 +943,9 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, esc, seed0,
     :param r: ``(K, T)`` probability of not resetting the TMRCA on the step
         into each block.
     :param pi: ``(P, T)`` per-pair coalescent prior over time bins.
+    :param called: ``(P, K)`` number of each block's sites at which the pair
+        is called.
+    :param block_sites: ``(K,)`` site count each ``called`` entry is out of.
     :param seed0: First member's stream seed. Member ``b`` uses ``seed0 + b``.
     :param pair_key: ``(P,) uint64`` per-pair stream key. Derived from the
         pair's sample names, not its column position, so a panel
@@ -943,8 +971,9 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, esc, seed0,
             st[b], _u = _split(st[b])
         for c in range(n_ckpt - 1, -1, -1):
             lo = c * stride
-            n_seg = _replay_segment(counts[p], lam, log_lam, r, pi[p], esc[p],
-                                    alpha_ck[p], c, stride, K, seg, e, nu, T)
+            n_seg = _replay_segment(counts[p], lam, log_lam, r, pi[p],
+                                    called[p], block_sites, alpha_ck[p], c,
+                                    stride, K, seg, e, nu, T)
             for k in range(lo + n_seg - 1, lo - 1, -1):
                 a_k = seg[k - lo]
                 if k == K - 1:
@@ -1103,15 +1132,16 @@ class SegmentEnsemble:
             if block_of_site.size else 0
         count_dtype = np.int16 if max_per_block <= np.iinfo(np.int16).max \
             else np.int32
-        # ``esc`` is the fraction of each block over which the pair is called.
-        # A difference is only observable where both haplotypes carry a call,
-        # so this is the exposure the Poisson count was generated from.
-        counts, esc = hmm._pair_block_counts(
+        # ``called / block_sites`` is the fraction of each block over which the
+        # pair is called. A difference is only observable where both
+        # haplotypes carry a call, so this is the exposure the Poisson count
+        # was generated from.
+        counts, called, block_sites = hmm._pair_block_counts(
             genotypes, block_of_site, n_blocks, dtype=count_dtype)
         step, block_mask, emit_scale = builder._block_geometry(n_blocks)
         edges, t_rep, _, _, _, t_bar = hmm.calibrate(
             counts, emit_scale=emit_scale, block_mask=block_mask,
-            called_frac=esc)
+            called=called, block_sites=block_sites)
         base_lam = 2.0 * hmm.mu * hmm.block_size * t_rep
         lam = np.repeat(base_lam[None, :], n_blocks, axis=0)
         if emit_scale is not None:
@@ -1131,10 +1161,14 @@ class SegmentEnsemble:
         n_ckpt = int(np.ceil(n_blocks / self.ckpt_stride))
         self.alpha_ck = np.empty((len(pairs), n_ckpt, hmm.n_time_bins),
                                  dtype=np.float64)
-        hmm_forward_ckpt(counts, lam, log_lam, r, prior, esc,
-                         self.ckpt_stride, self.alpha_ck)
+        # Fully called pairs read ``block_sites / block_sites``, an exposure of
+        # exactly 1, from a zero-stride view.
+        self.hmm_called = np.broadcast_to(block_sites, counts.shape) \
+            if called is None else called
+        self.hmm_block_sites = block_sites
+        hmm_forward_ckpt(counts, lam, log_lam, r, prior, self.hmm_called,
+                         block_sites, self.ckpt_stride, self.alpha_ck)
         self.hmm_counts, self.hmm_lam, self.hmm_log_lam = counts, lam, log_lam
-        self.hmm_esc = esc
         self.n_blocks = n_blocks
         self.hmm_r, self.hmm_pi, self.t_rep = r, prior, t_rep
         # Linear edges and the per-pair coalescent mean, so the within-bin draw
@@ -1151,7 +1185,8 @@ class SegmentEnsemble:
             0, len(intervals) - 1).astype(np.int64)
         self.needed = np.unique(win_of_site)
         self.win_weight = window_exposure(
-            esc, self.blk_lo[self.needed], self.blk_hi[self.needed])
+            called, block_sites, self.blk_lo[self.needed],
+            self.blk_hi[self.needed])
         order = np.argsort(win_of_site, kind="stable")
         self.row_idx = order.astype(np.int64)
         per_win = np.bincount(
@@ -1304,7 +1339,8 @@ class SegmentEnsemble:
         """Sample one member chunk's paths in place."""
         ffbs_paths(self.hmm_counts, self.hmm_lam, self.hmm_log_lam,
                    self.alpha_ck, self.ckpt_stride, self.n_blocks,
-                   self.hmm_r, self.hmm_pi, self.hmm_esc, seed + start,
+                   self.hmm_r, self.hmm_pi, self.hmm_called,
+                   self.hmm_block_sites, seed + start,
                    self.pair_key, path)
 
     def iter_tree_sequences(self, n_members: int, *, member_chunk: int = 8,

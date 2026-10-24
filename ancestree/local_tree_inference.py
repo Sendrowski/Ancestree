@@ -282,7 +282,7 @@ class PairwiseCoalescentHMM(ReprMixin):
         self.n_time_bins = int(n_time_bins)
 
     def calibrate(self, counts, *, emit_scale=None, block_mask=None,
-                  called_frac=None):
+                  called=None, block_sites=None):
         """Time grid, per-bin rates and per-pair prior mean, from block counts.
 
         :param counts: ``(n_pairs, n_blocks)`` pairwise difference counts.
@@ -292,60 +292,75 @@ class PairwiseCoalescentHMM(ReprMixin):
             fully accessible block at the reference rate). ``None`` is uniform.
             Counts are divided by it.
         :param block_mask: Callable blocks. ``None`` is all.
-        :param called_frac: ``(n_pairs, n_blocks)`` fraction of each block over
+        :param called: ``(n_pairs, n_blocks)`` number of the block's sites at
             which the pair is called. ``None`` is fully called. Counts are
-            divided by it.
+            divided by the called fraction ``called / block_sites``.
+        :param block_sites: ``(n_blocks,)`` site count each ``called`` entry is
+            out of. Required with ``called``.
         :return: ``(edges, t_rep, lam, log_lam, r, t_bar_per_pair)``.
         """
+        from ancestree._ensemble import row_chunks
+        n_pairs, n_blocks = counts.shape
         if emit_scale is None:
-            eff = counts
-            informative = np.ones(counts.shape[1], dtype=bool)
+            es = None
+            informative = np.ones(n_blocks, dtype=bool)
         else:
             es = np.asarray(emit_scale, dtype=np.float64)
             # A block at the emission-scale floor carries no information
             # about coalescent time and is excluded from the calibration.
             informative = es > _EMIT_SCALE_FLOOR
-            eff = counts / np.where(informative, es, 1.0)[None, :]
-        if called_frac is not None:
-            cf = np.asarray(called_frac, dtype=np.float64)
-            eff = eff / np.where(cf > _ACCESS_FRAC_FLOOR, cf, 1.0)
-
+            es = np.where(informative, es, 1.0)
         grid_cols = informative
         if block_mask is not None:
             grid_cols = grid_cols & block_mask
         if not grid_cols.any():
-            grid_cols = informative if informative.any() else slice(None)
-        edges, t_rep = self._calibrate_time_grid(eff[:, grid_cols])
+            grid_cols = informative if informative.any() \
+                else np.ones(n_blocks, dtype=bool)
+        cols = np.flatnonzero(grid_cols)
+
+        # Effective counts over the grid columns, built a chunk of pairs at a
+        # time. The prior mean averages over the blocks the pair is called in.
+        # Column-major, the layout a column selection gives, so each pair's
+        # blocks are summed in order.
+        eff = np.empty((n_pairs, cols.size), dtype=np.float64, order="F")
+        own = np.empty(n_pairs, dtype=np.float64)
+        n_seen = np.full(n_pairs, cols.size, dtype=np.int64)
+        for a, b in row_chunks(n_pairs, cols.size):
+            e = counts[a:b, cols].astype(np.float64)
+            if es is not None:
+                e /= es[cols]
+            if called is None:
+                own[a:b] = e.mean(axis=1)
+            else:
+                cf = called[a:b, cols] / block_sites[cols]
+                seen = cf > _ACCESS_FRAC_FLOOR
+                e /= np.where(seen, cf, 1.0)
+                n_seen[a:b] = seen.sum(axis=1)
+                own[a:b] = (e * seen).sum(axis=1) / np.maximum(n_seen[a:b], 1)
+            eff[a:b] = e
+        per_block_rate = 2.0 * self.mu * self.block_size
+        t_bar = np.where(n_seen > 0, own, np.nan) / per_block_rate
+
+        edges, t_rep = self._calibrate_time_grid(eff, overwrite_input=True)
         lam = 2.0 * self.mu * self.block_size * t_rep
         log_lam = np.log(np.clip(lam, 1e-300, None))
         r = np.exp(-2.0 * self.rec_rate * self.block_size * t_rep)
-        per_block_rate = 2.0 * self.mu * self.block_size
-        sel = eff[:, grid_cols]
-        if called_frac is not None:
-            # The prior mean averages over the blocks the pair is called in.
-            seen = np.asarray(called_frac, dtype=np.float64)[:, grid_cols] \
-                > _ACCESS_FRAC_FLOOR
-            n_seen = seen.sum(axis=1)
-            own = (sel * seen).sum(axis=1) / np.maximum(n_seen, 1)
-            t_bar = np.where(n_seen > 0, own, np.nan) / per_block_rate
-            # A pair never called alongside itself has no average of its own;
-            # its counts are all zero, so sel.mean would pin it at the grid
-            # floor and make it the first UPGMA merge in every window.
-            blind = ~np.isfinite(t_bar)
-            if blind.any():
-                fallback = (float(np.median(t_bar[~blind])) if (~blind).any()
-                            else float(np.mean(t_rep)))
-                t_bar = np.where(blind, fallback, t_bar)
-                self._log.warning(
-                    "%d haplotype pair(s) are never called at the same site, "
-                    "so they carry the panel's median coalescence time rather "
-                    "than one of their own.", int(blind.sum()))
-        else:
-            t_bar = sel.mean(axis=1) / per_block_rate
+        # A pair never called alongside itself has no average of its own; its
+        # counts are all zero, so the plain mean would pin it at the grid
+        # floor and make it the first UPGMA merge in every window.
+        blind = ~np.isfinite(t_bar)
+        if blind.any():
+            fallback = (float(np.median(t_bar[~blind])) if (~blind).any()
+                        else float(np.mean(t_rep)))
+            t_bar = np.where(blind, fallback, t_bar)
+            self._log.warning(
+                "%d haplotype pair(s) are never called at the same site, "
+                "so they carry the panel's median coalescence time rather "
+                "than one of their own.", int(blind.sum()))
         return edges, t_rep, lam, log_lam, r, t_bar
 
     def _calibrate_time_grid(
-        self, counts: np.ndarray,
+        self, counts: np.ndarray, overwrite_input: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Build the shared log-spaced grid (bin edges + representatives).
 
@@ -357,24 +372,37 @@ class PairwiseCoalescentHMM(ReprMixin):
 
         :param counts: ``(n_pairs, n_blocks)`` per-block difference counts,
             divided by any per-block mutation-rate scale.
+        :param overwrite_input: Use ``counts``, a contiguous float64 array, as
+            scratch, leaving its contents undefined.
         :return: ``(edges[T+1], t_rep[T])``, bin edges and geometric-mid
             representatives, in generations.
         """
         if self.time_grid is not None:
             edges = self.time_grid
             return edges, np.sqrt(edges[:-1] * edges[1:])
+        from ancestree._ensemble import row_chunks
         per_block_rate = 2.0 * self.mu * self.block_size
-        crude = counts / per_block_rate
-        nonzero = crude[crude > 0]
+        crude = np.divide(counts, per_block_rate,
+                          out=counts if overwrite_input else None)
+        # Shallow end: the median over pairs of each pair's mean over all its
+        # blocks, empty ones included, divided by 200.
+        per_pair = np.atleast_1d(
+            crude.mean(axis=1) if crude.ndim == 2 else crude.mean())
+        # The nonzero entries, compacted in order to the front of ``crude``.
+        flat = crude.ravel(order="K")
+        n_nonzero = 0
+        for a, b in row_chunks(flat.size, 1):
+            chunk = flat[a:b]
+            v = chunk[chunk > 0]
+            flat[n_nonzero:n_nonzero + v.size] = v
+            n_nonzero += v.size
+        nonzero = flat[:n_nonzero]
         if nonzero.size == 0:
             t_lo, t_hi = 1e2, 1e5
         else:
             # robust deep end (0.5% quantile guard against a lone outlier)
-            t_hi = float(np.quantile(nonzero, 0.995)) * 2.0
-            # Shallow end: the median over pairs of each pair's mean over all
-            # its blocks, empty ones included, divided by 200.
-            per_pair = crude.mean(axis=1) if crude.ndim == 2 else crude.mean()
-            per_pair = np.atleast_1d(per_pair)
+            t_hi = float(np.quantile(nonzero, 0.995, overwrite_input=True)) \
+                * 2.0
             shallow = per_pair[per_pair > 0]
             t_mid = (float(np.median(shallow)) if shallow.size
                      else float(np.median(nonzero)))
@@ -411,52 +439,54 @@ class PairwiseCoalescentHMM(ReprMixin):
     def _pair_block_counts(
         self, genotypes: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
         dtype: "np.dtype | type" = np.int64,
-    ) -> "tuple[np.ndarray, np.ndarray]":
+    ) -> "tuple[np.ndarray, np.ndarray | None, np.ndarray]":
         """Per-block pairwise differences and the exposure they were counted over.
 
         :param genotypes: ``(n_sites, n_haplotypes)`` int8 allele indices
             (0..3), ``-1`` for missing.
         :param block_of_site: ``(n_sites,)`` block index per site.
         :param n_blocks: Total number of blocks.
-        :param dtype: Integer dtype the count array is held in, which bounds
-            its memory. Wide enough to hold the busiest block's site count.
-        :return: ``(counts, called_frac)``, both ``(n(n-1)/2, n_blocks)`` with
-            one row per haplotype pair in :func:`itertools.combinations` order.
-            ``counts`` holds the pairwise differences per block in ``dtype``,
-            and ``called_frac`` the float64 fraction of each block over which
-            both haplotypes are called, which is the count's exposure.
+        :param dtype: Integer dtype the count arrays are held in, which bounds
+            their memory. Wide enough to hold the busiest block's site count.
+        :return: ``(counts, called, block_sites)``. ``counts`` and ``called``
+            are ``(n(n-1)/2, n_blocks)`` in ``dtype``, with one row per
+            haplotype pair in :func:`itertools.combinations` order: the
+            pairwise differences per block, and the number of the block's sites
+            at which both haplotypes are called. ``block_sites`` is the
+            ``(n_blocks,)`` int64 site count of each block, so the count's
+            exposure is ``called / block_sites``. ``called`` is ``None`` when
+            no call is missing, meaning an exposure of 1 everywhere.
         """
         pairs = list(combinations(range(self.n_haplotypes), 2))
         counts = np.zeros((len(pairs), n_blocks), dtype=dtype)
-        called_frac = np.ones((len(pairs), n_blocks), dtype=np.float64)
         sites_per_block = np.bincount(block_of_site, minlength=n_blocks)
         has_sites = sites_per_block > 0
-        # With no missing call the exposure is 1.0 everywhere, so the whole
-        # per-pair called-fraction tally is skipped.
+        # A block listing no site says nothing about a pair's coverage, so it
+        # carries its nearest listed neighbour's exposure rather than a full
+        # block's: otherwise a pair uncalled over a stretch reads it as a run
+        # of zero differences.
+        source = np.arange(n_blocks)
+        if has_sites.any() and not has_sites.all():
+            idx = np.flatnonzero(has_sites)
+            source[~has_sites] = idx[np.clip(np.searchsorted(
+                idx, np.flatnonzero(~has_sites)), 0, idx.size - 1)]
+        block_sites = np.maximum(sites_per_block[source], 1).astype(np.int64)
         any_missing = bool((genotypes < 0).any())
+        called = np.zeros((len(pairs), n_blocks), dtype=dtype) \
+            if any_missing else None
         for p, (a, b) in enumerate(pairs):
             ga, gb = genotypes[:, a], genotypes[:, b]
             if any_missing:
                 both = (ga >= 0) & (gb >= 0)
                 differ = (ga != gb) & both
-                called = np.bincount(block_of_site[both], minlength=n_blocks)
-                frac = called[has_sites] / sites_per_block[has_sites]
-                called_frac[p, has_sites] = frac
-                # A block listing no site says nothing about this pair's
-                # coverage, so it carries its neighbour's exposure rather than
-                # a full block's: otherwise a pair uncalled over a stretch
-                # reads it as a run of zero differences.
-                if not has_sites.all() and frac.size:
-                    idx = np.flatnonzero(has_sites)
-                    nearest = idx[np.clip(np.searchsorted(
-                        idx, np.flatnonzero(~has_sites)), 0, idx.size - 1)]
-                    called_frac[p, ~has_sites] = called_frac[p, nearest]
+                called[p] = np.bincount(block_of_site[both],
+                                        minlength=n_blocks)[source]
             else:
                 differ = ga != gb
             if differ.any():
                 counts[p] = np.bincount(block_of_site[differ],
                                         minlength=n_blocks).astype(dtype)
-        return counts, called_frac
+        return counts, called, block_sites
 
     def block_tmrcas(
         self, genotypes: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
@@ -491,16 +521,16 @@ class PairwiseCoalescentHMM(ReprMixin):
         :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA (generations),
             one row per haplotype pair in :func:`itertools.combinations` order.
         """
-        counts, called_frac = self._pair_block_counts(
+        counts, called, block_sites = self._pair_block_counts(
             genotypes, block_of_site, n_blocks, dtype=np.int64)
-        self.called_frac = called_frac
+        self.called, self.block_sites = called, block_sites
 
         if seg_bounds is None:
             seg_bounds = [(0, n_blocks)]
 
         edges, t_rep, lam, log_lam, r, t_bar_all = self.calibrate(
             counts, emit_scale=emit_scale, block_mask=block_mask,
-            called_frac=called_frac)
+            called=called, block_sites=block_sites)
 
         out = np.zeros((counts.shape[0], n_blocks), dtype=np.float64)
         for p in range(counts.shape[0]):
@@ -511,8 +541,11 @@ class PairwiseCoalescentHMM(ReprMixin):
                 if s1 > s0:
                     seg_step = None if step is None else step[s0:s1 - 1]
                     seg_mask = None if block_mask is None else block_mask[s0:s1]
-                    seg_esc = called_frac[p, s0:s1] if emit_scale is None \
-                        else emit_scale[s0:s1] * called_frac[p, s0:s1]
+                    seg_esc = None if called is None \
+                        else called[p, s0:s1] / block_sites[s0:s1]
+                    if emit_scale is not None:
+                        seg_esc = emit_scale[s0:s1] if seg_esc is None \
+                            else emit_scale[s0:s1] * seg_esc
                     out[p, s0:s1] = pair_posterior_mean_tmrca(
                         counts[p, s0:s1], t_rep, lam, log_lam, r, pi,
                         step=seg_step, mask=seg_mask, escale=seg_esc,
@@ -781,7 +814,8 @@ class LocalTreeBuilder(ReprMixin):
         self.mutation_map = mutation_map
         self._ts = None
         self._pair_block_t: "np.ndarray | None" = None
-        self._pair_called_frac: "np.ndarray | None" = None
+        self._pair_called: "np.ndarray | None" = None
+        self._pair_block_sites: "np.ndarray | None" = None
 
     @property
     def axis_length(self) -> float:
@@ -1220,7 +1254,7 @@ class LocalTreeBuilder(ReprMixin):
             n, self.axis_length,
             intervals, condensed, sample_names=self.sample_names,
             window_weights=window_exposure(
-                self._pair_called_frac,
+                self._pair_called, self._pair_block_sites,
                 np.array([b0 for b0, _ in bounds], dtype=np.int64),
                 np.array([b1 for _, b1 in bounds], dtype=np.int64)),
         ).build()
@@ -1304,7 +1338,7 @@ class LocalTreeBuilder(ReprMixin):
             seg_bounds=self._seg_block_bounds(n_blocks),
             step=step, block_mask=block_mask, emit_scale=emit_scale,
         )
-        self._pair_called_frac = hmm.called_frac
+        self._pair_called, self._pair_block_sites = hmm.called, hmm.block_sites
         return self._pair_block_t
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:

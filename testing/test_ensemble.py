@@ -325,22 +325,24 @@ class TestEnsembleKernelInvariants:
         log_lam = np.log(lam)
         r = np.repeat(np.linspace(0.9, 0.2, cls.T)[None, :], cls.K, axis=0)
         pi = np.full((cls.P, cls.T), 1.0 / cls.T)
-        esc = np.ones((cls.P, cls.K))
-        return counts, lam, log_lam, r, pi, esc
+        called = np.ones((cls.P, cls.K), dtype=np.int16)
+        block_sites = np.ones(cls.K, dtype=np.int64)
+        return counts, lam, log_lam, r, pi, called, block_sites
 
     def _draw(self, n_members, seed0, stride):
         from ancestree._ensemble import ffbs_paths, hmm_forward_ckpt
 
-        counts, lam, log_lam, r, pi, esc = self._hmm_inputs()
+        counts, lam, log_lam, r, pi, called, block_sites = self._hmm_inputs()
         n_ckpt = int(np.ceil(self.K / stride))
         alpha_ck = np.empty((self.P, n_ckpt, self.T), dtype=np.float64)
-        hmm_forward_ckpt(counts, lam, log_lam, r, pi, esc, stride, alpha_ck)
+        hmm_forward_ckpt(counts, lam, log_lam, r, pi, called, block_sites,
+                         stride, alpha_ck)
         path = np.empty((n_members, self.P, self.K), dtype=np.int8)
         # Unnamed panel: the kernel keys each pair's stream by index, which
         # is what these invariants are stated over.
         pair_key = np.arange(self.P, dtype=np.uint64)
         ffbs_paths(counts, lam, log_lam, alpha_ck, stride, self.K,
-                   r, pi, esc, seed0, pair_key, path)
+                   r, pi, called, block_sites, seed0, pair_key, path)
         return path
 
     def test_a_smaller_ensemble_is_a_prefix_of_a_larger_one(self):
