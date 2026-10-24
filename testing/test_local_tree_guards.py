@@ -375,21 +375,31 @@ class TestLocalTreeBuilderGuards:
         with pytest.raises(ValueError, match="duplicated"):
             b.to_tree_sequence()
 
-    def test_out_of_range_position_warns(self, caplog):
-        """A site at pos == sequence_length is clipped, with a warning."""
-        import logging
-        names = ["s0", "s1"]
-        sites = [
-            _site("1", 100, "A", "C", {"s0": "A", "s1": "C"}),
-            _site("1", 1000, "A", "C", {"s0": "C", "s1": "A"}),  # == sequence_length
-        ]
-        b = LocalTreeBuilder(
-            sites, mu=1e-8, rec_rate=1e-8, sample_names=names,
-            sequence_length=1000,
-        )
-        with caplog.at_level(logging.WARNING, logger="ancestree.LocalTreeBuilder"):
-            b._genotype_matrix()
-        assert any("clipped onto the axis" in r.message for r in caplog.records)
+    @pytest.mark.parametrize("pos", [-1, 1000, 1007])
+    @pytest.mark.parametrize("path", [
+        dict(chunk_size=None, n_ensemble=None),
+        dict(chunk_size=None, n_ensemble=4),
+        dict(chunk_size=400, halo=100, n_ensemble=None),
+        dict(chunk_size=400, halo=100, n_ensemble=4),
+    ])
+    def test_a_site_off_the_axis_is_refused_on_every_path(self, pos, path):
+        """A 0-based site at or past ``sequence_length``, or below 0, raises
+        one ``ValueError`` naming it and the axis on every path.
+
+        It used to be clipped onto the axis with a warning, after which the
+        unchunked plug-in stream raised ``KeyError`` on the moved position,
+        while the ensemble scored it at the clipped position and the chunked
+        path grew the region to hold it.
+        """
+        sites, names = toy_sites(range(20, 1000, 20), seed=2)
+        sites = sorted([*sites, _site("1", pos, "A", "C", {
+            n: "AC"[i % 2] for i, n in enumerate(names)})],
+            key=lambda s: s.pos)
+        with pytest.raises(ValueError, match=rf"outside the axis \[0, 1000\).*{pos}"):
+            inf = (toy_inference if path["chunk_size"] is None
+                   else toy_chunked_inference)(
+                sites, names, sequence_length=1000, **path)
+            list(inf.infer())
 
 
 def test_an_unmatched_sample_name_is_refused_as_a_value_error():

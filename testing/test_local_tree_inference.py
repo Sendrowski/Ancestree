@@ -1443,6 +1443,76 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
     )
     np.testing.assert_allclose(half._accessible_fraction(11)[-1], 0.5)
 
+@pytest.mark.parametrize("length", [1000, 1050])
+def test_the_last_block_reads_the_mask_and_map_at_a_1_based_last_base(length):
+    """With 1-based sites the region's last base lies at ``sequence_length``,
+    and the last block reads the mask and the mutation map there.
+
+    The last block then spans that base too, so its exposure is its accessible
+    base pairs over the block width, at the map's mean rate over them. Every
+    other block, and the same region with 0-based sites, is unchanged. The
+    last base used to be left out of the block's mask and map reads.
+    """
+    mu, bs = 1.25e-8, 100
+    n_blocks = -(-length // bs)
+    span = length - (n_blocks - 1) * bs  # the last block's bp below the end
+    rate = msprime.RateMap(position=[0.0, float(length), length + 1.0],
+                           rate=[mu, 3 * mu])
+
+    def exposure(base, **maps):
+        return LocalTreeBuilder(
+            [], mu=mu, rec_rate=1e-8, sample_names=["a", "b"],
+            sequence_length=length, block_size=bs, position_base=base,
+            **maps)._block_geometry(n_blocks)[2]
+
+    for base, last in ((1, (span + 1) / bs), (0, span / bs)):
+        masked = exposure(base, accessibility=[(0.0, length + 1.0)])
+        np.testing.assert_allclose(masked, [*np.ones(n_blocks - 1), last])
+    # The last base, at three times mu, adds three bases' worth of exposure.
+    np.testing.assert_allclose(exposure(1, mutation_map=rate),
+                               [*np.ones(n_blocks - 1), (span + 3) / bs])
+    np.testing.assert_allclose(exposure(0, mutation_map=rate),
+                               [*np.ones(n_blocks - 1), span / bs])
+
+
+def test_a_chunked_run_reads_the_last_base_like_an_unchunked_one(tmp_path):
+    """The segment holding a 1-based region's end reads the mask and the
+    mutation map at the region's last base, as the unchunked builder does."""
+    length, bs = 2000, 50
+    sites, names = toy_sites(range(20, length + 1, 20), seed=4)
+    rows = [("1", s.pos, "A", "C", ".",
+             ["1" if s.tip_alleles[n] == "C" else "0" for n in names])
+            for s in sites]
+    vcf = write_vcf(tmp_path / "end.vcf", rows, samples=names)
+    # 0-based BED and bedGraph rows: POS 1-1970 and POS 2000 are accessible,
+    # and POS 2000 mutates at 4 mu.
+    bed = tmp_path / "acc.bed"
+    bed.write_text(f"1\t0\t{length - 30}\n1\t{length - 1}\t{length}\n")
+    graph = tmp_path / "mu.bedgraph"
+    graph.write_text(f"1\t0\t{length - 1}\t{MU}\n"
+                     f"1\t{length - 1}\t{length}\t{4 * MU}\n")
+
+    def last_exposure(**kw):
+        inf = LocalTreeInference(
+            vcf, JC69(), mu=MU, rec_rate=REC, sequence_length=length,
+            window=200, block_size=bs, progress=False, accessibility=str(bed),
+            mutation_map=str(graph), **kw)
+        if kw["chunk_size"] is None:
+            builder = inf.builder
+        else:
+            inf._resolve_segmentation_params()
+            builder = inf._segment_builder(list(inf._stream_segments())[-1])
+        n_blocks = int(np.ceil(builder.sequence_length / bs))
+        return builder._block_geometry(n_blocks)[2][-1]
+
+    # The last block spans POS 1950-2000, 51 bases: POS 1950-1970 and 2000
+    # are accessible, and the mean rate is (50 + 4) / 51 mu.
+    expected = (22 / 51) * (54 / 51) * (51 / bs)
+    np.testing.assert_allclose(last_exposure(chunk_size=None), expected)
+    np.testing.assert_allclose(last_exposure(chunk_size=500, halo=100),
+                               expected)
+
+
 def _gap_intervals(length, gap=500.0, fraction=0.5, offset=250.0):
     """Accessible intervals leaving ``fraction`` of the bp in ``gap`` bp holes.
 
@@ -2156,7 +2226,7 @@ def test_recombination_step_falls_back_to_reference_beyond_map_end():
     b.accessibility = None
     b.mutation_map = None
     b.mu = 1e-8
-    b.sequence_length = 500.0
+    b.sequence_length, b.position_base = 500.0, 0
     # Map covers only [0, 250). Rate is 2x the reference so in-map steps == 2.0.
     b.recombination_map = msprime.RateMap(position=[0, 250], rate=[2e-8])
     step, _mask, _escale = b._block_geometry(n_blocks=5)
@@ -2180,7 +2250,7 @@ def test_uniform_map_step_is_one_when_blocks_do_not_divide_the_sequence():
     b.accessibility = b.mutation_map = None
     b.mu = 1e-8
     L = 60000.0  # 60000 / 2824 = 21.2 blocks: does NOT divide
-    b.sequence_length = L
+    b.sequence_length, b.position_base = L, 0
     b.recombination_map = msprime.RateMap(position=[0.0, L], rate=[b.rec_rate])
     n_blocks = int(np.ceil(L / b.block_size))
     step, _mask, _escale = b._block_geometry(n_blocks=n_blocks)

@@ -692,7 +692,8 @@ class LocalTreeBuilder(ReprMixin):
         tree sequence is laid on. Defaults to ``0``.
     :raises ValueError: If ``mu`` or ``rec_rate`` is not positive, if the
         sites span more than one contig, if fewer than two samples are given,
-        or if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``.
+        if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, or if a site lies
+        off the axis.
     """
 
     #: Set by a caller that does its own user-facing logging, so a builder it
@@ -758,6 +759,7 @@ class LocalTreeBuilder(ReprMixin):
             raise ValueError(f"need >= 2 samples, got {len(self.sample_names)}")
         self.sequence_length = float(sequence_length)
         self.position_base = int(position_base)
+        self._check_on_axis(self.sites.pos, self.axis_length)
         _, self.block_size, self.window_bp = self._resolve_widths(
             window, block_size, len(self.sites), self.sequence_length)
         self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
@@ -786,6 +788,26 @@ class LocalTreeBuilder(ReprMixin):
         """Length of the tree sequence's axis, which holds every base of the
         region: :attr:`sequence_length` plus :attr:`position_base`."""
         return self.sequence_length + self.position_base
+
+    @staticmethod
+    def _check_on_axis(positions: np.ndarray, axis: float) -> None:
+        """Refuse site positions off the axis ``[0, axis)``.
+
+        :param positions: Site positions on the axis.
+        :param axis: Length of the axis, :attr:`axis_length`.
+        :raises ValueError: If a position is negative or not below ``axis``.
+        """
+        positions = np.asarray(positions)
+        oob = (positions < 0) | (positions >= axis)
+        if np.any(oob):
+            bad = positions[oob]
+            raise ValueError(
+                f"{bad.size} site position(s) lie outside the axis [0, {axis:g}) "
+                f"of the declared region, e.g. {bad[:5].tolist()}. The region's "
+                f"bases lie below sequence_length plus the source's position "
+                f"base (1 for VCF / VCF-Zarr, 0 otherwise). Pass a "
+                f"sequence_length that contains every site, or restrict the "
+                f"sites to the region.")
 
     def _tally_unrepresentable(self, sites: "Iterable[Site]") -> "Iterator[Site]":
         """Pass sites through, tallying alleles outside the alphabet.
@@ -836,10 +858,9 @@ class LocalTreeBuilder(ReprMixin):
         """Build the ``(n_sites, n_hap)`` allele-index matrix + block ids.
 
         :return: ``(genotypes, positions, block_of_site, n_blocks)`` where
-            ``positions`` is each site's tskit coordinate (its own
-            ``site.pos``, clipped onto ``[0, axis_length)``), baked and
-            emitted at the same coordinate so the round-trip is
-            position-stable.
+            ``positions`` is each site's tskit coordinate, its own
+            ``site.pos`` on ``[0, axis_length)``, baked and emitted at the
+            same coordinate so the round-trip is position-stable.
         """
         n_sites = len(self.sites)
         # The table holds exactly this matrix, in this column order.
@@ -862,19 +883,8 @@ class LocalTreeBuilder(ReprMixin):
                            for i in np.nonzero(~seen)[0]]
                 LocalTreeInference._raise_unobserved_samples(missing)
         n_blocks = max(1, int(np.ceil(self.sequence_length / self.block_size)))
-        np.clip(block_of_site, 0, n_blocks - 1, out=block_of_site)
-        # A site off the axis is clipped onto it, with a warning.
-        axis = self.axis_length
-        oob = (positions < 0) | (positions >= axis)
-        if np.any(oob):
-            self._log.warning(
-                "LocalTreeBuilder: %d site position(s) fall outside "
-                "[0, %g) and were clipped onto the axis (smallest offending "
-                "position %g). Pass a sequence_length large enough to "
-                "contain every site.",
-                int(oob.sum()), axis, float(positions[oob].min()),
-            )
-        np.clip(positions, 0, axis - 1, out=positions)
+        # The last block holds the bases past its nominal end up to the axis's.
+        np.minimum(block_of_site, n_blocks - 1, out=block_of_site)
         return g, positions, block_of_site, n_blocks
 
     def _segment_intervals(self) -> list[tuple[float, float]]:
@@ -1010,8 +1020,8 @@ class LocalTreeBuilder(ReprMixin):
         if self.mutation_map is not None:
             mm = self._kernel_mu()
             L = float(mm.sequence_length)
-            lo = np.clip(np.arange(n_blocks) * bs, 0.0, L)
-            hi = np.clip((np.arange(n_blocks) + 1) * bs, 0.0, L)
+            edges = np.minimum(self._block_edges(n_blocks), L)
+            lo, hi = edges[:-1], edges[1:]
             valid = hi > lo  # False past the map's end
             width = np.clip(hi - lo, 1e-300, None)
             rate = (np.asarray(mm.get_cumulative_mass(hi), dtype=np.float64)
@@ -1042,10 +1052,7 @@ class LocalTreeBuilder(ReprMixin):
         # measured against the nominal width B: a block spanning S_b < B bp
         # offers S_b/B of one whether or not a mask is given, which is what
         # keeps the masked and unmasked paths on one scale.
-        lo = np.arange(n_blocks, dtype=np.float64) * bs
-        trunc = np.clip(
-            np.minimum(lo + bs, float(self.sequence_length)) - lo,
-            0.0, float(bs)) / float(bs)
+        trunc = np.diff(self._block_edges(n_blocks)) / float(bs)
         exposure = trunc if access_frac is None else access_frac * trunc
         # calibrate divides each block's count by its exposure, so a block
         # whose exposure is tiny carries 1/exposure times a full block's
@@ -1096,14 +1103,14 @@ class LocalTreeBuilder(ReprMixin):
 
         :return: :attr:`mu`, or the :attr:`mutation_map` with the intervals
             it leaves undefined, and the stretch from its end to
-            :attr:`sequence_length`, at :attr:`mu`.
+            :attr:`axis_length`, at :attr:`mu`.
         """
         mm = self.mutation_map
         if mm is None:
             return self.mu
         position = np.asarray(mm.position, dtype=np.float64)
         rate = np.asarray(mm.rate, dtype=np.float64)
-        end = float(self.sequence_length)
+        end = float(self.axis_length)
         if not np.isnan(rate).any() and position[-1] >= end:
             return mm
         rate = np.where(np.isnan(rate), self.mu, rate)
@@ -1113,19 +1120,30 @@ class LocalTreeBuilder(ReprMixin):
         from ancestree._maps import MapFiles
         return MapFiles.msprime().RateMap(position=position, rate=rate)
 
+    def _block_edges(self, n_blocks: int) -> np.ndarray:
+        """Base-pair edges of the blocks on the axis.
+
+        Block ``b`` spans ``[b·B, (b+1)·B)`` for a block width ``B`` of
+        :attr:`block_size`, and a block reaching :attr:`sequence_length` ends
+        at :attr:`axis_length`, so the last block holds the region's last base.
+
+        :param n_blocks: Number of blocks the region is cut into.
+        :return: ``(n_blocks + 1,)`` float64 edges, non-decreasing.
+        """
+        edges = np.arange(n_blocks + 1, dtype=np.float64) * self.block_size
+        return np.where(edges >= self.sequence_length, self.axis_length, edges)
+
     def _accessible_fraction(self, n_blocks: int) -> np.ndarray:
         """Callable base-pair fraction of each block.
 
-        :param n_blocks: Number of blocks the region is cut into. Block ``b``
-            spans base pairs ``[b·B, min((b+1)·B, L))`` for a block width ``B``
-            of :attr:`block_size` and a region length ``L`` of
-            :attr:`sequence_length`.
+        :param n_blocks: Number of blocks the region is cut into, spanning the
+            base pairs given by :meth:`_block_edges`.
         :return: ``(n_blocks,)`` float64 in ``[0, 1]``, the base pairs of block
-            ``b`` covered by :attr:`accessibility`, given in region coordinates
-            ``[0, L)``, divided by that block's own span.
+            ``b`` covered by :attr:`accessibility`, given on the axis, divided
+            by that block's own span.
         """
-        bs = float(self.block_size)
-        end = min(float(self.sequence_length), n_blocks * bs)
+        edges = self._block_edges(n_blocks)
+        end = edges[-1]
         iv = np.asarray(self.accessibility, dtype=np.float64).reshape(-1, 2)
         lo = np.clip(iv[:, 0], 0.0, end)
         hi = np.clip(iv[:, 1], 0.0, end)
@@ -1144,7 +1162,6 @@ class LocalTreeBuilder(ReprMixin):
         lo, hi = lo[at], np.maximum.reduceat(hi, at)
         # Covered bp below x is sum_i [min(hi_i, x) - min(lo_i, x)], evaluated
         # at every block boundary and differenced.
-        edges = np.minimum(np.arange(n_blocks + 1, dtype=np.float64) * bs, end)
         below = np.empty((2, n_blocks + 1), dtype=np.float64)
         for row, bound in enumerate((lo, hi)):
             cum = np.concatenate(([0.0], np.cumsum(bound)))
@@ -1996,19 +2013,17 @@ class LocalTreeInference(Inference):
             lo, hi = core_lo - halo, core_hi + halo
             seg = [s for s in buf if lo <= s.pos < hi]
             origin = (max(0, lo) // bs) * bs
-            # Reaches the segment's last base, and the region's end when known.
-            # The builder's axis extends position_base bp past the span.
+            # Reaches the segment's last site, or the halo's end within the
+            # declared region.
             last = seg[-1].pos + 1 if seg else core_hi
             reach = (origin + ((last - 1 - origin) // bs + 1) * bs
-                     if end is None
-                     else max(last - base, min(end, hi)))
+                     if end is None else min(end, hi))
             span = max(bs, reach - origin)
             return (seg, core_lo, core_hi, origin, span, chrom)
 
         def flush(buf, core_lo, chrom):
             """Emit the work units from ``core_lo`` to the end of the axis."""
-            stop = (buf[-1].pos + 1 if end is None
-                    else max(end + base, buf[-1].pos + 1))
+            stop = buf[-1].pos + 1 if end is None else end + base
             # The cores tile the stop - base bases on the axis, and the last
             # one reaches stop.
             while core_lo < stop - base:
@@ -2021,7 +2036,11 @@ class LocalTreeInference(Inference):
         buf: list[Site] = []
         core_lo = 0
         last = -1
+        axis_end = self._axis_end()
         for s in self._source:
+            if s.pos < 0 or (axis_end is not None and s.pos >= axis_end):
+                LocalTreeBuilder._check_on_axis(
+                    np.array([s.pos]), axis_end or np.inf)
             if cur is None or s.chrom != cur:
                 if cur is not None:
                     yield from flush(buf, core_lo, cur)
@@ -2152,11 +2171,17 @@ class LocalTreeInference(Inference):
 
         Sites are shifted to a local ``0`` (``origin``) so the HMM block count
         tracks the segment span. The recombination / mutation / accessibility
-        maps are sliced to the segment and shifted likewise.
+        maps are sliced to the segment's axis and shifted likewise. A segment
+        whose halo reaches the declared region's end holds its last base, at
+        the source's position base past the span.
         """
         seg, _core_lo, _core_hi, origin, span, chrom = work_unit
         shifted = [replace(s, pos=int(s.pos - origin)) for s in seg]
         maps = self._maps_on(str(chrom))
+        end = self._axis_end()
+        base = (self._position_base
+                if end is not None and _core_hi + self._halo_value >= end else 0)
+        axis = span + base
         builder = LocalTreeBuilder(
             shifted, mu=self.mu, rec_rate=self.rec_rate,
             sample_names=self.sample_names, sequence_length=span,
@@ -2166,14 +2191,13 @@ class LocalTreeInference(Inference):
             recombination_map=self._slice_map(
                 maps["recombination_map"], origin, span),
             accessibility=self._slice_accessibility(
-                maps["accessibility"], origin, span),
-            mutation_map=self._slice_map(maps["mutation_map"], origin, span),
+                maps["accessibility"], origin, axis),
+            mutation_map=self._slice_map(maps["mutation_map"], origin, axis),
             validate_coverage=False,
-            position_base=self._position_base,
+            position_base=base,
             # A window overlapping this core is clipped to the segment's axis.
             window_anchor=([
-                (max(l - origin, 0.0),
-                 min(r - origin, float(span + self._position_base)))
+                (max(l - origin, 0.0), min(r - origin, float(axis)))
                 for l, r in self._global_windows()
                 if r > float(_core_lo) and l < float(_core_hi)
             ] or None),
