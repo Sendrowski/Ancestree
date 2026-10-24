@@ -1983,9 +1983,10 @@ EPO_SIMULATION_RUNS = [
     "sample_mrca_class_rate_out1", "sample_node_class_rate_out1",
 ]
 EPO_SIMULATION_SEEDS = list(range(1, 9))
-# The chr1 chunks the comparison covers: 8 of the 40. Set to
-# MSL_CHR1_CHUNK_REGIONS for the whole chromosome.
-EPO_REGIONS = [
+# The comparison covers every chr1 chunk, the matched simulation one seed
+# per chunk of its own 8.
+EPO_REGIONS = MSL_CHR1_CHUNK_REGIONS
+EPO_SIMULATION_REGIONS = [
     "chr1_6250000_12500000", "chr1_31250000_37500000",
     "chr1_56250000_62500000", "chr1_93750000_100M", "chr1_175M_181250000",
     "chr1_181250000_187500000", "chr1_212500000_218750000",
@@ -2183,8 +2184,8 @@ rule extract_epo_simulation_gaps:
     """Outgroup gap mask of one simulated replicate, from the analysed chunk
     of the same index."""
     input:
-        region_meta = lambda wc: f"{DATA}/msl_polymorphic_{EPO_REGIONS[int(wc.epo_seed) - 1]}_meta.json",
-        panel = lambda wc: f"{DATA}/epo_panel_{EPO_REGIONS[int(wc.epo_seed) - 1]}.npz",
+        region_meta = lambda wc: f"{DATA}/msl_polymorphic_{EPO_SIMULATION_REGIONS[int(wc.epo_seed) - 1]}_meta.json",
+        panel = lambda wc: f"{DATA}/epo_panel_{EPO_SIMULATION_REGIONS[int(wc.epo_seed) - 1]}.npz",
         alignment = expand(f"{DATA}/epo_alignment_chr1_{{part}}.npz", part=EPO_CHR1_PARTS),
     output:
         npz = f"{DATA}/epo_simulation_gaps_seed{{epo_seed}}.npz",
