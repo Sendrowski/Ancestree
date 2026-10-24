@@ -1,4 +1,4 @@
-"""VCF-only local-tree inference: genealogy estimation + ancestral-allele calling.
+"""Local-tree inference from genotypes: genealogy estimation + ancestral-allele calling.
 
 The two main public classes, backed by the lower-level
 :class:`~ancestree.local_tree_inference.PairwiseCoalescentHMM` and :class:`~ancestree.local_tree_inference.PairwiseTmrcas`:
@@ -657,8 +657,9 @@ class LocalTreeBuilder(ReprMixin):
     :param mu: Per-site per-generation mutation rate.
     :param rec_rate: Per-site per-generation recombination rate.
     :param sample_names: Panel haplotype names (tip order). Each must be a
-        key in every site's
-        :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`.
+        key of some site's
+        :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`, and a
+        site missing the key reads it as uncalled.
     :param sequence_length: Region length in bp (tskit coordinates).
     :param window: Local-tree window in bp, an int or a string with a
         ``bp`` / ``kb`` / ``mb`` suffix, or ``"<N>snp"`` to size the window so
@@ -1515,8 +1516,8 @@ class LocalTreeInference(Inference):
         ``sample_names`` is needed and absent, if a named sample is absent
         from the panel or named in both lists, if ``sample_names`` names a
         sample that ``outgroup_samples`` drops or that no site's
-        ``tip_alleles`` holds, or if every ingroup sample is uncalled at
-        every site.
+        ``tip_alleles`` holds, if every ingroup sample is uncalled at
+        every site, or if a site lies off the axis.
     """
 
     @staticmethod
@@ -2058,9 +2059,9 @@ class LocalTreeInference(Inference):
         """Stream the source once, yielding segment work-units.
 
         ``(seg_sites, core_lo, core_hi, origin, span, chrom)``: sites are
-        streamed in sorted order through a sliding buffer (holding
-        ~``chunk_size + 2·halo`` sites), so neither the full input nor a whole
-        contig is materialised. Each contiguous contig is an independent
+        streamed in sorted order through a sliding buffer (holding the sites
+        within ~``chunk_size + 2·halo`` bp), so neither the full input nor a
+        whole contig is materialised. Each contiguous contig is an independent
         segment. A contig longer than ``chunk_size`` is sliced into cores
         extended by a ``halo`` overlap on its interior sides (discarded after
         building). The cores tile the contig up to the declared region's end,
@@ -2175,7 +2176,7 @@ class LocalTreeInference(Inference):
 
         :param rate_map: The map to slice, or ``None``.
         :param origin: Left edge of the segment, in base pairs.
-        :param span: Segment width, in base pairs.
+        :param span: Width of the slice from ``origin``, in base pairs.
         :return: The sub-map, or ``None`` when unset or outside the map.
         """
         if rate_map is None:
@@ -2192,7 +2193,8 @@ class LocalTreeInference(Inference):
 
         :param accessibility: The contig's intervals, or ``None``.
         :param origin: Left edge of the segment, in base pairs.
-        :param span: Segment width, in base pairs.
+        :param span: Width of the segment's axis, in base pairs: its span,
+            plus the position base when it holds the region's last base.
         :return: The shifted intervals, or ``None`` when unset.
         """
         if accessibility is None:
@@ -2472,8 +2474,9 @@ class LocalTreeInference(Inference):
             lo = max(0.0, core_lo - origin)
             hi = min(seg_ts.sequence_length, core_hi - origin)
             if hi <= lo:
-                # An empty core (its sites all fell in the halo). It carries no
-                # core sites, so it contributes nothing to the stitched output.
+                # An empty core: with no declared length the segment's axis
+                # ends at its last site, which lies in the left halo. It carries
+                # no core sites, so it contributes nothing to the stitched output.
                 continue
             seg_ts = seg_ts.keep_intervals(
                 [[lo, hi]], simplify=False, record_provenance=False,
@@ -2801,7 +2804,8 @@ class LocalTreeInference(Inference):
 
         :param members: The segment's genealogies, on the segment's own axis.
         :param origin: Genome coordinate the segment's zero sits at.
-        :param region_end: Length of the whole region, or 0 when undeclared.
+        :param region_end: End of the genome axis (the declared length plus
+            the position base), or 0 when undeclared.
         :param core: ``(lo, hi)`` stretch this segment emits.
         :return: Iterator of :class:`tskit.TreeSequence` on the genome axis.
         """
@@ -2817,7 +2821,8 @@ class LocalTreeInference(Inference):
 
         :param ts: The segment's tree sequence, on the segment's axis.
         :param origin: Genome coordinate the segment's zero sits at.
-        :param region_end: Length of the whole region, or 0 when undeclared.
+        :param region_end: End of the genome axis (the declared length plus
+            the position base), or 0 when undeclared.
         :param core: ``(lo, hi)`` stretch this segment emits, in genome
             coordinates.
         :return: The tree sequence on the genome's axis, trimmed to ``core``.

@@ -7,7 +7,8 @@ sample names to tip nodes.
 Backends:
 
 - :class:`~ancestree.trees.TskitLocalTree`: a :class:`tskit.Tree` at a fixed
-  genomic position (single-rooted, since multi-root segments raise).
+  genomic position, restricted to the subtree of an explicit ``root``
+  when the local tree has several.
 - :class:`~ancestree.trees.FixedTree`: one dated tree read from a Newick
   string and used as given for every site, every leaf a tip.
 - :class:`~ancestree.trees.OutgroupLadderTree`: the ingroup-polytomy plus

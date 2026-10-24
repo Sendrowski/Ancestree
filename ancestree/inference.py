@@ -992,7 +992,8 @@ class Inference(ReprMixin, ABC):
         Like :meth:`summary`, consumes :meth:`infer` and so triggers any
         required fitting first.
 
-        :param truth: ``{int(site_position): true_allele}``, or a
+        :param truth: ``{site_pos: true_allele}``, keyed by the position
+            :attr:`Site.pos <ancestree.sites.Site.pos>` gives the site, or a
             :class:`tskit.TreeSequence` carrying the true mutations, whose
             allele at ``focal`` is then the truth
             (:meth:`Grade.truth_at_focal() <ancestree.posterior.Grade.truth_at_focal>`).
