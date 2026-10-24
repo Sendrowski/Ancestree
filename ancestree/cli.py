@@ -358,12 +358,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="ancestree",
         parents=[verbosity_parent],
         description=(
-            "Ancestral-allele annotation via Felsenstein likelihood on ARGs "
-            "and fixed trees. Pick a subcommand: `fixed-tree` for "
-            "outgroup-ladder (EST-SFS-style) or given-species-tree inference, "
-            "`arg` for "
-            "tskit/ARG-based (PolarBEAR-style) inference, and `local-tree` "
-            "for VCF-only inferred-local-tree inference."
+            "Ancestral-allele annotation via Felsenstein likelihood on ARGs, "
+            "fixed trees, or local trees inferred from the genotypes alone."
         ),
     )
     parser.add_argument(
@@ -797,7 +793,9 @@ def _add_local_tree_parser(
     )
     p.add_argument(
         "--sequence-length", type=float, default=None,
-        help=("Region length in bp (the local-tree windows tile [0, L)). "
+        help=("Region length L in bp, which the local-tree windows tile as "
+              "[0, L). For VCF / VCZ input the axis covers positions 1..L, "
+              "that is [0, L+1). "
               "Give it whenever it is known: under --chunk-size it is what "
               "lays one window grid over the whole region and not one per "
               "segment."),
@@ -816,7 +814,8 @@ def _add_local_tree_parser(
         help=("Halo overlap (bp int / '50kb', or 'auto') added when a contig is "
               "sliced across chunks, then discarded so the posteriors do not "
               "depend on the chunking. 'auto' grounds it in the recombination correlation "
-              "length. Only used with --chunk-size. Default: %(default)s."),
+              "length. Floored at the widest window and the block width. "
+              "Only used with --chunk-size. Default: %(default)s."),
     )
     p.add_argument(
         "--n-workers", type=int,
@@ -829,8 +828,8 @@ def _add_local_tree_parser(
         "--rec-rate", type=float, default=None,
         help=(
             "Per-site per-generation recombination rate driving the HMM's "
-            "TMRCA-reset transitions. Defaults to 1e-8 with a warning; that "
-            "is a human / great-ape figure, so pass your species' rate."
+            "TMRCA-reset transitions. Default: 1e-8 (human / great ape), "
+            "with a warning."
         ),
     )
     p.add_argument(
@@ -838,24 +837,25 @@ def _add_local_tree_parser(
         help=(
             "Optional HapMap-format genetic map file (Chr, Position(bp), "
             "Rate(cM/Mb), Map(cM)) driving the HMM's TMRCA-reset rate in place "
-            "of the constant --rec-rate, one map per contig. Each contig's "
-            "rows are read via msprime.RateMap.read_hapmap."
+            "of the constant --rec-rate, one map per contig. Plain or "
+            "gzip-compressed."
         ),
     )
     p.add_argument(
         "--accessibility", default=None,
         help=(
-            "Optional BED file of callable regions, scaling each block's "
-            "Poisson emission by its accessible base-pair fraction, with a "
-            "block whose fraction does not exceed 0.05 emitting uniformly so "
-            "inaccessible gaps are not read as recent-TMRCA stretches."
+            "Optional 0-based BED file of callable regions, plain or "
+            "gzip-compressed. Each block's Poisson emission is scaled by its "
+            "accessible base-pair fraction, and a block whose fraction does "
+            "not exceed 0.05 emits uniformly."
         ),
     )
     p.add_argument(
         "--mutation-map", default=None,
         help=(
-            "Optional bedGraph file (chrom, start, end, rate) of the local "
-            "per-site mutation rate; gaps default to --mu."
+            "Optional 0-based bedGraph file (chrom, start, end, rate) of the "
+            "local per-site mutation rate, plain or gzip-compressed. "
+            "Positions outside the map and NaN rates take --mu."
         ),
     )
     p.add_argument(

@@ -3779,14 +3779,20 @@ class FixedTreeInference(Inference):
     def _infer_inner(self) -> Iterator[tuple[Site, Posterior]]:
         """Core per-site posterior generator (no baseline-check side-effects)."""
         if not self._quiet:
+            if self._given_tree or self._no_outgroup_mode:
+                target = "the fixed tree"
+            elif self._params_mle is not None:
+                target = "the fitted outgroup ladder"
+            else:
+                target = "the outgroup ladder"
             if self._streaming:
                 self._log.info(
-                    "Inferring the ancestral allele on the fixed tree, "
-                    "streaming the sites")
+                    "Inferring the ancestral allele on %s, streaming the "
+                    "sites", target)
             else:
                 self._log.info(
-                    "Inferring the ancestral allele at %s site(s) on the "
-                    "fixed tree", f"{len(self.sites):,}")
+                    "Inferring the ancestral allele at %s site(s) on %s",
+                    f"{len(self.sites):,}", target)
         if self._no_outgroup_mode:
             # The posterior is the normalised ingroup weight times the root
             # prior. A monoallelic ingroup takes all mass on its observed
