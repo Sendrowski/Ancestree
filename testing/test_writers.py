@@ -228,6 +228,31 @@ class TestTheTemplateHeaderDefersToTheRun:
             Reader(out).provenance()
         assert [a.aa for a in Reader(out).annotations()] == ["A", None]
 
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcf.gz", ".bcf"])
+    @pytest.mark.parametrize("provenance", [None, {"version": "NEW"}])
+    def test_a_run_storing_no_posterior_declares_no_aa_post(
+            self, tmp_path, suffix, provenance):
+        """Regression: a template's ``AA_post`` declaration survived a run with
+        ``store_posterior=False``, which clears the values, so the header
+        declared a field no record carried."""
+        import cyvcf2
+
+        template = tmp_path / "in.vcf"
+        template.write_text(self._HEADER.replace(
+            "##INFO=<ID=DP,",
+            '##INFO=<ID=AA_post,Number=4,Type=Float,Description="old">\n'
+            "##INFO=<ID=DP,").replace(
+            ";DP=", ";AA_post=0.1,0.2,0.3,0.4;DP="), encoding="utf-8")
+        out = str(tmp_path / f"out{suffix}")
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        VCFWriter(str(template), out).write(
+            iter([(site, post("A", 0.9))]), provenance=provenance,
+            store_posterior=False)
+        vcf = cyvcf2.VCF(out)
+        assert "ID=AA_post" not in vcf.raw_header
+        assert [(r.INFO.get("AA"), r.INFO.get("AA_post"), r.INFO.get("DP"))
+                for r in vcf] == [("A", None, 10), (None, None, 4)]
+
     def test_a_run_with_provenance_keeps_the_template_s_record(self, tmp_path):
         out = self._write(tmp_path, ".vcf", {"version": "NEW"})
         assert Reader(out).provenance()["version"] == "NEW"

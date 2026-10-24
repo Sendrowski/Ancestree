@@ -573,11 +573,11 @@ class VCFWriter(Writer):
     other than the ``AA`` ``INFO`` fields, which each run rewrites, are
     passed through to the output. The header declares ``AA``, ``AA_prob``
     and ``AA_post`` as ancestree's, replacing any declaration the template
-    carries. For each variant the writer looks up the posterior by
-    ``(chrom, pos)`` and, if found, sets the ``INFO`` fields. Variants
-    without a matching posterior are written unannotated, and an ``AA`` value
-    the template carries on them is cleared, since the header declares ``AA``
-    as ancestree's. Without an input VCF, each site is written as one
+    carries, and drops ``AA_post`` when the run stores no posterior. For
+    each variant the writer looks up the posterior by ``(chrom, pos)`` and,
+    if found, sets the ``INFO`` fields. Variants without a matching posterior
+    are written unannotated, and an ``AA`` value the template carries on them
+    is cleared, since the header declares ``AA`` as ancestree's. Without an input VCF, each site is written as one
     ``PASS`` record carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`. An individual's
@@ -700,6 +700,7 @@ class VCFWriter(Writer):
             without one.
         :param store_posterior: When ``True`` (default), also emit the
             ``AA_post`` ``INFO`` field holding the whole per-state posterior.
+            When ``False``, the header declares no ``AA_post``.
         :param info: Optional run-level constants (e.g.
             ``{"prior": "adaptive", "model": "K2", "kappa": 2.13}``).
             Each key ``K`` is declared as an ``INFO`` field ``AA_K`` in
@@ -875,6 +876,12 @@ class VCFWriter(Writer):
                       staged, self._without_provenance(header),
                       mode=self._mode())
                   if stale else cyvcf2.Writer(staged, in_vcf, mode=self._mode()))
+        # A run storing no posterior declares no AA_post. The template's
+        # declaration stays on in_vcf, which parses the records carrying it,
+        # and a record re-read under the writer's header loses AA_post first.
+        if not store_posterior:
+            with contextlib.suppress(KeyError):
+                writer.remove_header("AA_post", order=[_BCF_HL_INFO])
         try:
             n_annotated = 0
             # Pass 2 walks the template in the same order pass 1 built the
@@ -882,6 +889,8 @@ class VCFWriter(Writer):
             # discard pass 1's choice among rows sharing a position.
             for row, variant in enumerate(in_vcf):
                 if stale:
+                    if post is None and variant.INFO.get("AA_post") is not None:
+                        del variant.INFO["AA_post"]
                     variant = writer.variant_from_string(
                         str(variant).rstrip("\n"))
                 if row < n and annotated[row]:
