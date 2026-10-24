@@ -23,6 +23,7 @@ is how the kernel reads it.
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -297,9 +298,12 @@ class FocalNode:
             node = int(parent)
 
         if coalescences is not None:
-            # Land on the k-th node up, so the point sits just above that join.
-            step = min(int(coalescences), len(path) - 1)
-            return path[step], 0.0
+            # Land on the k-th join up, so the point sits just above it. Unary
+            # nodes join nothing, and past the last join the point is the root.
+            joins = (n for n in path[1:] if tree.num_children(n) > 1)
+            k = int(coalescences)
+            return (next(itertools.islice(joins, k - 1, None), path[-1])
+                    if k else anchor), 0.0
 
         if depth is not None:
             # Absolute, so measured from the sample plane, not the anchor,

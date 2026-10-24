@@ -1581,7 +1581,7 @@ class OutgroupLadderTree(Tree):
             step = int(spec.coalescences)
             if step > joins:
                 return deep_end()
-            return view(sum(lengths[:step]))
+            return RerootedTree(self, path[step], 0.0) if step else self
         if spec.depth is not None:
             want = float(spec.depth)
             if want <= total:

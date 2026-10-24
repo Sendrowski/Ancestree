@@ -175,3 +175,15 @@ class TestFocalTreePlotAnchors:
         above = FocalTreePlot(ladder, "panel_root").focal_point()[1]
         assert by_join.focal_point() == pytest.approx(by_depth.focal_point())
         assert below < by_join.focal_point()[1] < above
+
+    def test_one_coalescence_skips_a_unary_node(self):
+        """Regression: the marker for ``coalescences=1`` sat on a unary node
+        above the ingroup MRCA, not on the first join the inference reads at."""
+        from testing.test_focal import UNARY_TS_JOIN, _unary_ts
+
+        ts = _unary_ts()
+        plot = FocalTreePlot(TskitLocalTree(ts, position=0.5),
+                             FocalNode("ingroup_mrca", coalescences=1),
+                             ingroup_samples=["0", "1"])
+        assert plot.focal_point()[1] == pytest.approx(
+            ts.node(UNARY_TS_JOIN).time)

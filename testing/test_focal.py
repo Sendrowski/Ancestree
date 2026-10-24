@@ -45,6 +45,32 @@ INGROUP_MRCA = _PANEL_IDS["mrca"]
 OBSERVED = {0: "A", 1: "A", 2: "G", 3: "A", 4: "T", 5: "T"}
 STATE_INDEX = {s: i for i, s in enumerate(anc.STATES)}
 
+#: Nodes of :func:`_unary_ts`: the ingroup {0, 1} MRCA, a unary node above
+#: it, the first join (with sample 2) and the root (with sample 3).
+UNARY_TS_MRCA, UNARY_TS_UNARY, UNARY_TS_JOIN, UNARY_TS_ROOT = 4, 5, 6, 7
+
+
+def _unary_ts(mutation_on: int | None = None) -> tskit.TreeSequence:
+    """Two trees, the first with a unary node between the ingroup MRCA and
+    the first join, the second where that node joins sample 2. A site at 0
+    carries ``A`` with an optional ``T`` mutation above ``mutation_on``."""
+    tables = tskit.TableCollection(sequence_length=2)
+    for _ in range(4):
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    for time in (1.0, 1.5, 2.0, 3.0):
+        tables.nodes.add_row(time=time)
+    m, u, j, r = UNARY_TS_MRCA, UNARY_TS_UNARY, UNARY_TS_JOIN, UNARY_TS_ROOT
+    for left, right, parent, child in [
+        (0, 2, m, 0), (0, 2, m, 1), (0, 2, u, m), (0, 2, j, u), (0, 1, j, 2),
+        (1, 2, u, 2), (0, 2, r, j), (0, 2, r, 3),
+    ]:
+        tables.edges.add_row(left, right, parent, child)
+    site = tables.sites.add_row(position=0, ancestral_state="A")
+    if mutation_on is not None:
+        tables.mutations.add_row(site=site, node=mutation_on, derived_state="T")
+    tables.sort()
+    return tables.tree_sequence()
+
 
 def _tip_states() -> np.ndarray:
     """The one-site batch the native kernel consumes."""
@@ -376,6 +402,32 @@ class TestPlacementForms:
         root = int(TREE_SEQUENCE.first().root)
         assert self._resolve(coalescences=99).node == root
 
+    def test_coalescences_skip_unary_nodes(self):
+        """Regression: a unary node above the ingroup MRCA counted as a join,
+        so ``coalescences=1`` read at it rather than at the first real join,
+        and the answer depended on whether the panel was simplified."""
+        ts = _unary_ts()
+        expected = {0: UNARY_TS_MRCA, 1: UNARY_TS_JOIN, 2: UNARY_TS_ROOT,
+                    3: UNARY_TS_ROOT}
+        for k, node in expected.items():
+            spec = FocalNode("ingroup_mrca", coalescences=k)
+            resolved = spec.resolve(ts.first(), ingroup_nodes=[0, 1])
+            assert (resolved.node, resolved.tau) == (node, 0.0)
+            # Simplification drops the unary node and renumbers.
+            simple = ts.simplify()
+            on_simple = spec.resolve(simple.first(), ingroup_nodes=[0, 1])
+            assert simple.node(on_simple.node).time == ts.node(node).time
+
+    def test_truth_at_focal_counts_joins_not_unary_nodes(self):
+        """Regression: the true allele at ``coalescences=1`` was read just
+        below a mutation on the unary node's branch, not at the first join."""
+        ts = _unary_ts(mutation_on=UNARY_TS_UNARY)
+        truth = Grade.truth_at_focal(
+            ts, FocalNode("ingroup_mrca", coalescences=1),
+            ingroup_samples=["0", "1"], outgroup_samples=["2", "3"],
+            sample_map={str(i): i for i in range(4)})
+        assert truth == {0: "A"}
+
     def test_depth_is_absolute_and_bounded_below_by_the_anchor(self):
         tree = TREE_SEQUENCE.first()
         anchor_time = float(tree.time(INGROUP_MRCA))
@@ -412,6 +464,20 @@ class TestPlacementForms:
         # Past the last join the readout lands on the panel's own ancestor.
         assert (ladder.at_focal(FocalNode("ingroup_mrca", coalescences=99)).root
                 == ladder.at_focal(FocalNode("panel_root")).root)
+
+    def test_ladder_coalescences_land_on_the_named_join(self):
+        """Regression: the k-th join was found by walking the summed branch
+        lengths back down the backbone, and rounding landed a quarter of
+        random ladders on join k+1 with the whole branch as offset."""
+        rng = np.random.default_rng(0)
+        for _ in range(200):
+            outgroups = [f"o{k}" for k in range(int(rng.integers(3, 8)))]
+            ladder = anc.OutgroupLadderTree(["i0"], outgroups)
+            ladder.set_params(rng.uniform(1e-4, 1.0, size=ladder.n_params))
+            for k in range(1, len(outgroups)):
+                node, tau = ladder.at_focal(
+                    FocalNode("ingroup_mrca", coalescences=k)).placement
+                assert (ladder.node_name(node), tau) == (f"n_{k}", 0.0)
 
     def test_the_ladder_endpoints_are_the_two_anchors(self):
         ladder = anc.OutgroupLadderTree(["i1", "i2"], ["o1", "o2", "o3"])

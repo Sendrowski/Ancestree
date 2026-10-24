@@ -185,7 +185,10 @@ class FocalTreePlot:
             path.append(parent)
             node = parent
         if self.focal.coalescences is not None:
-            return path[min(int(self.focal.coalescences), len(path) - 1)], 0.0
+            stops = [anchor] + [n for n in path[1:]
+                                if len(list(self.canvas.children(n))) > 1]
+            k = int(self.focal.coalescences)
+            return (stops[k] if k < len(stops) else path[-1]), 0.0
         total = sum(lengths)
         if self.focal.depth is not None:
             # A ladder measures depth from the ingroup MRCA, a genealogy from
