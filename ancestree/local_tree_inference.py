@@ -1388,8 +1388,9 @@ class LocalTreeInference(Inference):
     :param halo: Overlap (bp int / string, or ``"auto"``) added on the
         contig-interior side of each chunk slice and then discarded, so the
         HMM decorrelates from the cut before any emitted site. ``"auto"`` uses
-        the recombination correlation length. Only relevant with
-        ``chunk_size``.
+        the recombination correlation length. Raised to the widest window and
+        to the block width, so every window overlapping a core lies whole
+        inside its segment. Only relevant with ``chunk_size``.
     :param n_ensemble: Genealogies per window to marginalise the posterior
         over, drawn from the pairwise HMM's posterior. ``None`` is the plug-in
         estimate, one agglomerated tree per window. Cost is linear in this
@@ -1865,7 +1866,8 @@ class LocalTreeInference(Inference):
         frequencies, converts to a mean pairwise TMRCA ``E[t] = π / (2μ)``,
         whence the bp over which the HMM's TMRCA decorrelates is
         ``L_c ≈ 1 / (r · E[t])``, and takes ``halo = 5·L_c`` (≈ e⁻⁵ residual
-        correlation), clamped to ``[block_size, chunk_size/2]``.
+        correlation), capped at ``chunk_size/2``. Either halo is raised to the
+        widest window of the global grid and to ``block_size``.
         """
         if getattr(self, "_wbp", None) is not None:
             return
@@ -1918,16 +1920,19 @@ class LocalTreeInference(Inference):
         self._warn_resolution(requested_bp=requested, n_sites=n_sites,
                               span_bp=span)
 
+        # At least one block, so a segment's truncated final block is never
+        # emitted beside the next segment's, and at least the widest window,
+        # so every window overlapping a core lies inside its segment.
+        floor = max(self.block_size, int(np.ceil(max(
+            (r - l for l, r in self._global_windows()), default=0.0))))
         if not need_halo:
             halo = _parse_bp(self._halo, name="halo")
-            if halo < self.block_size:
+            if halo < floor:
                 self._log.warning(
-                    "The halo of %d bp is narrower than the resolved block width of "
-                    "%d bp; raising it to the block width, below which a "
-                    "segment's truncated final block and the next segment's "
-                    "block cover the same span and are both emitted",
-                    halo, self.block_size)
-                halo = self.block_size
+                    "The halo of %d bp is narrower than the widest window or "
+                    "block of %d bp, raising it to that width so no window is "
+                    "cut at a segment edge", halo, floor)
+                halo = floor
             self._halo_value = halo
             return
         pi = pairdiff / max(1, span)  # per-bp pairwise diversity
@@ -1936,8 +1941,7 @@ class LocalTreeInference(Inference):
             halo = int(np.ceil(5.0 / (self.rec_rate * e_t)))  # 5 × L_c
         else:
             halo = 10 * self._wbp  # fallback if no diversity
-        halo = max(self.block_size, halo)
-        self._halo_value = min(halo, max(self.block_size, self._chunk_size // 2))
+        self._halo_value = max(floor, min(halo, self._chunk_size // 2))
 
     def _stream_segments(self):
         """Stream the source once, yielding segment work-units.

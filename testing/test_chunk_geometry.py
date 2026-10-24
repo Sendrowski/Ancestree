@@ -118,6 +118,32 @@ def test_a_window_straddling_a_chunk_boundary_is_built_whole():
     assert float(np.median(per_site)) < 1e-4
 
 
+@pytest.mark.parametrize("chunk_size, halo", [
+    (37_000, 1000), (37_000, 5000), (25_000, "auto"), (23_000, "auto")])
+def test_no_window_overlapping_a_core_is_cut_at_its_segment_edge(
+        chunk_size, halo):
+    """Every global window a core overlaps lies whole inside its segment.
+
+    The 20 kb window is wider than both explicit halos and than the "auto"
+    halo capped at half the chunk, which clipped the windows straddling a
+    core boundary to the segment axis.
+    """
+    sites, names = _sites()
+    inference = LocalTreeInference(
+        sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
+        sequence_length=float(SEQUENCE_LENGTH), window=20_000,
+        block_size=BLOCK_BP, n_ensemble=None, progress=False,
+        chunk_size=chunk_size, halo=halo)
+    inference._resolve_segmentation_params()
+    cut = [(left, right, origin, origin + span)
+           for _seg, core_lo, core_hi, origin, span
+           in inference._stream_segments()
+           for left, right in inference._global_windows()
+           if right > core_lo and left < core_hi
+           and (left < origin or right > origin + span)]
+    assert not cut, f"{len(cut)} windows cut, e.g. {cut[:2]}"
+
+
 def test_narrow_windows_agree_on_the_call_across_chunk_sizes():
     """Multi-segment runs agree on the call, not to the last bit.
 

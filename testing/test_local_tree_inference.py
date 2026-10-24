@@ -2510,8 +2510,8 @@ class TestAnExplicitHaloIsFlooredAtTheBlockWidth:
     def test_raising_the_halo_is_reported(self, sites, caplog):
         with caplog.at_level(logging.WARNING):
             self._midpoints(sites, 500)
-        assert any("narrower than the resolved block width" in r.message
-                   for r in caplog.records)
+        assert any("halo of 500 bp is narrower than the widest window or block"
+                   in r.message for r in caplog.records)
 
 
 class TestInferSiteAgreesWithInferInLocalTreeMode:
