@@ -231,12 +231,16 @@ class Grade:
         :param truth: A mapping, an iterable of ``(position, allele)`` pairs,
             or a :class:`tskit.TreeSequence`, whose site ancestral states are
             the alleles at the ARG root.
-        :return: The mapping, positions as integers.
+        :return: The mapping, positions as integers, a tree sequence's
+            rounded (:meth:`Site.tskit_pos() <ancestree.sites.Site.tskit_pos>`).
         """
         import tskit
 
+        from ancestree.sites import Site
+
         if isinstance(truth, tskit.TreeSequence):
-            return {int(s.position): s.ancestral_state for s in truth.sites()}
+            return {Site.tskit_pos(s.position): s.ancestral_state
+                    for s in truth.sites()}
         if isinstance(truth, Mapping):
             return {int(k): v for k, v in truth.items()}
         return {int(k): v for k, v in truth}
@@ -278,7 +282,7 @@ class Grade:
             is named in both lists.
         """
         from ancestree.focal import FocalNode
-        from ancestree.sites import _by_individual, _named, _resolve_panel
+        from ancestree.sites import Site, _by_individual, _named, _resolve_panel
         from ancestree.trees import TskitLocalTree
 
         focal = FocalNode.parse(focal)
@@ -315,7 +319,7 @@ class Grade:
                     allele = Grade._allele_at(tree, site, int(tree.root), 0.0)
                 else:
                     allele = site.ancestral_state
-                out[int(site.position)] = allele
+                out[Site.tskit_pos(site.position)] = allele
         return out
 
     @staticmethod

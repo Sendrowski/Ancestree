@@ -115,3 +115,26 @@ def test_posterior_hash_consistent_across_dtypes():
 def test_inference_summary_zero_sites_str():
     summ = InferenceSummary(0, {}, float("nan"), {}, float("nan"))
     assert str(summ) == "InferenceSummary: 0 sites"
+
+
+def test_a_tree_sequence_truth_is_keyed_on_the_vcf_position():
+    """A continuous-genome truth is keyed on the ``POS`` tskit's write_vcf
+    gives each site, so posteriors read from that VCF find their truth.
+    Truncated keys left 22 of these 48 sites unmatched."""
+    import io
+
+    import msprime
+
+    from ancestree.posterior import Grade
+
+    ts = msprime.sim_ancestry(5, sequence_length=10_000, recombination_rate=1e-8,
+                              population_size=1e4, random_seed=3,
+                              discrete_genome=False)
+    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=4,
+                               model=msprime.JC69(), discrete_genome=False)
+    buf = io.StringIO()
+    ts.write_vcf(buf)
+    vcf_pos = [int(line.split("\t")[1]) for line in buf.getvalue().splitlines()
+               if not line.startswith("#")]
+    assert list(Grade.truth_mapping(ts)) == vcf_pos
+    assert sorted(Grade.truth_at_focal(ts)) == vcf_pos

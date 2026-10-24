@@ -121,3 +121,36 @@ def test_rate_map_provenance_tolerates_a_map_without_a_mean_rate():
     out = LocalTreeInference._rate_map_provenance("mutation_map", _NoMean())
     assert out == {"mutation_map_intervals": 3}
     assert LocalTreeInference._rate_map_provenance("mutation_map", None) == {}
+
+
+@pytest.mark.parametrize("partial, complete", [
+    # The map ends at 20 kb of the 40 kb region.
+    (msprime.RateMap(position=[0.0, 20_000.0], rate=[5e-8]),
+     msprime.RateMap(position=[0.0, 20_000.0, L], rate=[5e-8, 1.25e-8])),
+    # The first 6 kb are undefined.
+    (msprime.RateMap(position=[0.0, 6000.0, L], rate=[np.nan, 5e-8]),
+     msprime.RateMap(position=[0.0, 6000.0, L], rate=[1.25e-8, 5e-8])),
+], ids=["past_the_end", "nan_interval"])
+def test_an_uncovered_stretch_takes_mu_in_the_hmm_and_the_kernel(partial,
+                                                                  complete):
+    """Past a mutation map's end and over a NaN interval, the HMM blocks and
+    the kernel's sites both take ``mu``, as a map filled there with ``mu``
+    gives. The kernel had scored sites past the end at the last interval's
+    rate and NaN sites at ``mu``, while the HMM took ``mu`` past the end and
+    masked NaN blocks as zero-rate."""
+    a, b = _builder(mutation_map=partial), _builder(mutation_map=complete)
+    n_blocks = a._genotype_matrix()[3]
+    for x, y in zip(a._block_geometry(n_blocks), b._block_geometry(n_blocks)):
+        assert (x is None) == (y is None)
+        if x is not None:
+            np.testing.assert_array_equal(x, y)
+    pos = np.array([1000.0, 10_000.0, 30_000.0])
+    np.testing.assert_array_equal(a._site_rate_scale(pos),
+                                  b._site_rate_scale(pos))
+    sites, names = toy_sites(np.arange(500.0, L, 400.0), n_hap=4, seed=2)
+    kw = dict(n_ensemble=None, sequence_length=L, window=4000, block_size=BLOCK)
+    got = [p.values for _, p in toy_inference(
+        sites, names, mutation_map=partial, **kw).infer()]
+    want = [p.values for _, p in toy_inference(
+        sites, names, mutation_map=complete, **kw).infer()]
+    np.testing.assert_allclose(got, want, rtol=1e-12, atol=0)

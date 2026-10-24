@@ -27,11 +27,26 @@ def test_chrom_override(small_ts):
     assert s.chrom == "chrX"
 
 
-def test_positions_match_tskit_write_vcf(small_ts):
-    """Ancestree emits `int(position)`, matching tskit's own write_vcf truncation."""
-    src = TskitSource(small_ts)
-    for site, ts_site in zip(src, small_ts.sites()):
-        assert site.pos == int(ts_site.position)
+def test_positions_match_tskit_write_vcf():
+    """On a continuous genome ``Site.pos`` is the ``POS`` tskit's write_vcf
+    gives the site. Truncating instead put a site at 131.68 on 131 while the
+    VCF wrote 132, so posteriors read from that VCF missed the ts truth."""
+    import io
+
+    import msprime
+
+    ts = msprime.sim_ancestry(5, sequence_length=10_000, recombination_rate=1e-8,
+                              population_size=1e4, random_seed=3,
+                              discrete_genome=False)
+    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=4,
+                               model=msprime.JC69(), discrete_genome=False)
+    buf = io.StringIO()
+    ts.write_vcf(buf)
+    vcf_pos = [int(line.split("\t")[1]) for line in buf.getvalue().splitlines()
+               if not line.startswith("#")]
+    frac = ts.tables.sites.position % 1.0
+    assert (frac > 0.5).any() and (frac < 0.5).any()
+    assert [s.pos for s in TskitSource(ts)] == vcf_pos
 
 
 def test_samples_list_matches_sample_map(small_ts):

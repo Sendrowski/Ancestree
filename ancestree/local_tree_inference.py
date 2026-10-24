@@ -675,8 +675,9 @@ class LocalTreeBuilder(ReprMixin):
         reference rate the map is expressed against. The HMM emission of a
         block uses the map's mean rate over it (see
         :meth:`PairwiseCoalescentHMM.block_tmrcas`), and the kernel scales
-        the branches of each site by the map's rate at that site.
-        Defaults to ``None`` (a uniform rate).
+        the branches of each site by the map's rate at that site. Both take
+        ``mu`` over an interval the map leaves undefined (NaN) and past its
+        end. Defaults to ``None`` (a uniform rate).
     :param validate_coverage: When ``True`` (default), raise if any declared
         sample is observed at zero sites, the signature of a ``sample_names`` /
         :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>` key
@@ -990,8 +991,8 @@ class LocalTreeBuilder(ReprMixin):
         emit_scale = None
         uninformative = None
         if self.mutation_map is not None:
-            mm = self.mutation_map
-            L = float(getattr(mm, "sequence_length", n_blocks * bs))
+            mm = self._kernel_mu()
+            L = float(mm.sequence_length)
             lo = np.clip(np.arange(n_blocks) * bs, 0.0, L)
             hi = np.clip((np.arange(n_blocks) + 1) * bs, 0.0, L)
             valid = hi > lo  # False past the map's end
@@ -1074,20 +1075,26 @@ class LocalTreeBuilder(ReprMixin):
         return np.maximum(rate, _ZERO_RATE_FLOOR) / float(self.mu)
 
     def _kernel_mu(self):
-        """The rate the kernel scores this builder's sites at.
+        """The rate the HMM and the kernel score this builder's region at.
 
         :return: :attr:`mu`, or the :attr:`mutation_map` with the intervals
-            it leaves undefined at :attr:`mu`.
+            it leaves undefined, and the stretch from its end to
+            :attr:`sequence_length`, at :attr:`mu`.
         """
         mm = self.mutation_map
         if mm is None:
             return self.mu
+        position = np.asarray(mm.position, dtype=np.float64)
         rate = np.asarray(mm.rate, dtype=np.float64)
-        if not np.isnan(rate).any():
+        end = float(self.sequence_length)
+        if not np.isnan(rate).any() and position[-1] >= end:
             return mm
+        rate = np.where(np.isnan(rate), self.mu, rate)
+        if position[-1] < end:
+            position = np.append(position, end)
+            rate = np.append(rate, self.mu)
         from ancestree._maps import MapFiles
-        return MapFiles.msprime().RateMap(
-            position=mm.position, rate=np.where(np.isnan(rate), self.mu, rate))
+        return MapFiles.msprime().RateMap(position=position, rate=rate)
 
     def _accessible_fraction(self, n_blocks: int) -> np.ndarray:
         """Callable base-pair fraction of each block.

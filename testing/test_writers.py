@@ -305,7 +305,7 @@ def _uniform_posteriors(sites: list[Site]) -> list[tuple[Site, Posterior]]:
 
 def _two_site_continuous_ts():
     """Tiny 2-sample tree sequence with two sites whose float positions
-    (``100.2``, ``100.8``) truncate to the *same* integer (``100``)."""
+    (``99.8``, ``100.2``) round to the same integer (``100``)."""
     import tskit
 
     tables = tskit.TableCollection(sequence_length=200.0)
@@ -314,8 +314,8 @@ def _two_site_continuous_ts():
     root = tables.nodes.add_row(flags=0, time=1.0)
     tables.edges.add_row(left=0, right=200.0, parent=root, child=0)
     tables.edges.add_row(left=0, right=200.0, parent=root, child=1)
-    s0 = tables.sites.add_row(position=100.2, ancestral_state="A")
-    s1 = tables.sites.add_row(position=100.8, ancestral_state="A")
+    s0 = tables.sites.add_row(position=99.8, ancestral_state="A")
+    s1 = tables.sites.add_row(position=100.2, ancestral_state="A")
     tables.mutations.add_row(site=s0, node=0, derived_state="T")
     tables.mutations.add_row(site=s1, node=1, derived_state="G")
     tables.sort()
@@ -385,10 +385,10 @@ class TestTskitWriterPositionCollision:
 
         ts = _two_site_continuous_ts()
         sites = list(TskitSource(ts))
-        assert sites[0].pos == sites[1].pos == 100  # both truncate to 100
+        assert sites[0].pos == sites[1].pos == 100  # both round to 100
         assert sites[0].local_tree_handle != sites[1].local_tree_handle
 
-        # Distinct MAP calls per site: 100.2 → T, 100.8 → G.
+        # Distinct MAP calls per site: 99.8 → T, 100.2 → G.
         p0 = Posterior(alleles=("A", "T"), values=np.array([0.1, 0.9]))
         p1 = Posterior(alleles=("A", "G"), values=np.array([0.1, 0.9]))
         out_ts = tmp_path / "collision.trees"
@@ -397,8 +397,8 @@ class TestTskitWriterPositionCollision:
 
         new_ts = tskit.load(str(out_ts))
         by_pos = {s.position: s.ancestral_state for s in new_ts.sites()}
-        assert by_pos[100.2] == "T"
-        assert by_pos[100.8] == "G"
+        assert by_pos[99.8] == "T"
+        assert by_pos[100.2] == "G"
 
 
 class TestVCFWriterStreamingParity:
@@ -1677,3 +1677,28 @@ class TestASiteWhoseTipsAreAllMissingIsBlanked:
         VCFWriter(None, str(out)).write([(site, post("A", 0.9))])
         aa = {v.POS: v.INFO.get("AA") for v in cyvcf2.VCF(str(out))}
         assert aa[30] == "A"
+
+
+def test_vcf_positioned_posteriors_annotate_a_continuous_genome(tmp_path):
+    """Posteriors carrying the ``POS`` of tskit's write_vcf and no local-tree
+    handle annotate every site of a continuous-genome template, and reading
+    the output back gives those positions. The template was matched on the
+    truncated position, which missed every site rounded up."""
+    import dataclasses
+    import io
+
+    ts = msprime.sim_ancestry(5, sequence_length=10_000, recombination_rate=1e-8,
+                              population_size=1e4, random_seed=3,
+                              discrete_genome=False)
+    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=4,
+                               model=msprime.JC69(), discrete_genome=False)
+    buf = io.StringIO()
+    ts.write_vcf(buf)
+    vcf_pos = [int(line.split("\t")[1]) for line in buf.getvalue().splitlines()
+               if not line.startswith("#")]
+    inf = anc.Inference.from_arg(ts, anc.JC69(), mu=5e-8, progress=False)
+    pairs = [(dataclasses.replace(s, pos=p, local_tree_handle=None), q)
+             for (s, q), p in zip(inf.infer(), vcf_pos)]
+    out = tmp_path / "out.trees"
+    assert TskitWriter(ts, out).write(pairs) == ts.num_sites
+    assert [a.pos for a in Reader(out).annotations()] == vcf_pos

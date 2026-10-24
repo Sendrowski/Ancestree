@@ -1034,13 +1034,17 @@ class Inference(ReprMixin, ABC):
         are left alone.
 
         :param tree: The tree about to be scored.
-        :param site: The site scored on it.
+        :param site: The site scored on it, read at its exact position
+            (:attr:`Site.local_tree_handle <ancestree.sites.Site.local_tree_handle>`)
+            when it carries one.
         :return: The rate to assign to ``tree.time_scale``, or ``None`` to
             leave the branch lengths as they are.
         """
         if self.mu is None or tree.tskit_tree is None:
             return None
-        return float(self._site_rates(np.array([float(site.pos)]))[0])
+        x = (site.pos if site.local_tree_handle is None
+             else site.local_tree_handle)
+        return float(self._site_rates(np.array([float(x)]))[0])
 
     def _site_rates(self, positions: np.ndarray) -> np.ndarray:
         """The rate each site is scored at: ``mu``, or a rate-map ``mu`` at

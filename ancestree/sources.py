@@ -84,7 +84,7 @@ def _site_from_tskit_variant(
         tip_alleles[sample_name] = a if a else None
     return Site(
         chrom=chrom,
-        pos=int(variant.site.position),
+        pos=Site.tskit_pos(variant.site.position),
         alleles=alleles,
         tip_alleles=tip_alleles,
         local_tree_handle=float(variant.site.position),
@@ -96,7 +96,8 @@ class TskitSource(SiteSource):
 
     tskit's :attr:`Site.position <tskit.Site.position>` is a continuous
     float, and the emitted :attr:`Site.pos <ancestree.sites.Site.pos>`
-    truncates it.
+    rounds it to the nearest integer, the ``POS``
+    :meth:`tskit.TreeSequence.write_vcf` writes for it.
 
     :param ts: The source tree sequence.
     :param chrom: Contig name to embed in every emitted :class:`~ancestree.sites.Site`.

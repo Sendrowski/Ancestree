@@ -1202,7 +1202,8 @@ class TskitWriter(Writer):
             matched to the template's sites by exact float position
             (:attr:`Site.local_tree_handle <ancestree.sites.Site.local_tree_handle>`,
             set by the ARG / local-tree sources),
-            falling back to ``int(site.pos)`` when no handle is present. Exact
+            falling back to :attr:`Site.pos <ancestree.sites.Site.pos>`,
+            against the rounded template position, when no handle is present. Exact
             float matching avoids collapsing distinct sites that share an
             integer position on a continuous genome.
         :param store_posterior: When ``True`` (default), store the full
@@ -1272,7 +1273,7 @@ class TskitWriter(Writer):
         for site_obj in self._ts.sites():
             scored = (
                 index_by_fpos.get(float(site_obj.position))
-                or index_by_ipos.get(int(site_obj.position)))
+                or index_by_ipos.get(Site.tskit_pos(site_obj.position)))
             base_meta = self._coerce_metadata_to_dict(site_obj.metadata)
             if scored is None:
                 # An unscored site carries no ancestree block.

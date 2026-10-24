@@ -68,13 +68,24 @@ class Site:
         upper = allele.upper()
         return upper not in MISSING_ALLELES and upper not in STATE_INDEX
 
+    @staticmethod
+    def tskit_pos(position: float) -> int:
+        """The :attr:`pos` of a tree-sequence site position: the nearest
+        integer, ties to even, as :meth:`tskit.TreeSequence.write_vcf` writes
+        it.
+
+        :param position: A :attr:`tskit.Site.position <tskit.Site.position>`.
+        :return: The integer position.
+        """
+        return int(np.rint(position))
 
     chrom: str
     """Contig / chromosome identifier."""
 
     pos: int
     """Position on the contig, in the source's own coordinates: 1-based from
-    VCF / VCF-Zarr sources, 0-based from tskit / ARG sources. Writers match
+    VCF / VCF-Zarr sources, 0-based from tskit / ARG sources, whose continuous
+    positions are rounded (:meth:`Site.tskit_pos() <ancestree.sites.Site.tskit_pos>`). Writers match
     posteriors to template records on this value, so it is consistent within a
     single source but not normalised across source types. An output written
     from the sites takes it as the record position, refusing positions below

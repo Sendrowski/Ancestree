@@ -162,3 +162,23 @@ def test_rate_map_scales_a_supplied_tree_by_the_rate_at_the_site(small_ts):
     expected = scalar.infer_site(TskitLocalTree.from_tskit_tree(tree), site).values
     np.testing.assert_allclose(values, expected, rtol=1e-12)
     assert not np.allclose(values, 0.25)
+
+
+def test_infer_site_reads_the_rate_map_at_the_exact_position():
+    """On a continuous genome ``infer_site`` and ``infer`` read the rate map at
+    the same exact position. Reading it at the integer ``Site.pos`` put a
+    site just past a breakpoint on the other interval's rate."""
+    ts = msprime.sim_ancestry(5, sequence_length=10_000, recombination_rate=1e-8,
+                              population_size=1e4, random_seed=3,
+                              discrete_genome=False)
+    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=4,
+                               model=msprime.JC69(), discrete_genome=False)
+    x = next(p for p in ts.tables.sites.position if p % 1.0 > 0.6)
+    brk = np.floor(x) + 0.5
+    rate_map = msprime.RateMap(position=[0.0, brk, ts.sequence_length],
+                               rate=[1e-9, 1e-7])
+    inf = ARGBasedInference(ts, JC69(), mu=rate_map, progress=False)
+    site, batch = next((s, p) for s, p in inf.infer()
+                       if s.local_tree_handle == x)
+    single = inf.infer_site(TskitLocalTree(ts, x), site)
+    np.testing.assert_allclose(single.values, batch.values, rtol=1e-10)
