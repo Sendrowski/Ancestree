@@ -1194,7 +1194,8 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     """
 
     #: Coordinate of a contig's first base in :attr:`Site.pos <ancestree.sites.Site.pos>`:
-    #: ``1`` for VCF and VCF-Zarr sources, ``0`` for tree sequences.
+    #: ``1`` for VCF and VCF-Zarr sources and the filters wrapping them,
+    #: ``0`` for tree sequences and for a list of sites.
     position_base: int = 0
     #: Whether the unphased-genotype notice has been emitted.
     _noted_unphased: bool = False
@@ -1226,6 +1227,23 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                 f"{', '.join(given)} cannot be applied to {kind}: it carries its "
                 f"own panel and contigs. Subset the source before passing it, or "
                 f"pass a VCF/VCZ path, which these arguments do apply to.")
+
+    @staticmethod
+    def _panel_of(sites: "Iterable[Site]") -> list[str]:
+        """The tip ids of ``sites``: a source's samples, else every tip id any
+        site carries, in first-seen order.
+
+        :param sites: A source, or a re-iterable sequence of sites.
+        :return: The panel's tip ids.
+        """
+        samples = getattr(sites, "samples", None)
+        if callable(samples):
+            return list(samples())
+        seen: dict[str, None] = {}
+        for site in sites:
+            if not site.tip_alleles.keys() <= seen.keys():
+                seen.update(dict.fromkeys(site.tip_alleles))
+        return list(seen)
 
     @classmethod
     def resolve(
@@ -1551,6 +1569,11 @@ class _PanelSites(SiteSource):
         """The panel, in panel order."""
         return list(self._panel)
 
+    @property
+    def position_base(self) -> int:
+        """The wrapped source's :attr:`SiteSource.position_base`."""
+        return getattr(self._source, "position_base", 0)
+
 
 class PolymorphicSiteFilter(SiteSource):
     """Filter a site stream down to positions segregating within a sample set.
@@ -1652,6 +1675,11 @@ class PolymorphicSiteFilter(SiteSource):
             if self.accepts(site):
                 yield site
 
+    @property
+    def position_base(self) -> int:
+        """The wrapped source's :attr:`SiteSource.position_base`."""
+        return getattr(self._source, "position_base", 0)
+
     def samples(self) -> list[str]:
         """Sample identifiers of the wrapped source, in its canonical order.
 
@@ -1664,15 +1692,9 @@ class PolymorphicSiteFilter(SiteSource):
         """
         if self._source is None:
             raise ValueError("no source bound; construct with one to list samples")
-        inner = getattr(self._source, "samples", None)
-        if callable(inner):
-            return list(inner())
-        seen: dict[str, None] = {}
-        for site in self._source:
-            for name in site.tip_alleles:
-                seen.setdefault(name, None)
-        if seen:
-            return list(seen)
+        panel = SiteSource._panel_of(self._source)
+        if panel:
+            return panel
         raise ValueError(
             f"{type(self._source).__name__} reports no samples; pass samples="
         )

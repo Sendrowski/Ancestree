@@ -2767,6 +2767,8 @@ class FixedTreeInference(Inference):
             else BaseComposition.no_counts()
         )
 
+        panel_source = self._stream_source if self._streaming else actual_sites
+        self._panel = SiteSource._panel_of(panel_source)
         # Resolve the topology: no-outgroup (no ladder), an
         # explicit ladder, or one built from the ingroup / outgroup names.
         if self._no_outgroup_mode:
@@ -2786,12 +2788,9 @@ class FixedTreeInference(Inference):
                     "the OutgroupLadderTree (or pass a pre-built one via "
                     "tree=).")
             ingroup_samples, outgroup_samples = self._as_panel_ids(
-                ingroup_samples, outgroup_samples,
-                self._stream_source if self._streaming else actual_sites)
+                ingroup_samples, outgroup_samples, panel_source, self._panel)
             if ingroup_samples is None:
-                ingroup_samples = self.default_ingroup(
-                    self._stream_source if self._streaming else actual_sites,
-                    outgroup_samples)
+                ingroup_samples = self._ingroup_of(self._panel, outgroup_samples)
             actual_tree = OutgroupLadderTree(ingroup_samples, outgroup_samples)
 
         self.tree = actual_tree
@@ -3080,30 +3079,17 @@ class FixedTreeInference(Inference):
         :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>`
         applies, so a diploid panel named per individual carries twice as many
         ingroup haplotypes as ids. Falls back to the id count where the panel
-        is not reachable.
+        is empty.
 
         :return: Number of ingroup haplotypes in the panel.
         """
-
         names = list(self.tree.ingroup_samples or [])
         if not names:
             return 0
-        source = self._stream_source
-        panel: "list[str] | None" = None
-        if source is not None and hasattr(source, "samples"):
-            panel = list(source.samples())
-        else:
-            sites = self.sites or (
-                source if isinstance(source, (list, tuple)) else None)
-            if sites:
-                panel = list(sites[0].tip_alleles)
-        if not panel:
+        if not self._panel:
             return len(names)
         wanted = set(names)
-        return sum(
-            1 for sid in panel
-            if _named(sid, wanted)
-        )
+        return sum(1 for sid in self._panel if _named(sid, wanted))
 
     def _resolve_subsample_size(
         self, ingroup_weight, subsample_size: "int | None",
@@ -3269,6 +3255,7 @@ class FixedTreeInference(Inference):
     @staticmethod
     def _as_panel_ids(ingroup_samples: "Sequence[str] | None",
                       outgroup_samples: Sequence[str], source,
+                      tips: Sequence[str],
                       ) -> "tuple[list[str] | None, list[str]]":
         """The named ids as the panel spells them.
 
@@ -3279,15 +3266,10 @@ class FixedTreeInference(Inference):
 
         :param ingroup_samples: Named ingroup ids, or ``None``.
         :param outgroup_samples: Named outgroup ids.
-        :param source: The sites, or a source whose panel lists the tips.
+        :param source: The sites.
+        :param tips: The panel's tip ids.
         :return: The ingroup and outgroup ids, each in the given order.
         """
-        panel = getattr(source, "samples", None)
-        if callable(panel):
-            tips = list(panel())
-        else:
-            first = next(iter(source), None)
-            tips = list(first.tip_alleles) if first is not None else []
         if ingroup_samples is not None:
             ingroup_samples = _as_tips(ingroup_samples, tips)
         named = _as_tips(outgroup_samples, tips)
@@ -3319,12 +3301,22 @@ class FixedTreeInference(Inference):
         :raises ValueError: If an outgroup is absent from the panel, or the
             outgroups account for every haplotype.
         """
-        source = SiteSource.resolve(source, sample_filter=sample_filter)
-        if isinstance(source, SiteSource):
-            panel = list(source.samples())
-        else:
-            first = next(iter(source), None)
-            panel = list(first.tip_alleles) if first is not None else []
+        return FixedTreeInference._ingroup_of(
+            SiteSource._panel_of(
+                SiteSource.resolve(source, sample_filter=sample_filter)),
+            outgroup_samples)
+
+    @staticmethod
+    def _ingroup_of(panel: Sequence[str],
+                    outgroup_samples: Sequence[str]) -> list[str]:
+        """As :meth:`default_ingroup`, over the panel's tip ids.
+
+        :param panel: The panel's tip ids.
+        :param outgroup_samples: The outgroup ids.
+        :return: The ingroup haplotype ids, in panel order.
+        :raises ValueError: If an outgroup is absent from the panel, or the
+            outgroups account for every haplotype.
+        """
         _, ingroup, _, _ = _resolve_panel(panel, (), outgroup_samples)
         if not ingroup:
             raise ValueError(

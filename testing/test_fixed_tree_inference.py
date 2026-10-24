@@ -1416,6 +1416,43 @@ class TestIngroupIdsResolvePerIndividual:
             [site], samples=["i0", "i1"]).accepts(site)
 
 
+class TestListPanelIsTheUnionOverSites:
+    """A list of sites names its panel by every tip any site carries.
+
+    A tip omitted at the first site is marginalised there, not absent from
+    the panel, so it stays in the default ingroup and in the haplotype count
+    that bounds the sub-sample size.
+    """
+
+    @staticmethod
+    def _sites():
+        rng = np.random.default_rng(0)
+        ingroup = [f"i{k}" for k in range(6)]
+        sites = []
+        for k in range(40):
+            tips = {s: ("C" if rng.random() < 0.5 else "A") for s in ingroup}
+            tips.update(o1="A", o2="A")
+            if k == 0:
+                del tips["i5"]
+            sites.append(anc.Site(chrom="1", pos=k + 1, alleles=("A", "C"),
+                                 tip_alleles=tips))
+        return sites, ingroup
+
+    def test_default_ingroup_keeps_a_tip_the_first_site_omits(self):
+        sites, ingroup = self._sites()
+        assert FixedTreeInference.default_ingroup(sites, ["o1", "o2"]) == ingroup
+        inf = FixedTreeInference(sites, JC69(), outgroup_samples=["o1", "o2"],
+                                 n_target_sites=1000, progress=False)
+        assert list(inf.tree.ingroup_samples) == ingroup
+
+    def test_subsample_size_counts_a_tip_the_first_site_omits(self):
+        sites, ingroup = self._sites()
+        inf = FixedTreeInference(sites, JC69(), ingroup_samples=ingroup,
+                                 outgroup_samples=["o1", "o2"], subsample_size=6,
+                                 n_target_sites=1000, progress=False)
+        assert inf.subsample_size == 6
+
+
 class TestNamingTheIngroupEitherWayAgrees:
     """Naming individuals and naming their haplotypes give the same fit.
 

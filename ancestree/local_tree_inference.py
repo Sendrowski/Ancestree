@@ -1407,7 +1407,8 @@ class LocalTreeInference(Inference):
         Each of the three also accepts a ``{contig: map}`` dict, whose entry
         for the sites' contig applies. A file, plain or gzip-compressed, is
         read into one entry per contig, its 0-based BED and bedGraph intervals
-        placed on the 1-based positions of a VCF. See
+        placed on the 1-based positions of a VCF or VCF-Zarr source. A list of
+        sites carries no coordinate base and is read as 0-based. See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. On the
         chunked path each map is sliced per segment.
     :param outgroup_samples: Sample ids treated as outgroups, used by the

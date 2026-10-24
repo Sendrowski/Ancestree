@@ -14,6 +14,8 @@ import pytest
 from ancestree import DEFAULT_MU
 from ancestree._maps import MapFiles
 from ancestree.local_tree_inference import LocalTreeInference
+from ancestree.sites import PolymorphicSiteFilter
+from ancestree.sources import CyVCF2Source
 from testing._helpers import write_panel_vcf
 
 
@@ -168,14 +170,17 @@ class TestFileCoordinates:
                                  population_size=10_000, random_seed=1),
             rate=2e-8, random_seed=1, discrete_genome=True)
 
-    @pytest.mark.parametrize("as_vcf", [True, False])
-    def test_a_one_base_line_lands_on_its_site(self, ts, tmp_path, as_vcf):
+    @pytest.mark.parametrize("kind", ["vcf", "filtered_vcf", "ts"])
+    def test_a_one_base_line_lands_on_its_site(self, ts, tmp_path, kind):
+        """A filter wrapping a VCF source keeps its 1-based coordinates."""
         pos = int(ts.site(0).position)
-        if as_vcf:
-            source, contig, site = write_panel_vcf(ts, tmp_path / "p.vcf"), "1", pos + 1
-        else:
+        if kind == "ts":
             source, contig, site = ts, "1", pos
-        start = site - 1 if as_vcf else site
+        else:
+            source, contig, site = write_panel_vcf(ts, tmp_path / "p.vcf"), "1", pos + 1
+            if kind == "filtered_vcf":
+                source = PolymorphicSiteFilter(CyVCF2Source(source))
+        start = site if kind == "ts" else site - 1
         (tmp_path / "mu.bedgraph").write_text(f"{contig}\t{start}\t{start + 1}\t1e-7\n")
         (tmp_path / "a.bed").write_text(f"{contig}\t{start}\t{start + 1}\n")
         inference = LocalTreeInference(
