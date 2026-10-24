@@ -304,3 +304,59 @@ def test_chunked_workers_fall_back_to_serial_without_a_fork_method(monkeypatch, 
     assert [s.pos for s, _ in par] == [s.pos for s, _ in serial]
     for (_, a), (_, b) in zip(par, serial):
         np.testing.assert_allclose(a.values, b.values)
+
+
+# ---------------------------------------------------- core-only diagnostics
+def _halo_diagnostics(sites, panel, halo, caplog):
+    """The per-tree diagnostics of a chunked plug-in run with ``halo``.
+
+    :return: ``(uncoalesced-tree warnings, non-monophyletic trees, trees
+        without an ingroup MRCA)``.
+    """
+    caplog.clear()
+    inf = LocalTreeInference(
+        sites, JC69(), sample_names=panel, ingroup_samples=panel[:6],
+        outgroup_samples=panel[6:], sequence_length=200_000,
+        chunk_size="60kb", halo=halo, n_ensemble=None, mu=1.25e-8,
+        rec_rate=1e-8, progress=False)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        list(inf.infer())
+    params = inf.provenance()["parameters"]
+    return (sum("carried no coalescence" in r.getMessage()
+                for r in caplog.records),
+            params["n_trees_ingroup_non_monophyletic"],
+            params["n_segments_without_ingroup_mrca"])
+
+
+def test_chunked_tree_diagnostics_count_core_trees_only(caplog):
+    """Each segment tallies the trees of its core alone, so the counts do not
+    move with the halo. The edge-less trees of the halo were counted as
+    uncoalesced, more of them the wider the halo."""
+    ts = _sim_io(200_000, 6, 2, 3)
+    sites, _, panel = _contig_sites(ts, "1")
+    narrow = _halo_diagnostics(sites, panel, "5kb", caplog)
+    assert narrow == _halo_diagnostics(sites, panel, "20kb", caplog)
+    assert narrow[0] == 0 and narrow[2] == 0
+
+
+def test_chunked_ensemble_uniform_fallback_counts_core_sites_only(
+        monkeypatch, caplog):
+    """A site given the uniform fallback is counted once, in the segment
+    whose core holds it. The halo sites of every segment used to count too."""
+    from ancestree._ensemble import SegmentEnsemble
+
+    scored = SegmentEnsemble.posterior
+
+    def all_fallback(self, *args, **kwargs):
+        post = scored(self, *args, **kwargs)
+        self.uniform_fallback = np.ones(len(post), dtype=bool)
+        return post
+
+    monkeypatch.setattr(SegmentEnsemble, "posterior", all_fallback)
+    sites, names = toy_sites(range(0, 3000, 20))
+    inf = toy_chunked_inference(sites, names, chunk_size=1000, halo=400,
+                                n_ensemble=2)
+    with caplog.at_level(logging.WARNING, logger="ancestree"):
+        n = len(list(inf.infer()))
+    assert any(r.getMessage().startswith(f"{n} site(s) had a degenerate")
+               for r in caplog.records)

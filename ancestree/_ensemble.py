@@ -1051,9 +1051,10 @@ class SegmentEnsemble:
         normalised likelihood, and the caller weights it by the prior.
     """
 
-    #: Sites given a uniform posterior because their marginalised mass
-    #: underflowed to zero, set by :meth:`SegmentEnsemble.posterior`.
-    n_uniform_fallback: int = 0
+    #: Per site, whether it was given a uniform posterior because its
+    #: marginalised mass underflowed to zero, set by
+    #: :meth:`SegmentEnsemble.posterior`.
+    uniform_fallback: "np.ndarray | None" = None
 
 
     def __init__(self, builder, model, n_hap: int, ingroup,
@@ -1383,7 +1384,7 @@ class SegmentEnsemble:
             ref = new
         total = acc.sum(axis=1, keepdims=True)
         good = total[:, 0] > 0
-        self.n_uniform_fallback = int((~good).sum())
+        self.uniform_fallback = ~good
         post = np.full_like(acc, 1.0 / S_STATES)
         post[good] = acc[good] / total[good]
         return post

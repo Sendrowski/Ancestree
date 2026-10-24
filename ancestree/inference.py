@@ -1460,11 +1460,12 @@ class Inference(ReprMixin, ABC):
             (e.g. fixed-tree mode, where a VCF is written with :meth:`to_vcf`).
         """
         from ancestree.writers import TskitWriter
+        # Built first, since building it can resolve what the provenance records.
+        ts = self._source_tree_sequence(restrict_samples)
         supplied, provenance = provenance, self._resolve_provenance(
             provenance, min_confidence)
         return TskitWriter(
-            self._source_tree_sequence(restrict_samples), output_path,
-            min_confidence=min_confidence,
+            ts, output_path, min_confidence=min_confidence,
         ).write(
             self._completing(self._posteriors_for_writing(posteriors),
                              provenance, supplied), info=info,

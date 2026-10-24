@@ -1221,6 +1221,20 @@ def test_chunked_to_arg_round_trip(tmp_path):
         assert site.ancestral_state == map_by_pos[int(site.position)]
 
 
+@pytest.mark.parametrize("chunk_size", [None, 1000])
+@pytest.mark.parametrize("chrom, want", [(None, "2"), ("chr7", "chr7")])
+def test_to_arg_records_the_contig(tmp_path, chunk_size, chrom, want):
+    """A ``.trees`` output has no contig of its own, so the provenance
+    records it and :class:`~ancestree.Reader` reads it back: the sites' own
+    contig, or ``chrom`` where set. It used to read back with none."""
+    sites, names = toy_sites(range(0, 2000, 20), chrom="2")
+    inf = toy_inference(sites, names, chunk_size=chunk_size, chrom=chrom,
+                        n_ensemble=None)
+    out = str(tmp_path / "lt.trees")
+    inf.to_arg(out)
+    assert {a.chrom for a in anc.Reader(out).annotations()} == {want}
+
+
 def test_chunked_tree_sequence_multicontig_raises():
     """A genome-wide tree sequence needs a single coordinate axis, so a
     multi-contig chunked source is rejected (use VCF/VCZ output)."""
@@ -2085,19 +2099,44 @@ def test_a_haplotype_id_names_a_haploid_tip(tmp_path):
                                   [p.values for _, p in bare.infer()])
 
 
-def test_a_sample_present_but_never_called_raises_on_the_chunked_path():
-    """A sample whose key every site carries with no allele is refused on the
-    chunked path too, where per-chunk builders skip their own coverage check.
+def _with_uncalled(sites, name):
+    """``sites`` with a tip ``name`` carried at every site with no allele."""
+    return [replace(s, tip_alleles={**s.tip_alleles, name: None}) for s in sites]
+
+
+@pytest.mark.parametrize("chunk_size", [None, 1000])
+@pytest.mark.parametrize("n_ensemble", [None, 2])
+def test_a_sample_uncalled_at_every_site_is_left_out(chunk_size, n_ensemble,
+                                                     caplog):
+    """A sample every site carries with no allele, such as an outgroup with
+    no aligned base, is left out of the panel on both paths, and the run
+    matches one that never named it. It used to raise as a name mismatch.
     """
-    sites, names = toy_sites(range(0, 1000, 50))
-    blank = [replace(s, tip_alleles={**s.tip_alleles, "hx": None}) for s in sites]
-    with pytest.raises(ValueError, match=r"no observed genotype.*hx"):
-        LocalTreeInference(blank, JC69(), mu=MU, rec_rate=REC,
-                           sample_names=[*names, "hx"], chunk_size=1000,
-                           sequence_length=1000.0, progress=False)
+    sites, names = toy_sites(range(0, 2000, 20), n_hap=6)
+    common = dict(chunk_size=chunk_size, n_ensemble=n_ensemble,
+                  outgroup_samples=["h5", "hx"])
+    with caplog.at_level(logging.INFO, logger="ancestree.LocalTreeInference"):
+        got = toy_inference(_with_uncalled(sites, "hx"), [*names, "hx"], **common)
+    assert got.sample_names == names
+    assert got._resolved_outgroups == ("h5",)
+    assert any("Leaving out 1 haplotype" in r.getMessage()
+               and r.getMessage().endswith("hx") for r in caplog.records)
+    want = toy_inference(sites, names, **{**common, "outgroup_samples": ["h5"]})
+    np.testing.assert_array_equal([p.values for _, p in got.infer()],
+                                  [p.values for _, p in want.infer()])
 
 
-def test_unmatched_sample_name_raises():
+def test_an_ingroup_left_empty_by_uncalled_samples_raises():
+    """Naming only uncalled samples as the ingroup leaves nothing to report
+    at, which is refused naming the samples."""
+    sites, names = toy_sites(range(0, 2000, 20))
+    with pytest.raises(ValueError, match=r"every ingroup sample is uncalled.*hx"):
+        toy_inference(_with_uncalled(sites, "hx"), [*names, "hx"],
+                      ingroup_samples=["hx"])
+
+
+@pytest.mark.parametrize("chunk_size", [None, "50kb"])
+def test_unmatched_sample_name_raises(chunk_size):
     """A ``sample_name`` absent from every site's ``tip_alleles`` is refused.
 
     It is the signature of a name mismatch (e.g. ``tskit.simplify``
@@ -2112,7 +2151,8 @@ def test_unmatched_sample_name_raises():
     with pytest.raises(ValueError, match="no observed genotype"):
         inf = LocalTreeInference(
             sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=bad_names,
-            sequence_length=ts.sequence_length, block_size=2000, progress=False,
+            sequence_length=ts.sequence_length, block_size=2000,
+            chunk_size=chunk_size, progress=False,
         )
         list(inf.infer())
 

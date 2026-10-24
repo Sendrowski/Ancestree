@@ -34,7 +34,7 @@ import logging
 import os
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
-from itertools import combinations
+from itertools import combinations, compress
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -1373,7 +1373,8 @@ class LocalTreeInference(Inference):
     :param sample_names: Panel haplotype names (tip order). Required when
         building from :class:`~ancestree.sites.Site` records. Read from the
         source for a VCF / BCF / VCZ path, a tree sequence or a
-        :class:`~ancestree.sites.SiteSource`.
+        :class:`~ancestree.sites.SiteSource`. A haplotype uncalled at every
+        site is left out of the panel.
     :param sample_filter: Restrict a VCF / VCZ read to these sample names,
         each of which must be in ``ingroup_samples`` or ``outgroup_samples``.
     :param chrom_filter: Restrict a VCF / VCZ read to this contig.
@@ -1384,10 +1385,12 @@ class LocalTreeInference(Inference):
         the per-record phase flag.
     :param phase_seed: Seed for the per-site haplotype-order randomisation
         applied to unphased heterozygotes, so a run is reproducible.
-    :param sequence_length: Region length in bp, which the local-tree windows
-        tile as ``[0, L)``. Give it whenever it is known: under ``chunk_size``
-        it is what lays one window grid over the whole region and not one per
-        segment. Defaults to a tree-sequence source's own length.
+    :param sequence_length: Region length ``L`` in bp, which the local-tree
+        windows tile as ``[0, L)``. For 1-based input (VCF / VCZ) the axis is
+        ``[0, L + 1)``, so a site at ``POS == L`` lies on it. Give it whenever
+        it is known: under ``chunk_size`` it is what lays one window grid over
+        the whole region and not one per segment. Defaults to a tree-sequence
+        source's own length.
     :param window: Local-tree window spec (the primary resolution parameter). See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
     :param block_size: HMM emission block width: int / bp string / ``"<N>snp"``;
@@ -1475,8 +1478,10 @@ class LocalTreeInference(Inference):
     :raises ValueError: If ``member_chunk``, ``n_ensemble`` or ``n_workers`` is
         below 1, if ``n_time_bins`` is outside ``[1, MAX_TIME_BINS]``, if
         ``sample_names`` is needed and absent, if a named sample is absent
-        from the panel or named in both lists, or if ``sample_names`` names a
-        sample that ``outgroup_samples`` drops.
+        from the panel or named in both lists, if ``sample_names`` names a
+        sample that ``outgroup_samples`` drops or that no site's
+        ``tip_alleles`` holds, or if every ingroup sample is uncalled at
+        every site.
     """
 
     @staticmethod
@@ -1492,33 +1497,36 @@ class LocalTreeInference(Inference):
         )
 
     @staticmethod
-    def _padding_tips(sites, sample_names) -> "list[str]":
-        """Full-panel coverage check: the samples called at no site that are
-        padding, a slot past the ploidy of their calls (a haploid sample in a
-        diploid file). Early-exits once every sample is called, so the
-        overhead is a handful of sites for well-formed input.
+    def _uncalled_tips(sites, sample_names) -> "list[str]":
+        """Full-panel coverage check: the samples that every site carries
+        with no allele, such as an outgroup with no aligned base or the
+        padded slot of a haploid sample in a diploid file. Early-exits once
+        every sample is called, so the overhead is a handful of sites for
+        well-formed input.
 
-        :raises ValueError: If a sample is called at no site and is not padding.
+        :param sites: The sites, re-iterable.
+        :param sample_names: The panel.
+        :return: The uncalled samples, in panel order.
+        :raises ValueError: If a sample is a key of no site's ``tip_alleles``.
         """
         need = set(sample_names)
         seen: set = set()
-        padded: set = set()
+        keyed: set = set()
         any_site = False
         for site in sites:
             any_site = True
             seen.update(n for n, a in site.tip_alleles.items()
                         if a is not None and n in need)
-            padded |= need & site.padded
             if len(seen) >= len(need):
                 return []
+            if len(keyed) < len(need):
+                keyed |= need & site.tip_alleles.keys()
         if not any_site:
             return []
-        unseen = [n for n in sample_names if n not in seen]
-        absent = [n for n in unseen if n not in padded]
+        absent = [n for n in sample_names if n not in keyed]
         if absent:
             LocalTreeInference._raise_unobserved_samples(absent)
-        return unseen
-
+        return [n for n in sample_names if n not in seen]
 
     @property
     def _repr_params(self) -> dict[str, object]:
@@ -1576,7 +1584,8 @@ class LocalTreeInference(Inference):
         self.chrom = chrom
         self._segmented = False
         self._announced = False
-        self._stitched_ts = None  # cached genome-wide TS on the chunked path
+        # The cached genome-wide TS on the chunked path, with its contig.
+        self._stitched: "tuple[tskit.TreeSequence, str] | None" = None
         # Retained for the segmented path / provenance. Constructed here rather
         # than defaulted in the signature: models carry mutable state that would
         # otherwise be shared across inferences.
@@ -1690,19 +1699,25 @@ class LocalTreeInference(Inference):
         # re-iterated lazily.
         if hasattr(source, "__next__"):
             source = list(source)
-        # A tip that is padding at every site is no lineage, and as a tip the
+        # A tip uncalled at every site is no lineage, and as a tip the
         # pairwise HMM would give it the panel's median coalescence time.
-        padding = set(self._padding_tips(source, self.sample_names))
-        if padding:
+        uncalled = set(self._uncalled_tips(source, self.sample_names))
+        if uncalled:
             self._log.info(
-                "Leaving out %d haplotype(s) that no call reaches, the second "
-                "slot of a haploid sample in a diploid file: %s", len(padding),
-                ", ".join(n for n in self.sample_names if n in padding))
-            self.sample_names = [n for n in self.sample_names if n not in padding]
+                "Leaving out %d haplotype(s) that no call reaches, such as the "
+                "second slot of a haploid sample in a diploid file: %s",
+                len(uncalled),
+                ", ".join(n for n in self.sample_names if n in uncalled))
+            self.sample_names = [n for n in self.sample_names if n not in uncalled]
+            ingroup = self._resolved_ingroup
             self._resolved_ingroup = tuple(
-                n for n in self._resolved_ingroup if n not in padding)
+                n for n in ingroup if n not in uncalled)
+            if ingroup and not self._resolved_ingroup:
+                raise ValueError(
+                    f"every ingroup sample is uncalled at every site: "
+                    f"{list(ingroup)[:10]}")
             self._resolved_outgroups = tuple(
-                n for n in self._resolved_outgroups if n not in padding)
+                n for n in self._resolved_outgroups if n not in uncalled)
         if len(self.sample_names) < len(sample_names):
             source = _PanelSites(source, self.sample_names)
         if not self._resolved_ingroup:
@@ -1741,7 +1756,8 @@ class LocalTreeInference(Inference):
             mu=mu, prior=prior,
             base_composition=base_composition, progress=progress,
             n_workers=n_workers, focal=focal,
-            ingroup_samples=ingroup_samples, outgroup_samples=outgroup_samples,
+            ingroup_samples=self._resolved_ingroup,
+            outgroup_samples=self._resolved_outgroups or None,
         )
 
     def _point_arg(self) -> "ARGBasedInference":
@@ -1820,7 +1836,7 @@ class LocalTreeInference(Inference):
             yield site, (post if post is not None
                          else Posterior(tuple(self.model.states), flat))
 
-    def _score_ensemble(self, builder, sites) -> np.ndarray:
+    def _score_ensemble(self, builder, sites, keep=None) -> np.ndarray:
         """Prior-weighted per-site posteriors for one builder's sites.
 
         The whole of ensemble scoring, shared by the single-region and
@@ -1828,7 +1844,9 @@ class LocalTreeInference(Inference):
 
         :param builder: The :class:`~ancestree.local_tree_inference.LocalTreeBuilder` covering ``sites``.
         :param sites: Those sites, in order.
-        :return: ``(len(sites), 4)`` posteriors.
+        :param keep: Boolean mask over ``sites`` of the rows returned and
+            tallied, ``None`` for all.
+        :return: ``(n_kept, 4)`` posteriors.
         """
 
         from ancestree._ensemble import SegmentEnsemble
@@ -1840,11 +1858,15 @@ class LocalTreeInference(Inference):
         post = ens.posterior(frac, self.n_ensemble, n_coal=n_coal,
                              member_chunk=self.member_chunk,
                              seed=self.ensemble_seed)
-        self._n_uniform_fallback += int(ens.n_uniform_fallback)
         if len(post) != len(sites):
             raise RuntimeError(
                 f"ensemble returned {len(post)} posteriors for {len(sites)} "
                 f"sites; they must pair one to one")
+        uniform = ens.uniform_fallback
+        if keep is not None:
+            post, uniform = post[keep], uniform[keep]
+            sites = list(compress(sites, keep))
+        self._n_uniform_fallback += int(uniform.sum())
         return self._weight_by_prior(post, sites)
 
     def _infer_ensemble(self) -> Iterator[tuple[Site, Posterior]]:
@@ -2258,30 +2280,34 @@ class LocalTreeInference(Inference):
                 "_n_unrepresentable_sites": unrep_sites,
                 "_n_unrepresentable_tips": unrep_tips,
             })
+        core = [site for site in seg if core_lo <= site.pos < core_hi]
+        if not core:
+            return [], self._counts_in_order({})
         segment = self._segment_builder(work_unit)
+        origin = work_unit[3]
+        ts = segment.to_tree_sequence()
+        # Clipped to the core, so the per-tree tallies count no halo tree.
+        ts = ts.keep_intervals(
+            [[max(0.0, core_lo - origin), min(ts.sequence_length, core_hi - origin)]],
+            simplify=False, record_provenance=False)
         arg = ARGBasedInference(
-            segment.to_tree_sequence(), self.model,
+            ts, self.model,
             mu=segment._kernel_mu(), prior=self.prior,
             base_composition=self.base_composition, progress=False,
             n_workers=1, focal=self.focal,
-            ingroup_samples=self._ingroup_samples or None,
-            outgroup_samples=self._outgroup_samples or None,
+            ingroup_samples=self._resolved_ingroup,
+            outgroup_samples=self._resolved_outgroups or None,
         )
         arg._quiet = True
-        out: list[tuple[Site, np.ndarray]] = []
         # Paired by position in the segment's frame (pos - origin). A site
         # absent from the baked tree sequence takes the flat posterior.
-        origin = work_unit[3]
         scored = {int(ts_site.pos): np.asarray(post.values)
                   for ts_site, post in arg.infer()}
         n_states = len(self.model.states)
         flat = np.full(n_states, 1.0 / n_states)
-        for orig in seg:
-            if core_lo <= orig.pos < core_hi:
-                out.append((orig, scored.get(int(orig.pos - origin), flat)))
+        out = [(site, scored.get(int(site.pos - origin), flat)) for site in core]
         # Tallied over the core rows the segment emits, never the halo.
         before = self._site_counts_before()
-        core = [site for site, _ in out]
         self._count_ingroup_monomorphic(core)
         self._count_unrepresentable(core)
         counted, unrep_sites, unrep_tips = self._drain_site_counts(before)
@@ -2305,9 +2331,10 @@ class LocalTreeInference(Inference):
         point estimate mis-resolves a split inside the ingroup.
         """
         seg, core_lo, core_hi, _origin, _span, _chrom = work_unit
-        post = self._score_ensemble(self._segment_builder(work_unit), seg)
-        return [(orig, post[row]) for row, orig in enumerate(seg)
-                if core_lo <= orig.pos < core_hi]
+        keep = np.fromiter((core_lo <= s.pos < core_hi for s in seg), bool,
+                           len(seg))
+        post = self._score_ensemble(self._segment_builder(work_unit), seg, keep)
+        return list(zip(compress(seg, keep), post))
 
     def _weight_by_prior(self, post, sites):
         """Multiply marginalised likelihoods by the root prior and renormalise.
@@ -2354,7 +2381,7 @@ class LocalTreeInference(Inference):
             return 0.0, int(spec.coalescences)
         return self._ensemble_fraction(), -1
 
-    def _stitch_segment_tree_sequence(self) -> "tskit.TreeSequence":
+    def _stitch_segment_tree_sequence(self) -> "tuple[tskit.TreeSequence, str]":
         """Assemble a genome-wide tree sequence from the chunked segments.
 
         Streams one segment at a time (so the HMM's peak memory still tracks a
@@ -2369,7 +2396,8 @@ class LocalTreeInference(Inference):
         axis, so a multi-contig source cannot be represented as one tree
         sequence (use VCF / VCZ output instead).
 
-        :return: The stitched genome-wide pseudo-ARG tree sequence.
+        :return: The stitched genome-wide pseudo-ARG tree sequence, and the
+            contig it spans.
         :raises NotImplementedError: If the source spans more than one contig.
         :raises ValueError: If the source yields no segments.
         """
@@ -2472,7 +2500,7 @@ class LocalTreeInference(Inference):
                 )
         out.sort()
         out.time_units = "generations"
-        return out.tree_sequence()
+        return out.tree_sequence(), seen_chrom
 
     def _infer_segmented(self) -> Iterator[tuple[Site, Posterior]]:
         """Posteriors for a chunked run, one segment at a time."""
@@ -2559,9 +2587,10 @@ class LocalTreeInference(Inference):
     def _provenance_parameters(self) -> dict[str, object]:
         """Local-tree run parameters.
 
-        Model, prior and mu, the tree-building parameters (rate, window, block
-        size, time bins), and in ensemble mode the member count, seed and
-        chunk.
+        Model, prior and mu, the contig, the tree-building parameters (rate,
+        window, block size, time bins), and in ensemble mode the member count,
+        seed and chunk. On the chunked path the contig is known once
+        :meth:`point_tree_sequence` has run.
         """
         params: dict[str, object] = {
             "model": self._model_name(self.model),
@@ -2584,9 +2613,13 @@ class LocalTreeInference(Inference):
                 # The spec snapped up to a whole number of blocks.
                 "window_bp": int(self._wbp),
             })
+            contig = None if self._stitched is None else self._stitched[1]
         else:
             params.update({"block_size": int(self.builder.block_size),
                            "window_bp": int(self.builder.window_bp)})
+            contig = next(iter(self.builder.sites.chroms), None)
+        # The contig of every emitted site, where the run lays them on one.
+        params["chrom"] = self.chrom if self.chrom is not None else contig
         if self._arg is not None:
             params.update(self._arg._focal_provenance())
         params.update(self._ensemble_provenance())
@@ -2691,6 +2724,9 @@ class LocalTreeInference(Inference):
         and at the same index in the next are separate samples, not one
         genealogy running the length of the genome. Call
         :meth:`point_tree_sequence` for a single genome-wide plug-in tree.
+
+        For 1-based input (VCF / VCZ) the last interval ends at
+        ``sequence_length + 1``.
 
         :return: Iterator of ``(interval, iterator of tskit.TreeSequence)``.
         """
@@ -2804,14 +2840,15 @@ class LocalTreeInference(Inference):
         re-run per segment to assemble the topology, so this is independent of
         (and does not cache) the kernel pass in :meth:`infer`.
 
-        :return: The local-tree sequence (a pseudo-ARG, see :meth:`to_arg`).
+        :return: The local-tree sequence (a pseudo-ARG, see :meth:`to_arg`),
+            of length ``sequence_length + 1`` for 1-based input (VCF / VCZ).
         :raises NotImplementedError: On the chunked path with a multi-contig
             source (no single coordinate axis to represent it on).
         """
         if self._segmented:
-            if self._stitched_ts is None:
-                self._stitched_ts = self._stitch_segment_tree_sequence()
-            return self._stitched_ts
+            if self._stitched is None:
+                self._stitched = self._stitch_segment_tree_sequence()
+            return self._stitched[0]
         return self._point_arg().ts
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:
