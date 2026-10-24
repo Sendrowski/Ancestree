@@ -43,7 +43,7 @@ import tskit
 
 import ancestree as anc
 from ancestree._ensemble import (
-    S_STATES, SegmentEnsemble, ffbs_paths, pack_base_all, paths_to_condensed,
+    S_STATES, SegmentEnsemble, pack_base_all, paths_to_condensed,
     reroot_all, score_ensemble, upgma_batch,
 )
 from ancestree.focal import FocalNode
@@ -123,7 +123,7 @@ class EnsembleFocalScan:
     :param n_members: Ensemble size B.
     :param n_subsets: Disjoint sub-ensembles the members are split into.
     :param member_chunk: Members packed and scored at once.
-    :param seed: Base seed. Member ``b`` draws from stream ``seed + b``.
+    :param seed: Base seed, hashed into the segment stream key.
     """
 
     def __init__(self, source, n_out, *, mu, rec_rate, window, n_members,
@@ -386,14 +386,11 @@ class EnsembleFocalScan:
         path = np.empty((M, P, ens.n_blocks), dtype=np.int8)
         per_subset = self.n_members // self.n_subsets
         for start in range(0, self.n_members, M):
-            ffbs_paths(ens.hmm_counts, ens.hmm_lam, ens.hmm_log_lam,
-                       ens.alpha_ck, ens.ckpt_stride, ens.n_blocks, ens.hmm_r,
-                       ens.hmm_pi, ens.hmm_called, ens.hmm_block_sites,
-                       self.seed + start, ens.pair_key,
-                       path)
+            ens._paths_into(path, M, start, self.seed)
             paths_to_condensed(path, ens.edge_lo, ens.edge_hi, ens.t_bar,
                                ens.needed, ens.blk_lo, ens.blk_hi, 0,
-                               ens.pair_key, self.seed, start, draws)
+                               ens.pair_key, ens._stream_key(self.seed), start,
+                               draws)
             sub = start // per_subset
             for fi, res in self._score_chunk(draws, fractions, out, arrays):
                 self._accumulate(res, acc[fi, sub], ref[fi, sub])

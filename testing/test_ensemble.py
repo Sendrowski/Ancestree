@@ -101,6 +101,85 @@ def test_seed_changes_the_draws():
     assert max(np.abs(a[p] - b[p]).max() for p in a) > 1e-9
 
 
+def _last_block_quantiles(ens, n_members, seed):
+    """Mid-CDF quantile of each member's last-block bin, centred per pair.
+
+    The last block is drawn first, from the filtered distribution there, so
+    under independent streams two such arrays are uncorrelated.
+
+    :return: ``(n_members, n_pairs)`` quantiles minus their per-pair mean.
+    """
+    path = np.empty((n_members, ens.alpha_ck.shape[0], ens.n_blocks), np.int8)
+    ens._paths_into(path, n_members, 0, seed)
+    a = ens.alpha_ck[:, -1]
+    cum = np.cumsum(a, axis=1) / a.sum(axis=1, keepdims=True)
+    lower = np.concatenate([np.zeros((len(a), 1)), cum[:, :-1]], axis=1)
+    mid = (lower + cum) / 2
+    q = np.take_along_axis(mid, path[:, :, -1].T.astype(np.int64), axis=1).T
+    return q - q.mean(axis=0)
+
+
+def _stream_correlation(x, y):
+    """Pearson correlation of two centred quantile arrays, and its 4 SE bound."""
+    r = float((x * y).sum() / np.sqrt((x * x).sum() * (y * y).sum()))
+    return r, 4.0 / np.sqrt(x.size)
+
+
+def _segment_ensembles(monkeypatch, sites, names, L, **kw):
+    """The :class:`SegmentEnsemble` instances a chunked run scores with."""
+    seen = []
+
+    class Spy(SegmentEnsemble):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            seen.append(self)
+
+    monkeypatch.setattr(ensemble_module, "SegmentEnsemble", Spy)
+    _run(sites, names, L, n_ensemble=2, chunk_size="20kb", halo="5kb", **kw)
+    return seen
+
+
+def test_segments_draw_from_independent_streams(monkeypatch):
+    """Two segments of one contig share no random numbers.
+
+    Keyed on the member and pair alone, every segment replayed the same
+    uniforms, so the last-block quantiles of two segments correlated at 0.98.
+    """
+    sites, names, L = _sites()
+    ens = _segment_ensembles(monkeypatch, sites, names, L)
+    assert len(ens) >= 2
+    r, tol = _stream_correlation(_last_block_quantiles(ens[0], 128, 0),
+                                 _last_block_quantiles(ens[1], 128, 0))
+    assert abs(r) < tol, (r, tol)
+
+
+def test_contigs_draw_from_independent_streams():
+    """The same panel on two contigs gives two different ensembles."""
+    sites, names, L = _sites()
+    twin = [Site(chrom="2", pos=s.pos, alleles=s.alleles,
+                 tip_alleles=s.tip_alleles) for s in sites]
+    inf = _inference(sites + twin, names, L, n_ensemble=8, chunk_size="20kb",
+                     halo="5kb")
+    post = {(s.chrom, int(s.pos)): np.asarray(p.values)
+            for s, p in inf.infer()}
+    assert max(np.abs(post[("1", s.pos)] - post[("2", s.pos)]).max()
+               for s in sites) > 1e-6
+
+
+def test_consecutive_seeds_share_no_members(monkeypatch):
+    """Member ``b`` at seed ``s`` and member ``b - 1`` at ``s + 1`` differ.
+
+    With member streams at ``seed + b`` the two were the same draw, so
+    replicate runs at consecutive seeds shared all but one member.
+    """
+    sites, names, L = _sites()
+    ens = _segment_ensembles(monkeypatch, sites, names, L)[0]
+    q0 = _last_block_quantiles(ens, 129, 0)
+    q1 = _last_block_quantiles(ens, 129, 1)
+    r, tol = _stream_correlation(q0[1:], q1[:-1])
+    assert abs(r) < tol, (r, tol)
+
+
 def test_posteriors_are_normalised():
     sites, names, L = _sites()
     for size in (None, 1, 8):
@@ -342,7 +421,8 @@ class TestEnsembleKernelInvariants:
         # is what these invariants are stated over.
         pair_key = np.arange(self.P, dtype=np.uint64)
         ffbs_paths(counts, lam, log_lam, alpha_ck, stride, self.K,
-                   r, pi, called, block_sites, seed0, pair_key, path)
+                   r, pi, called, block_sites, np.uint64(seed0), 0, pair_key,
+                   path)
         return path
 
     def test_a_smaller_ensemble_is_a_prefix_of_a_larger_one(self):
@@ -429,10 +509,10 @@ class TestEnsembleKernelInvariants:
 #: Ensemble posteriors at the first four sites, ``n_ensemble=8``,
 #: ``ensemble_seed=0``, from the fixture built by :func:`_sites`.
 _GOLDEN_ENSEMBLE = {
-    405: (0.2806718710836991, 2.423270656493181e-05, 0.7192796635031711, 2.42327065649319e-05),
-    1061: (2.423270656487162e-05, 0.2806718710836032, 2.4232706564927078e-05, 0.719279663503267),
-    1976: (0.00020589489624852733, 2.5086058479429984e-08, 0.9997940549316345, 2.5086058479450942e-08),
-    1984: (0.7794688237560905, 3.243158186325231e-05, 3.243158186326162e-05, 0.22046631308018305),
+    405: (0.34757032814482136, 2.393030473429052e-05, 0.6523818112457099, 2.393030473429052e-05),
+    1061: (2.393030473429052e-05, 0.34757032814482164, 2.393030473429052e-05, 0.6523818112457098),
+    1976: (0.13835192908031924, 1.3160654847827645e-05, 0.8616217496099852, 1.3160654847827691e-05),
+    1984: (0.8558404746350377, 1.9305255162784716e-05, 1.9305255162784716e-05, 0.14412091485463677),
 }
 
 
@@ -493,10 +573,10 @@ def _posteriors(sites, model):
 #: Pins the per-block called-fraction exposure in the ensemble's
 #: own forward pass.
 _GOLDEN_MISSING = {
-    36: (0.2789779780705328, 0.7201483297035972, 0.0004368461129350441, 0.00043684611293484725),
-    40: (0.99967746113603, 0.0001075129546566987, 0.00010751295465671652, 0.00010751295465671644),
-    47: (0.9802590811579532, 0.019707236205189778, 1.684131842850717e-05, 1.684131842850255e-05),
-    109: (0.744318865880089, 0.25478140053704845, 0.0004498667914314021, 0.00044986679143123656),
+    36: (0.22698099192213617, 0.7723311203870444, 0.0003439438454096634, 0.0003439438454096639),
+    40: (0.9998755891704991, 4.147027650029285e-05, 4.147027650029287e-05, 4.147027650029287e-05),
+    47: (0.9372296710681701, 0.06260012290458843, 8.510301362076841e-05, 8.510301362076841e-05),
+    109: (0.7290978093181899, 0.2698542749899058, 0.0005239578459520828, 0.0005239578459520834),
 }
 
 

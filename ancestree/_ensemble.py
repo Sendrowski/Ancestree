@@ -790,7 +790,7 @@ def _forward_step(counts_p, lam, log_lam, r, pi_p, esc, k, a_prev, a_cur,
 
 @njit(cache=True, parallel=True)
 def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
-                       w0, pair_key, seed, member0, out):
+                       w0, pair_key, key, member0, out):
     """Window-mean sampled TMRCAs for one block of windows, from the paths.
 
     Parallel over the windows in the block, each of which covers a contiguous
@@ -801,9 +801,9 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
     carry the prior's folded tails (see
     :meth:`PairwiseCoalescentHMM._coalescent_prior`). Consecutive blocks in
     the same state are one coalescence and share one draw, followed back only
-    to the window's own first block. The stream is keyed on the pair, the block
-    and the member's global index, so the draws do not depend on
-    ``member_chunk`` or on the window blocking.
+    to the window's own first block. The stream is keyed on the segment, the
+    member's global index, the pair and the block, so the draws do not depend
+    on ``member_chunk`` or on the window blocking.
 
     :param path: ``(M, P, K) int8`` sampled bin per member, pair and block.
     :param edge_lo: ``(T,)`` lower edge of each bin, in generations.
@@ -814,7 +814,7 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
     :param blk_hi: ``(n_windows,)`` one past its last block.
     :param w0: Index into ``needed`` of this block's first window.
     :param pair_key: ``(P,) uint64`` per-pair stream key, as ``ffbs_paths``.
-    :param seed: Base seed of the run.
+    :param key: Segment stream key, from :meth:`SegmentEnsemble._stream_key`.
     :param member0: Global index of ``path``'s first member.
     :param out: ``(M, n_w, P)`` float64 out for windows ``needed[w0:w0+n_w]``.
     """
@@ -825,7 +825,7 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
         lo, hi = blk_lo[w], blk_hi[w]
         wt = 1.0 / (hi - lo)
         for b in range(M):
-            mem = np.uint64(member0 + b)
+            mem = _member_key(key, member0 + b)
             for pp in range(P):
                 acc = 0.0
                 for k in range(hi - 1, lo - 1, -1):
@@ -833,11 +833,8 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
                     j = k
                     while j > lo and path[b, pp, j - 1] == i:
                         j -= 1
-                    st = (mem * np.uint64(0x9E3779B97F4A7C15)
-                          ^ pair_key[pp] * np.uint64(0xBF58476D1CE4E5B9)
-                          ^ np.uint64(j) * np.uint64(0x94D049BB133111EB)
-                          ^ np.uint64(seed))
-                    st, _u0 = _split(st)
+                    st = _mix64(mem ^ pair_key[pp] * _M1
+                                ^ np.uint64(j + 1) * _M2)
                     st, u = _split(st)
                     a = edge_lo[i]
                     tb = t_bar[pp]
@@ -929,7 +926,7 @@ def _pair_stream_keys(sample_names, pairs) -> np.ndarray:
 
 @njit(cache=True, parallel=True)
 def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
-               block_sites, seed0, pair_key, path):
+               block_sites, key, member0, pair_key, path):
     """Joint forward-filtering backward-sampling draws of the TMRCA path.
 
     Writes the sampled time-bin index per member, pair and block into ``path``
@@ -946,7 +943,8 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
     :param called: ``(P, K)`` number of each block's sites at which the pair
         is called.
     :param block_sites: ``(K,)`` site count each ``called`` entry is out of.
-    :param seed0: First member's stream seed. Member ``b`` uses ``seed0 + b``.
+    :param key: Segment stream key, from :meth:`SegmentEnsemble._stream_key`.
+    :param member0: Global index of ``path``'s first member.
     :param pair_key: ``(P,) uint64`` per-pair stream key. Derived from the
         pair's sample names, not its column position, so a panel
         given in a different column order draws the same genealogies.
@@ -966,9 +964,7 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
         j = np.empty(M, np.int64)
         st = np.empty(M, np.uint64)
         for b in range(M):
-            st[b] = (np.uint64(seed0 + b) * np.uint64(0x2545F4914F6CDD1D)
-                     + pair_key[p])
-            st[b], _u = _split(st[b])
+            st[b] = _mix64(_member_key(key, member0 + b) ^ pair_key[p] * _M1)
         for c in range(n_ckpt - 1, -1, -1):
             lo = c * stride
             n_seg = _replay_segment(counts[p], lam, log_lam, r, pi[p],
@@ -1025,6 +1021,20 @@ def _split(state):
 
 
 @njit(cache=True, inline="always")
+def _mix64(z):
+    """The splitmix64 finaliser, a bijective scramble of a 64-bit word."""
+    z = (z ^ (z >> np.uint64(30))) * _M1
+    z = (z ^ (z >> np.uint64(27))) * _M2
+    return z ^ (z >> np.uint64(31))
+
+
+@njit(cache=True, inline="always")
+def _member_key(key, member):
+    """Stream key of one ensemble member within a segment."""
+    return _mix64(key + np.uint64(member + 1) * _GOLD)
+
+
+@njit(cache=True, inline="always")
 def _search(cum, T, v):
     """First index ``i`` with ``v <= cum[i]``."""
     lo = 0
@@ -1078,6 +1088,9 @@ class SegmentEnsemble:
     :param pi: Equilibrium frequencies for ``Q``, or ``None`` for the model's
         own. The root prior is NOT applied here --- ``posterior`` returns a
         normalised likelihood, and the caller weights it by the prior.
+    :param segment: ``(contig, position)`` locating the segment on the genome.
+        Hashed with the seed into the segment's stream key, so every segment
+        and contig draws independently.
     """
 
     #: Per site, whether it was given a uniform posterior because its
@@ -1087,10 +1100,11 @@ class SegmentEnsemble:
 
 
     def __init__(self, builder, model, n_hap: int, ingroup,
-                 pi=None) -> None:
+                 pi=None, segment: tuple[str, int] = ("", 0)) -> None:
         from itertools import combinations
         from ancestree.local_tree_inference import PairwiseCoalescentHMM
         self.model, self.n_hap = model, n_hap
+        self.segment = (str(segment[0]), int(segment[1]))
         self.is_ingroup = np.zeros(n_hap, dtype=np.bool_)
         if ingroup is None:
             self.is_ingroup[:] = True
@@ -1239,7 +1253,8 @@ class SegmentEnsemble:
             blk = cond[:, :n_w]
             paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
                                self.needed, self.blk_lo, self.blk_hi, w0,
-                               self.pair_key, seed, member0, blk)
+                               self.pair_key, self._stream_key(seed), member0,
+                               blk)
             self._score_window_block(blk, fraction, n_coal, out, arrays, w0)
         return out
 
@@ -1289,9 +1304,9 @@ class SegmentEnsemble:
         """Genealogies drawn at once.
 
         The largest divisor of ``n_members`` no greater than ``member_chunk``,
-        so any ensemble size is accepted. Draws
-        stream from ``seed + start``, so the chunking does not reach the
-        result. It only bounds peak memory.
+        so any ensemble size is accepted. A member's draws are keyed on its
+        global index, so the chunking does not reach the result. It only
+        bounds peak memory.
 
         :param n_members: Ensemble size.
         :param member_chunk: Upper bound on genealogies held at once.
@@ -1312,9 +1327,9 @@ class SegmentEnsemble:
 
         Each yield is a ``(chunk, n_needed_windows, n_pairs)`` array of condensed
         pairwise-TMRCA matrices, the draws before UPGMA. The buffer is reused
-        between yields, so a consumer that keeps a chunk must copy it. Member
-        ``b`` draws from stream ``seed + b`` here and in :meth:`posterior`, so
-        the materialised ensemble is the one the posterior was scored on.
+        between yields, so a consumer that keeps a chunk must copy it. The
+        streams are those of :meth:`posterior`, so the materialised ensemble is
+        the one the posterior was scored on.
 
         :param n_members: Ensemble size :math:`B`.
         :param member_chunk: Genealogies drawn at once.
@@ -1328,7 +1343,8 @@ class SegmentEnsemble:
             self._paths_into(path, chunk, start, seed)
             paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
                                self.needed, self.blk_lo, self.blk_hi, 0,
-                               self.pair_key, seed, start, draws)
+                               self.pair_key, self._stream_key(seed), start,
+                               draws)
             yield draws
 
     def _draw_paths(self, chunk):
@@ -1340,8 +1356,22 @@ class SegmentEnsemble:
         ffbs_paths(self.hmm_counts, self.hmm_lam, self.hmm_log_lam,
                    self.alpha_ck, self.ckpt_stride, self.n_blocks,
                    self.hmm_r, self.hmm_pi, self.hmm_called,
-                   self.hmm_block_sites, seed + start,
+                   self.hmm_block_sites, self._stream_key(seed), start,
                    self.pair_key, path)
+
+    def _stream_key(self, seed: int) -> np.uint64:
+        """The segment's stream key, a hash of the seed and ``segment``.
+
+        Members, pairs and blocks branch off it inside the kernels, so two
+        seeds, contigs or segments share no draws.
+
+        :param seed: Base seed.
+        :return: 64-bit key.
+        """
+        contig, position = self.segment
+        digest = hashlib.blake2b(
+            f"{int(seed)}\x00{contig}\x00{position}".encode(), digest_size=8)
+        return np.uint64(int.from_bytes(digest.digest(), "big"))
 
     def iter_tree_sequences(self, n_members: int, *, member_chunk: int = 8,
                             seed: int = 0):
@@ -1359,7 +1389,8 @@ class SegmentEnsemble:
 
         :param n_members: Ensemble size :math:`B`.
         :param member_chunk: Genealogies drawn at once (memory bound).
-        :param seed: Base seed. Member ``b`` draws from stream ``seed + b``.
+        :param seed: Base seed, hashed with ``segment`` into the stream key
+            (see :meth:`_stream_key`).
         """
         from ancestree._upgma import build_windowed_tree_sequence
         b = self.builder
@@ -1387,7 +1418,8 @@ class SegmentEnsemble:
             coalescence count, so ``fraction`` positions the readout instead.
         :param member_chunk: Genealogies drawn and scored at once. Bounds peak
             memory, which does not otherwise grow with ``n_members``.
-        :param seed: Base seed. Member ``b`` draws from stream ``seed + b``.
+        :param seed: Base seed, hashed with ``segment`` into the stream key
+            (see :meth:`_stream_key`).
         :return: ``(n_sites, 4)`` posterior, rows aligned with ``positions``.
         """
         chunk = self._path_chunk(self._chunk_size(n_members, member_chunk),

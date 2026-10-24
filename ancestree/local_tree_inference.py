@@ -1466,8 +1466,9 @@ class LocalTreeInference(Inference):
         over, drawn from the pairwise HMM's posterior. ``None`` is the plug-in
         estimate, one agglomerated tree per window. Cost is linear in this
         value.
-    :param ensemble_seed: Base seed for the genealogy draws. Member ``b`` draws
-        from stream ``ensemble_seed + b``.
+    :param ensemble_seed: Base seed for the genealogy draws. Each member,
+        segment, contig and haplotype pair draws from its own stream, hashed
+        from this seed, so runs at different seeds share no draws.
     :param member_chunk: Genealogies drawn and scored at once, which sets peak
         memory. The chunk used is the largest divisor of ``n_ensemble`` no
         greater than this.
@@ -1870,7 +1871,8 @@ class LocalTreeInference(Inference):
             yield site, (post if post is not None
                          else Posterior(tuple(self.model.states), flat))
 
-    def _score_ensemble(self, builder, sites, keep=None) -> np.ndarray:
+    def _score_ensemble(self, builder, sites, keep=None,
+                        segment=("", 0)) -> np.ndarray:
         """Prior-weighted per-site posteriors for one builder's sites.
 
         The whole of ensemble scoring, shared by the single-region and
@@ -1880,6 +1882,7 @@ class LocalTreeInference(Inference):
         :param sites: Those sites, in order.
         :param keep: Boolean mask over ``sites`` of the rows returned and
             tallied, ``None`` for all.
+        :param segment: ``(contig, core start)`` keying the segment's draws.
         :return: ``(n_kept, 4)`` posteriors.
         """
 
@@ -1887,7 +1890,7 @@ class LocalTreeInference(Inference):
         ens = SegmentEnsemble(
             builder, self.model, len(self.sample_names),
             self._ingroup_indices(),
-            pi=self._pi())
+            pi=self._pi(), segment=segment)
         frac, n_coal = self._ensemble_placement()
         post = ens.posterior(frac, self.n_ensemble, n_coal=n_coal,
                              member_chunk=self.member_chunk,
@@ -1903,10 +1906,17 @@ class LocalTreeInference(Inference):
         self._n_uniform_fallback += int(uniform.sum())
         return self._weight_by_prior(post, sites)
 
+    def _region_segment(self) -> tuple[str, int]:
+        """The unsegmented region's stream key, that of a run chunked into
+        one segment: its contig, at core start ``0``."""
+        sites = self.builder.sites
+        return (sites[0].chrom if sites else "", 0)
+
     def _infer_ensemble(self) -> Iterator[tuple[Site, Posterior]]:
         """Single-region ensemble path: one builder, no segmentation."""
         sites = self.builder.sites
-        post = self._score_ensemble(self.builder, sites)
+        post = self._score_ensemble(self.builder, sites,
+                                    segment=self._region_segment())
         self._count_ingroup_monomorphic(sites)
         self._add_builder_unrepresentable()
         for row, site in enumerate(sites):
@@ -2364,10 +2374,11 @@ class LocalTreeInference(Inference):
         posterior, which is what removes the confidently-wrong calls where the
         point estimate mis-resolves a split inside the ingroup.
         """
-        seg, core_lo, core_hi, _origin, _span, _chrom = work_unit
+        seg, core_lo, core_hi, _origin, _span, chrom = work_unit
         keep = np.fromiter((core_lo <= s.pos < core_hi for s in seg), bool,
                            len(seg))
-        post = self._score_ensemble(self._segment_builder(work_unit), seg, keep)
+        post = self._score_ensemble(self._segment_builder(work_unit), seg, keep,
+                                    segment=(chrom, core_lo))
         return list(zip(compress(seg, keep), post))
 
     def _weight_by_prior(self, post, sites):
@@ -2767,7 +2778,8 @@ class LocalTreeInference(Inference):
         if not self._segmented:
             span = float(self.builder.axis_length)
             # The unsegmented plug-in tree is the cached one infer() scored.
-            members = (self._ensemble_members(self.builder)
+            members = (self._ensemble_members(
+                           self.builder, segment=self._region_segment())
                        if self._ensemble_mode()
                        else iter([self.point_tree_sequence()]))
             yield (0.0, span), members
@@ -2779,7 +2791,8 @@ class LocalTreeInference(Inference):
             seg, core_lo, core_hi, origin, _span, chrom = work_unit
             seen_chrom = self._same_contig(
                 seen_chrom, chrom, "tree_sequences()")
-            members = self._ensemble_members(self._segment_builder(work_unit))
+            members = self._ensemble_members(self._segment_builder(work_unit),
+                                             segment=(chrom, core_lo))
             core = (float(core_lo), float(core_hi))
             yield core, self._genome_frame_iter(members, origin, end, core)
 
@@ -2846,11 +2859,12 @@ class LocalTreeInference(Inference):
         return tables.tree_sequence().keep_intervals(
             [[lo, hi]], simplify=False)
 
-    def _ensemble_members(self, builder):
+    def _ensemble_members(self, builder, segment=("", 0)):
         """The genealogies one builder's region contributes, lazily.
 
         :param builder: The :class:`~ancestree.local_tree_inference.LocalTreeBuilder`
             covering the region.
+        :param segment: ``(contig, core start)`` keying the region's draws.
         :return: Iterator of :class:`tskit.TreeSequence`, the
             ``n_ensemble`` draws in ensemble mode, else the one plug-in tree
             sequence.
@@ -2860,7 +2874,7 @@ class LocalTreeInference(Inference):
         from ancestree._ensemble import SegmentEnsemble
 
         ens = SegmentEnsemble(builder, self.model, len(self.sample_names),
-                              self._ingroup_indices())
+                              self._ingroup_indices(), segment=segment)
         return ens.iter_tree_sequences(
             self.n_ensemble, member_chunk=self.member_chunk,
             seed=self.ensemble_seed)

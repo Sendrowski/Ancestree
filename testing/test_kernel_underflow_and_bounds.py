@@ -37,9 +37,8 @@ def test_odd_block_count_keeps_members_independent():
     lam = np.ones((K, T))
     path = np.empty((M, P, K), dtype=np.int8)
     _ensemble.ffbs_paths(counts, lam, np.log(lam), alpha, 1, K, r, pi,
-                         np.ones((P, K)), np.ones(K), 1,
-                         np.arange(P, dtype=np.uint64),
-                         path)
+                         np.ones((P, K)), np.ones(K), np.uint64(1), 0,
+                         np.arange(P, dtype=np.uint64), path)
     blk_lo = 2 * needed
     blk_hi = np.minimum(blk_lo + 2, K)
     # Zero-width bins take the draw out of it, so a window mean is exactly a
