@@ -41,6 +41,7 @@ from testing._helpers import (
     toy_inference,
     toy_sites,
     write_panel_vcf,
+    write_vcf,
 )
 
 
@@ -1603,7 +1604,7 @@ def test_chunked_recombination_map_slices_per_segment():
     inference._resolve_segmentation_params()
     n_segments = 0
     for work_unit in inference._stream_segments():
-        _seg, _core_lo, _core_hi, origin, span = work_unit
+        _seg, _core_lo, _core_hi, origin, span, _chrom = work_unit
         n_segments += 1
         sliced = inference._slice_map(rm, origin, span)
         assert sliced is not None
@@ -1766,7 +1767,7 @@ def test_chunked_mutation_map_slices_per_segment():
     inference._resolve_segmentation_params()
     n_segments = 0
     for work_unit in inference._stream_segments():
-        _seg, _core_lo, _core_hi, origin, span = work_unit
+        _seg, _core_lo, _core_hi, origin, span, _chrom = work_unit
         n_segments += 1
         sliced = inference._slice_map(mm, origin, span)
         assert sliced is not None
@@ -2815,3 +2816,65 @@ def test_an_integer_mu_is_stored_as_a_float():
                              chunk_size=None, progress=False)
     assert isinstance(inf.mu, float)
     assert inf._site_rates(np.array([50.0]))[0] == 1.0
+
+
+def test_vcf_site_at_the_last_base_is_scored_on_every_path(tmp_path):
+    """A 1-based VCF site at ``POS == sequence_length``, the contig's last
+    base, lies on the axis of every path and keeps its own position.
+
+    It used to be clipped onto ``L - 1`` without chunking, which made the
+    plug-in stream raise ``KeyError`` and moved the site in the exported tree
+    sequence, and to land in an empty tree with a flat posterior when chunked
+    as one segment.
+    """
+    length = 2000
+    sites, names = toy_sites(range(20, length + 1, 20), seed=4)
+    rows = [("1", s.pos, "A", "C", ".",
+             ["1" if s.tip_alleles[n] == "C" else "0" for n in names])
+            for s in sites]
+    vcf = write_vcf(tmp_path / "end.vcf", rows, samples=names)
+
+    def run(**kw):
+        inf = LocalTreeInference(vcf, JC69(), mu=MU, rec_rate=REC,
+                                 sequence_length=length, window=200,
+                                 block_size=50, progress=False, **kw)
+        return inf, list(inf.infer())
+
+    unchunked, plug = run(chunk_size=None, n_ensemble=None)
+    chunked, one_segment = run(chunk_size="10mb", n_ensemble=None)
+    _, ensemble = run(chunk_size=None, n_ensemble=4)
+    for res in (plug, one_segment, ensemble):
+        assert [s.pos for s, _ in res] == [s.pos for s in sites]
+    np.testing.assert_allclose([p.values for _, p in one_segment],
+                               [p.values for _, p in plug], atol=1e-10)
+    assert one_segment[-1][1].values.max() > 0.5
+    for inf in (unchunked, chunked):
+        ts = inf.point_tree_sequence()
+        assert ts.sequence_length == length + 1
+        assert ts.tables.sites.position[-1] == length
+        assert ts.last().num_edges > 0
+
+
+@pytest.mark.parametrize("positions", [
+    [*range(0, 2400, 20)],  # nothing past 2400 of the declared 4000
+    [*range(0, 1000, 20), *range(3400, 4000, 20)],  # a gap wider than a core
+])
+def test_chunked_outputs_cover_the_declared_length(positions):
+    """Chunked tree outputs tile the declared region as the unchunked ones do,
+    including cores no site falls in or near.
+
+    They used to stop at the last core holding a site and leave edgeless trees
+    over an empty core.
+    """
+    sites, names = toy_sites(positions, seed=5)
+    kw = dict(sequence_length=4000, n_ensemble=None)
+    chunked = toy_chunked_inference(sites, names, chunk_size=1000, halo=200,
+                                    **kw)
+    unchunked = toy_inference(sites, names, **kw)
+    ts, ref = chunked.point_tree_sequence(), unchunked.point_tree_sequence()
+    assert ts.sequence_length == ref.sequence_length == 4000
+    assert all(tree.num_edges > 0 for tree in ts.trees())
+    assert (len(chunked.pairwise_tmrcas().block_midpoints)
+            == len(unchunked.pairwise_tmrcas().block_midpoints))
+    assert [lo_hi for lo_hi, _ in chunked.tree_sequences()][-1][1] == 4000
+

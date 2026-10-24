@@ -210,7 +210,7 @@ def test_chunked_sub_block_exposure_matches_the_whole_region():
 
     n_segments = n_compared = 0
     for work_unit in inference._stream_segments():
-        _seg, _core_lo, _core_hi, origin, span = work_unit
+        _seg, _core_lo, _core_hi, origin, span, _chrom = work_unit
         n_segments += 1
         builder = inference._segment_builder(work_unit)
         n_seg_blocks = int(np.ceil(span / block_size))

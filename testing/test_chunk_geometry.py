@@ -136,7 +136,7 @@ def test_no_window_overlapping_a_core_is_cut_at_its_segment_edge(
         chunk_size=chunk_size, halo=halo)
     inference._resolve_segmentation_params()
     cut = [(left, right, origin, origin + span)
-           for _seg, core_lo, core_hi, origin, span
+           for _seg, core_lo, core_hi, origin, span, _chrom
            in inference._stream_segments()
            for left, right in inference._global_windows()
            if right > core_lo and left < core_hi
