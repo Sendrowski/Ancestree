@@ -234,6 +234,48 @@ class TestTheTemplateHeaderDefersToTheRun:
         assert '##ancestree_provenance={"version":"OLD"}' in Path(out).read_text()
 
 
+class TestTheStoredVcfHeaderDeclaresTheRunsAA:
+    """A template store's ``vcf_header`` declares ``AA`` as ancestree's."""
+
+    @pytest.mark.parametrize("store_posterior", [True, False])
+    def test_template_aa_lines_are_replaced(self, tmp_path, store_posterior):
+        """Regression: a template header already declaring ``AA`` (here a
+        third-party ``Integer`` field and a stale ``AA_post``) kept those
+        lines and gained no ``AA_prob``, while the arrays held ancestree's
+        values."""
+        import zarr
+
+        from ancestree.writers import AA_INFO_FIELDS, ZarrWriter
+        from testing._helpers import write_vcz
+
+        template = str(tmp_path / "in.vcz")
+        write_vcz(template, positions=[5, 9], contigs_per_variant=[0, 0],
+                  contig_ids=["1"], alleles=[["A", "T"], ["C", "G"]],
+                  sample_ids=["s1"],
+                  genotypes=np.zeros((2, 1, 2), dtype=np.int8))
+        kept = ["##fileformat=VCFv4.2",
+                '##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">',
+                '##INFO=<ID=AA_prior,Number=1,Type=String,Description="x">']
+        zarr.open(template, mode="r+").attrs["vcf_header"] = "\n".join(
+            kept[:2]
+            + ['##INFO=<ID=AA,Number=A,Type=Integer,Description="old AA">',
+               '##INFO=<ID=AA_post,Number=4,Type=Float,Description="old">']
+            + kept[2:] + ["#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO", ""])
+        out = str(tmp_path / "out.vcz")
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        ZarrWriter(template, out).write(iter([(site, post("A", 0.9))]),
+                                        store_posterior=store_posterior)
+
+        declared = [
+            f'##INFO=<ID={f},Number={s["Number"]},Type={s["Type"]},'
+            f'Description="{s["Description"]}">'
+            for f, s in AA_INFO_FIELDS.items()
+            if store_posterior or f != "AA_post"]
+        lines = zarr.open(out, mode="r").attrs["vcf_header"].split("\n")
+        assert lines == kept + declared + [
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO", ""]
+
+
 def test_a_missing_backend_names_the_writer_and_the_module(tmp_path):
     writer = VCFWriter(tmp_path / "in.vcf", tmp_path / "out.vcf")
     with pytest.raises(ImportError, match="VCFWriter requires ancestree_no_such"):

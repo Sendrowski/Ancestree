@@ -1419,12 +1419,11 @@ class ZarrWriter(Writer):
         """Fields shown by :meth:`__repr__`."""
         return {"output": str(self._output)}
 
-    AA_HEADER_LINES = tuple(
-        f'##INFO=<ID={field},Number={spec["Number"]},Type={spec["Type"]},'
-        f'Description="{spec["Description"]}">'
+    AA_HEADER_LINES = {
+        field: f'##INFO=<ID={field},Number={spec["Number"]},'
+               f'Type={spec["Type"]},Description="{spec["Description"]}">'
         for field, spec in AA_INFO_FIELDS.items()
-        if field != "AA_post"
-    )
+    }
 
     #: Variants per chunk of a store written from the sites.
     _CHUNK = 10_000
@@ -1738,7 +1737,7 @@ class ZarrWriter(Writer):
         variant_chunk = getattr(
             root[ZARR_POSITION_FIELD], "chunks", (None,))[0]
         self._write_aa_arrays(root, aa, prob, post, variant_chunk)
-        self._write_run_attrs(root, info, provenance)
+        self._write_run_attrs(root, info, provenance, store_posterior)
         return n_annotated, n_seen
 
     def _write_aa_arrays(self, root, aa, prob, post, variant_chunk) -> None:
@@ -1769,13 +1768,16 @@ class ZarrWriter(Writer):
         elif ZARR_AA_POST_FIELD in root:
             del root[ZARR_AA_POST_FIELD]
 
-    def _write_run_attrs(self, root, info, provenance) -> None:
+    def _write_run_attrs(self, root, info, provenance,
+                         store_posterior: bool) -> None:
         """Record ``info`` and ``provenance`` in the root ``attrs`` and declare
-        the ``AA`` fields in any stored VCF header.
+        the ``AA`` fields in any stored VCF header, in place of the header's
+        own ``AA``, ``AA_prob`` and ``AA_post`` lines.
 
         :param root: The open store.
         :param info: Run-level constants, or ``None``.
         :param provenance: Structured run record, or ``None``.
+        :param store_posterior: Whether ``AA_post`` is declared.
         """
         # A run passing no info or provenance clears an earlier run's record.
         for key, record in (("ancestree_info", info),
@@ -1786,11 +1788,17 @@ class ZarrWriter(Writer):
                 del root.attrs[key]
         # An exporter builds ##INFO lines from the arrays' description attributes.
         header = root.attrs.get("vcf_header")
-        if isinstance(header, str) and "ID=AA," not in header:
-            addition = "\n".join(self.AA_HEADER_LINES) + "\n"
-            root.attrs["vcf_header"] = header.replace(
-                "#CHROM", addition + "#CHROM", 1,
-            ) if "#CHROM" in header else header + addition
+        if isinstance(header, str):
+            owned = tuple(f"##INFO=<ID={field}," for field in AA_INFO_FIELDS)
+            lines = [line for line in header.split("\n")
+                     if not line.startswith(owned)]
+            # Declared ahead of the #CHROM line, else at the header's end.
+            at = next((i for i, line in enumerate(lines)
+                       if line.startswith("#CHROM")),
+                      len(lines) - (lines[-1] == ""))
+            lines[at:at] = [line for field, line in self.AA_HEADER_LINES.items()
+                            if store_posterior or field != "AA_post"]
+            root.attrs["vcf_header"] = "\n".join(lines)
 
     @staticmethod
     def _float_missing():
@@ -1944,7 +1952,7 @@ class ZarrWriter(Writer):
             np.asarray(post, dtype="f4").reshape(n, len(STATES))
             if store_posterior else None, chunk)
         root.attrs["vcf_zarr_version"] = "0.5"
-        self._write_run_attrs(root, info, provenance)
+        self._write_run_attrs(root, info, provenance, store_posterior)
         return n
 
     def _region_index(self, positions, contigs, lengths):
