@@ -3,27 +3,27 @@
     {
       "method": "ancestree_fixed_tree",
       "sites": 1140085,
-      "seconds": 131.50121379178017
+      "seconds": 1011.8452994930267
     },
     {
       "method": "ancestree_arg",
       "sites": 1140085,
-      "seconds": 810.0290568929631
+      "seconds": 379.0129109869886
     },
     {
       "method": "ancestree_local_tree",
       "sites": 1140085,
-      "seconds": 13935.652921089597
+      "seconds": 6728.926770568127
     },
     {
       "method": "polarbear",
-      "sites": 1140077,
-      "seconds": 1356.368245310994
+      "sites": 1140076,
+      "seconds": 688.6
     },
     {
       "method": "estsfs",
       "sites": 985038,
-      "seconds": 2568.0
+      "seconds": 2567.7
     }
   ]
 }
