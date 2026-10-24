@@ -1,2 +1,2 @@
-stretch [0, 50,000): first member has 28 trees, 0 sites
+stretch [0, 50,001): first member has 28 trees, 0 sites
 ensemble size: 64
