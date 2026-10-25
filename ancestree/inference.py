@@ -1038,23 +1038,36 @@ class Inference(ReprMixin, ABC):
         :param site: The site scored on it, read at its exact position
             (:attr:`Site.local_tree_handle <ancestree.sites.Site.local_tree_handle>`)
             when it carries one.
-        :return: The rate to assign to ``tree.time_scale``, or ``None`` to
-            leave the branch lengths as they are.
+        :return: The rate that takes the branch lengths of ``tree`` into
+            expected substitutions per site, or ``None`` to read
+            :attr:`Tree.time_scale <ancestree.trees.Tree.time_scale>`.
         """
         if self.mu is None or tree.tskit_tree is None:
             return None
-        x = (site.pos if site.local_tree_handle is None
-             else site.local_tree_handle)
-        return float(self._site_rates(np.array([float(x)]))[0])
+        x = float(site.pos if site.local_tree_handle is None
+                  else site.local_tree_handle)
+        return float(self._site_rates(
+            np.array([x]), self._kernel_mu(site, x))[0])
 
-    def _site_rates(self, positions: np.ndarray) -> np.ndarray:
+    def _kernel_mu(self, site: Site, x: float):
+        """The rate :meth:`infer` scores ``site`` at: :attr:`mu`.
+
+        :param site: The site scored.
+        :param x: Its position on the tree's axis.
+        :return: A scalar rate or a rate map.
+        """
+        return self.mu
+
+    def _site_rates(self, positions: np.ndarray, mu=None) -> np.ndarray:
         """The rate each site is scored at: ``mu``, or a rate-map ``mu`` at
         the site's position, floored where it is zero or undefined.
 
         :param positions: Site positions (bp).
+        :param mu: A scalar rate or a rate map. ``None`` (default) reads
+            :attr:`mu`.
         :return: ``(n_sites,)`` positive rates.
         """
-        mu = self.mu
+        mu = self.mu if mu is None else mu
         if isinstance(mu, float):
             return np.full(len(positions), mu)
         if hasattr(mu, "get_rate"):

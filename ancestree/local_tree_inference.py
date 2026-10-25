@@ -1140,18 +1140,29 @@ class LocalTreeBuilder(ReprMixin):
             it leaves undefined, and the stretch from its end to
             :attr:`axis_length`, at :attr:`mu`.
         """
-        mm = self.mutation_map
-        if mm is None:
+        if self.mutation_map is None:
             return self.mu
+        return self._filled(self.mutation_map, self.mu, float(self.axis_length))
+
+    @staticmethod
+    def _filled(mm, mu: float, end: float):
+        """``mm`` with the intervals it leaves undefined, and the stretch from
+        its end to ``end``, at ``mu``.
+
+        :param mm: An :class:`msprime.RateMap`.
+        :param mu: The rate filled in.
+        :param end: The axis end the map is extended to.
+        :return: ``mm`` itself when it is defined up to ``end``, else the
+            filled map.
+        """
         position = np.asarray(mm.position, dtype=np.float64)
         rate = np.asarray(mm.rate, dtype=np.float64)
-        end = float(self.axis_length)
         if not np.isnan(rate).any() and position[-1] >= end:
             return mm
-        rate = np.where(np.isnan(rate), self.mu, rate)
+        rate = np.where(np.isnan(rate), mu, rate)
         if position[-1] < end:
             position = np.append(position, end)
-            rate = np.append(rate, self.mu)
+            rate = np.append(rate, mu)
         from ancestree._maps import MapFiles
         return MapFiles.msprime().RateMap(position=position, rate=rate)
 
@@ -1617,6 +1628,8 @@ class LocalTreeInference(Inference):
             )
         self.builder: LocalTreeBuilder | None = None
         self._arg: ARGBasedInference | None = None
+        # The rate infer() scores each contig at, filled on first use.
+        self._kernel_mus: dict = {}
         self.chrom = chrom
         self._segmented = False
         self._announced = False
@@ -1795,6 +1808,32 @@ class LocalTreeInference(Inference):
             ingroup_samples=self._resolved_ingroup,
             outgroup_samples=self._resolved_outgroups or None,
         )
+
+    def _kernel_mu(self, site: Site, x: float):
+        """The rate :meth:`infer` scores ``site`` at: :attr:`mu`, or the
+        :attr:`mutation_map` of its contig with every stretch it leaves
+        undefined at :attr:`mu`.
+
+        :param site: The site scored.
+        :param x: Its position on the tree's axis.
+        :return: A scalar rate or a rate map.
+        """
+        contig = str(site.chrom)
+        if contig not in self._kernel_mus:
+            if self.builder is not None:
+                mu = self.builder._kernel_mu()
+            else:
+                from ancestree._maps import MapFiles
+
+                mm = MapFiles.on_contig(self.mutation_map, contig,
+                                        "mutation_map")
+                mu = self.mu if mm is None else LocalTreeBuilder._filled(
+                    mm, self.mu, float(self._axis_end() or mm.sequence_length))
+            self._kernel_mus[contig] = mu
+        mu = self._kernel_mus[contig]
+        if isinstance(mu, float) or x < float(mu.sequence_length):
+            return mu
+        return self.mu
 
     def _point_arg(self) -> "ARGBasedInference":
         """The plug-in (point-estimate) genealogy wrapped for kernel scoring.

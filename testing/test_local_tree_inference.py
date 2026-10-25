@@ -2695,6 +2695,41 @@ class TestInferSiteAgreesWithInferInLocalTreeMode:
             compared += 1
         assert compared
 
+    @pytest.mark.parametrize("chunk_size", [None, "20kb"])
+    def test_infer_site_matches_infer_under_a_mutation_map(self, panel,
+                                                           chunk_size):
+        """``infer_site`` scores at the mutation map's rate, as ``infer`` does.
+
+        It scaled every tree by the scalar ``mu``, which moved posteriors by
+        about 1e-3 against ``infer`` on a map of 50 and 0.02 times ``mu``.
+        """
+        from ancestree.trees import TskitLocalTree
+
+        names, sites = panel
+        mutation_map = msprime.RateMap(position=[0, 25_000, 50_000],
+                                       rate=[50 * self.MU, 0.02 * self.MU])
+        inference = LocalTreeInference(
+            sites, JC69(), mu=self.MU, rec_rate=1e-8, sample_names=names,
+            sequence_length=50_000, n_ensemble=None, progress=False,
+            mutation_map=mutation_map, chunk_size=chunk_size)
+        batch = {int(s.pos): p.values for s, p in inference.infer()}
+        tsq = inference.point_tree_sequence()
+        sample_map = {n: i for i, n in enumerate(names)}
+        compared = {False: 0, True: 0}
+        for ts_tree in tsq.trees():
+            tree = TskitLocalTree(tsq, ts_tree.interval.left,
+                                  sample_map=sample_map)
+            for site in sites:
+                expected = batch.get(int(site.pos))
+                if (expected is None or not ts_tree.interval.left <= site.pos
+                        < ts_tree.interval.right):
+                    continue
+                np.testing.assert_allclose(
+                    inference.infer_site(tree, site).values, expected,
+                    atol=1e-12)
+                compared[site.pos >= 25_000] += 1
+        assert compared[False] and compared[True]
+
 
 SAMPLES = 8
 INGROUP = tuple(f"s{i}" for i in range(6))
