@@ -41,10 +41,14 @@ with open(in_meta, encoding="utf-8") as f:
 sample = panel["sample"]
 counts = np.stack([(sample == base).sum(1) for base in range(4)], axis=1)
 # Polymorphic sites whose EPO base is neither sample allele have no EPO
-# polarisation and are left out of every spectrum, so all share one site set.
+# polarisation, and where neither chimpanzee nor bonobo is aligned EPO reads a
+# deeper ape ancestor. Both are left out of every spectrum, so all share one
+# site set.
 present = counts > 0
 unpolarised = (present.sum(1) == 2) & ~present[np.arange(len(sample)), panel["epo"] % 4]
-classes = {"non-CpG": ~panel["fast"] & ~unpolarised, "CpG": panel["fast"] & ~unpolarised}
+pan_unaligned = (panel["species"][:, :2] < 0).all(1)
+excluded = unpolarised | pan_unaligned
+classes = {"non-CpG": ~panel["fast"] & ~excluded, "CpG": panel["fast"] & ~excluded}
 
 result = dict(
     n_eligible={"non-CpG": meta["n_eligible"] - meta["n_eligible_fast"],

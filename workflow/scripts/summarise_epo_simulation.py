@@ -44,7 +44,10 @@ with open(in_meta, encoding="utf-8") as f:
 sample = panel["sample"]
 counts = np.stack([(sample == base).sum(1) for base in range(4)], axis=1)
 discordant = ~panel["concordant"]
-classes = {"normal": ~panel["fast"], "hypermutable": panel["fast"]}
+# Sites at which neither chimpanzee nor bonobo is aligned are left out, as in
+# the data.
+pan_aligned = ~(panel["species"][:, :2] < 0).all(1)
+classes = {"normal": ~panel["fast"] & pan_aligned, "hypermutable": panel["fast"] & pan_aligned}
 classes.update({name + ", discordant": mask & discordant for name, mask in list(classes.items())})
 
 
