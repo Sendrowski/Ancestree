@@ -798,7 +798,8 @@ def _add_local_tree_parser(
               "that is [0, L+1). "
               "Give it whenever it is known: under --chunk-size it is what "
               "lays one window grid over the whole region and not one per "
-              "segment."),
+              "segment. Default: each contig's length in the VCF header or "
+              "VCZ store."),
     )
     p.add_argument(
         "--chunk-size", type=_chunk_size,

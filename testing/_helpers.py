@@ -124,6 +124,7 @@ def write_vcz(
     sample_ids,
     genotypes,
     phased=None,
+    contig_lengths=None,
 ) -> None:
     """Write a minimal VCZ-format zarr store at ``path`` (bio2zarr layout).
 
@@ -144,6 +145,8 @@ def write_vcz(
     :param phased: ``True`` or ``False`` writes a ``call_genotype_phased``
         array carrying that value for every call, as ``bio2zarr`` does.
         ``None`` leaves the array out, giving a store that declares no phase.
+    :param contig_lengths: Per-contig lengths written as ``contig_length``,
+        or ``None`` for a store that records none.
     """
     import numpy as np
     import zarr
@@ -174,6 +177,8 @@ def write_vcz(
                 np.full(gt.shape[:2], bool(phased), dtype=bool))
     _create(root, "sample_id", np.asarray(sample_ids, dtype="U"))
     _create(root, "contig_id", np.asarray(contig_ids, dtype="U"))
+    if contig_lengths is not None:
+        _create(root, "contig_length", np.asarray(contig_lengths, dtype=np.int64))
 
 
 def write_skeleton_vcf(path, *, sample_ids, alleles_per_site, genotypes):

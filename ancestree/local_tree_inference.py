@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import combinations, compress
 from typing import TYPE_CHECKING
@@ -1433,11 +1433,14 @@ class LocalTreeInference(Inference):
     :param phase_seed: Seed for the per-site haplotype-order randomisation
         applied to unphased heterozygotes, so a run is reproducible.
     :param sequence_length: Region length ``L`` in bp, which the local-tree
-        windows tile as ``[0, L)``. For 1-based input (VCF / VCZ) the axis is
-        ``[0, L + 1)``, so a site at ``POS == L`` lies on it. Give it whenever
-        it is known: under ``chunk_size`` it is what lays one window grid over
-        the whole region and not one per segment. Defaults to a tree-sequence
-        source's own length.
+        windows tile as ``[0, L)``, or a ``{contig: L}`` mapping giving each
+        contig its own. For 1-based input (VCF / VCZ) the axis is
+        ``[0, L + 1)``, so a site at ``POS == L`` lies on it. A single length
+        applies to every contig. Defaults to a tree-sequence source's own
+        length, or to the contig lengths of a VCF header or VCZ store. Under
+        ``chunk_size`` the length is what lays one window grid over a contig
+        and not one per segment, and a contig with none is tiled to its last
+        site.
     :param window: Local-tree window spec (the primary resolution parameter). See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
     :param block_size: HMM emission block width: int / bp string / ``"<N>snp"``;
@@ -1467,8 +1470,7 @@ class LocalTreeInference(Inference):
         segment span and ``n_workers`` fans whole segments out. Contigs are
         independent segments, and a contig longer than ``chunk_size`` is
         sliced into cores of that size. A chunked and an unchunked pass agree
-        closely, not exactly. ``sequence_length`` is derived per
-        segment. Requires sites in sorted genomic order.
+        closely, not exactly. Requires sites in sorted genomic order.
     :param halo: Overlap (bp int / string, or ``"auto"``) added on the
         contig-interior side of each chunk slice and then discarded, so the
         HMM decorrelates from the cut before any emitted site. ``"auto"`` uses
@@ -1595,7 +1597,7 @@ class LocalTreeInference(Inference):
         ploidy: int | None = None,
         phased: bool | None = None,
         phase_seed: int | None = None,
-        sequence_length: float | None = None,
+        sequence_length: "float | Mapping[str, float] | None" = None,
         window: "int | str" = "8snp",
         block_size: "int | str | None" = None,
         n_time_bins: int = 32,
@@ -1697,6 +1699,9 @@ class LocalTreeInference(Inference):
         if sample_names is None and callable(getattr(source, "samples", None)):
             sample_names = list(source.samples())
         self._set_input_paths(source)
+        if sequence_length is None:
+            sequence_length = Inference._contig_lengths(self) or None
+        self._declared_length = sequence_length
 
         if self.n_ensemble is not None and self.focal.depth is not None:
             raise NotImplementedError(
@@ -1782,12 +1787,17 @@ class LocalTreeInference(Inference):
             self._source: "Iterable[Site] | SiteSource" = source
             self._halo = ("auto" if isinstance(halo, str)
                           and halo.strip().lower() == "auto" else halo)
-            self._declared_length = sequence_length
             return
 
         self._log_start()
         first = next(iter(source), None)
         maps = self._maps_on(str(first.chrom)) if first is not None else {}
+        sequence_length = self._declared_on(
+            None if first is None else first.chrom)
+        if sequence_length is None:
+            raise ValueError(
+                f"sequence_length gives no length for contig "
+                f"{getattr(first, 'chrom', None)!r}")
         self.builder = LocalTreeBuilder(
             source, mu=mu, rec_rate=rec_rate, sample_names=self.sample_names,
             sequence_length=sequence_length, window=window,
@@ -1829,7 +1839,7 @@ class LocalTreeInference(Inference):
                 mm = MapFiles.on_contig(self.mutation_map, contig,
                                         "mutation_map")
                 mu = self.mu if mm is None else LocalTreeBuilder._filled(
-                    mm, self.mu, float(self._axis_end() or mm.sequence_length))
+                    mm, self.mu, float(self._axis_end(contig) or mm.sequence_length))
             self._kernel_mus[contig] = mu
         mu = self._kernel_mus[contig]
         if isinstance(mu, float) or x < float(mu.sequence_length):
@@ -2030,7 +2040,8 @@ class LocalTreeInference(Inference):
                 n_sites += 1
                 if s.chrom != cur:
                     if cur is not None:
-                        span += last - p0 + 1
+                        span += max(last - p0 + 1,
+                                    int(self._declared_on(cur) or 0))
                     cur, p0 = s.chrom, s.pos
                 last = s.pos
                 if need_halo:
@@ -2040,12 +2051,9 @@ class LocalTreeInference(Inference):
                         same = sum(c * (c - 1) for c in Counter(vals).values())
                         pairdiff += 1.0 - same / (N * (N - 1))
             if cur is not None:
-                span += last - p0 + 1
-
-        # Density divides by the region under analysis when it is known.
-        declared = getattr(self, "_declared_length", None)
-        if declared:
-            span = max(span, int(declared))
+                # Density divides by the region under analysis when it is
+                # known.
+                span += max(last - p0 + 1, int(self._declared_on(cur) or 0))
 
         requested, self.block_size, self._wbp = LocalTreeBuilder._resolve_widths(
             w, self.block_size, n_sites, span)
@@ -2064,8 +2072,12 @@ class LocalTreeInference(Inference):
         # At least one block, so a segment's truncated final block is never
         # emitted beside the next segment's, and at least the widest window,
         # so every window overlapping a core lies inside its segment.
+        declared = self._declared_length
+        ends = (declared.values() if isinstance(declared, Mapping)
+                else [declared])
         floor = max(self.block_size, int(np.ceil(max(
-            (r - l for l, r in self._global_windows()), default=0.0))))
+            (self._widest_window(float(end)) for end in ends if end),
+            default=0.0))))
         if not need_halo:
             halo = _parse_bp(self._halo, name="halo")
             if halo < floor:
@@ -2084,15 +2096,27 @@ class LocalTreeInference(Inference):
             halo = 10 * self._wbp  # fallback if no diversity
         self._halo_value = max(floor, min(halo, self._chunk_size // 2))
 
-    def _axis_end(self) -> "int | None":
-        """End of the declared region on the sites' axis.
+    def _declared_on(self, chrom: "str | None") -> "float | None":
+        """The declared length of a contig.
 
-        :return: The declared ``sequence_length`` plus the source's
+        :param chrom: The contig.
+        :return: Its entry in a ``{contig: length}`` ``sequence_length``, the
+            single length declared for every contig, or ``None`` when none is
+            declared.
+        """
+        end = self._declared_length
+        return end.get(str(chrom)) if isinstance(end, Mapping) else end
+
+    def _axis_end(self, chrom: "str | None") -> "int | None":
+        """End of a contig's declared region on the sites' axis.
+
+        :param chrom: The contig.
+        :return: Its declared length plus the source's
             :attr:`SiteSource.position_base <ancestree.sites.SiteSource.position_base>`,
             so the region's last base lies below it, or ``None`` when no length
             is declared.
         """
-        end = getattr(self, "_declared_length", None)
+        end = self._declared_on(chrom)
         return int(end) + self._position_base if end else None
 
     def _stream_segments(self):
@@ -2112,11 +2136,11 @@ class LocalTreeInference(Inference):
         bs, cs = self.block_size, self._chunk_size
         halo = self._halo_value
         base = self._position_base
-        end = getattr(self, "_declared_length", None)
-        end = int(end) if end else None
 
         def make(buf, core_lo, core_hi, chrom):
             """One work unit: the core plus its halo."""
+            end = self._declared_on(chrom)
+            end = int(end) if end else None
             lo, hi = core_lo - halo, core_hi + halo
             seg = [s for s in buf if lo <= s.pos < hi]
             origin = (max(0, lo) // bs) * bs
@@ -2129,7 +2153,7 @@ class LocalTreeInference(Inference):
 
         def flush(buf, core_lo, chrom):
             """Emit the work units from ``core_lo`` to the end of the axis."""
-            stop = buf[-1].pos + 1 if end is None else end + base
+            stop = self._axis_end(chrom) or buf[-1].pos + 1
             # The cores tile the stop - base bases on the axis, and the last
             # one reaches stop.
             while core_lo < stop - base:
@@ -2142,16 +2166,16 @@ class LocalTreeInference(Inference):
         buf: list[Site] = []
         core_lo = 0
         last = -1
-        axis_end = self._axis_end()
+        axis_end = None
         for s in self._source:
-            if s.pos < 0 or (axis_end is not None and s.pos >= axis_end):
-                LocalTreeBuilder._check_on_axis(
-                    np.array([s.pos]), axis_end or np.inf)
             if cur is None or s.chrom != cur:
                 if cur is not None:
                     yield from flush(buf, core_lo, cur)
-                cur, buf, core_lo, last = s.chrom, [s], 0, s.pos
-                continue
+                cur, buf, core_lo, last = s.chrom, [], 0, s.pos
+                axis_end = self._axis_end(cur)
+            if s.pos < 0 or (axis_end is not None and s.pos >= axis_end):
+                LocalTreeBuilder._check_on_axis(
+                    np.array([s.pos]), axis_end or np.inf)
             if s.pos < last:
                 raise ValueError(
                     "chunked LocalTreeInference requires sorted sites; saw "
@@ -2246,32 +2270,47 @@ class LocalTreeInference(Inference):
                 out.append((lo - origin, hi - origin))
         return out
 
-    def _global_windows(self) -> "list[tuple[float, float]]":
-        """The window grid over the whole region, in genome coordinates.
+    def _window_count(self, end: float) -> int:
+        """Windows the grid over a region of ``end`` bp holds, each close to
+        the resolved window width."""
+        return max(1, int(round(end / float(self._wbp))))
 
-        Laid once so every segment reads its calls on the same tiling. Tiled
-        per segment instead, the grid follows each segment's own length and
-        site density, so the same position falls in a different window
-        depending on where the chunk boundaries landed.
+    def _widest_window(self, end: float) -> float:
+        """Width of the widest window in the grid over a region of ``end`` bp,
+        the last one, which reaches past the region's last base to the axis's
+        end."""
+        n = self._window_count(end)
+        return float(int(end) + self._position_base) - (n - 1) * (end / n)
+
+    def _global_windows(self, chrom: str) -> "list[tuple[float, float]]":
+        """The window grid over a contig's whole region, in genome coordinates.
+
+        Laid once per contig so every segment reads its calls on the same
+        tiling. Tiled per segment instead, the grid follows each segment's own
+        length and site density, so the same position falls in a different
+        window depending on where the chunk boundaries landed.
+
+        :param chrom: The contig.
+        :return: ``(left, right)`` windows tiling the contig's axis, empty
+            when it has no declared length and each segment tiles its own core.
         """
-        if getattr(self, "_windows_cache", None) is not None:
-            return self._windows_cache
-        end = getattr(self, "_declared_length", None)
-        if not end:
-            # Without a declared region there is nothing to lay a common grid
-            # over, so each segment tiles its own core.
-            self._windows_cache = []
-            return self._windows_cache
-        end = float(end)
-        w = float(self._wbp)
-        n = max(1, int(round(end / w)))
-        step = end / n
-        # The last window reaches the end of the axis, past the region's last
-        # base.
-        self._windows_cache = [
-            (i * step, float(self._axis_end()) if i == n - 1 else (i + 1) * step)
-            for i in range(n)]
-        return self._windows_cache
+        cached = getattr(self, "_windows_cache", None)
+        if cached is not None and cached[0] == chrom:
+            return cached[1]
+        end = self._declared_on(chrom)
+        windows = []
+        if end:
+            end = float(end)
+            n = self._window_count(end)
+            step = end / n
+            # The last window reaches the end of the axis, past the region's
+            # last base.
+            windows = [
+                (i * step,
+                 float(self._axis_end(chrom)) if i == n - 1 else (i + 1) * step)
+                for i in range(n)]
+        self._windows_cache = (chrom, windows)
+        return windows
 
     def _segment_builder(self, work_unit) -> "LocalTreeBuilder":
         """Configure the :class:`~ancestree.local_tree_inference.LocalTreeBuilder` for one segment work-unit.
@@ -2285,7 +2324,7 @@ class LocalTreeInference(Inference):
         seg, _core_lo, _core_hi, origin, span, chrom = work_unit
         shifted = [replace(s, pos=int(s.pos - origin)) for s in seg]
         maps = self._maps_on(str(chrom))
-        end = self._axis_end()
+        end = self._axis_end(chrom)
         base = (self._position_base
                 if end is not None and _core_hi + self._halo_value >= end else 0)
         axis = span + base
@@ -2305,7 +2344,7 @@ class LocalTreeInference(Inference):
             # A window overlapping this core is clipped to the segment's axis.
             window_anchor=([
                 (max(l - origin, 0.0), min(r - origin, float(axis)))
-                for l, r in self._global_windows()
+                for l, r in self._global_windows(chrom)
                 if r > float(_core_lo) and l < float(_core_hi)
             ] or None),
         )
@@ -2635,9 +2674,10 @@ class LocalTreeInference(Inference):
         segments = (wu for wu in self._stream_segments() if wu[0])
         if not self.progress:
             return segments
-        end = getattr(self, "_declared_length", None)
+        end = self._declared_length
         total = (max(1, -(-int(end) // int(self._chunk_size)))
-                 if end and self._chunk_size else None)
+                 if end and not isinstance(end, Mapping)
+                 and self._chunk_size else None)
         return tqdm(segments, total=total, desc="LocalTreeInference",
                     unit=" segments", disable=Settings.disable_pbar)
 
@@ -2827,12 +2867,12 @@ class LocalTreeInference(Inference):
             yield (0.0, span), members
             return
         self._resolve_segmentation_params()
-        end = float(self._axis_end() or 0.0)
         seen_chrom = None
         for work_unit in self._stream_segments():
             seg, core_lo, core_hi, origin, _span, chrom = work_unit
             seen_chrom = self._same_contig(
                 seen_chrom, chrom, "tree_sequences()")
+            end = float(self._axis_end(chrom) or 0.0)
             members = self._ensemble_members(self._segment_builder(work_unit),
                                              segment=(chrom, core_lo))
             core = (float(core_lo), float(core_hi))

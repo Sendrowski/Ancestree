@@ -11,7 +11,7 @@ import pytest
 
 from ancestree import JC69, LocalTreeInference
 from ancestree.sites import Site
-from testing._helpers import toy_chunked_inference, toy_sites
+from testing._helpers import toy_chunked_inference, toy_sites, write_vcz
 
 #: Not a multiple of BLOCK_BP, so the window must be snapped up to one.
 WINDOW_BP = 2500
@@ -19,12 +19,12 @@ BLOCK_BP = 1000
 SEQUENCE_LENGTH = 200_000
 
 
-def _sites(sequence_length=SEQUENCE_LENGTH, seed=7, drop=None):
+def _sites(sequence_length=SEQUENCE_LENGTH, seed=7, drop=None, rate=1.25e-8):
     """A small phased panel. ``drop`` removes a ``(lo, hi)`` stretch of sites."""
     ts = msprime.sim_ancestry(
         5, ploidy=2, sequence_length=sequence_length, recombination_rate=1e-8,
         population_size=1e4, random_seed=seed)
-    ts = msprime.sim_mutations(ts, rate=1.25e-8, random_seed=seed)
+    ts = msprime.sim_mutations(ts, rate=rate, random_seed=seed)
     names = [f"i{i}_h{h}" for i in range(5) for h in (0, 1)]
     out = []
     for variant in ts.variants():
@@ -136,9 +136,9 @@ def test_no_window_overlapping_a_core_is_cut_at_its_segment_edge(
         chunk_size=chunk_size, halo=halo)
     inference._resolve_segmentation_params()
     cut = [(left, right, origin, origin + span)
-           for _seg, core_lo, core_hi, origin, span, _chrom
+           for _seg, core_lo, core_hi, origin, span, chrom
            in inference._stream_segments()
-           for left, right in inference._global_windows()
+           for left, right in inference._global_windows(chrom)
            if right > core_lo and left < core_hi
            and (left < origin or right > origin + span)]
     assert not cut, f"{len(cut)} windows cut, e.g. {cut[:2]}"
@@ -357,3 +357,120 @@ def test_chunked_empty_source_has_no_trees_and_no_tmrcas():
         inf.point_tree_sequence()
     with pytest.raises(ValueError, match="no segments to report"):
         inf.pairwise_tmrcas()
+
+
+def _posteriors(source, names, **kwargs):
+    """Posteriors keyed by ``(contig, position)``."""
+    inference = LocalTreeInference(
+        source, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
+        window=WINDOW_BP, block_size=BLOCK_BP, n_ensemble=None,
+        progress=False, **kwargs)
+    return {(site.chrom, site.pos): post.to_dict()
+            for site, post in inference.infer()}
+
+
+def test_a_recombination_map_past_the_axis_end_gives_one_answer():
+    """A map running past the region gives the last block the axis's extent.
+
+    The unchunked build ended the last block at the map's end and the chunked
+    one at the region's, so a region that is not a whole number of blocks put
+    a different recombination step before its last block on the two paths.
+    """
+    length = 59_750
+    sites, names = _sites(sequence_length=length)
+    rate_map = msprime.RateMap(position=[0, 10_000, 59_600, 70_000],
+                               rate=[1e-8, 5e-8, 2e-9])
+    runs = [_posteriors(sites, names, sequence_length=float(length),
+                        recombination_map=rate_map, chunk_size=chunk)
+            for chunk in (None, "1mb")]
+    assert _max_abs_difference(*runs) == 0.0
+
+
+def test_a_region_shorter_than_one_block_matches_the_unchunked_run():
+    """A region narrower than a block is one truncated block on both paths.
+
+    The chunked segment's axis was stretched to a whole block, which widened
+    the block's emission exposure.
+    """
+    length = 600
+    sites, names = _sites(sequence_length=length, rate=2e-6)
+    runs = [_posteriors(sites, names, sequence_length=float(length),
+                        chunk_size=chunk)
+            for chunk in (None, "1mb")]
+    assert len(runs[0]) > 5
+    assert _max_abs_difference(*runs) == 0.0
+
+
+#: Contig lengths of the two-contig inputs below, the second shorter.
+CONTIG_LENGTHS = {"1": 60_000, "2": 30_000}
+
+
+def _contig_sites():
+    """A panel on each contig of :data:`CONTIG_LENGTHS`, 0-based."""
+    from dataclasses import replace
+    out = []
+    for seed, (chrom, length) in enumerate(CONTIG_LENGTHS.items(), start=3):
+        sites, names = _sites(sequence_length=length, seed=seed)
+        out += [replace(s, chrom=chrom) for s in sites]
+    return out, names
+
+
+def test_each_contig_is_tiled_to_its_own_declared_length():
+    """A ``{contig: length}`` sequence_length gives each contig its own axis.
+
+    A single length tiled the shorter contig with empty blocks to the longer
+    one's end, which moved its posteriors away from a run on that contig alone.
+    """
+    sites, names = _contig_sites()
+    both = _posteriors(sites, names, sequence_length=CONTIG_LENGTHS,
+                       chunk_size="1mb")
+    alone = _posteriors([s for s in sites if s.chrom == "2"], names,
+                        sequence_length=float(CONTIG_LENGTHS["2"]),
+                        chunk_size=None)
+    assert _max_abs_difference(
+        alone, {k: v for k, v in both.items() if k[0] == "2"}) == 0.0
+
+
+def _write_contigs(sites, names, path, fmt):
+    """Write haploid ``sites`` as a VCF or VCZ declaring the contig lengths."""
+    if fmt == "vcz":
+        ids = list(CONTIG_LENGTHS)
+        write_vcz(path, positions=[s.pos + 1 for s in sites],
+                  contigs_per_variant=[ids.index(s.chrom) for s in sites],
+                  contig_ids=ids,
+                  alleles=[list(s.alleles) for s in sites], sample_ids=names,
+                  genotypes=[[[s.alleles.index(s.tip_alleles[n])]
+                              for n in names] for s in sites],
+                  phased=True,
+                  contig_lengths=list(CONTIG_LENGTHS.values()))
+        return str(path)
+    lines = ["##fileformat=VCFv4.2",
+             *(f"##contig=<ID={c},length={n}>"
+               for c, n in CONTIG_LENGTHS.items()),
+             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
+             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+             + "\t".join(names)]
+    for s in sites:
+        lines.append("\t".join(
+            [s.chrom, str(s.pos + 1), ".", *s.alleles, ".", "PASS", ".", "GT",
+             *(str(s.alleles.index(s.tip_alleles[n])) for n in names)]))
+    path.write_text("\n".join(lines) + "\n")
+    return str(path)
+
+
+@pytest.mark.parametrize("fmt", ["vcf", "vcz"])
+def test_an_undeclared_length_is_read_per_contig_from_the_header(
+        tmp_path, fmt):
+    """Each contig takes its header length when sequence_length is not given.
+
+    Undeclared, the cores of each contig ran to its last site instead, and no
+    window grid was laid over the region.
+    """
+    sites, names = _contig_sites()
+    path = _write_contigs(sites, names, tmp_path / f"in.{fmt}", fmt)
+    both = _posteriors(path, names, chunk_size="1mb")
+    for chrom, length in CONTIG_LENGTHS.items():
+        alone = _posteriors(path, names, chrom_filter=chrom,
+                            sequence_length=float(length), chunk_size=None)
+        assert _max_abs_difference(
+            alone, {k: v for k, v in both.items() if k[0] == chrom}) == 0.0
