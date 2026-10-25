@@ -1016,11 +1016,12 @@ class LocalTreeBuilder(ReprMixin):
         step = None
         if self.recombination_map is not None:
             rm = self.recombination_map
-            L = float(getattr(rm, "sequence_length", n_blocks * bs))
+            edges = self._block_edges(n_blocks)
+            L = float(getattr(rm, "sequence_length", edges[-1]))
             # Midpoint of each block's extent within the map, so the block
             # holding the map's end is truncated there.
-            lo = np.arange(n_blocks, dtype=np.float64) * bs
-            hi = np.maximum(np.minimum(lo + bs, L), lo)
+            edges = np.minimum(edges, L)
+            lo, hi = edges[:-1], edges[1:]
             # A block is in the map when it has extent there and the map
             # reports a rate (a missing interval reports NaN).
             in_map = hi > lo
@@ -2124,8 +2125,7 @@ class LocalTreeInference(Inference):
             last = seg[-1].pos + 1 if seg else core_hi
             reach = (origin + ((last - 1 - origin) // bs + 1) * bs
                      if end is None else min(end, hi))
-            span = max(bs, reach - origin)
-            return (seg, core_lo, core_hi, origin, span, chrom)
+            return (seg, core_lo, core_hi, origin, reach - origin, chrom)
 
         def flush(buf, core_lo, chrom):
             """Emit the work units from ``core_lo`` to the end of the axis."""
@@ -2296,7 +2296,7 @@ class LocalTreeInference(Inference):
             n_time_bins=self.n_time_bins,
             time_grid=self.time_grid,
             recombination_map=self._slice_map(
-                maps["recombination_map"], origin, span),
+                maps["recombination_map"], origin, axis),
             accessibility=self._slice_accessibility(
                 maps["accessibility"], origin, axis),
             mutation_map=self._slice_map(maps["mutation_map"], origin, axis),
