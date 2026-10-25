@@ -462,14 +462,19 @@ class PairwiseCoalescentHMM(ReprMixin):
         sites_per_block = np.bincount(block_of_site, minlength=n_blocks)
         has_sites = sites_per_block > 0
         # A block listing no site says nothing about a pair's coverage, so it
-        # carries its nearest listed neighbour's exposure rather than a full
-        # block's: otherwise a pair uncalled over a stretch reads it as a run
-        # of zero differences.
+        # carries its nearest listed neighbour's exposure, the left one on a
+        # tie, rather than a full block's: otherwise a pair uncalled over a
+        # stretch reads it as a run of zero differences.
         source = np.arange(n_blocks)
         if has_sites.any() and not has_sites.all():
             idx = np.flatnonzero(has_sites)
-            source[~has_sites] = idx[np.clip(np.searchsorted(
-                idx, np.flatnonzero(~has_sites)), 0, idx.size - 1)]
+            empty = np.flatnonzero(~has_sites)
+            right = np.searchsorted(idx, empty)
+            left = idx[np.maximum(right - 1, 0)]
+            right = idx[np.minimum(right, idx.size - 1)]
+            take_left = (left < empty) & ((right < empty)
+                                          | (empty - left <= right - empty))
+            source[~has_sites] = np.where(take_left, left, right)
         block_sites = np.maximum(sites_per_block[source], 1).astype(np.int64)
         any_missing = bool((genotypes < 0).any())
         called = np.zeros((len(pairs), n_blocks), dtype=dtype) \

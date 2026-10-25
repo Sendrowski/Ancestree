@@ -145,6 +145,37 @@ def test_uncalled_blocks_do_not_deflate_the_pair_prior_mean():
             f"{fraction:.0%} uncalled deflated t_bar to {ratio:.3f}")
 
 
+@pytest.mark.parametrize("empty, source", [
+    (0, 1),  # before the first listed block
+    (3, 2),  # nearer the left neighbour
+    (4, 2),  # equidistant, the left neighbour wins
+    (5, 6),  # nearer the right neighbour
+    (8, 7),  # past the last listed block
+])
+def test_a_block_without_sites_takes_its_nearest_listed_neighbours_exposure(
+        empty, source):
+    """A site-free block's called count and site count come from the nearest
+    listed block, the left one on a tie.
+
+    Blocks 1, 2, 6 and 7 list sites, each a different number with a different
+    share called. Every empty block took the next listed block to its right,
+    so blocks 3 and 4 read block 6's exposure, not block 2's.
+    """
+    listed = {1: 2, 2: 3, 6: 5, 7: 7}
+    block_of_site = np.repeat(list(listed), list(listed.values()))
+    genotypes = np.zeros((block_of_site.size, 2), dtype=np.int8)
+    # One uncalled site in each listed block but the first.
+    for b in (2, 6, 7):
+        genotypes[np.flatnonzero(block_of_site == b)[0], 1] = -1
+    hmm = PairwiseCoalescentHMM(2, mu=MU, rec_rate=REC, block_size=10)
+    _counts, called, block_sites = hmm._pair_block_counts(
+        genotypes, block_of_site, 9)
+    assert (called[0, empty], block_sites[empty]) == (
+        called[0, source], block_sites[source]), (
+        f"block {empty} carries ({called[0, empty]}, {block_sites[empty]}), "
+        f"not block {source}'s ({called[0, source]}, {block_sites[source]})")
+
+
 def test_calibrate_gives_a_never_called_pair_the_median_prior_mean(caplog):
     """A pair with no jointly called block carries the panel's median mean."""
     hmm = PairwiseCoalescentHMM(3, mu=1e-3, rec_rate=REC, block_size=10)
