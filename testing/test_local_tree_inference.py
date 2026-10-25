@@ -2998,12 +2998,13 @@ def test_vcf_site_at_the_last_base_is_scored_on_every_path(tmp_path):
     [*range(0, 2400, 20)],  # nothing past 2400 of the declared 4000
     [*range(0, 1000, 20), *range(3400, 4000, 20)],  # a gap wider than a core
 ])
-def test_chunked_outputs_cover_the_declared_length(positions):
-    """Chunked tree outputs span the declared region, with a tree over every
-    core whose segment holds a site and none over a core no site falls in or
-    near.
+def test_chunked_outputs_cover_the_data_stretch(positions):
+    """Chunked tree outputs span the declared region and carry trees over
+    the data stretch alone, as the unchunked ones do, a gap inside it
+    included.
 
-    They used to stop at the last core holding a site.
+    They used to stop at the last core holding a site, and then to leave a
+    core no site falls in or near without trees.
     """
     sites, names = toy_sites(positions, seed=5)
     kw = dict(sequence_length=4000, n_ensemble=None)
@@ -3012,13 +3013,21 @@ def test_chunked_outputs_cover_the_declared_length(positions):
     unchunked = toy_inference(sites, names, **kw)
     ts, ref = chunked.point_tree_sequence(), unchunked.point_tree_sequence()
     assert ts.sequence_length == ref.sequence_length == 4000
-    built = [(lo, lo + 1000) for lo in range(0, 4000, 1000)
-             if any(lo - 200 <= p < lo + 1200 for p in positions)]
-    for tree in ts.trees():
-        inside = any(lo <= tree.interval.left < hi for lo, hi in built)
-        assert (tree.num_edges > 0) == inside
+
+    def covered(tree_sequence):
+        return [(t.interval.left, t.interval.right)
+                for t in tree_sequence.trees() if t.num_edges]
+
+    stretch = covered(ref)
+    lo, hi = stretch[0][0], stretch[-1][1]
+    assert all(a[1] == b[0] for a, b in zip(stretch, stretch[1:]))
+    assert lo <= positions[0] and positions[-1] < hi <= 4000
+    got = covered(ts)
+    assert got[0][0] == pytest.approx(lo) and got[-1][1] == pytest.approx(hi)
+    assert all(a[1] == pytest.approx(b[0]) for a, b in zip(got, got[1:]))
     assert (len(chunked.pairwise_tmrcas().block_midpoints)
             == len(unchunked.pairwise_tmrcas().block_midpoints))
     assert ([lo_hi for lo_hi, _ in chunked.tree_sequences()]
-            == [(float(lo), float(hi)) for lo, hi in built])
+            == [(float(c), float(c + 1000)) for c in range(0, 4000, 1000)
+                if c < hi and c + 1000 > lo])
 

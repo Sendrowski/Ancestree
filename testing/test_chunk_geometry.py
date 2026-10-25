@@ -356,38 +356,39 @@ def _covered(ts, lo, hi):
 
 @pytest.mark.parametrize("chunk_size", [1000, None])
 @pytest.mark.parametrize("n_ensemble", [None, 4])
-def test_every_member_tiles_its_stretch(chunk_size, n_ensemble):
-    """Each genealogy holds a tree over its whole stretch, and a core whose
-    segment holds no site is left edgeless.
+def test_every_member_tiles_the_data_stretch(chunk_size, n_ensemble):
+    """Each genealogy holds a tree over the data stretch and none past it.
 
     Sites at 0 to 900 and 4100 to 4400 over 5000 bp, a 1000 bp chunk and a
     500 bp halo, give the cores ``[1000, 2000)`` and ``[3000, 4000)`` only halo
-    sites and ``[2000, 3000)`` a segment without any. The ensemble drew only
-    the windows carrying a site, so its members left the halo-only cores, and
-    every site-free window elsewhere, without a tree while the plug-in tree
-    tiled them. A segment without sites built an HMM on nothing, and with a
-    recombination map undefined there it raised.
+    sites and ``[2000, 3000)`` a segment without any, all inside the stretch
+    from the window holding the first site to the one holding the last. The
+    ensemble drew only the windows carrying a site, so its members left those
+    cores without a tree while the plug-in tree tiled them, and a core whose
+    segment held no site was left edgeless. A segment without sites built with
+    a recombination map undefined there raised.
     """
     head, names = toy_sites(range(0, 1000, 100), seed=1)
     tail, _ = toy_sites(range(4100, 4500, 100), seed=2)
     inf = toy_chunked_inference(head + tail, names, n_ensemble=n_ensemble,
                                 chunk_size=chunk_size, sequence_length=5000)
     groups = [(iv, list(members)) for iv, members in inf.tree_sequences()]
-    empty = (2000.0, 3000.0) if chunk_size else None
-    expected = [(float(a), float(a + 1000)) for a in range(0, 5000, 1000)
-                if (a, a + 1000) != empty] if chunk_size else [(0.0, 5000.0)]
+    windows = (inf.builder.geometry.windows if inf.builder is not None
+               else inf._contig(head[0].chrom).windows)
+    end = float(windows[np.searchsorted(windows[:, 1], 4400, side="right"), 1])
+    assert 4400 < end < 5000
+    expected = ([(float(a), float(a + 1000)) for a in range(0, 5000, 1000)
+                 if a < end] if chunk_size else [(0.0, 5000.0)])
     assert [iv for iv, _ in groups] == expected
     for (lo, hi), members in groups:
         assert len(members) == (n_ensemble or 1)
         for member in members:
             assert member.sequence_length == 5000
-            assert _covered(member, lo, hi) == pytest.approx(hi - lo)
+            assert _covered(member, lo, hi) == pytest.approx(min(hi, end) - lo)
     point = inf.point_tree_sequence()
     assert point.sequence_length == 5000
-    assert _covered(point, 0, 5000) == pytest.approx(
-        4000 if chunk_size else 5000)
-    if chunk_size:
-        assert _covered(point, *empty) == 0
+    assert _covered(point, 0, end) == pytest.approx(end)
+    assert _covered(point, end, 5000) == 0
 
 
 def test_a_map_undefined_over_a_segment_is_not_sliced():

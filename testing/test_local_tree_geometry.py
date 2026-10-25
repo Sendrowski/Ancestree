@@ -39,9 +39,6 @@ N_IND = 4
 NAMES = [f"i{k}_h{h}" for k in range(N_IND) for h in (0, 1)]
 N_ENSEMBLE = 4
 
-XFAIL_DATA_STRETCH = pytest.mark.xfail(
-    strict=True, raises=AssertionError, reason="data-stretch rule, phase 2")
-
 
 def _simulated_rows():
     """Biallelic ``(pos, alleles, haplotype genotypes)`` on contig 1."""
@@ -541,7 +538,6 @@ class TestDataStretch:
     """Trees cover each contig's data stretch, the windows from the first
     site's to the last site's, interior gaps tiled, and nothing outside it."""
 
-    @XFAIL_DATA_STRETCH
     @pytest.mark.parametrize("chunk_size", [None, CHUNK])
     @pytest.mark.parametrize("dataset", ["regional", "gapped"])
     def test_point_tree_sequence(self, inputs, dataset, chunk_size):
@@ -550,7 +546,6 @@ class TestDataStretch:
         _assert_same_intervals(_covered(inference.point_tree_sequence()),
                                expected)
 
-    @XFAIL_DATA_STRETCH
     @pytest.mark.parametrize("n_ensemble", [None, N_ENSEMBLE])
     @pytest.mark.parametrize("chunk_size", [None, CHUNK])
     @pytest.mark.parametrize("dataset", ["regional", "gapped"])

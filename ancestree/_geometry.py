@@ -7,6 +7,10 @@ position ``b`` (``1`` for VCF / VCF-Zarr, ``0`` otherwise), lies on the axis
 into ``n = max(1, round(L / w))`` windows of ``L / n`` bp for a window width
 ``w`` bp, the last ending at the axis end.
 
+Trees cover a contig's data stretch: the whole windows from the one holding
+its first site to the one holding its last. A stretch without sites inside it
+is tiled, and everything outside it is left without trees.
+
 :class:`ContigGeometry` lays the window grid, the chunked cores and their
 segments over one contig. :class:`BuildGeometry` is what one build reads, the
 whole region or one segment shifted to a local 0: its blocks, windows, map
@@ -169,20 +173,20 @@ def _check_on_axis(positions, axis: float) -> None:
             f"sites to the region.")
 
 
-def _tile(lo: float, hi: float, width: int) -> "list[tuple[float, float]]":
+def _tile(lo: float, hi: float, width: int) -> np.ndarray:
     """``[lo, hi)`` cut into the whole number of equal windows nearest to
     ``hi - lo`` over ``width``, at least one.
 
     :param lo: Left end.
     :param hi: Right end.
     :param width: Target window width in bp.
-    :return: ``(left, right)`` windows in order, the last ending at ``hi``.
+    :return: ``(n, 2)`` float64 ``(left, right)`` windows in order, the last
+        ending at ``hi``.
     """
     n = max(1, int(round((hi - lo) / width)))
-    step = (hi - lo) / n
-    return [(float(lo + i * step),
-             float(hi if i == n - 1 else lo + (i + 1) * step))
-            for i in range(n)]
+    edges = lo + np.arange(n + 1) * ((hi - lo) / n)
+    edges[-1] = hi
+    return np.column_stack((edges[:-1], edges[1:]))
 
 
 def _filled(mm, mu: float, end: float):
@@ -232,8 +236,9 @@ class BuildGeometry(ReprMixin):
     :param mutation_map: :class:`msprime.RateMap` on the frame, or ``None``.
     :param core: ``(lo, hi)`` stretch of the frame the build reports trees and
         blocks for, or ``None`` for the whole axis.
-    :param data: ``(lo, hi)`` stretch of the frame a window must overlap to get
-        a tree, or ``None`` for no constraint.
+    :param data: ``(lo, hi)`` extent of the contig's sites on the frame, from
+        the first site to one past the last, which a window must overlap to
+        get a tree, or ``None`` when there is no site, so no window gets one.
     :param origin: Genome coordinate of the frame's 0.
     :param contig: Contig the frame lies on.
     """
@@ -285,8 +290,9 @@ class BuildGeometry(ReprMixin):
             ((min(n, max(0, int(s0 // bs))), min(n, max(0, int(np.ceil(s1 / bs)))))
              for s0, s1 in segments) if b1 > b0]
         if windows is None:
-            windows = [w for s0, s1 in segments for w in _tile(s0, s1, self.window)]
-            windows[-1] = (windows[-1][0], self.axis_length)
+            windows = np.concatenate([_tile(s0, s1, self.window)
+                                      for s0, s1 in segments])
+            windows[-1, 1] = self.axis_length
         #: ``(n_windows, 2)`` float64 ``(left, right)`` windows in the frame.
         #: Tiled, none crosses a segment break and the last reaches the axis
         #: end.
@@ -295,12 +301,12 @@ class BuildGeometry(ReprMixin):
         hi = np.ceil(iv[:, 1] / bs).astype(np.int64)
         #: ``(lo, hi)`` int64 block range ``[lo, hi)`` each window covers.
         self.window_blocks = (lo, np.maximum(lo + 1, np.minimum(hi, n)))
-        keep = (iv[:, 1] > self.core[0]) & (iv[:, 0] < self.core[1])
-        if data is not None:
-            keep &= (iv[:, 1] > data[0]) & (iv[:, 0] < data[1])
-        #: Indices of the windows that get trees: those overlapping
-        #: :attr:`core`, and :attr:`data` where set.
-        self.tree_windows = np.flatnonzero(keep)
+        lo_, hi_ = (0.0, 0.0) if data is None else data
+        #: Indices of the windows that get trees: those overlapping both
+        #: :attr:`core` and :attr:`data`.
+        self.tree_windows = np.flatnonzero(
+            (iv[:, 1] > self.core[0]) & (iv[:, 0] < self.core[1])
+            & (iv[:, 1] > lo_) & (iv[:, 0] < hi_))
         #: ``(lo, hi)`` stretch of the frame carrying trees, the tree windows
         #: within :attr:`core` and the axis, or ``None`` when empty.
         self.tree_span = None
@@ -519,9 +525,7 @@ class ContigGeometry(ReprMixin):
     shifted to a local 0. A segment reads the contig's window grid, so every
     segment calls a position in the same window.
 
-    :param length: Region length ``L`` in bp, or ``None`` when the contig
-        declares none, so that a segment ends on the block after its last site
-        and tiles its own windows.
+    :param length: Region length ``L`` in bp.
     :param position_base: Coordinate of the region's first base in the sites'
         positions.
     :param block: Block width in bp.
@@ -544,12 +548,10 @@ class ContigGeometry(ReprMixin):
                  chunk: int = 0, halo: int = 0, recombination_map=None,
                  accessibility=None, mutation_map=None,
                  contig: "str | None" = None) -> None:
-        self.length = length if length else None
+        self.length = length
         self.position_base = int(position_base)
-        #: End of the contig's axis, ``L`` plus the position base, or ``None``
-        #: when no length is declared.
-        self.axis_end = (None if self.length is None
-                         else int(self.length) + self.position_base)
+        #: End of the contig's axis, ``L`` plus the position base.
+        self.axis_end = int(length) + self.position_base
         self.block, self.window = int(block), int(window)
         self.chunk, self.halo = int(chunk), int(halo)
         self.recombination_map = recombination_map
@@ -558,64 +560,48 @@ class ContigGeometry(ReprMixin):
         self.contig = contig
 
     @cached_property
-    def windows(self) -> "list[tuple[float, float]]":
-        """The window grid over the contig's axis, empty without a length."""
-        if self.length is None:
-            return []
+    def windows(self) -> np.ndarray:
+        """``(n, 2)`` float64 window grid over the contig's axis."""
         iv = _tile(0.0, float(self.length), self.window)
-        iv[-1] = (iv[-1][0], float(self.axis_end))
+        iv[-1, 1] = self.axis_end
         return iv
 
-    def cores(self, start: int, last: int) -> "list[tuple[int, int]]":
+    def cores(self, start: int) -> "list[tuple[int, int]]":
         """The cores from ``start`` to the end of the region.
 
         :param start: Left edge of the first core.
-        :param last: The contig's last site, which ends a region without a
-            declared length.
         :return: ``(lo, hi)`` cores, the last reaching the axis end.
         """
-        end, axis = ((int(self.length), self.axis_end)
-                     if self.length is not None else (last + 1, last + 1))
         out = []
-        while start < end:
+        while start < int(self.length):
             hi = start + self.chunk
-            out.append((start, hi if hi < end else axis))
+            out.append((start, hi if hi < int(self.length) else self.axis_end))
             start = hi
         return out
 
-    def segment(self, core_lo: int, core_hi: int, last: "int | None",
-                data=None) -> BuildGeometry:
+    def segment(self, core_lo: int, core_hi: int, data) -> BuildGeometry:
         """The frame a core's segment is built in.
 
         :param core_lo: Left edge of the core.
         :param core_hi: Right edge of the core.
-        :param last: Position of the segment's last site, ``None`` when it
-            holds none.
-        :param data: ``(lo, hi)`` genome stretch a window must overlap to get a
-            tree, or ``None``.
+        :param data: ``(lo, hi)`` genome extent of the contig's sites, from the
+            first to one past the last, or to infinity while the last is
+            unread.
         :return: The segment's :class:`BuildGeometry`.
         """
         bs = self.block
-        lo, hi = core_lo - self.halo, core_hi + self.halo
-        origin = (max(0, lo) // bs) * bs
-        windows = None
-        base = 0
-        if self.length is None:
-            last = last + 1 if last is not None else core_hi
-            reach = origin + ((last - 1 - origin) // bs + 1) * bs
-        else:
-            reach = min(int(self.length), hi)
-            if hi >= self.axis_end:
-                base = self.position_base
-        span = reach - origin
-        axis = span + base
-        if self.length is not None:
-            # A window overlapping the core is clipped to the segment's axis.
-            windows = [(max(left - origin, 0.0), min(right - origin, float(axis)))
-                       for left, right in self.windows
-                       if right > float(core_lo) and left < float(core_hi)]
+        hi = core_hi + self.halo
+        origin = (max(0, core_lo - self.halo) // bs) * bs
+        span = min(int(self.length), hi) - origin
+        axis = span + (self.position_base if hi >= self.axis_end else 0)
+        # A window overlapping the core is clipped to the segment's axis.
+        iv = self.windows
+        a = np.searchsorted(iv[:, 1], core_lo, side="right")
+        b = np.searchsorted(iv[:, 0], core_hi, side="left")
+        windows = np.column_stack((np.maximum(iv[a:b, 0] - origin, 0.0),
+                                   np.minimum(iv[a:b, 1] - origin, float(axis))))
         return BuildGeometry(
-            span, block=bs, window=self.window, position_base=base,
+            span, block=bs, window=self.window, position_base=axis - span,
             windows=windows,
             recombination_map=self._slice_map(self.recombination_map,
                                               origin, axis),
@@ -623,7 +609,7 @@ class ContigGeometry(ReprMixin):
                                                 axis),
             mutation_map=self._slice_map(self.mutation_map, origin, axis),
             core=(core_lo - origin, core_hi - origin),
-            data=None if data is None else (data[0] - origin, data[1] - origin),
+            data=(data[0] - origin, data[1] - origin),
             origin=origin, contig=self.contig)
 
     @staticmethod
