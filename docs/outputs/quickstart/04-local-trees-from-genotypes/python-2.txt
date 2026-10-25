@@ -1,1 +1,1 @@
-118 sites: MAP recovery 97.5%; mean Brier = 0.034
+118 sites: MAP recovery 98.3%; mean Brier = 0.027
