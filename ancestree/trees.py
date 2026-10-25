@@ -1051,15 +1051,18 @@ class OutgroupLadderTree(Tree):
         Newick, so :class:`~ancestree.inference.FixedTreeInference` may be
         constructed with ``fit_required=False``.
 
-        :param newick_str: Newick string with branch lengths on every edge.
+        :param newick_str: Newick string with branch lengths on every edge
+            above the ingroup MRCA and into each outgroup. Edges within the
+            ingroup clade, which collapses to ``I``, and edges into pruned
+            leaves need none.
         :param ingroup_samples: Ids of the ingroup haplotypes, matching leaf
             names in the Newick.
         :param outgroup_samples: Ids of the outgroup haplotypes, in any order.
         :return: A ladder whose branch rates are populated from the Newick.
         :raises ImportError: If the ``newick`` package is not installed.
-        :raises ValueError: On missing samples, an unnamed or duplicated leaf,
-            overlap between ingroup and outgroup, a non-monophyletic ingroup,
-            or a ladder violation.
+        :raises ValueError: On missing samples, an edge without a branch
+            length, an unnamed or duplicated leaf, overlap between ingroup and
+            outgroup, a non-monophyletic ingroup, or a ladder violation.
         """
         try:
             import newick as _newick
@@ -1110,6 +1113,18 @@ class OutgroupLadderTree(Tree):
         # any degree-2 internals produced by pruning (their branch
         # lengths sum into the surviving edges).
         keep = set(ingroup_list) | set(outgroup_list)
+        ingroup_set = set(ingroup_list)
+        # Node.length reads an absent length as 0, so the raw token is checked.
+        for node in nw_root.walk():
+            kept = {n.unquoted_name for n in node.walk()
+                    if n.is_leaf and n.unquoted_name in keep}
+            if (node is not nw_root and node._length is None and kept
+                    and not kept < ingroup_set):
+                label = (repr(node.unquoted_name) if node.is_leaf else
+                         "the ancestor of " + ", ".join(sorted(kept)))
+                raise ValueError(
+                    f"OutgroupLadderTree.from_newick: the edge into {label} "
+                    f"has no branch length.")
         nw_root.prune([leaf for name, leaf in newick_leaves.items()
                        if name in keep], inverse=True)
         nw_root.remove_redundant_nodes()
@@ -1128,7 +1143,6 @@ class OutgroupLadderTree(Tree):
         leaves: dict[str, "_newick.Node"] = {
             n.unquoted_name: n for n in nw_root.walk() if n.is_leaf
         }
-        ingroup_set = set(ingroup_list)
 
         # Find MRCA = the deepest internal node whose descendants include
         # every ingroup sample. Walking up from any ingroup leaf, the first
@@ -1183,8 +1197,8 @@ class OutgroupLadderTree(Tree):
                 )
 
             grandparent = parents[id(parent)]
-            cur_len = float(cur.length) if cur.length is not None else 0.0
-            sib_len = float(sibling.length) if sibling.length is not None else 0.0
+            cur_len = float(cur.length)
+            sib_len = float(sibling.length)
             if grandparent is None:
                 # Last step: fold the degree-2 Newick root into a single K.
                 K_values.append(cur_len + sib_len)

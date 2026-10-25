@@ -135,29 +135,40 @@ class TestFromNewickErrors:
                 outgroup_samples=["O_1", "O_2", "O_3"],
             )
 
-    def test_undated_newick_raises(self):
-        """A Newick without branch lengths is rejected.
+    def test_a_zero_length_newick_raises(self):
+        """A Newick whose ladder branches are all zero is rejected.
 
-        The parser cannot distinguish an absent length from an explicit zero,
-        so the check is on the derived K vector: a non-positive ladder branch
-        means no divergence, which is never a usable tree. Callers who want
-        the rates fitted should omit the Newick and build the ladder from the
-        sample names instead.
+        A non-positive ladder branch means no divergence, which is never a
+        usable tree. Callers who want the rates fitted should omit the Newick
+        and build the ladder from the sample names instead.
         """
         with pytest.raises(ValueError, match="must be dated"):
             OutgroupLadderTree.from_newick(
-                "(((tsk_0,tsk_1),O_1),O_2);", ingroup_samples=["tsk_0", "tsk_1"],
-                outgroup_samples=["O_1", "O_2"],
-            )
-
-    def test_partially_dated_newick_raises(self):
-        """One missing length is enough. It names the offending branch."""
-        with pytest.raises(ValueError, match=r"but K\d+(, K\d+)* came out non-positive"):
-            OutgroupLadderTree.from_newick(
-                "(((tsk_0,tsk_1),O_1):0.1,O_2:0.3);",
+                "(((tsk_0:0,tsk_1:0):0,O_1:0):0,O_2:0);",
                 ingroup_samples=["tsk_0", "tsk_1"],
                 outgroup_samples=["O_1", "O_2"],
             )
+
+    @pytest.mark.parametrize("newick, edge", [
+        ("((a:.1,b:.1):.1,c);", "'c'"),
+        ("((a:.1,b:.1),c:.2);", "the ancestor of a, b"),
+        ("(((a:.1,b:.1):.1,c:.2),d:.3);", "the ancestor of a, b, c"),
+        ("(((a:.1,b:.1):.1,(c:.2,x)):.2,d:.3);", "the ancestor of c"),
+    ])
+    def test_an_edge_without_a_length_raises_naming_it(self, newick, edge):
+        """Regression: an absent branch length on a ladder edge was read as 0,
+        so ``((a:.1,b:.1):.1,c);`` was accepted with ``c`` at the root and
+        an edge summed into a ladder branch was silently shortened."""
+        outgroups = ["c", "d"] if "d:" in newick else ["c"]
+        with pytest.raises(ValueError,
+                           match=f"the edge into {edge} has no branch length"):
+            OutgroupLadderTree.from_newick(newick, ["a", "b"], outgroups)
+
+    def test_edges_the_ladder_does_not_read_need_no_length(self):
+        """Edges within the ingroup clade and into pruned leaves are unused."""
+        tree = OutgroupLadderTree.from_newick(
+            "(((a,b):.1,(c:.2,x):.05):.3,(d:.4,y):.1);", ["a", "b"], ["c", "d"])
+        np.testing.assert_allclose(tree.param_vector, [0.1, 0.25, 0.8])
 
     def test_more_than_one_tree(self):
         with pytest.raises(ValueError, match="exactly one tree"):
