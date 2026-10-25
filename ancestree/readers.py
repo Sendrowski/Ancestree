@@ -275,7 +275,8 @@ class Reader(ReprMixin):
         A record carrying its posterior is scored on it, including one whose
         ``AA`` was blanked by ``min_confidence``. A record written without its
         posterior is scored as a point mass on its MAP allele, and one carrying
-        neither is skipped.
+        neither is skipped, with a warning counting the records blanked by
+        ``min_confidence``.
 
         :param truth: ``{position: allele}``, an iterable of such pairs, or a
             :class:`tskit.TreeSequence` carrying the true mutations, whose
@@ -319,16 +320,23 @@ class Reader(ReprMixin):
             params = self.provenance().get("parameters", {})
 
         def pairs():
+            n_records = n_blanked = 0
             for a in self.annotations():
+                n_records += 1
                 if a.posterior is not None:
                     values = [float(a.posterior.get(s, 0.0)) for s in STATES]
                 elif a.aa is not None:
                     values = [1.0 if s == a.aa else 0.0 for s in STATES]
                 else:
+                    n_blanked += a.aa_prob is not None
                     continue
                 site = Site(chrom=a.chrom or "", pos=a.pos,
                             alleles=tuple(a.alleles), tip_alleles={})
                 yield site, Posterior(tuple(STATES), np.asarray(values))
+            if n_blanked:
+                self._log.warning(
+                    "%d of %d records skipped: blanked below min_confidence "
+                    "with no posterior stored", n_blanked, n_records)
 
         return Grade(
             pairs(), truth, filter, focal=focal,

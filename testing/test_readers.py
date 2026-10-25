@@ -438,6 +438,35 @@ class TestReader:
         assert grade.n_sites == 2
         assert grade.map_recovery == pytest.approx(0.5)
 
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz", ".trees"])
+    def test_grade_warns_of_blanked_sites_without_a_posterior(
+            self, inference, tmp_path, suffix, caplog):
+        """Regression: with ``store_posterior=False`` and ``min_confidence``,
+        the records blanked below the threshold were skipped silently, so the
+        grade covered only the confident sites without saying so."""
+        out = str(tmp_path / f"out{suffix}")
+        {".vcf": inference.to_vcf, ".vcz": inference.to_zarr,
+         ".trees": inference.to_arg}[suffix](
+            out, min_confidence=0.9, store_posterior=False)
+        annotations = list(Reader(out).annotations())
+        n_blanked = sum(a.aa is None and a.aa_prob is not None
+                        for a in annotations)
+        assert 0 < n_blanked < len(annotations)
+        with caplog.at_level("WARNING", logger="ancestree"):
+            grade = Reader(out).grade({a.pos: "A" for a in annotations})
+        assert grade.n_sites == len(annotations) - n_blanked
+        assert (f"{n_blanked} of {len(annotations)} records skipped: blanked "
+                f"below min_confidence with no posterior stored"
+                in caplog.messages)
+
+    def test_grade_does_not_warn_when_nothing_is_blanked(
+            self, inference, tmp_path, caplog):
+        out = str(tmp_path / "out.vcf")
+        inference.to_vcf(out, store_posterior=False)
+        with caplog.at_level("WARNING", logger="ancestree"):
+            Reader(out).grade({100: "A"})
+        assert not any("records skipped" in m for m in caplog.messages)
+
     def test_a_non_numeric_probability_reads_as_none(self):
         assert Reader._as_prob("abc") is None
         assert Reader._as_prob("0.25") == pytest.approx(0.25)
