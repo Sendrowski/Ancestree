@@ -30,7 +30,6 @@ and not by an assumed outgroup-ladder topology.
 """
 from __future__ import annotations
 
-import logging
 import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -45,14 +44,16 @@ if TYPE_CHECKING:
 from ancestree import DEFAULT_MU, DEFAULT_REC_RATE, STATES
 from tqdm import tqdm
 
+from ancestree._geometry import (
+    _ACCESS_FRAC_FLOOR, _EMIT_SCALE_FLOOR, BuildGeometry, ContigGeometry,
+    _check_on_axis, _filled, _parse_bp, _width_bp,
+)
 from ancestree._smc_kernel import pair_posterior_mean_tmrca
 from ancestree._upgma import (
     WindowedUpgmaTreeSequence,
 )
 from ancestree.focal import FocalNode
-from ancestree.inference import (
-    _ZERO_RATE_FLOOR, ARGBasedInference, Inference,
-)
+from ancestree.inference import ARGBasedInference, Inference
 from ancestree.models import JC69, SubstitutionModel
 from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
@@ -65,121 +66,6 @@ from ancestree._repr import ReprMixin
 # blocks carry no informative sites and the per-block pairwise-TMRCA estimates
 # become noise-dominated. The resolution warning fires.
 _MIN_SNPS_PER_BLOCK = 2.0
-
-
-def _length_spec_error(name: str, spec: object, *, snp: bool) -> ValueError:
-    """The error a malformed length spec raises, listing the accepted forms.
-
-    :param name: Parameter the spec was given for, named in the message.
-    :param spec: The rejected value.
-    :param snp: Whether the parameter also takes a ``"<N>snp"`` spec.
-    :return: The exception for the caller to raise.
-    """
-    forms = ("an integer number of base pairs, or a 'bp' / 'kb' / 'mb' "
-             "suffixed string such as '10mb'")
-    if snp:
-        forms = ("an integer number of base pairs, a 'bp' / 'kb' / 'mb' "
-                 "suffixed string such as '10mb', or a '<N>snp' string such "
-                 "as '8snp'")
-    return ValueError(f"{name} must be {forms}, got {spec!r}")
-
-
-def _parse_bp(spec: "int | str", *, name: str = "length",
-              snp: bool = False) -> int:
-    """Parse a bp length: an int or a ``bp`` / ``kb`` / ``mb`` suffixed string.
-
-    :param spec: The width to parse.
-    :param name: Parameter the spec was given for, named in the error message.
-    :param snp: Whether the calling parameter also takes a ``"<N>snp"`` spec,
-        which the error message then lists.
-    :return: The width in base pairs.
-    :raises ValueError: If ``spec`` is not one of the accepted forms, or is not
-        a positive width.
-    """
-    try:
-        if isinstance(spec, str):
-            s = spec.strip().lower()
-            if s.endswith("kb"):
-                bp = int(round(float(s[:-2]) * 1000))
-            elif s.endswith("mb"):
-                bp = int(round(float(s[:-2]) * 1_000_000))
-            elif s.endswith("bp"):
-                bp = int(s[:-2])
-            else:
-                bp = int(s)
-        else:
-            bp = int(spec)
-    except (TypeError, ValueError):
-        raise _length_spec_error(name, spec, snp=snp) from None
-    if bp <= 0:
-        raise ValueError(f"{name} must be a positive width, got {spec!r}")
-    return bp
-
-
-def _snp_count(spec: "int | str", *, name: str) -> "int | None":
-    """The N of an ``"<N>snp"`` spec, or ``None`` for a bp / int spec.
-
-    :param spec: The width spec.
-    :param name: Parameter the spec was given for, named in the error message.
-    :return: The SNP count, or ``None``.
-    :raises ValueError: If ``spec`` ends in ``snp`` without a positive count.
-    """
-    if not (isinstance(spec, str) and spec.strip().lower().endswith("snp")):
-        return None
-    try:
-        n_target = int(spec.strip().lower()[:-3])
-    except ValueError:
-        raise _length_spec_error(name, spec, snp=True) from None
-    if n_target <= 0:
-        raise _length_spec_error(name, spec, snp=True)
-    return n_target
-
-
-def _width_bp(spec: "int | str", n_sites: int, span_bp: float,
-              *, name: str) -> int:
-    """A window or block width in bp. An ``"<N>snp"`` spec is N sites' worth
-    of span at the data's mean SNP density. A bp / int spec is its parsed
-    width.
-
-    :param spec: The width spec.
-    :param n_sites: Sites the density is taken over.
-    :param span_bp: Span the density is taken over.
-    :param name: Parameter the spec was given for, named in the error message.
-    :return: The width in base pairs.
-    :raises ValueError: If ``spec`` is not one of the accepted forms.
-    """
-    n_target = _snp_count(spec, name=name)
-    if n_target is None:
-        return _parse_bp(spec, name=name, snp=True)
-    return max(1, int(round(n_target * span_bp / max(1, n_sites))))
-
-
-# Target SNPs per HMM emission block when ``block_size`` is left unset. A block
-# finer than the window gives the pairwise HMM several emission units per output
-# tree.
-_DEFAULT_BLOCK_SNPS = 4
-
-
-def _default_block_bp(n_sites: int, span_bp: float, window_bp: int,
-                      n_window: "int | None" = None) -> int:
-    """Density-adaptive default block width in bp, at least 1, sized so a
-    whole number of blocks spans the window: ``N / _DEFAULT_BLOCK_SNPS``
-    rounded half up for an ``"<N>snp"`` window, otherwise the count nearest to
-    ``_DEFAULT_BLOCK_SNPS`` SNPs per block at the mean density, at least one.
-
-    :param n_sites: Sites the density is taken over.
-    :param span_bp: Span the density is taken over.
-    :param window_bp: The requested window width.
-    :param n_window: The window's SNP count, or ``None`` for a bp window.
-    :return: The block width.
-    """
-    if n_window is not None:
-        n_blocks = max(1, (2 * n_window + _DEFAULT_BLOCK_SNPS)
-                       // (2 * _DEFAULT_BLOCK_SNPS))
-    else:
-        target = _DEFAULT_BLOCK_SNPS * span_bp / max(1, n_sites)
-        n_blocks = max(1, int(round(window_bp / max(target, 1.0))))
-    return max(1, -(-int(window_bp) // n_blocks))
 
 
 # Set by LocalTreeInference._infer_segmented just before forking the segment
@@ -652,21 +538,6 @@ class PairwiseTmrcas:
                     w.writerow([hi, hj, f"{mid:g}", f"{t:.6g}"])
 
 
-#: Smallest emission scale a block may carry. Zero would make the emission
-#: monotone in the coalescent rate, sending any block with a difference to
-#: the deepest time bin.
-_EMIT_SCALE_FLOOR: float = 1e-12
-
-#: Smallest accessible base-pair fraction at which a block still emits. A block
-#: below it contributes an expected difference count proportional to that
-#: fraction, so its likelihood is negligible, while the calibration divides its
-#: count by the fraction and would give it up to ``1 / _ACCESS_FRAC_FLOOR``
-#: times a full block's leverage on the time grid and on the per-pair prior
-#: mean. Below the floor a block emits uniformly and only carries
-#: recombination distance.
-_ACCESS_FRAC_FLOOR: float = 0.05
-
-
 class LocalTreeBuilder(ReprMixin):
     """Infer local dated trees from genotypes → a :class:`tskit.TreeSequence`.
 
@@ -750,9 +621,11 @@ class LocalTreeBuilder(ReprMixin):
         :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>` key
         mismatch. Per-chunk sub-builders pass ``False`` and the chunked driver
         checks the full panel once.
-    :param window_anchor: Optional window intervals in the builder's own frame,
-        supplied by a segmented run so every segment reads on one grid laid
-        over the whole region.
+    :param geometry: A resolved
+        :class:`~ancestree._geometry.BuildGeometry`, which a chunked run
+        supplies per segment, setting the axis, the widths, the windows and
+        the maps in place of ``sequence_length``, ``window``, ``block_size``,
+        ``segment_breaks``, the three maps and ``position_base``.
     :param position_base: Coordinate of the region's first base in the sites'
         positions, ``1`` for VCF / VCF-Zarr sites. The region's bases then lie
         on ``[position_base, sequence_length + position_base)``, the axis the
@@ -779,7 +652,7 @@ class LocalTreeBuilder(ReprMixin):
         mu: float,
         rec_rate: float,
         sample_names: Sequence[str],
-        sequence_length: float,
+        sequence_length: "float | None" = None,
         window: "int | str" = "8snp",
         block_size: "int | str | None" = None,
         n_time_bins: int = 32,
@@ -790,7 +663,7 @@ class LocalTreeBuilder(ReprMixin):
         accessibility: "Sequence[tuple[float, float]] | None" = None,
         mutation_map=None,
         validate_coverage: bool = True,
-        window_anchor: "Sequence[tuple[float, float]] | None" = None,
+        geometry: "BuildGeometry | None" = None,
         position_base: int = 0,
     ) -> None:
         if not np.isfinite(mu):
@@ -824,11 +697,23 @@ class LocalTreeBuilder(ReprMixin):
         self.sample_names: list[str] = list(sample_names)
         if len(self.sample_names) < 2:
             raise ValueError(f"need >= 2 samples, got {len(self.sample_names)}")
-        self.sequence_length = float(sequence_length)
-        self.position_base = int(position_base)
-        self._check_on_axis(self.sites.pos, self.axis_length)
-        _, self.block_size, self.window_bp = self._resolve_widths(
-            window, block_size, len(self.sites), self._site_extent)
+        if geometry is None:
+            pos = self.sites.pos
+            extent = (float(pos[-1] - pos[0] + 1) if len(pos)
+                      else float(sequence_length))
+            _, block, window_bp = ContigGeometry.resolve_widths(
+                window, block_size, len(pos), extent)
+            geometry = BuildGeometry(
+                sequence_length, block=block, window=window_bp,
+                position_base=position_base, segment_breaks=segment_breaks,
+                recombination_map=recombination_map,
+                accessibility=accessibility, mutation_map=mutation_map)
+        #: The axis, blocks, windows and maps this build reads.
+        self.geometry = geometry
+        self.sequence_length, self.position_base = (geometry.length,
+                                                    geometry.position_base)
+        self.block_size, self.window_bp = geometry.block, geometry.window
+        _check_on_axis(self.sites.pos, geometry.axis_length)
         self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
         if self.time_grid is not None:
             n_time_bins = self.time_grid.size - 1
@@ -836,16 +721,6 @@ class LocalTreeBuilder(ReprMixin):
         self.n_time_bins = int(n_time_bins)
         self.bake_genotypes = bool(bake_genotypes)
         self._validate_coverage = bool(validate_coverage)
-        # Windows this build reads on, in its own frame, or None to tile.
-        self._window_anchor = window_anchor
-        self.segment_breaks: list[float] = (
-            list(segment_breaks) if segment_breaks else []
-        )
-        self.recombination_map = recombination_map
-        self.accessibility: "list[tuple[float, float]] | None" = (
-            list(accessibility) if accessibility is not None else None
-        )
-        self.mutation_map = mutation_map
         self._ts = None
         self._pair_block_t: "np.ndarray | None" = None
         self._pair_called: "np.ndarray | None" = None
@@ -855,27 +730,7 @@ class LocalTreeBuilder(ReprMixin):
     def axis_length(self) -> float:
         """Length of the tree sequence's axis, which holds every base of the
         region: :attr:`sequence_length` plus :attr:`position_base`."""
-        return self.sequence_length + self.position_base
-
-    @staticmethod
-    def _check_on_axis(positions: np.ndarray, axis: float) -> None:
-        """Refuse site positions off the axis ``[0, axis)``.
-
-        :param positions: Site positions on the axis.
-        :param axis: Length of the axis, :attr:`axis_length`.
-        :raises ValueError: If a position is negative or not below ``axis``.
-        """
-        positions = np.asarray(positions)
-        oob = (positions < 0) | (positions >= axis)
-        if np.any(oob):
-            bad = positions[oob]
-            raise ValueError(
-                f"{bad.size} site position(s) lie outside the axis [0, {axis:g}) "
-                f"of the declared region, e.g. {bad[:5].tolist()}. The region's "
-                f"bases lie below sequence_length plus the source's position "
-                f"base (1 for VCF / VCF-Zarr, 0 otherwise). Pass a "
-                f"sequence_length that contains every site, or restrict the "
-                f"sites to the region.")
+        return self.geometry.axis_length
 
     def _tally_unrepresentable(self, sites: "Iterable[Site]") -> "Iterator[Site]":
         """Pass sites through, tallying alleles outside the alphabet.
@@ -892,41 +747,6 @@ class LocalTreeBuilder(ReprMixin):
             if n_tips or site.has_unrepresentable_allele:
                 self._n_unrepresentable_sites += 1
             yield site
-
-    @property
-    def _site_extent(self) -> float:
-        """The bp from the first site to the last, inclusive, over which the
-        SNP density is taken, or :attr:`sequence_length` without sites."""
-        pos = self.sites.pos
-        return (float(pos[-1] - pos[0] + 1) if len(pos)
-                else self.sequence_length)
-
-    @staticmethod
-    def _resolve_widths(window, block_size, n_sites: int,
-                        span_bp: float) -> tuple[int, int, int]:
-        """The requested window, the block and the window the HMM uses, in bp.
-
-        :param window: The window spec.
-        :param block_size: The block spec, or ``None`` for the default.
-        :param n_sites: Sites the density is taken over.
-        :param span_bp: Span the density is taken over.
-        :return: ``(requested, block, window)``, the window rounded up to a
-            whole number of blocks, at least one. Two ``"<N>snp"`` specs give
-            ``ceil(N_window / N_block)`` blocks.
-        """
-        requested = _width_bp(window, n_sites, span_bp, name="window")
-        n_window = _snp_count(window, name="window")
-        if block_size is None:
-            block = _default_block_bp(n_sites, span_bp, requested, n_window)
-            n_block = None
-        else:
-            block = _width_bp(block_size, n_sites, span_bp, name="block_size")
-            n_block = _snp_count(block_size, name="block_size")
-        if n_window is not None and n_block is not None:
-            n_blocks = -(-n_window // n_block)
-        else:
-            n_blocks = max(1, -(-requested // block))
-        return requested, block, n_blocks * block
 
     def _genotype_matrix(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Build the ``(n_sites, n_hap)`` allele-index matrix + block ids.
@@ -949,329 +769,33 @@ class LocalTreeBuilder(ReprMixin):
                 if j is not None:
                     g[:, hi] = self.sites.genotypes[:, j]
         positions = self.sites.pos.astype(np.float64)
-        block_of_site = (self.sites.pos // self.block_size).astype(np.int64)
         if n_sites and self._validate_coverage:
             seen = (g >= 0).any(axis=0)
             if not seen.all():
                 missing = [self.sample_names[i]
                            for i in np.nonzero(~seen)[0]]
                 LocalTreeInference._raise_unobserved_samples(missing)
-        n_blocks = max(1, int(np.ceil(self.sequence_length / self.block_size)))
+        n_blocks = self.geometry.n_blocks
+        block_of_site = (self.sites.pos // self.block_size).astype(np.int64)
         # The last block holds the bases past its nominal end up to the axis's.
         np.minimum(block_of_site, n_blocks - 1, out=block_of_site)
         return g, positions, block_of_site, n_blocks
 
-    def _segment_intervals(self) -> list[tuple[float, float]]:
-        """Contiguous ``(start, end)`` bp segments, breaks snapped to blocks.
-
-        ``segment_breaks`` partition ``[0, sequence_length)``. Snapping each to
-        the block grid keeps every block within a single segment, so the HMM
-        reset and the window tiling agree.
-        """
-        bs = self.block_size
-        cuts = {0.0, float(self.sequence_length)}
-        for b in self.segment_breaks:
-            snapped = round(float(b) / bs) * bs
-            if 0.0 < snapped < self.sequence_length:
-                cuts.add(float(snapped))
-        edges = sorted(cuts)
-        return [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)
-                if edges[i + 1] > edges[i]]
-
-    def _seg_block_bounds(self, n_blocks: int) -> list[tuple[int, int]]:
-        """Block-index ranges per segment, for :meth:`block_tmrcas`.
-
-        Starts floor down, ends ceil up, matching the ``ceil``-based
-        ``n_blocks`` so the segments partition ``[0, n_blocks)`` exactly and
-        the final block is always covered. Internal segment breaks are snapped
-        to block multiples upstream, so floor and ceil agree there (no overlap).
-        """
-        out = []
-        for s0, s1 in self._segment_intervals():
-            b0 = min(n_blocks, max(0, int(s0 // self.block_size)))
-            b1 = min(n_blocks, max(0, int(np.ceil(s1 / self.block_size))))
-            if b1 > b0:
-                out.append((b0, b1))
-        return out
-
-    def _window_intervals(self) -> list[tuple[float, float]]:
-        """Tile each segment into equal-width windows (no runt remainder).
-
-        Each segment of length ``Lₛ`` is split into ``max(1, round(Lₛ / w))``
-        windows of width ``Lₛ / n`` (``w`` = target window bp), so every window
-        is close to the target and no segment leaves a tiny end window.
-        Windows never cross a segment break, and the last one reaches
-        :attr:`axis_length`.
-        """
-        w = self.window_bp
-        iv: list[tuple[float, float]] = []
-        if self._window_anchor is not None:
-            return list(self._window_anchor)
-        for s0, s1 in self._segment_intervals():
-            seg_len = s1 - s0
-            n = max(1, int(round(seg_len / w)))
-            step = seg_len / n
-            for i in range(n):
-                left = s0 + i * step
-                right = s1 if i == n - 1 else s0 + (i + 1) * step
-                iv.append((float(left), float(right)))
-        if iv:
-            iv[-1] = (iv[-1][0], self.axis_length)
-        return iv
-
-    def _block_geometry(
-        self, n_blocks: int,
-    ) -> "tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]":
-        """Per-block HMM geometry: ``(step, block_mask, emit_scale)``.
-
-        ``step[k]`` is the genetic distance of the step from block ``k`` to
-        ``k+1`` in nominal-block units, the recombination map's local mass
-        over that bp interval divided by the reference ``rec_rate·block_size``;
-        ``None`` when no map is set (uniform).
-
-        ``emit_scale[b]`` is the Poisson exposure scale of block ``b``: the
-        product of ``a_b·(S_b/B)``, the accessible base pairs of block ``b`` as
-        a fraction of the nominal width ``B`` of :attr:`block_size`, for a
-        block spanning ``S_b`` base pairs and an accessible fraction ``a_b`` of
-        that span (dimensionless, in ``[0, 1]``, and ``1`` with no mask on a
-        full-width block), and ``μ_b / μ``, the mutation map's local per-bp
-        rate over the block divided by the reference rate (dimensionless, and
-        ``1`` with no map). The emission mean of block ``b`` in time bin ``i``
-        is then ``a_b·(S_b/B)·(μ_b/μ)·2·μ·B·t_i`` differences, for a bin
-        representative time ``t_i`` in generations, so the exposure is measured
-        against the same ``B`` the mean is built from.
-        ``None`` when neither an accessibility mask nor a mutation map is set.
-
-        ``block_mask[b]`` is ``True`` when block ``b`` emits: more than
-        :data:`_ACCESS_FRAC_FLOOR` of its own base pairs are accessible and its
-        local mutation rate is positive. ``None`` when neither an
-        accessibility mask nor a zero-rate mutation-map block constrains it.
-
-        :param n_blocks: Number of blocks the region is cut into.
-        :return: ``(step, block_mask, emit_scale)``, each either an array over
-            blocks or ``None`` for its neutral default.
-        """
-        bs = self.block_size
-        step = None
-        if self.recombination_map is not None:
-            rm = self.recombination_map
-            edges = self._block_edges(n_blocks)
-            L = float(getattr(rm, "sequence_length", edges[-1]))
-            # Midpoint of each block's extent within the map, so the block
-            # holding the map's end is truncated there.
-            edges = np.minimum(edges, L)
-            lo, hi = edges[:-1], edges[1:]
-            # A block is in the map when it has extent there and the map
-            # reports a rate (a missing interval reports NaN).
-            in_map = hi > lo
-            with np.errstate(invalid="ignore"):
-                probe = np.asarray(
-                    rm.get_rate(np.clip(0.5 * (lo + hi), 0.0, L - 1e-9)),
-                    dtype=np.float64)
-            in_map &= ~np.isnan(probe)
-            mids = np.where(in_map, 0.5 * (lo + hi), lo)
-            cum = np.asarray(rm.get_cumulative_mass(np.clip(mids, 0.0, L)),
-                             dtype=np.float64)
-            gdist = np.diff(cum)  # (n_blocks-1,)
-            span = np.diff(mids)  # bp the step actually spans
-            # A step is only a real measurement when BOTH its blocks lie inside
-            # the map. Otherwise its gdist is a spurious 0, not a cold spot.
-            valid = in_map[:-1] & in_map[1:] & (span > 0)
-            # Divide by the bp the step spans, so a truncated final block gets
-            # the same per-bp rate.
-            ref = self.rec_rate * np.clip(span, 1e-300, None)
-            step = np.nan_to_num(gdist / ref, nan=1.0, posinf=1e6, neginf=0.0)
-            step = np.clip(step, 0.0, None)
-            # Steps beyond the map take the reference rate (1.0), so the
-            # TMRCA chain keeps decorrelating.
-            step = np.where(valid, step, 1.0)
-        block_mask = None
-        access_frac = None
-        if self.accessibility is not None:
-            access_frac = self._accessible_fraction(n_blocks)
-            block_mask = access_frac > _ACCESS_FRAC_FLOOR
-        emit_scale = None
-        uninformative = None
-        if self.mutation_map is not None:
-            mm = self._kernel_mu()
-            L = float(mm.sequence_length)
-            edges = np.minimum(self._block_edges(n_blocks), L)
-            lo, hi = edges[:-1], edges[1:]
-            valid = hi > lo  # False past the map's end
-            width = np.clip(hi - lo, 1e-300, None)
-            rate = (np.asarray(mm.get_cumulative_mass(hi), dtype=np.float64)
-                    - np.asarray(mm.get_cumulative_mass(lo), dtype=np.float64)
-                    ) / width  # local per-bp rate
-            emit_scale = np.nan_to_num(
-                rate / self.mu, nan=1.0, posinf=1e6, neginf=0.0,
-            )
-            # Blocks beyond the map take the reference rate (1.0).
-            uninformative = valid & (emit_scale <= _EMIT_SCALE_FLOOR)
-            emit_scale = np.where(
-                valid, np.clip(emit_scale, _EMIT_SCALE_FLOOR, None), 1.0)
-            if uninformative.any():
-                if block_mask is None:
-                    block_mask = np.ones(n_blocks, dtype=bool)
-                block_mask = block_mask & ~uninformative
-                if not getattr(self, "_warned_zero_rate", False):
-                    logging.getLogger(
-                        f"ancestree.{type(self).__name__}"
-                    ).warning(
-                        "mutation-map rate is zero over %d block(s); they "
-                        "carry no information about coalescent time, so "
-                        "their sites are scored prior-dominated.",
-                        int(uninformative.sum()),
-                    )
-                    self._warned_zero_rate = True
-        # lambda_i is 2·mu·block_size·t_i for every block, so exposure is
-        # measured against the nominal width B: a block spanning S_b < B bp
-        # offers S_b/B of one whether or not a mask is given, which is what
-        # keeps the masked and unmasked paths on one scale.
-        trunc = np.diff(self._block_edges(n_blocks)) / float(bs)
-        exposure = trunc if access_frac is None else access_frac * trunc
-        # calibrate divides each block's count by its exposure, so a block
-        # whose exposure is tiny carries 1/exposure times a full block's
-        # weight in the shared time grid. The same floor bounds both axes.
-        if not np.all(trunc > _ACCESS_FRAC_FLOOR):
-            if block_mask is None:
-                block_mask = np.ones(n_blocks, dtype=bool)
-            block_mask = block_mask & (trunc > _ACCESS_FRAC_FLOOR)
-        # A zero-rate mutation map masks blocks too, but warns and continues,
-        # so it is not what this refusal is about.
-        callable_mask = block_mask
-        if (callable_mask is not None and uninformative is not None
-                and uninformative.any()):
-            callable_mask = callable_mask | uninformative
-        if (callable_mask is not None and not callable_mask.any()
-                and self._validate_coverage):
-            raise ValueError(
-                f"no block over this region is callable ({n_blocks} block(s) "
-                f"of {bs} bp), so every block would emit uniformly and the "
-                f"returned TMRCAs would carry no positional information while "
-                f"still looking like a successful run. A block emits when more "
-                f"than {_ACCESS_FRAC_FLOOR:.3g} of its own base pairs are "
-                f"accessible and it spans more than that fraction of the block "
-                f"width. Check the region length, the block size, and that "
-                f"any mask is in the same bp coordinates as the sites.")
-        if access_frac is not None or not np.allclose(trunc, 1.0):
-            scale = exposure if emit_scale is None else emit_scale * exposure
-            emit_scale = np.clip(scale, _EMIT_SCALE_FLOOR, None)
-        return step, block_mask, emit_scale
-
-    def _site_rate_scale(self, positions: np.ndarray) -> "np.ndarray | None":
-        """Mutation rate at each site relative to :attr:`mu`.
-
-        :param positions: Site coordinates in region coordinates ``[0, L)``.
-        :return: ``(n_sites,)`` positive multipliers, a zero rate floored, or
-            ``None`` without a :attr:`mutation_map`.
-        """
-        if self.mutation_map is None:
-            return None
-        mm = self._kernel_mu()
-        x = np.clip(np.asarray(positions, dtype=np.float64), 0.0,
-                    np.nextafter(float(mm.sequence_length), 0.0))
-        rate = np.asarray(mm.get_rate(x), dtype=np.float64)
-        return np.maximum(rate, _ZERO_RATE_FLOOR) / float(self.mu)
-
-    def _kernel_mu(self):
-        """The rate the HMM and the kernel score this builder's region at.
-
-        :return: :attr:`mu`, or the :attr:`mutation_map` with the intervals
-            it leaves undefined, and the stretch from its end to
-            :attr:`axis_length`, at :attr:`mu`.
-        """
-        if self.mutation_map is None:
-            return self.mu
-        return self._filled(self.mutation_map, self.mu, float(self.axis_length))
-
-    @staticmethod
-    def _filled(mm, mu: float, end: float):
-        """``mm`` with the intervals it leaves undefined, and the stretch from
-        its end to ``end``, at ``mu``.
-
-        :param mm: An :class:`msprime.RateMap`.
-        :param mu: The rate filled in.
-        :param end: The axis end the map is extended to.
-        :return: ``mm`` itself when it is defined up to ``end``, else the
-            filled map.
-        """
-        position = np.asarray(mm.position, dtype=np.float64)
-        rate = np.asarray(mm.rate, dtype=np.float64)
-        if not np.isnan(rate).any() and position[-1] >= end:
-            return mm
-        rate = np.where(np.isnan(rate), mu, rate)
-        if position[-1] < end:
-            position = np.append(position, end)
-            rate = np.append(rate, mu)
-        from ancestree._maps import MapFiles
-        return MapFiles.msprime().RateMap(position=position, rate=rate)
-
-    def _block_edges(self, n_blocks: int) -> np.ndarray:
-        """Base-pair edges of the blocks on the axis.
-
-        Block ``b`` spans ``[b·B, (b+1)·B)`` for a block width ``B`` of
-        :attr:`block_size`, and a block reaching :attr:`sequence_length` ends
-        at :attr:`axis_length`, so the last block holds the region's last base.
-
-        :param n_blocks: Number of blocks the region is cut into.
-        :return: ``(n_blocks + 1,)`` float64 edges, non-decreasing.
-        """
-        edges = np.arange(n_blocks + 1, dtype=np.float64) * self.block_size
-        return np.where(edges >= self.sequence_length, self.axis_length, edges)
-
-    def _accessible_fraction(self, n_blocks: int) -> np.ndarray:
-        """Callable base-pair fraction of each block.
-
-        :param n_blocks: Number of blocks the region is cut into, spanning the
-            base pairs given by :meth:`_block_edges`.
-        :return: ``(n_blocks,)`` float64 in ``[0, 1]``, the base pairs of block
-            ``b`` covered by :attr:`accessibility`, given on the axis, divided
-            by that block's own span.
-        """
-        edges = self._block_edges(n_blocks)
-        end = edges[-1]
-        iv = np.asarray(self.accessibility, dtype=np.float64).reshape(-1, 2)
-        lo = np.clip(iv[:, 0], 0.0, end)
-        hi = np.clip(iv[:, 1], 0.0, end)
-        keep = hi > lo
-        if not keep.any():
-            return np.zeros(n_blocks, dtype=np.float64)
-        lo, hi = lo[keep], hi[keep]
-        order = np.argsort(lo, kind="stable")
-        lo, hi = lo[order], hi[order]
-        # Merge overlapping intervals, so a base pair two of them cover counts
-        # once.
-        starts = np.empty(lo.size, dtype=bool)
-        starts[0] = True
-        starts[1:] = lo[1:] > np.maximum.accumulate(hi)[:-1]
-        at = np.flatnonzero(starts)
-        lo, hi = lo[at], np.maximum.reduceat(hi, at)
-        # Covered bp below x is sum_i [min(hi_i, x) - min(lo_i, x)], evaluated
-        # at every block boundary and differenced.
-        below = np.empty((2, n_blocks + 1), dtype=np.float64)
-        for row, bound in enumerate((lo, hi)):
-            cum = np.concatenate(([0.0], np.cumsum(bound)))
-            j = np.searchsorted(bound, edges, side="right")
-            below[row] = cum[j] + (bound.size - j) * edges
-        span = np.clip(np.diff(edges), 1e-300, None)
-        return np.clip(np.diff(below[1] - below[0]) / span, 0.0, 1.0)
-
-    def _blocks_for_window(
-        self, left: float, right: float, n_blocks: int,
-    ) -> tuple[int, int]:
-        """Block index range ``[b0, b1)`` covered by ``[left, right)``."""
-        b0 = int(left // self.block_size)
-        b1 = int(np.ceil(right / self.block_size))
-        b0 = max(0, min(b0, n_blocks - 1))
-        b1 = max(b0 + 1, min(b1, n_blocks))
-        return b0, b1
+    def _hmm_inputs(self):
+        """Per-block ``(step, block_mask, emit_scale)`` of
+        :meth:`BuildGeometry.hmm_inputs() <ancestree._geometry.BuildGeometry.hmm_inputs>`."""
+        return self.geometry.hmm_inputs(self.rec_rate, self.mu, log=self._log,
+                                        validate=self._validate_coverage)
 
     def to_tree_sequence(self):
         """Build (and cache) the self-describing local-tree sequence.
 
-        :return: A :class:`tskit.TreeSequence`, one local tree per window,
-            branch lengths in generations, sample names in individual
-            metadata, observed genotypes baked in as sites.
+        :return: A :class:`tskit.TreeSequence` on the builder's axis, one local
+            tree per window over
+            :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`
+            and no edges elsewhere, branch lengths in generations, sample names
+            in individual metadata, and the observed genotypes of the sites
+            there baked in as sites.
         :raises ValueError: If two sites share a position, which tskit forbids.
             Multi-allelic sites split across records at one position are the
             usual cause.
@@ -1295,21 +819,24 @@ class LocalTreeBuilder(ReprMixin):
                     f"usual cause."
                 )
         pair_block_t = self._pairwise_block_tmrcas(g, block_of_site, n_blocks)
-
-        intervals = self._window_intervals()
-        n = len(self.sample_names)
+        geometry = self.geometry
+        trees = geometry.tree_windows
+        intervals = [geometry.windows[w] for w in trees]
+        lo, hi = (b[trees] for b in geometry.window_blocks)
         # Exact UPGMA over the full pairwise-TMRCA matrix (combinations order).
-        bounds = [self._blocks_for_window(l, r, n_blocks) for l, r in intervals]
-        condensed = [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in bounds]
+        condensed = [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in zip(lo, hi)]
         from ancestree._ensemble import window_exposure
         topo = WindowedUpgmaTreeSequence(
-            n, self.axis_length,
+            len(self.sample_names), self.axis_length,
             intervals, condensed, sample_names=self.sample_names,
             window_weights=window_exposure(
-                self._pair_called, self._pair_block_sites,
-                np.array([b0 for b0, _ in bounds], dtype=np.int64),
-                np.array([b1 for _, b1 in bounds], dtype=np.int64)),
+                self._pair_called, self._pair_block_sites, lo, hi),
         ).build()
+        span = geometry.tree_span
+        if span is not None and intervals and span != (intervals[0][0],
+                                                       intervals[-1][1]):
+            topo = topo.keep_intervals([span], simplify=False,
+                                       record_provenance=False)
         if not self.bake_genotypes:
             self._ts = topo
             return self._ts
@@ -1319,9 +846,13 @@ class LocalTreeBuilder(ReprMixin):
         tables = topo.dump_tables()
         alleles = list(STATES)
         order = np.argsort(pos0, kind="stable")
-        si = 0
-        n_uncalled = 0
         n_sites = pos0.shape[0]
+        # Only the sites under a tree are baked.
+        si = n_sites if span is None else int(np.searchsorted(
+            pos0[order], span[0], side="left"))
+        if span is not None:
+            n_sites = int(np.searchsorted(pos0[order], span[1], side="left"))
+        n_uncalled = 0
         for tree in topo.trees():
             right = tree.interval.right
             while si < n_sites:
@@ -1354,7 +885,7 @@ class LocalTreeBuilder(ReprMixin):
             self._log.warning(
                 "%d of %d sites carry no called genotype in the panel; they "
                 "are emitted without a mutation and score at the prior",
-                n_uncalled, n_sites)
+                n_uncalled, pos0.shape[0])
         tables.sort()
         tables.time_units = "generations"
         self._ts = tables.tree_sequence()
@@ -1384,10 +915,9 @@ class LocalTreeBuilder(ReprMixin):
             block_size=self.block_size, n_time_bins=self.n_time_bins,
             time_grid=self.time_grid,
         )
-        step, block_mask, emit_scale = self._block_geometry(n_blocks)
+        step, block_mask, emit_scale = self._hmm_inputs()
         self._pair_block_t = hmm.block_tmrcas(
-            g, block_of_site, n_blocks,
-            seg_bounds=self._seg_block_bounds(n_blocks),
+            g, block_of_site, n_blocks, seg_bounds=self.geometry.seg_bounds,
             step=step, block_mask=block_mask, emit_scale=emit_scale,
         )
         self._pair_called, self._pair_block_sites = hmm.called, hmm.block_sites
@@ -1402,19 +932,28 @@ class LocalTreeBuilder(ReprMixin):
         trees. Exposed for inspection and debugging of genealogy quality;
         :meth:`PairwiseTmrcas.write` dumps it to file.
 
-        All ``n(n-1)/2`` pairs, in :func:`itertools.combinations` order.
+        All ``n(n-1)/2`` pairs, in :func:`itertools.combinations` order, over
+        the blocks whose midpoint lies in
+        :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`,
+        at genome coordinates.
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
         """
         g, _pos0, block_of_site, n_blocks = self._genotype_matrix()
         pair_block_t = self._pairwise_block_tmrcas(g, block_of_site, n_blocks)
         names = self.sample_names
-        row_pairs = (list(combinations(range(len(names)), 2)))
-        pairs = tuple((names[a], names[b]) for a, b in row_pairs)
+        pairs = tuple((names[a], names[b])
+                      for a, b in combinations(range(len(names)), 2))
+        geometry = self.geometry
         starts = np.arange(n_blocks) * self.block_size
-        ends = np.minimum(starts + self.block_size, self.sequence_length)
-        midpoints = 0.5 * (starts + ends)
-        return PairwiseTmrcas(tuple(names), pairs, midpoints, pair_block_t)
+        mids = geometry.origin + 0.5 * (
+            starts + np.minimum(starts + self.block_size, self.sequence_length))
+        span = geometry.tree_span
+        keep = (np.zeros(n_blocks, dtype=bool) if span is None else
+                (mids >= geometry.origin + span[0])
+                & (mids < geometry.origin + span[1]))
+        return PairwiseTmrcas(tuple(names), pairs, mids[keep],
+                              pair_block_t[:, keep])
 
     def write(self, path: "str | os.PathLike") -> None:
         """Dump the inferred local-tree sequence to a ``.trees`` file."""
@@ -1777,7 +1316,7 @@ class LocalTreeInference(Inference):
         # resolves against the real density later.
         if chunk_size is not None:
             self._chunk_size = _parse_bp(chunk_size, name="chunk_size")
-            LocalTreeBuilder._resolve_widths(window, block_size, 1, 1.0)
+            ContigGeometry.resolve_widths(window, block_size, 1, 1.0)
             if not (isinstance(halo, str) and halo.strip().lower() == "auto"):
                 _parse_bp(halo, name="halo")
         elif sequence_length is None:
@@ -1845,8 +1384,10 @@ class LocalTreeInference(Inference):
         )
         # The builder resolved a tracked (None) block_size from the SNP density.
         self.block_size = self.builder.block_size
-        _n = len(self.builder.sites)
-        _span = self.builder._site_extent
+        pos = self.builder.sites.pos
+        _n = len(pos)
+        _span = (float(pos[-1] - pos[0] + 1) if _n
+                 else self.builder.sequence_length)
         self._warn_resolution(requested_bp=_width_bp(window, _n, _span,
                                                      name="window"),
                               n_sites=_n, span_bp=_span)
@@ -1871,14 +1412,12 @@ class LocalTreeInference(Inference):
         contig = str(site.chrom)
         if contig not in self._kernel_mus:
             if self.builder is not None:
-                mu = self.builder._kernel_mu()
+                mu = self.builder.geometry.kernel_mu(self.mu)
             else:
-                from ancestree._maps import MapFiles
-
-                mm = MapFiles.on_contig(self.mutation_map, contig,
-                                        "mutation_map")
-                mu = self.mu if mm is None else LocalTreeBuilder._filled(
-                    mm, self.mu, float(self._axis_end(contig) or mm.sequence_length))
+                geometry = self._contig(contig)
+                mm = geometry.mutation_map
+                mu = _filled(mm, self.mu, float(
+                    geometry.axis_end or getattr(mm, "sequence_length", 0)))
             self._kernel_mus[contig] = mu
         mu = self._kernel_mus[contig]
         if isinstance(mu, float) or x < float(mu.sequence_length):
@@ -1899,7 +1438,8 @@ class LocalTreeInference(Inference):
                     "build. Use point_tree_sequence() for the stitched trees.")
             self._arg = ARGBasedInference(
                 self.builder.to_tree_sequence(), self._arg_model,
-                **{**self._arg_kwargs, "mu": self.builder._kernel_mu()})
+                **{**self._arg_kwargs,
+                   "mu": self.builder.geometry.kernel_mu(self.builder.mu)})
             self._arg._quiet = True  # parent does the user-facing logging
         return self._arg
 
@@ -2091,7 +1631,7 @@ class LocalTreeInference(Inference):
             if cur is not None:
                 span += last - p0 + 1
 
-        requested, self.block_size, self._wbp = LocalTreeBuilder._resolve_widths(
+        requested, self.block_size, self._wbp = ContigGeometry.resolve_widths(
             w, self.block_size, n_sites, span)
         chunk = getattr(self, "_chunk_size", None)
         if chunk is not None and chunk < self.block_size:
@@ -2112,7 +1652,10 @@ class LocalTreeInference(Inference):
         ends = (declared.values() if isinstance(declared, Mapping)
                 else [declared])
         floor = max(self.block_size, int(np.ceil(max(
-            (self._widest_window(float(end)) for end in ends if end),
+            (float(np.ptp(ContigGeometry(
+                end, position_base=self._position_base, block=self.block_size,
+                window=self._wbp).windows[-1]))
+             for end in ends if end),
             default=0.0))))
         if not need_halo:
             halo = _parse_bp(self._halo, name="halo")
@@ -2143,84 +1686,67 @@ class LocalTreeInference(Inference):
         end = self._declared_length
         return end.get(str(chrom)) if isinstance(end, Mapping) else end
 
-    def _axis_end(self, chrom: "str | None") -> "int | None":
-        """End of a contig's declared region on the sites' axis.
+    def _contig(self, chrom) -> ContigGeometry:
+        """The geometry of a contig, laid once.
 
         :param chrom: The contig.
-        :return: Its declared length plus the source's
-            :attr:`SiteSource.position_base <ancestree.sites.SiteSource.position_base>`,
-            so the region's last base lies below it, or ``None`` when no length
-            is declared.
+        :return: Its :class:`~ancestree._geometry.ContigGeometry`, at the
+            resolved widths, chunk and halo, with its maps.
         """
-        end = self._declared_on(chrom)
-        return int(end) + self._position_base if end else None
+        chrom = str(chrom)
+        cache = self.__dict__.setdefault("_contigs", {})
+        if chrom not in cache:
+            self._resolve_segmentation_params()
+            cache[chrom] = ContigGeometry(
+                self._declared_on(chrom), position_base=self._position_base,
+                block=self.block_size, window=self._wbp,
+                chunk=self._chunk_size, halo=self._halo_value,
+                contig=chrom, **self._maps_on(chrom))
+        return cache[chrom]
 
     def _stream_segments(self):
-        """Stream the source once, yielding segment work-units.
+        """Stream the source once, yielding ``(sites, geometry)`` per core.
 
-        ``(seg_sites, core_lo, core_hi, origin, span, chrom)``: sites are
-        streamed in sorted order through a sliding buffer (holding the sites
-        within ~``chunk_size + 2·halo`` bp), so neither the full input nor a
-        whole contig is materialised. Each contiguous contig is an independent
-        segment. A contig longer than ``chunk_size`` is sliced into cores
-        extended by a ``halo`` overlap on its interior sides (discarded after
-        building). The cores tile the contig up to the declared region's end,
-        or to its last site when none is declared, so a core may hold no site.
-        ``origin`` shifts the segment to a local 0 so the HMM block count
-        tracks the span.
+        Sites are streamed in sorted order through a sliding buffer holding
+        the sites within about ``chunk_size + 2·halo`` bp, so neither the full
+        input nor a whole contig is materialised. Each contig is cut into the
+        cores of :meth:`ContigGeometry.cores() <ancestree._geometry.ContigGeometry.cores>`,
+        so a core may hold no site. ``sites`` are those of the core's segment
+        and ``geometry`` its
+        :meth:`ContigGeometry.segment() <ancestree._geometry.ContigGeometry.segment>`.
         """
-        bs, cs = self.block_size, self._chunk_size
+        cs = self._chunk_size
         halo = self._halo_value
-        base = self._position_base
 
-        def make(buf, core_lo, core_hi, chrom):
+        def unit(contig, buf, core_lo, core_hi):
             """One work unit: the core plus its halo."""
-            end = self._declared_on(chrom)
-            end = int(end) if end else None
-            lo, hi = core_lo - halo, core_hi + halo
-            seg = [s for s in buf if lo <= s.pos < hi]
-            origin = (max(0, lo) // bs) * bs
-            # Reaches the segment's last site, or the halo's end within the
-            # declared region.
-            last = seg[-1].pos + 1 if seg else core_hi
-            reach = (origin + ((last - 1 - origin) // bs + 1) * bs
-                     if end is None else min(end, hi))
-            return (seg, core_lo, core_hi, origin, reach - origin, chrom)
+            seg = [s for s in buf if core_lo - halo <= s.pos < core_hi + halo]
+            return seg, contig.segment(core_lo, core_hi,
+                                       seg[-1].pos if seg else None)
 
-        def flush(buf, core_lo, chrom):
-            """Emit the work units from ``core_lo`` to the end of the axis."""
-            stop = self._axis_end(chrom) or buf[-1].pos + 1
-            # The cores tile the stop - base bases on the axis, and the last
-            # one reaches stop.
-            while core_lo < stop - base:
-                core_hi = core_lo + cs
-                yield make(buf, core_lo,
-                           core_hi if core_hi < stop - base else stop, chrom)
-                core_lo = core_hi
-
-        cur = None
+        cur = contig = None
         buf: list[Site] = []
         core_lo = 0
         last = -1
-        axis_end = None
         for s in self._source:
-            if cur is None or s.chrom != cur:
-                if cur is not None:
-                    yield from flush(buf, core_lo, cur)
+            if contig is None or s.chrom != cur:
+                if contig is not None:
+                    for lo, hi in contig.cores(core_lo, last):
+                        yield unit(contig, buf, lo, hi)
                 cur, buf, core_lo, last = s.chrom, [], 0, s.pos
-                axis_end = self._axis_end(cur)
-            if s.pos < 0 or (axis_end is not None and s.pos >= axis_end):
-                LocalTreeBuilder._check_on_axis(
-                    np.array([s.pos]), axis_end or np.inf)
+                contig = self._contig(cur)
+            end = contig.axis_end
+            if s.pos < 0 or (end is not None and s.pos >= end):
+                _check_on_axis(np.array([s.pos]), end or np.inf)
             if s.pos < last:
                 raise ValueError(
                     "chunked LocalTreeInference requires sorted sites; saw "
-                    f"{cur}:{s.pos} after {cur}:{last}"
+                    f"{s.chrom}:{s.pos} after {s.chrom}:{last}"
                 )
             last = s.pos
             buf.append(s)
             while s.pos >= core_lo + cs + halo:  # right halo fully buffered
-                yield make(buf, core_lo, core_lo + cs, cur)
+                yield unit(contig, buf, core_lo, core_lo + cs)
                 core_lo += cs
                 cut = core_lo - halo  # drop sites before next halo
                 k = 0
@@ -2228,8 +1754,9 @@ class LocalTreeInference(Inference):
                     k += 1
                 if k:
                     del buf[:k]
-        if cur is not None:
-            yield from flush(buf, core_lo, cur)
+        if contig is not None:
+            for lo, hi in contig.cores(core_lo, last):
+                yield unit(contig, buf, lo, hi)
 
     def _load_map(self, value, name: str, base: int = 0):
         """A map as passed, read from its file where a path is given.
@@ -2267,129 +1794,22 @@ class LocalTreeInference(Inference):
                 for name in ("recombination_map", "accessibility",
                              "mutation_map")}
 
-    def _slice_map(self, rate_map, origin: int, span: int):
-        """Sub-map over ``[origin, origin+span)`` shifted to a local ``0``.
+    def _segment_builder(self, sites, geometry) -> "LocalTreeBuilder":
+        """The :class:`~ancestree.local_tree_inference.LocalTreeBuilder` of one
+        segment, its sites shifted to the frame of ``geometry``.
 
-        The builder reads per-block rates as cumulative-mass differences over
-        each block, so the slice's constant offset cancels.
-
-        :param rate_map: The map to slice, or ``None``.
-        :param origin: Left edge of the segment, in base pairs.
-        :param span: Width of the slice from ``origin``, in base pairs.
-        :return: The sub-map, or ``None`` when unset or when the map defines
-            no rate over the slice.
+        :param sites: The segment's sites, in genome coordinates.
+        :param geometry: The segment's
+            :class:`~ancestree._geometry.BuildGeometry`.
+        :return: The builder.
         """
-        if rate_map is None:
-            return None
-        length = float(getattr(rate_map, "sequence_length", origin + span))
-        right = min(float(origin + span), length)
-        if right <= float(origin):
-            return None
-        position = np.asarray(rate_map.position, dtype=np.float64)
-        defined = ((position[1:] > float(origin)) & (position[:-1] < right)
-                   & ~np.isnan(np.asarray(rate_map.rate, dtype=np.float64)))
-        if not defined.any():
-            return None
-        return rate_map.slice(left=float(origin), right=right, trim=True)
-
-    @staticmethod
-    def _slice_accessibility(accessibility, origin: int, span: int):
-        """Accessible intervals intersected with the segment, shifted to 0.
-
-        :param accessibility: The contig's intervals, or ``None``.
-        :param origin: Left edge of the segment, in base pairs.
-        :param span: Width of the segment's axis, in base pairs: its span,
-            plus the position base when it holds the region's last base.
-        :return: The shifted intervals, or ``None`` when unset.
-        """
-        if accessibility is None:
-            return None
-        out: list[tuple[float, float]] = []
-        for a0, a1 in accessibility:
-            lo = max(float(a0), float(origin))
-            hi = min(float(a1), float(origin + span))
-            if hi > lo:
-                out.append((lo - origin, hi - origin))
-        return out
-
-    def _window_count(self, end: float) -> int:
-        """Windows the grid over a region of ``end`` bp holds, each close to
-        the resolved window width."""
-        return max(1, int(round(end / float(self._wbp))))
-
-    def _widest_window(self, end: float) -> float:
-        """Width of the widest window in the grid over a region of ``end`` bp,
-        the last one, which reaches past the region's last base to the axis's
-        end."""
-        n = self._window_count(end)
-        return float(int(end) + self._position_base) - (n - 1) * (end / n)
-
-    def _global_windows(self, chrom: str) -> "list[tuple[float, float]]":
-        """The window grid over a contig's whole region, in genome coordinates.
-
-        Laid once per contig so every segment reads its calls on the same
-        tiling. Tiled per segment instead, the grid follows each segment's own
-        length and site density, so the same position falls in a different
-        window depending on where the chunk boundaries landed.
-
-        :param chrom: The contig.
-        :return: ``(left, right)`` windows tiling the contig's axis, empty
-            when it has no declared length and each segment tiles its own core.
-        """
-        cached = getattr(self, "_windows_cache", None)
-        if cached is not None and cached[0] == chrom:
-            return cached[1]
-        end = self._declared_on(chrom)
-        windows = []
-        if end:
-            end = float(end)
-            n = self._window_count(end)
-            step = end / n
-            # The last window reaches the end of the axis, past the region's
-            # last base.
-            windows = [
-                (i * step,
-                 float(self._axis_end(chrom)) if i == n - 1 else (i + 1) * step)
-                for i in range(n)]
-        self._windows_cache = (chrom, windows)
-        return windows
-
-    def _segment_builder(self, work_unit) -> "LocalTreeBuilder":
-        """Configure the :class:`~ancestree.local_tree_inference.LocalTreeBuilder` for one segment work-unit.
-
-        Sites are shifted to a local ``0`` (``origin``) so the HMM block count
-        tracks the segment span. The recombination / mutation / accessibility
-        maps are sliced to the segment's axis and shifted likewise. A segment
-        whose halo reaches the declared region's end holds its last base, at
-        the source's position base past the span.
-        """
-        seg, _core_lo, _core_hi, origin, span, chrom = work_unit
-        shifted = [replace(s, pos=int(s.pos - origin)) for s in seg]
-        maps = self._maps_on(str(chrom))
-        end = self._axis_end(chrom)
-        base = (self._position_base
-                if end is not None and _core_hi + self._halo_value >= end else 0)
-        axis = span + base
+        origin = geometry.origin
         builder = LocalTreeBuilder(
-            shifted, mu=self.mu, rec_rate=self.rec_rate,
-            sample_names=self.sample_names, sequence_length=span,
-            window=self._wbp, block_size=self.block_size,
-            n_time_bins=self.n_time_bins,
-            time_grid=self.time_grid,
-            recombination_map=self._slice_map(
-                maps["recombination_map"], origin, axis),
-            accessibility=self._slice_accessibility(
-                maps["accessibility"], origin, axis),
-            mutation_map=self._slice_map(maps["mutation_map"], origin, axis),
-            validate_coverage=False,
-            position_base=base,
-            # A window overlapping this core is clipped to the segment's axis.
-            window_anchor=([
-                (max(l - origin, 0.0), min(r - origin, float(axis)))
-                for l, r in self._global_windows(chrom)
-                if r > float(_core_lo) and l < float(_core_hi)
-            ] or None),
-        )
+            [replace(s, pos=int(s.pos - origin)) for s in sites],
+            mu=self.mu, rec_rate=self.rec_rate,
+            sample_names=self.sample_names, n_time_bins=self.n_time_bins,
+            time_grid=self.time_grid, validate_coverage=False,
+            geometry=geometry)
         builder._quiet = True  # per-segment: parent logs the segmented build
         return builder
 
@@ -2421,12 +1841,13 @@ class LocalTreeInference(Inference):
         :class:`~ancestree.posterior.Posterior` and sums the counts, which a
         forked worker cannot report any other way.
 
-        :param work_unit: One ``_stream_segments`` work-unit.
+        :param work_unit: One ``(sites, geometry)`` of :meth:`_stream_segments`.
         :return: ``(rows, (n_ingroup_non_monophyletic, n_focal_multiroot_fallback,
             n_uniform_fallback, n_ingroup_monomorphic, n_uncoalesced_segments,
             n_unrepresentable_sites, n_unrepresentable_tips))``.
         """
-        seg, core_lo, core_hi, _origin, _span, _chrom = work_unit
+        seg, geometry = work_unit
+        core_lo, core_hi = geometry.genome_core
         if self.n_ensemble is not None:
             uniform_before = self._n_uniform_fallback
             rows = self._process_segment_ensemble(work_unit)
@@ -2449,16 +1870,13 @@ class LocalTreeInference(Inference):
         core = [site for site in seg if core_lo <= site.pos < core_hi]
         if not core:
             return [], self._counts_in_order({})
-        segment = self._segment_builder(work_unit)
-        origin = work_unit[3]
-        ts = segment.to_tree_sequence()
-        # Clipped to the core, so the per-tree tallies count no halo tree.
-        ts = ts.keep_intervals(
-            [[max(0.0, core_lo - origin), min(ts.sequence_length, core_hi - origin)]],
-            simplify=False, record_provenance=False)
+        segment = self._segment_builder(*work_unit)
+        origin = geometry.origin
+        # The trees lie on the core alone, so the per-tree tallies count no
+        # halo tree.
         arg = ARGBasedInference(
-            ts, self.model,
-            mu=segment._kernel_mu(), prior=self.prior,
+            segment.to_tree_sequence(), self.model,
+            mu=geometry.kernel_mu(self.mu), prior=self.prior,
             base_composition=self.base_composition, progress=False,
             n_workers=1, focal=self.focal,
             ingroup_samples=self._resolved_ingroup,
@@ -2496,11 +1914,12 @@ class LocalTreeInference(Inference):
         posterior, which is what removes the confidently-wrong calls where the
         point estimate mis-resolves a split inside the ingroup.
         """
-        seg, core_lo, core_hi, _origin, _span, chrom = work_unit
+        seg, geometry = work_unit
+        core_lo, core_hi = geometry.genome_core
         keep = np.fromiter((core_lo <= s.pos < core_hi for s in seg), bool,
                            len(seg))
-        post = self._score_ensemble(self._segment_builder(work_unit), seg, keep,
-                                    segment=(chrom, core_lo))
+        post = self._score_ensemble(self._segment_builder(*work_unit), seg,
+                                    keep, segment=(geometry.contig, core_lo))
         return list(zip(compress(seg, keep), post))
 
     def _weight_by_prior(self, post, sites):
@@ -2552,9 +1971,8 @@ class LocalTreeInference(Inference):
         """Assemble a genome-wide tree sequence from the chunked segments.
 
         Streams one segment at a time (so the HMM's peak memory still tracks a
-        single segment span), builds each segment's local-tree sequence, clips
-        it to its core interval, shifts it back to genome coordinates, and
-        appends nodes / edges / baked sites into one growing table collection.
+        single segment span), builds each segment's local-tree sequence over
+        its core and appends it, on the genome axis, to one table collection.
         The result tiles the covered genome with the per-window local trees,
         the same pseudo-ARG the non-chunked path produces, but reconstructed
         without ever holding the whole-genome HMM TMRCA matrix. A segment
@@ -2570,109 +1988,66 @@ class LocalTreeInference(Inference):
         :raises NotImplementedError: If the source spans more than one contig.
         :raises ValueError: If the source yields no segments.
         """
-        import tskit
         self._resolve_segmentation_params()
-        n = len(self.sample_names)
-        NULL = tskit.NULL
-
-        internal_times: list[np.ndarray] = []
-        e_left, e_right, e_parent, e_child = [], [], [], []
-        s_pos: list[np.ndarray] = []
-        s_anc: list[str] = []
-        m_site, m_node, m_parent = [], [], []
-        m_derived: list[str] = []
-
-        internal_base = n  # next global internal-node id
-        site_base = 0
-        mut_base = 0
+        parts = []
         seq_len = 0.0
         seen_chrom = None
-
-        for wu in self._stream_segments():
-            seg, core_lo, core_hi, origin, _span, chrom = wu
+        for sites, geometry in self._stream_segments():
             seen_chrom = self._same_contig(
-                seen_chrom, chrom, "point_tree_sequence() / to_arg()")
-            if not seg:
+                seen_chrom, geometry.contig, "point_tree_sequence() / to_arg()")
+            if not sites or geometry.tree_span is None:
                 continue
-            seg_ts = self._segment_builder(wu).to_tree_sequence()
-            lo = max(0.0, core_lo - origin)
-            hi = min(seg_ts.sequence_length, core_hi - origin)
-            if hi <= lo:
-                # With no declared length the segment's axis ends at its last
-                # site, which lies in the left halo, so the core holds no tree.
-                continue
-            seg_ts = seg_ts.keep_intervals(
-                [[lo, hi]], simplify=False, record_provenance=False,
-            )
-            t = seg_ts.tables
-
-            # Node remap: shared samples [0, n) keep their ids. Each segment's
-            # internal nodes get fresh contiguous global ids.
-            n_nodes = t.nodes.num_rows
-            node_map = np.arange(n_nodes, dtype=np.int64)
-            n_int = n_nodes - n
-            node_map[n:] = internal_base + np.arange(n_int)
-            internal_times.append(np.asarray(t.nodes.time[n:]))
-            internal_base += n_int
-
-            # Edges: shift back to genome coordinates, remap node ids.
-            e_left.append(np.asarray(t.edges.left) + origin)
-            e_right.append(np.asarray(t.edges.right) + origin)
-            e_parent.append(node_map[np.asarray(t.edges.parent)])
-            e_child.append(node_map[np.asarray(t.edges.child)])
-
-            # Sites (core-only after keep_intervals): shift positions.
-            ns = t.sites.num_rows
-            if ns:
-                s_pos.append(np.asarray(t.sites.position) + origin)
-                s_anc.extend(t.sites[i].ancestral_state for i in range(ns))
-            site_map = site_base + np.arange(ns, dtype=np.int64)
-            site_base += ns
-
-            # Mutations: remap site / node / parent (parent stays within-site).
-            nm = t.mutations.num_rows
-            if nm:
-                m_site.append(site_map[np.asarray(t.mutations.site)])
-                m_node.append(node_map[np.asarray(t.mutations.node)])
-                mp = np.asarray(t.mutations.parent)
-                m_parent.append(np.where(mp == NULL, NULL, mut_base + mp))
-                m_derived.extend(t.mutations[i].derived_state for i in range(nm))
-            mut_base += nm
-
-            seq_len = max(seq_len, float(origin) + hi)
-
+            parts.append((self._segment_builder(sites, geometry)
+                          .to_tree_sequence(), geometry.origin))
+            seq_len = max(seq_len, geometry.origin + geometry.tree_span[1])
         if seen_chrom is None:
             raise ValueError("no segments to build a tree sequence from")
-        seq_len = max(seq_len, float(self._axis_end(seen_chrom) or 0.0))
+        end = self._contig(seen_chrom).axis_end
+        return self._stitch(parts, max(seq_len, float(end or 0.0))), seen_chrom
 
-        out = tskit.TableCollection(sequence_length=seq_len)
+    def _stitch(self, parts, length: float) -> "tskit.TreeSequence":
+        """Tree sequences built in segment frames, placed on one genome axis.
+
+        :param parts: ``(tree sequence, origin)`` pairs, each tree sequence
+            holding the panel as its first nodes and its frame's zero at genome
+            coordinate ``origin``.
+        :param length: Length of the genome axis.
+        :return: One tree sequence sharing the panel's sample nodes, every
+            part's other nodes, edges, sites and mutations shifted onto it.
+        """
+        import tskit
+        n = len(self.sample_names)
+        out = tskit.TableCollection(sequence_length=length)
         out.individuals.metadata_schema = tskit.MetadataSchema.permissive_json()
         for name in self.sample_names:
             ind = out.individuals.add_row(metadata={"name": str(name)})
             out.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0.0, individual=ind)
-        for tt in np.concatenate(internal_times):
-            out.nodes.add_row(time=float(tt))
-        out.edges.set_columns(
-            left=np.concatenate(e_left), right=np.concatenate(e_right),
-            parent=np.concatenate(e_parent).astype(np.int32),
-            child=np.concatenate(e_child).astype(np.int32),
-        )
-        if s_anc:
-            positions = np.concatenate(s_pos)
-            for pos, anc in zip(positions, s_anc):
-                out.sites.add_row(position=float(pos), ancestral_state=anc)
-        if m_derived:
-            ms = np.concatenate(m_site)
-            mn = np.concatenate(m_node)
-            mpar = np.concatenate(m_parent)
-            for i, derived in enumerate(m_derived):
-                out.mutations.add_row(
-                    site=int(ms[i]), node=int(mn[i]),
-                    derived_state=derived, parent=int(mpar[i]),
-                )
+        for ts, origin in parts:
+            t = ts.tables
+            node_map = np.arange(t.nodes.num_rows, dtype=np.int32)
+            node_map[n:] += out.nodes.num_rows - n
+            out.nodes.append_columns(
+                flags=np.zeros(t.nodes.num_rows - n, dtype=np.uint32),
+                time=t.nodes.time[n:])
+            out.edges.append_columns(
+                left=t.edges.left + origin, right=t.edges.right + origin,
+                parent=node_map[t.edges.parent], child=node_map[t.edges.child])
+            site0, mut0 = out.sites.num_rows, out.mutations.num_rows
+            out.sites.append_columns(
+                position=t.sites.position + origin,
+                ancestral_state=t.sites.ancestral_state,
+                ancestral_state_offset=t.sites.ancestral_state_offset)
+            parent = t.mutations.parent
+            out.mutations.append_columns(
+                site=t.mutations.site + site0,
+                node=node_map[t.mutations.node],
+                parent=np.where(parent == tskit.NULL, tskit.NULL, parent + mut0),
+                time=t.mutations.time,
+                derived_state=t.mutations.derived_state,
+                derived_state_offset=t.mutations.derived_state_offset)
         out.sort()
-        out.time_units = "generations"
-        return out.tree_sequence(), seen_chrom
+        out.time_units = parts[0][0].time_units if parts else "generations"
+        return out.tree_sequence()
 
     def _infer_segmented(self) -> Iterator[tuple[Site, Posterior]]:
         """Posteriors for a chunked run, one segment at a time."""
@@ -2718,7 +2093,8 @@ class LocalTreeInference(Inference):
         """The segment work-units, under a progress bar when requested."""
         # A segment holding no site in its core has no posterior to report.
         segments = (wu for wu in self._stream_segments()
-                    if any(wu[1] <= site.pos < wu[2] for site in wu[0]))
+                    if any(wu[1].genome_core[0] <= site.pos
+                           < wu[1].genome_core[1] for site in wu[0]))
         if not self.progress:
             return segments
         end = self._declared_length
@@ -2917,82 +2293,21 @@ class LocalTreeInference(Inference):
             return
         self._resolve_segmentation_params()
         seen_chrom = None
-        for work_unit in self._stream_segments():
-            seg, core_lo, core_hi, origin, _span, chrom = work_unit
+        for sites, geometry in self._stream_segments():
             seen_chrom = self._same_contig(
-                seen_chrom, chrom, "tree_sequences()")
-            if not seg:
+                seen_chrom, geometry.contig, "tree_sequences()")
+            if not sites:
                 continue
-            end = float(self._axis_end(chrom) or 0.0)
-            members = self._ensemble_members(self._segment_builder(work_unit),
-                                             segment=(chrom, core_lo))
-            core = (float(core_lo), float(core_hi))
-            yield core, self._genome_frame_iter(members, origin, end, core)
-
-    def _genome_frame_iter(self, members, origin, region_end, core):
-        """Place a segment's genealogies on the genome axis, one at a time.
-
-        :param members: The segment's genealogies, on the segment's own axis.
-        :param origin: Genome coordinate the segment's zero sits at.
-        :param region_end: End of the genome axis (the declared length plus
-            the position base), or 0 when undeclared.
-        :param core: ``(lo, hi)`` stretch this segment emits.
-        :return: Iterator of :class:`tskit.TreeSequence` on the genome axis.
-        """
-        for member in members:
-            yield self._to_genome_frame(member, origin, region_end, core)
-
-    @staticmethod
-    def _to_genome_frame(ts, origin, region_end, core):
-        """Shift a segment's tree sequence into genome coordinates.
-
-        A segment is built on its own axis starting at zero, and reaches past
-        the stretch it emits by the halo.
-
-        :param ts: The segment's tree sequence, on the segment's axis.
-        :param origin: Genome coordinate the segment's zero sits at.
-        :param region_end: End of the genome axis (the declared length plus
-            the position base), or 0 when undeclared.
-        :param core: ``(lo, hi)`` stretch this segment emits, in genome
-            coordinates.
-        :return: The tree sequence on the genome's axis, trimmed to ``core``.
-        """
-        import numpy as np
-
-        tables = ts.dump_tables()
-        tables.sequence_length = max(float(region_end),
-                                     float(origin + ts.sequence_length))
-        edges = tables.edges.copy()
-        tables.edges.clear()
-        tables.edges.set_columns(
-            left=np.asarray(edges.left) + origin,
-            right=np.asarray(edges.right) + origin,
-            parent=edges.parent, child=edges.child,
-        )
-        if tables.sites.num_rows:
-            sites = tables.sites.copy()
-            positions = np.asarray(sites.position) + origin
-            mutations = tables.mutations.copy()
-            tables.sites.clear()
-            tables.mutations.clear()
-            tables.sites.set_columns(
-                position=positions,
-                ancestral_state=sites.ancestral_state,
-                ancestral_state_offset=sites.ancestral_state_offset,
-            )
-            tables.mutations.set_columns(
-                site=mutations.site, node=mutations.node,
-                parent=mutations.parent,
-                derived_state=mutations.derived_state,
-                derived_state_offset=mutations.derived_state_offset,
-            )
-        tables.sort()
-        # A gap in the sites wider than the halo leaves the core reaching past
-        # the segment's own axis, so the kept interval is clamped to the axis.
-        lo = max(0.0, min(float(core[0]), tables.sequence_length))
-        hi = max(lo, min(float(core[1]), tables.sequence_length))
-        return tables.tree_sequence().keep_intervals(
-            [[lo, hi]], simplify=False)
+            core = geometry.genome_core
+            members = self._ensemble_members(
+                self._segment_builder(sites, geometry),
+                segment=(geometry.contig, core[0]))
+            end = float(self._contig(geometry.contig).axis_end or 0.0)
+            length = max(end, geometry.origin + geometry.axis_length)
+            # Bound at the yield, so a group consumed later keeps its own frame.
+            yield (tuple(map(float, core)),
+                   map(lambda m, o=geometry.origin, n=length:
+                       self._stitch([(m, o)], n), members))
 
     def _ensemble_members(self, builder, segment=("", 0)):
         """The genealogies one builder's region contributes, lazily.
@@ -3082,21 +2397,12 @@ class LocalTreeInference(Inference):
             return
         self._resolve_segmentation_params()
         seen_chrom = None
-        for work_unit in self._stream_segments():
-            seg, core_lo, core_hi, origin, _span, chrom = work_unit
+        for sites, geometry in self._stream_segments():
             seen_chrom = self._same_contig(
-                seen_chrom, chrom, "pairwise_tmrcas()")
-            part = self._segment_builder(work_unit).pairwise_tmrcas()
-            mids = np.asarray(part.block_midpoints, dtype=float) + origin
-            core = (mids >= float(core_lo)) & (mids < float(core_hi))
-            if not core.any():
-                continue
-            yield PairwiseTmrcas(
-                sample_names=part.sample_names,
-                pairs=part.pairs,
-                block_midpoints=mids[core],
-                tmrca=np.asarray(part.tmrca)[:, core],
-            )
+                seen_chrom, geometry.contig, "pairwise_tmrcas()")
+            part = self._segment_builder(sites, geometry).pairwise_tmrcas()
+            if part.block_midpoints.size:
+                yield part
 
     def write_pairwise_tmrcas(self, path: "str | os.PathLike") -> None:
         """Write the inferred per-block pairwise TMRCAs to ``path``.

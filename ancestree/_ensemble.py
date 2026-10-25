@@ -1121,18 +1121,14 @@ class SegmentEnsemble:
         self._pi = None if pi is None else np.asarray(pi, dtype=float)
         self.mu = builder.mu
         self.builder = builder  # kept for iter_tree_sequences()'s window geometry
+        geometry = builder.geometry
 
         genotypes, positions, block_of_site, n_blocks = builder._genotype_matrix()
         self.positions = positions.astype(np.int64)
         self.tip_states = genotypes
         self.n_sites = len(positions)
-        intervals = builder._window_intervals()
-        bounds = [builder._blocks_for_window(lo, hi, n_blocks)
-                  for lo, hi in intervals]
-
         # A window's blocks are contiguous, so the range is kept directly.
-        self.blk_lo = np.array([b0 for b0, _ in bounds], dtype=np.int64)
-        self.blk_hi = np.array([b1 for _, b1 in bounds], dtype=np.int64)
+        self.blk_lo, self.blk_hi = geometry.window_blocks
 
         hmm = PairwiseCoalescentHMM(
             n_hap, mu=builder.mu, rec_rate=builder.rec_rate,
@@ -1153,7 +1149,7 @@ class SegmentEnsemble:
         # was generated from.
         counts, called, block_sites = hmm._pair_block_counts(
             genotypes, block_of_site, n_blocks, dtype=count_dtype)
-        step, block_mask, emit_scale = builder._block_geometry(n_blocks)
+        step, block_mask, emit_scale = builder._hmm_inputs()
         edges, t_rep, _, _, _, t_bar = hmm.calibrate(
             counts, emit_scale=emit_scale, block_mask=block_mask,
             called=called, block_sites=block_sites)
@@ -1193,12 +1189,11 @@ class SegmentEnsemble:
         self.edge_hi = edges[1:].copy()
         self.t_bar = np.maximum(np.asarray(t_bar, np.float64), edges[0])
 
-        # Sites are assigned by the same tiling _window_intervals() uses.
-        edges = np.array([lo for lo, _ in intervals] + [intervals[-1][1]],
-                         dtype=float)
+        # Sites are assigned by the windows' own tiling.
+        iv = geometry.windows
         win_of_site = np.clip(
-            np.searchsorted(edges, self.positions, side="right") - 1,
-            0, len(intervals) - 1).astype(np.int64)
+            np.searchsorted(np.append(iv[:, 0], iv[-1, 1]), self.positions,
+                            side="right") - 1, 0, len(iv) - 1).astype(np.int64)
         self.needed = np.unique(win_of_site)
         self.win_weight = window_exposure(
             called, block_sites, self.blk_lo[self.needed],
@@ -1212,7 +1207,7 @@ class SegmentEnsemble:
         self.row_off[1:] = np.cumsum(per_win)
 
         # One site-row CSR per kernel rate class: (multiplier, offsets, rows).
-        scale = builder._site_rate_scale(self.positions)
+        scale = geometry.site_rate_scale(self.positions, builder.mu)
         if scale is None:
             self._rate_classes = [(1.0, self.row_off, self.row_idx)]
         else:
@@ -1384,10 +1379,11 @@ class SegmentEnsemble:
         """Yield the ensemble's genealogies as tree sequences, one per member.
 
         Reifies exactly the draws :meth:`posterior` marginalises over, one at a
-        time: peak memory holds a single member, not all :math:`B`. Every
-        window is drawn, so a member tiles the builder's axis as the plug-in
-        tree does, and the windows carrying no site hold genealogies drawn
-        from the same HMM posterior.
+        time: peak memory holds a single member, not all :math:`B`. A member
+        covers
+        :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`
+        as the plug-in tree does, every window there drawn, including those
+        carrying no site.
 
         The members are topology only --- no sites, unlike the genotype-baked
         plug-in tree from :meth:`LocalTreeBuilder.to_tree_sequence`. They are
@@ -1401,19 +1397,26 @@ class SegmentEnsemble:
         """
         from ancestree._upgma import build_windowed_tree_sequence
         b = self.builder
-        intervals = b._window_intervals()
-        windows = np.arange(len(intervals), dtype=np.int64)
+        geometry = b.geometry
+        windows = geometry.tree_windows
+        intervals = [geometry.windows[w] for w in windows]
+        span = geometry.tree_span
+        clip = (span is not None and intervals
+                and span != (intervals[0][0], intervals[-1][1]))
         weight = window_exposure(self.hmm_called, self.hmm_block_sites,
-                                 self.blk_lo, self.blk_hi)
+                                 self.blk_lo[windows], self.blk_hi[windows])
         n = self.n_hap
         Z = np.empty((len(windows), n - 1, 4))
         for draws in self.draw_chunks(n_members, member_chunk=member_chunk,
                                       seed=seed, windows=windows):
             for member in draws:
                 upgma_batch(member, n, Z, weight)
-                yield build_windowed_tree_sequence(
+                ts = build_windowed_tree_sequence(
                     n, b.axis_length, intervals, list(Z),
                     sample_names=b.sample_names)
+                yield (ts.keep_intervals([span], simplify=False,
+                                         record_provenance=False)
+                       if clip else ts)
 
     def posterior(self, fraction: float, n_members: int, *, n_coal: int = -1,
                   member_chunk: int = 8, seed: int = 0):

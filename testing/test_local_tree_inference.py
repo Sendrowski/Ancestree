@@ -100,7 +100,7 @@ def test_seg_block_bounds_cover_final_block():
     _g, _pos, _bos, nb = builder._genotype_matrix()
     assert nb == 13
     covered = set()
-    for b0, b1 in builder._seg_block_bounds(nb):
+    for b0, b1 in builder.geometry.seg_bounds:
         covered.update(range(b0, b1))
     assert covered == set(range(nb)), f"blocks {set(range(nb)) - covered} uncovered"
     # End to end: every per-block TMRCA is written (no leftover zero column).
@@ -981,10 +981,10 @@ def test_segment_aware_windows_and_bounds():
         sequence_length=10000, block_size=100, window=1000,
         segment_breaks=[3050, 6000],  # 3050 snaps to the 3000 block edge
     )
-    segs = b._segment_intervals()
+    segs = [(b0 * 100.0, b1 * 100.0) for b0, b1 in b.geometry.seg_bounds]
     assert segs == [(0.0, 3000.0), (3000.0, 6000.0), (6000.0, 10000.0)]
 
-    wins = b._window_intervals()
+    wins = b.geometry.windows
     # every window lies strictly within one segment (crosses no break)
     for left, right in wins:
         seg = [s for s in segs if s[0] <= left and right <= s[1]]
@@ -994,7 +994,7 @@ def test_segment_aware_windows_and_bounds():
         widths = [round(r - l, 6) for l, r in wins if s0 <= l < s1]
         assert max(widths) - min(widths) < 1e-6
 
-    bounds = b._seg_block_bounds(100)
+    bounds = b.geometry.seg_bounds
     assert bounds == [(0, 30), (30, 60), (60, 100)]
     # contiguous partition of [0, n_blocks)
     assert bounds[0][0] == 0 and bounds[-1][1] == 100
@@ -1007,8 +1007,8 @@ def test_no_segment_breaks_covers_axis():
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=9000, block_size=100, window=1000,
     )
-    assert b._segment_intervals() == [(0.0, 9000.0)]
-    wins = b._window_intervals()
+    assert b.geometry.seg_bounds == [(0, 90)]
+    wins = b.geometry.windows
     assert wins[0][0] == 0.0 and wins[-1][1] == 9000.0
     assert all(wins[i][1] == wins[i + 1][0] for i in range(len(wins) - 1))
 
@@ -1374,10 +1374,10 @@ def test_accessibility_block_fraction_reaches_the_emission_scale():
         sequence_length=1000, block_size=100,
         accessibility=[(150, 420), (800, 1000)],
     )
-    frac = b._accessible_fraction(10)
+    frac = b.geometry.accessible_fraction()
     np.testing.assert_allclose(
         frac, [0.0, 0.5, 1.0, 1.0, 0.2, 0.0, 0.0, 0.0, 1.0, 1.0])
-    _step, mask, escale = b._block_geometry(10)
+    _step, mask, escale = b._hmm_inputs()
     np.testing.assert_array_equal(
         mask,
         [False, True, True, True, True, False, False, False, True, True])
@@ -1403,7 +1403,7 @@ def test_a_block_below_the_accessible_floor_does_not_emit():
                        (bs, bs + 100.0),  # 10% callable
                        (2 * bs, 3 * bs)],  # fully accessible
     )
-    _step, mask, escale = b._block_geometry(3)
+    _step, mask, escale = b._hmm_inputs()
     np.testing.assert_array_equal(mask, [False, True, True])
     np.testing.assert_allclose(escale, [0.025, 0.1, 1.0])
 
@@ -1426,8 +1426,8 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         sequence_length=10040, block_size=1000,
         accessibility=[(0, 10040)],
     )
-    np.testing.assert_allclose(tiny._accessible_fraction(11), np.ones(11))
-    _step, mask, _escale = tiny._block_geometry(11)
+    np.testing.assert_allclose(tiny.geometry.accessible_fraction(), np.ones(11))
+    _step, mask, _escale = tiny._hmm_inputs()
     assert mask is not None and not mask[-1] and mask[:-1].all()
 
     # 400 bp of 1000 is 0.4, above the floor: emits at 0.4.
@@ -1436,7 +1436,7 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         sequence_length=10400, block_size=1000,
         accessibility=[(0, 10400)],
     )
-    _step, mask, escale = b._block_geometry(11)
+    _step, mask, escale = b._hmm_inputs()
     np.testing.assert_array_equal(mask, np.ones(11, dtype=bool))
     expected = np.ones(11)
     expected[-1] = 400 / 1000
@@ -1447,7 +1447,7 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=10400, block_size=1000,
     )
-    np.testing.assert_allclose(bare._block_geometry(11)[2], expected)
+    np.testing.assert_allclose(bare._hmm_inputs()[2], expected)
 
     # The final block holds 40 bp, of which 20 are accessible.
     half = LocalTreeBuilder(
@@ -1455,7 +1455,7 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         sequence_length=10040, block_size=1000,
         accessibility=[(0, 10000), (10000, 10020)],
     )
-    np.testing.assert_allclose(half._accessible_fraction(11)[-1], 0.5)
+    np.testing.assert_allclose(half.geometry.accessible_fraction()[-1], 0.5)
 
 @pytest.mark.parametrize("length", [1000, 1050])
 def test_the_last_block_reads_the_mask_and_map_at_a_1_based_last_base(length):
@@ -1477,7 +1477,7 @@ def test_the_last_block_reads_the_mask_and_map_at_a_1_based_last_base(length):
         return LocalTreeBuilder(
             [], mu=mu, rec_rate=1e-8, sample_names=["a", "b"],
             sequence_length=length, block_size=bs, position_base=base,
-            **maps)._block_geometry(n_blocks)[2]
+            **maps)._hmm_inputs()[2]
 
     for base, last in ((1, (span + 1) / bs), (0, span / bs)):
         masked = exposure(base, accessibility=[(0.0, length + 1.0)])
@@ -1515,9 +1515,8 @@ def test_a_chunked_run_reads_the_last_base_like_an_unchunked_one(tmp_path):
             builder = inf.builder
         else:
             inf._resolve_segmentation_params()
-            builder = inf._segment_builder(list(inf._stream_segments())[-1])
-        n_blocks = int(np.ceil(builder.sequence_length / bs))
-        return builder._block_geometry(n_blocks)[2][-1]
+            builder = inf._segment_builder(*list(inf._stream_segments())[-1])
+        return builder._hmm_inputs()[2][-1]
 
     # The last block spans POS 1950-2000, 51 bases: POS 1950-1970 and 2000
     # are accessible, and the mean rate is (50 + 4) / 51 mu.
@@ -1567,7 +1566,7 @@ def test_sub_block_gaps_leave_the_posterior_tmrca_unbiased():
     builder = LocalTreeBuilder(
         [], mu=mu, rec_rate=rec, sample_names=names, sequence_length=length,
         block_size=block_size, accessibility=acc)
-    _step, mask, escale = builder._block_geometry(n_blocks)
+    _step, mask, escale = builder._hmm_inputs()
     assert 0.4 < float(np.mean(escale)) < 0.6, (
         f"the mask is meant to leave about half of each block callable, got a "
         f"mean callable fraction of {float(np.mean(escale)):.3f}")
@@ -1609,13 +1608,13 @@ def test_sub_block_gaps_leave_the_posterior_tmrca_unbiased():
 
 
 def test_recombination_map_step_tracks_local_rate():
-    """`_block_geometry` step reads the map's local rate in nominal-block units."""
+    """The HMM step reads the map's local rate in nominal-block units."""
     rm = msprime.RateMap(position=[0, 300, 600, 900], rate=[1e-8, 5e-8, 1e-8])
     b = LocalTreeBuilder(
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=900, block_size=100, recombination_map=rm,
     )
-    step, _, _ = b._block_geometry(9)
+    step, _, _ = b._hmm_inputs()
     assert step is not None and len(step) == 8
     assert step[3] == pytest.approx(5.0, rel=0.05)  # inside the 5× hotspot
     assert step[0] == pytest.approx(1.0, rel=0.05)  # 1× flank
@@ -1638,7 +1637,7 @@ def test_recombination_map_uniform_matches_constant():
 def test_the_chunked_maps_reach_the_builder():
     """A non-uniform map changes the chunked result, and matches unchunked.
 
-    ``_slice_map`` can be correct while nothing passes its output on: with
+    The map slice can be correct while nothing passes its output on: with
     both maps replaced by ``None`` the rest of the local-tree suite still
     passes. This pins the maps by their effect on the posteriors.
     """
@@ -1687,10 +1686,10 @@ def test_chunked_recombination_map_slices_per_segment():
         sequence_length=6000, chunk_size=1500)
     inference._resolve_segmentation_params()
     n_segments = 0
-    for work_unit in inference._stream_segments():
-        _seg, _core_lo, _core_hi, origin, span, _chrom = work_unit
+    for _seg, geometry in inference._stream_segments():
+        origin, span = geometry.origin, geometry.length
         n_segments += 1
-        sliced = inference._slice_map(rm, origin, span)
+        sliced = geometry.recombination_map
         assert sliced is not None
         for local in (1.0, min(span, 6000 - origin) - 1.0):
             if local < 0:
@@ -1720,14 +1719,14 @@ def test_kernel_emit_scale_default_is_identity():
 
 
 def test_mutation_map_emit_scale_tracks_local_rate():
-    """`_block_geometry` emit_scale reads the map's local rate over μ."""
+    """The HMM emit_scale reads the map's local rate over μ."""
     mm = msprime.RateMap(position=[0, 300, 600, 900],
                          rate=[1.25e-8, 5e-8, 1.25e-8])
     b = LocalTreeBuilder(
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=900, block_size=100, mutation_map=mm,
     )
-    _, _, escale = b._block_geometry(9)
+    _, _, escale = b._hmm_inputs()
     assert escale is not None and len(escale) == 9
     assert escale[4] == pytest.approx(5e-8 / 1.25e-8, rel=0.05)  # hotspot block
     assert escale[0] == pytest.approx(1.0, rel=0.05)  # reference flank
@@ -1786,8 +1785,10 @@ def test_kernel_rate_of_a_zero_or_undefined_map_interval():
     builder = LocalTreeBuilder(a, mu=mu, rec_rate=1e-8, sample_names=names,
                                sequence_length=3000, block_size=50, mutation_map=mm)
     at = np.array([500.0, 1500.0, 2500.0])
-    np.testing.assert_allclose(builder._site_rate_scale(at), [1.0, 1e-12 / mu, 1.0])
-    np.testing.assert_allclose(builder._kernel_mu().get_rate(at), [mu, 0.0, mu])
+    geometry = builder.geometry
+    np.testing.assert_allclose(geometry.site_rate_scale(at, mu),
+                               [1.0, 1e-12 / mu, 1.0])
+    np.testing.assert_allclose(geometry.kernel_mu(mu).get_rate(at), [mu, 0.0, mu])
 
 
 def test_rate_classes_group_and_bin_the_site_rates():
@@ -1850,10 +1851,10 @@ def test_chunked_mutation_map_slices_per_segment():
         sequence_length=6000, chunk_size=1500)
     inference._resolve_segmentation_params()
     n_segments = 0
-    for work_unit in inference._stream_segments():
-        _seg, _core_lo, _core_hi, origin, span, _chrom = work_unit
+    for _seg, geometry in inference._stream_segments():
+        origin, span = geometry.origin, geometry.length
         n_segments += 1
-        sliced = inference._slice_map(mm, origin, span)
+        sliced = geometry.mutation_map
         assert sliced is not None
         for local in (1.0, min(span, 6000 - origin) - 1.0):
             if local < 0:
@@ -2259,17 +2260,12 @@ def test_recombination_step_falls_back_to_reference_beyond_map_end():
     """Blocks beyond the recombination map's end fall back to
     the reference rate (step=1.0) rather than freezing the chain with step=0
     (r**0=1), mirroring the mutation-map branch."""
-    from ancestree.local_tree_inference import LocalTreeBuilder
-    b = LocalTreeBuilder.__new__(LocalTreeBuilder)
-    b.block_size = 100
-    b.rec_rate = 1e-8
-    b.accessibility = None
-    b.mutation_map = None
-    b.mu = 1e-8
-    b.sequence_length, b.position_base = 500.0, 0
+    from ancestree._geometry import BuildGeometry
     # Map covers only [0, 250). Rate is 2x the reference so in-map steps == 2.0.
-    b.recombination_map = msprime.RateMap(position=[0, 250], rate=[2e-8])
-    step, _mask, _escale = b._block_geometry(n_blocks=5)
+    geometry = BuildGeometry(
+        500.0, block=100, window=100,
+        recombination_map=msprime.RateMap(position=[0, 250], rate=[2e-8]))
+    step, _mask, _escale = geometry.hmm_inputs(1e-8, 1e-8, log=None)
     # mids = [50,150,250,250,250] clipped to L=250 -> diff = [100,100,0,0].
     # In-map steps (k=0,1) carry the 2x rate. Off-map steps (k=2,3) fall back.
     np.testing.assert_allclose(step[:2], 2.0, rtol=1e-9)
@@ -2284,16 +2280,13 @@ def test_uniform_map_step_is_one_when_blocks_do_not_divide_the_sequence():
     width, not the nominal one, or the ragged final block reads as a cold
     spot that FFBS carries backwards through the whole chain.
     """
-    from ancestree.local_tree_inference import LocalTreeBuilder
-    b = LocalTreeBuilder.__new__(LocalTreeBuilder)
-    b.block_size, b.rec_rate = 2824, 1e-8
-    b.accessibility = b.mutation_map = None
-    b.mu = 1e-8
+    from ancestree._geometry import BuildGeometry
     L = 60000.0  # 60000 / 2824 = 21.2 blocks: does NOT divide
-    b.sequence_length, b.position_base = L, 0
-    b.recombination_map = msprime.RateMap(position=[0.0, L], rate=[b.rec_rate])
-    n_blocks = int(np.ceil(L / b.block_size))
-    step, _mask, _escale = b._block_geometry(n_blocks=n_blocks)
+    geometry = BuildGeometry(
+        L, block=2824, window=2824,
+        recombination_map=msprime.RateMap(position=[0.0, L], rate=[1e-8]))
+    n_blocks = int(np.ceil(L / 2824))
+    step, _mask, _escale = geometry.hmm_inputs(1e-8, 1e-8, log=None)
     assert len(step) == n_blocks - 1
     np.testing.assert_allclose(step, 1.0, rtol=1e-9)
 

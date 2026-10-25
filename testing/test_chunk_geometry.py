@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from ancestree import JC69, LocalTreeInference
+from ancestree._geometry import ContigGeometry
 from ancestree.sites import Site
 from testing._helpers import toy_chunked_inference, toy_sites, write_vcz
 
@@ -135,12 +136,11 @@ def test_no_window_overlapping_a_core_is_cut_at_its_segment_edge(
         block_size=BLOCK_BP, n_ensemble=None, progress=False,
         chunk_size=chunk_size, halo=halo)
     inference._resolve_segmentation_params()
-    cut = [(left, right, origin, origin + span)
-           for _seg, core_lo, core_hi, origin, span, chrom
-           in inference._stream_segments()
-           for left, right in inference._global_windows(chrom)
-           if right > core_lo and left < core_hi
-           and (left < origin or right > origin + span)]
+    cut = [(left, right, g.origin, g.origin + g.length)
+           for _seg, g in inference._stream_segments()
+           for left, right in inference._contig(g.contig).windows
+           if right > g.genome_core[0] and left < g.genome_core[1]
+           and (left < g.origin or right > g.origin + g.length)]
     assert not cut, f"{len(cut)} windows cut, e.g. {cut[:2]}"
 
 
@@ -316,12 +316,10 @@ def test_auto_halo_without_diversity_is_ten_windows_clamped():
 
 def test_slice_map_outside_the_map_is_none():
     """A segment starting beyond the map's end gets no sub-map."""
-    sites, names = toy_sites(range(0, 1000, 50))
-    inf = toy_chunked_inference(sites, names)
     rate_map = msprime.RateMap(position=[0.0, 1000.0], rate=[1e-8])
-    assert inf._slice_map(rate_map, 2000, 500) is None
-    assert inf._slice_map(None, 0, 500) is None
-    inside = inf._slice_map(rate_map, 500, 500)
+    assert ContigGeometry._slice_map(rate_map, 2000, 500) is None
+    assert ContigGeometry._slice_map(None, 0, 500) is None
+    inside = ContigGeometry._slice_map(rate_map, 500, 500)
     assert inside is not None
     assert inside.sequence_length == pytest.approx(500.0)
 
@@ -399,8 +397,8 @@ def test_a_map_undefined_over_a_segment_is_not_sliced():
     rec = msprime.RateMap(position=[0, 3500, 5000], rate=[np.nan, 1e-8])
     inf = toy_chunked_inference(head + tail, names, sequence_length=5000,
                                 recombination_map=rec)
-    assert inf._slice_map(rec, 0, 2000) is None
-    assert inf._slice_map(rec, 3000, 2000).sequence_length == 2000
+    assert ContigGeometry._slice_map(rec, 0, 2000) is None
+    assert ContigGeometry._slice_map(rec, 3000, 2000).sequence_length == 2000
     assert inf.point_tree_sequence().sequence_length == 5000
 
 

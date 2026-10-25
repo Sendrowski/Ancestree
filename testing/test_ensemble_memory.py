@@ -99,7 +99,7 @@ def _one_run(window, n_ensemble, n_sites, q):
                              # the segmented path resolves per segment.
                              chunk_size=None)
     scored = sum(1 for _ in inf.infer())
-    n_windows = len(getattr(inf.builder, "_window_intervals")())
+    n_windows = len(inf.builder.geometry.windows)
     # The child reports its OWN peak: RUSAGE_CHILDREN in the parent is a
     # high-water mark across every child ever spawned, so a delta there reads
     # zero for any run that stays below an earlier one -- and the assertion

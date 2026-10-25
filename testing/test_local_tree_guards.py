@@ -450,16 +450,16 @@ class TestTheSegmentBuilderCarriesTheMapAtItsOwnCoordinates:
 
         n_segments = 0
         for work_unit in inference._stream_segments():
-            origin, seg_span = work_unit[3], work_unit[4]
+            origin, seg_span = work_unit[1].origin, work_unit[1].length
             # The builder is what scores the segment, so assert on ITS map,
-            # not on _slice_map's return value.
-            builder = inference._segment_builder(work_unit)
-            assert builder.recombination_map is not None
+            # not on the slice the geometry returns.
+            builder = inference._segment_builder(*work_unit)
+            assert builder.geometry.recombination_map is not None
             n_segments += 1
             for local in (1.0, min(seg_span, span - origin) - 1.0):
                 if local < 0:
                     continue
-                got = builder.recombination_map.get_rate(local)
+                got = builder.geometry.recombination_map.get_rate(local)
                 want = rates.get_rate(origin + local)
                 assert got == want, (
                     f"segment at {origin} reads {got} at local {local} where "
@@ -480,7 +480,7 @@ class TestTheDefaultBlockDividesTheWindow:
         blocks lands within one base pair per block of the requested width.
         A block sized independently of the window leaves the snap to round
         the width up by most of a block."""
-        requested, block, window = lti.LocalTreeBuilder._resolve_widths(
+        requested, block, window = lti.ContigGeometry.resolve_widths(
             "8snp", None, n_sites, span)
         assert window % block == 0
         n_blocks = window // block
@@ -491,13 +491,13 @@ class TestTheDefaultBlockDividesTheWindow:
     @pytest.mark.parametrize("n_sites,span", [(390, 40_000.0), (1_000, 1e6)])
     def test_the_window_holds_several_blocks(self, n_sites, span):
         """One block per window leaves the pairwise HMM a single emission."""
-        requested, block, window = lti.LocalTreeBuilder._resolve_widths(
+        requested, block, window = lti.ContigGeometry.resolve_widths(
             "8snp", None, n_sites, span)
         assert window // block >= 2
 
     def test_an_explicit_block_still_snaps_the_window_up(self):
         """Only the default block is sized to the window."""
-        assert lti.LocalTreeBuilder._resolve_widths(
+        assert lti.ContigGeometry.resolve_widths(
             2500, 1000, 1, 1.0) == (2500, 1000, 3000)
 
     @pytest.mark.parametrize("span", [8131.0, 8132.0])
@@ -506,7 +506,7 @@ class TestTheDefaultBlockDividesTheWindow:
         8, at every density. Rounding the bp ratio of the window to the target
         block instead landed either side of 7.5, so a 1 bp change in the span
         flipped the count between 7 and 8 and moved the block by about 13%."""
-        _, block, window = lti.LocalTreeBuilder._resolve_widths(
+        _, block, window = lti.ContigGeometry.resolve_widths(
             "30snp", None, 100, span)
         assert window // block == 8 and window % block == 0
         assert block == 305
@@ -517,7 +517,7 @@ class TestTheDefaultBlockDividesTheWindow:
     def test_an_snp_window_rounds_its_block_count_half_up(self, spec,
                                                           n_blocks):
         """The default block count is N / 4 rounded half up, at least one."""
-        _, block, window = lti.LocalTreeBuilder._resolve_widths(
+        _, block, window = lti.ContigGeometry.resolve_widths(
             spec, None, 100, 9_370.0)
         assert window // block == n_blocks and window % block == 0
 
@@ -525,13 +525,13 @@ class TestTheDefaultBlockDividesTheWindow:
         """A 12-SNP window over 3-SNP blocks holds 4 blocks. Dividing the two
         independently rounded bp widths gave 2626 / 656 > 4 and snapped the
         window up to 5 blocks, 22% wider than asked."""
-        requested, block, window = lti.LocalTreeBuilder._resolve_widths(
+        requested, block, window = lti.ContigGeometry.resolve_widths(
             "12snp", "3snp", 100, 21_880.0)
         assert (requested, block) == (2626, 656)
         assert window == 4 * block
 
     def test_a_coarser_snp_block_leaves_one_block_per_window(self):
         """A block spec above the window spec gives one block per window."""
-        _, block, window = lti.LocalTreeBuilder._resolve_widths(
+        _, block, window = lti.ContigGeometry.resolve_widths(
             "2snp", "8snp", 100, 10_000.0)
         assert window == block == 800

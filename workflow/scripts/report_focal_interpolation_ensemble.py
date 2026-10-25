@@ -206,11 +206,12 @@ class EnsembleFocalScan:
         if len(segments) != 1:
             raise ValueError(
                 f"the ensemble path assumes one segment; got {len(segments)}")
-        builder = inference._segment_builder(segments[0])
-        if (builder.recombination_map is not None
-                or builder.accessibility is not None
-                or builder.mutation_map is not None
-                or builder.segment_breaks):
+        builder = inference._segment_builder(*segments[0])
+        geometry = builder.geometry
+        if (geometry.recombination_map is not None
+                or geometry.accessibility is not None
+                or geometry.mutation_map is not None
+                or geometry.segment_breaks):
             raise ValueError("the ensemble path assumes a plain uniform map")
         self.builder = builder
 

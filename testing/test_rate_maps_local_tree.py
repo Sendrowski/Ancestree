@@ -46,7 +46,7 @@ def test_a_zero_rate_mutation_interval_is_floored_not_zero():
     mm = msprime.RateMap(position=[0.0, 6000.0, L], rate=[0.0, 1.25e-8])
     b = _builder(mutation_map=mm)
     _g, _bos, _pos, n_blocks = b._genotype_matrix()
-    step, block_mask, escale = b._block_geometry(n_blocks)
+    step, block_mask, escale = b._hmm_inputs()
     zero_blocks = escale[:3]
     assert np.all(zero_blocks > 0.0), (
         f"zero-rate blocks have escale {zero_blocks}; a zero scale makes the "
@@ -63,7 +63,7 @@ def test_a_zero_rate_region_does_not_pin_tmrca_to_the_deepest_bin():
     mm = msprime.RateMap(position=[0.0, 6000.0, L], rate=[0.0, 1.25e-8])
     b = _builder(mutation_map=mm)
     g, _pos, bos, n_blocks = b._genotype_matrix()
-    step, block_mask, escale = b._block_geometry(n_blocks)
+    step, block_mask, escale = b._hmm_inputs()
     hmm = anc.PairwiseCoalescentHMM(n_haplotypes=len(NAMES), mu=1.25e-8,
                                    rec_rate=1e-8, block_size=BLOCK)
     t = hmm.block_tmrcas(g, bos, n_blocks, step=step, block_mask=block_mask,
@@ -77,7 +77,7 @@ def test_a_masked_recombination_interval_is_not_perfect_linkage():
                          rate=[1e-8, np.nan, 1e-8])
     b = _builder(recombination_map=rm)
     _g, _bos, _pos, n_blocks = b._genotype_matrix()
-    step, block_mask, escale = b._block_geometry(n_blocks)
+    step, block_mask, escale = b._hmm_inputs()
     # A step whose blocks straddle the masked interval carries no cumulative
     # mass, so without the guard it reads as 0 and r ** 0 == 1 is perfect
     # linkage. The guard invalidates it, and an invalid step falls back to the
@@ -140,13 +140,13 @@ def test_an_uncovered_stretch_takes_mu_in_the_hmm_and_the_kernel(partial,
     masked NaN blocks as zero-rate."""
     a, b = _builder(mutation_map=partial), _builder(mutation_map=complete)
     n_blocks = a._genotype_matrix()[3]
-    for x, y in zip(a._block_geometry(n_blocks), b._block_geometry(n_blocks)):
+    for x, y in zip(a._hmm_inputs(), b._hmm_inputs()):
         assert (x is None) == (y is None)
         if x is not None:
             np.testing.assert_array_equal(x, y)
     pos = np.array([1000.0, 10_000.0, 30_000.0])
-    np.testing.assert_array_equal(a._site_rate_scale(pos),
-                                  b._site_rate_scale(pos))
+    np.testing.assert_array_equal(a.geometry.site_rate_scale(pos, a.mu),
+                                  b.geometry.site_rate_scale(pos, b.mu))
     sites, names = toy_sites(np.arange(500.0, L, 400.0), n_hap=4, seed=2)
     kw = dict(n_ensemble=None, sequence_length=L, window=4000, block_size=BLOCK)
     got = [p.values for _, p in toy_inference(

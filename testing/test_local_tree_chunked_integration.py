@@ -206,15 +206,16 @@ def test_chunked_sub_block_exposure_matches_the_whole_region():
     whole = LocalTreeBuilder(
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         sequence_length=float(length), block_size=block_size,
-        accessibility=access)._accessible_fraction(length // block_size)
+        accessibility=access).geometry.accessible_fraction()
 
     n_segments = n_compared = 0
     for work_unit in inference._stream_segments():
-        _seg, _core_lo, _core_hi, origin, span, _chrom = work_unit
+        geometry = work_unit[1]
+        origin, span = geometry.origin, geometry.length
         n_segments += 1
-        builder = inference._segment_builder(work_unit)
-        n_seg_blocks = int(np.ceil(span / block_size))
-        frac = builder._accessible_fraction(n_seg_blocks)
+        n_seg_blocks = geometry.n_blocks
+        frac = inference._segment_builder(*work_unit).geometry \
+            .accessible_fraction()
         covered = sum(min(a1, origin + span) - max(a0, origin)
                       for a0, a1 in access
                       if min(a1, origin + span) > max(a0, origin))
