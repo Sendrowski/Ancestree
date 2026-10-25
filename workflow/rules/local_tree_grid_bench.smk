@@ -8,9 +8,9 @@
 # mutation and recombination rates with perfectly phased genotypes, so the
 # only thing varying is the (window, block) pair.
 #
-# An explicit block_size is not capped at the window: the two specs resolve
-# to base pairs independently and the window is then rounded up to a whole
-# number of blocks. Only block <= window gives distinct configurations, so
+# An explicit block_size is not capped at the window: the block resolves to
+# base pairs and the window to ceil(N_window / N_block) whole blocks, at least
+# one. Only block <= window gives distinct configurations, so
 # just the lower triangle is enumerated, and every cell records the widths
 # it actually ran at alongside the widths requested.
 #

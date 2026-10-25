@@ -116,6 +116,25 @@ def _parse_bp(spec: "int | str", *, name: str = "length",
     return bp
 
 
+def _snp_count(spec: "int | str", *, name: str) -> "int | None":
+    """The N of an ``"<N>snp"`` spec, or ``None`` for a bp / int spec.
+
+    :param spec: The width spec.
+    :param name: Parameter the spec was given for, named in the error message.
+    :return: The SNP count, or ``None``.
+    :raises ValueError: If ``spec`` ends in ``snp`` without a positive count.
+    """
+    if not (isinstance(spec, str) and spec.strip().lower().endswith("snp")):
+        return None
+    try:
+        n_target = int(spec.strip().lower()[:-3])
+    except ValueError:
+        raise _length_spec_error(name, spec, snp=True) from None
+    if n_target <= 0:
+        raise _length_spec_error(name, spec, snp=True)
+    return n_target
+
+
 def _width_bp(spec: "int | str", n_sites: int, span_bp: float,
               *, name: str) -> int:
     """A window or block width in bp. An ``"<N>snp"`` spec is N sites' worth
@@ -129,31 +148,37 @@ def _width_bp(spec: "int | str", n_sites: int, span_bp: float,
     :return: The width in base pairs.
     :raises ValueError: If ``spec`` is not one of the accepted forms.
     """
-    if isinstance(spec, str) and spec.strip().lower().endswith("snp"):
-        try:
-            n_target = int(spec.strip().lower()[:-3])
-        except ValueError:
-            raise _length_spec_error(name, spec, snp=True) from None
-        if n_target <= 0:
-            raise _length_spec_error(name, spec, snp=True)
-        return max(1, int(round(n_target * span_bp / max(1, n_sites))))
-    return _parse_bp(spec, name=name, snp=True)
+    n_target = _snp_count(spec, name=name)
+    if n_target is None:
+        return _parse_bp(spec, name=name, snp=True)
+    return max(1, int(round(n_target * span_bp / max(1, n_sites))))
 
 
 # Target SNPs per HMM emission block when ``block_size`` is left unset. A block
 # finer than the window gives the pairwise HMM several emission units per output
 # tree.
-_DEFAULT_BLOCK_SNPS = 4.0
+_DEFAULT_BLOCK_SNPS = 4
 
 
-def _default_block_bp(n_sites: int, span_bp: float, window_bp: int) -> int:
-    """Density-adaptive default block width in bp: about
-    ``_DEFAULT_BLOCK_SNPS`` SNPs at the data's mean density, sized so a whole
-    number of blocks spans the window exactly, never coarser than the window
-    and at least 1 bp.
+def _default_block_bp(n_sites: int, span_bp: float, window_bp: int,
+                      n_window: "int | None" = None) -> int:
+    """Density-adaptive default block width in bp, at least 1, sized so a
+    whole number of blocks spans the window: ``N / _DEFAULT_BLOCK_SNPS``
+    rounded half up for an ``"<N>snp"`` window, otherwise the count nearest to
+    ``_DEFAULT_BLOCK_SNPS`` SNPs per block at the mean density, at least one.
+
+    :param n_sites: Sites the density is taken over.
+    :param span_bp: Span the density is taken over.
+    :param window_bp: The requested window width.
+    :param n_window: The window's SNP count, or ``None`` for a bp window.
+    :return: The block width.
     """
-    target = _DEFAULT_BLOCK_SNPS * span_bp / max(1, n_sites)
-    n_blocks = max(1, int(round(window_bp / max(target, 1.0))))
+    if n_window is not None:
+        n_blocks = max(1, (2 * n_window + _DEFAULT_BLOCK_SNPS)
+                       // (2 * _DEFAULT_BLOCK_SNPS))
+    else:
+        target = _DEFAULT_BLOCK_SNPS * span_bp / max(1, n_sites)
+        n_blocks = max(1, int(round(window_bp / max(target, 1.0))))
     return max(1, -(-int(window_bp) // n_blocks))
 
 
@@ -671,14 +696,17 @@ class LocalTreeBuilder(ReprMixin):
         it averages N SNPs at the data's mean density (default ``"8snp"``).
         One tree per window, shared by its SNPs. The primary resolution parameter.
         A window cannot be finer than one block, so it is floored to
-        ``block_size`` and snapped up to a whole number of blocks.
+        ``block_size``. It spans a whole number of blocks:
+        ``ceil(N_window / N_block)`` when both are ``"<N>snp"`` specs, otherwise
+        the requested width rounded up.
         :class:`~ancestree.local_tree_inference.LocalTreeInference` warns when a spec is floored this way.
     :param block_size: HMM emission block width, an int / bp string, or a
         ``"<N>snp"`` spec (N SNPs' worth of span at the data's mean density, the
         natural density-invariant unit). ``None`` (default) sizes the block to a
         few SNPs' worth of span (well below the window), so the HMM emits several
-        blocks per output tree. Set explicitly to override the density-adaptive
-        default.
+        blocks per output tree. An ``"<N>snp"`` window then holds ``N / 4``
+        blocks rounded half up, at least one, at every density. Set explicitly to override the
+        density-adaptive default.
     :param n_time_bins: Discretized coalescent-time bins.
     :param time_grid: Explicit bin edges in generations, ascending and strictly
         positive, replacing the data-calibrated grid and overriding
@@ -883,24 +911,22 @@ class LocalTreeBuilder(ReprMixin):
         :param n_sites: Sites the density is taken over.
         :param span_bp: Span the density is taken over.
         :return: ``(requested, block, window)``, the window rounded up to a
-            whole number of blocks.
+            whole number of blocks, at least one. Two ``"<N>snp"`` specs give
+            ``ceil(N_window / N_block)`` blocks.
         """
         requested = _width_bp(window, n_sites, span_bp, name="window")
-        block = (_default_block_bp(n_sites, span_bp, requested)
-                 if block_size is None
-                 else _width_bp(block_size, n_sites, span_bp, name="block_size"))
-        return requested, block, LocalTreeBuilder._snap_to_block(requested, block)
-
-    @staticmethod
-    def _snap_to_block(window_bp: int, block_size: int) -> int:
-        """Round a window width up to a whole number of blocks.
-
-        :param window_bp: The requested width.
-        :param block_size: Block width in base pairs.
-        :return: The window width the HMM uses, at least one block.
-        """
-        bp = max(window_bp, block_size)
-        return int(np.ceil(bp / block_size) * block_size)
+        n_window = _snp_count(window, name="window")
+        if block_size is None:
+            block = _default_block_bp(n_sites, span_bp, requested, n_window)
+            n_block = None
+        else:
+            block = _width_bp(block_size, n_sites, span_bp, name="block_size")
+            n_block = _snp_count(block_size, name="block_size")
+        if n_window is not None and n_block is not None:
+            n_blocks = -(-n_window // n_block)
+        else:
+            n_blocks = max(1, -(-requested // block))
+        return requested, block, n_blocks * block
 
     def _genotype_matrix(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Build the ``(n_sites, n_hap)`` allele-index matrix + block ids.
@@ -2748,7 +2774,7 @@ class LocalTreeInference(Inference):
                 "block_size": self.block_size,
                 "halo": self._halo,
                 "chunk_size": int(self._chunk_size),
-                # The spec snapped up to a whole number of blocks.
+                # The window the HMM uses, a whole number of blocks.
                 "window_bp": int(self._wbp),
             })
             contig = None if self._stitched is None else self._stitched[1]

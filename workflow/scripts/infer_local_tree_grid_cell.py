@@ -115,7 +115,7 @@ records = _score(inf.infer())
 runtime = time.perf_counter() - t0
 
 # Widths the instance ran at: the block spec resolved to bp, and the window
-# spec snapped up to a whole number of those blocks.
+# window as a whole number of those blocks.
 inf._resolve_segmentation_params()
 window_bp_used = int(inf._wbp)
 block_bp_used = int(inf.block_size)

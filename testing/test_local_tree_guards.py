@@ -480,9 +480,8 @@ class TestTheDefaultBlockDividesTheWindow:
         blocks lands within one base pair per block of the requested width.
         A block sized independently of the window leaves the snap to round
         the width up by most of a block."""
-        requested = lti._width_bp("8snp", n_sites, span, name="window")
-        block = lti._default_block_bp(n_sites, span, requested)
-        window = lti.LocalTreeBuilder._snap_to_block(requested, block)
+        requested, block, window = lti.LocalTreeBuilder._resolve_widths(
+            "8snp", None, n_sites, span)
         assert window % block == 0
         n_blocks = window // block
         assert window - requested < n_blocks, (
@@ -492,11 +491,47 @@ class TestTheDefaultBlockDividesTheWindow:
     @pytest.mark.parametrize("n_sites,span", [(390, 40_000.0), (1_000, 1e6)])
     def test_the_window_holds_several_blocks(self, n_sites, span):
         """One block per window leaves the pairwise HMM a single emission."""
-        requested = lti._width_bp("8snp", n_sites, span, name="window")
-        block = lti._default_block_bp(n_sites, span, requested)
-        window = lti.LocalTreeBuilder._snap_to_block(requested, block)
+        requested, block, window = lti.LocalTreeBuilder._resolve_widths(
+            "8snp", None, n_sites, span)
         assert window // block >= 2
 
     def test_an_explicit_block_still_snaps_the_window_up(self):
         """Only the default block is sized to the window."""
-        assert lti.LocalTreeBuilder._snap_to_block(2500, 1000) == 3000
+        assert lti.LocalTreeBuilder._resolve_widths(
+            2500, 1000, 1, 1.0) == (2500, 1000, 3000)
+
+    @pytest.mark.parametrize("span", [8131.0, 8132.0])
+    def test_an_snp_window_holds_a_density_free_block_count(self, span):
+        """A 30-SNP window holds 30 / 4 = 7.5 default blocks rounded half up,
+        8, at every density. Rounding the bp ratio of the window to the target
+        block instead landed either side of 7.5, so a 1 bp change in the span
+        flipped the count between 7 and 8 and moved the block by about 13%."""
+        _, block, window = lti.LocalTreeBuilder._resolve_widths(
+            "30snp", None, 100, span)
+        assert window // block == 8 and window % block == 0
+        assert block == 305
+
+    @pytest.mark.parametrize("spec,n_blocks", [("1snp", 1), ("2snp", 1),
+                                               ("5snp", 1), ("6snp", 2),
+                                               ("9snp", 2), ("25snp", 6)])
+    def test_an_snp_window_rounds_its_block_count_half_up(self, spec,
+                                                          n_blocks):
+        """The default block count is N / 4 rounded half up, at least one."""
+        _, block, window = lti.LocalTreeBuilder._resolve_widths(
+            spec, None, 100, 9_370.0)
+        assert window // block == n_blocks and window % block == 0
+
+    def test_two_snp_specs_set_the_block_count_from_their_ratio(self):
+        """A 12-SNP window over 3-SNP blocks holds 4 blocks. Dividing the two
+        independently rounded bp widths gave 2626 / 656 > 4 and snapped the
+        window up to 5 blocks, 22% wider than asked."""
+        requested, block, window = lti.LocalTreeBuilder._resolve_widths(
+            "12snp", "3snp", 100, 21_880.0)
+        assert (requested, block) == (2626, 656)
+        assert window == 4 * block
+
+    def test_a_coarser_snp_block_leaves_one_block_per_window(self):
+        """A block spec above the window spec gives one block per window."""
+        _, block, window = lti.LocalTreeBuilder._resolve_widths(
+            "2snp", "8snp", 100, 10_000.0)
+        assert window == block == 800
