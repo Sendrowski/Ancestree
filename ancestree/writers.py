@@ -697,9 +697,7 @@ class VCFWriter(Writer):
             parameters). Written once to the VCF header as a human-readable
             ``##source=ancestree <version> (<mode>)`` line plus a
             machine-readable ``##ancestree_provenance=<json>`` line. Not
-            emitted per record. A template's own ancestree lines are kept
-            ahead of the new ones, and dropped when ``provenance`` is ``None``
-            or empty.
+            emitted per record.
         :return: Number of records annotated.
         :raises ValueError: If ``store_posterior`` is set for a ``.bcf``
             destination, which cannot carry a multi-valued ``Type=Float``
@@ -853,18 +851,9 @@ class VCFWriter(Writer):
         in_vcf = cyvcf2.VCF(self._input, samples=kept)
         info_fields = self._add_headers(in_vcf, info, provenance, store_posterior)
         staged = self._staged_path(self._output)
-        # A run writing no provenance drops the template's ancestree lines,
-        # which describe another run, and re-reads each record under the
-        # header without them.
-        header = in_vcf.raw_header
-        stale = not provenance and f"\n{VCF_PROVENANCE_MARKER}" in header
-        writer = (cyvcf2.Writer.from_string(
-                      staged, self._without_provenance(header),
-                      mode=self._mode())
-                  if stale else cyvcf2.Writer(staged, in_vcf, mode=self._mode()))
+        writer = cyvcf2.Writer(staged, in_vcf, mode=self._mode())
         # A run storing no posterior declares no AA_post. The template's
-        # declaration stays on in_vcf, which parses the records carrying it,
-        # and a record re-read under the writer's header loses AA_post first.
+        # declaration stays on in_vcf, which parses the records carrying it.
         if not store_posterior:
             with contextlib.suppress(KeyError):
                 writer.remove_header("AA_post", order=[_BCF_HL_INFO])
@@ -874,11 +863,6 @@ class VCFWriter(Writer):
             # arrays, so the row is the record index. Re-locating by key would
             # discard pass 1's choice among rows sharing a position.
             for row, variant in enumerate(in_vcf):
-                if stale:
-                    if post is None and variant.INFO.get("AA_post") is not None:
-                        del variant.INFO["AA_post"]
-                    variant = writer.variant_from_string(
-                        str(variant).rstrip("\n"))
                 if row < n and annotated[row]:
                     self._annotate(variant, str(aa[row]), float(prob[row]),
                                    None if post is None else post[row],
@@ -907,17 +891,6 @@ class VCFWriter(Writer):
         self._log.info("Wrote %s annotated sites to %s",
                        f"{n_annotated:,}", self._output)
         return n_annotated
-
-    @staticmethod
-    def _without_provenance(header: str) -> str:
-        """A VCF header without its ancestree provenance and source lines.
-
-        :param header: The header text.
-        :return: The header with those lines removed.
-        """
-        return "".join(
-            line for line in header.splitlines(True)
-            if not line.startswith((VCF_PROVENANCE_MARKER, "##source=ancestree")))
 
     def _mode(self) -> str:
         """The cyvcf2 write mode the output suffix names."""
@@ -1610,9 +1583,7 @@ class ZarrWriter(Writer):
         :param info: Optional run-level constants stored in the root group's
             ``attrs`` under ``ancestree_info`` (run-level, not per variant).
         :param provenance: Optional structured run record stored in the root
-            group's ``attrs`` under ``ancestree_provenance``. A template's
-            ``info`` or ``provenance`` record is removed when the
-            corresponding argument is ``None`` or empty.
+            group's ``attrs`` under ``ancestree_provenance``.
         :return: Number of variants annotated.
         """
         import zarr
@@ -1771,13 +1742,10 @@ class ZarrWriter(Writer):
         :param provenance: Structured run record, or ``None``.
         :param store_posterior: Whether ``AA_post`` is declared.
         """
-        # A run passing no info or provenance clears an earlier run's record.
         for key, record in (("ancestree_info", info),
                             (PROVENANCE_HEADER, provenance)):
             if record:
                 root.attrs[key] = json.loads(json.dumps(dict(record), default=str))
-            elif key in root.attrs:
-                del root.attrs[key]
         # An exporter builds ##INFO lines from the arrays' description attributes.
         header = root.attrs.get("vcf_header")
         if isinstance(header, str):

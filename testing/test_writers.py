@@ -175,13 +175,11 @@ class TestReservedInfoKeys:
 
 
 class TestTheTemplateHeaderDefersToTheRun:
-    """A template's ``AA`` declaration and provenance describe another run."""
+    """A template's ``AA`` declaration describes another source."""
 
     _HEADER = (
         "##fileformat=VCFv4.2\n"
         "##contig=<ID=1,length=1000>\n"
-        '##ancestree_provenance={"version":"OLD"}\n'
-        "##source=ancestree OLD (arg)\n"
         '##INFO=<ID=AA,Number=A,Type=Integer,Description="old AA">\n'
         '##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
@@ -217,18 +215,6 @@ class TestTheTemplateHeaderDefersToTheRun:
         assert [r.INFO.get("DP") for r in records] == [10, 4]
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcf.gz", ".bcf"])
-    @pytest.mark.parametrize("provenance", [None, {}])
-    def test_a_run_without_provenance_drops_the_template_s(
-            self, tmp_path, suffix, provenance):
-        """Regression: the template's ancestree provenance survived a run that
-        wrote none, so ``Reader.provenance()`` named a run that did not produce
-        the calls."""
-        out = self._write(tmp_path, suffix, provenance)
-        with pytest.raises(ValueError, match="no ancestree provenance"):
-            Reader(out).provenance()
-        assert [a.aa for a in Reader(out).annotations()] == ["A", None]
-
-    @pytest.mark.parametrize("suffix", [".vcf", ".vcf.gz", ".bcf"])
     @pytest.mark.parametrize("provenance", [None, {"version": "NEW"}])
     def test_a_run_storing_no_posterior_declares_no_aa_post(
             self, tmp_path, suffix, provenance):
@@ -252,11 +238,6 @@ class TestTheTemplateHeaderDefersToTheRun:
         assert "ID=AA_post" not in vcf.raw_header
         assert [(r.INFO.get("AA"), r.INFO.get("AA_post"), r.INFO.get("DP"))
                 for r in vcf] == [("A", None, 10), (None, None, 4)]
-
-    def test_a_run_with_provenance_keeps_the_template_s_record(self, tmp_path):
-        out = self._write(tmp_path, ".vcf", {"version": "NEW"})
-        assert Reader(out).provenance()["version"] == "NEW"
-        assert '##ancestree_provenance={"version":"OLD"}' in Path(out).read_text()
 
 
 class TestForeignAAFieldsArePassedThrough:
