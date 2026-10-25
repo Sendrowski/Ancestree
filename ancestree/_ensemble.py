@@ -808,7 +808,8 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
     :param path: ``(M, P, K) int8`` sampled bin per member, pair and block.
     :param edge_lo: ``(T,)`` lower edge of each bin, in generations.
     :param edge_hi: ``(T,)`` upper edge of each bin, in generations.
-    :param t_bar: ``(P,)`` per-pair genome-average TMRCA, the prior mean.
+    :param t_bar: ``(P,)`` per-pair prior mean, the genome-average TMRCA
+        floored at ``edge_lo[0]``.
     :param needed: Window indices to keep, over the whole segment.
     :param blk_lo: ``(n_windows,)`` first block of each window.
     :param blk_hi: ``(n_windows,)`` one past its last block.
@@ -1185,11 +1186,12 @@ class SegmentEnsemble:
         self.hmm_counts, self.hmm_lam, self.hmm_log_lam = counts, lam, log_lam
         self.n_blocks = n_blocks
         self.hmm_r, self.hmm_pi, self.t_rep = r, prior, t_rep
-        # Linear edges and the per-pair coalescent mean, so the within-bin draw
-        # can follow the same Exp(1/t_bar) prior the chain was built on.
+        # Linear edges and the per-pair coalescent mean, floored at the grid
+        # as in _coalescent_prior, so the within-bin draw follows the same
+        # Exp(1/t_bar) prior the chain was built on.
         self.edge_lo = edges[:-1].copy()
         self.edge_hi = edges[1:].copy()
-        self.t_bar = np.asarray(t_bar, np.float64)
+        self.t_bar = np.maximum(np.asarray(t_bar, np.float64), edges[0])
 
         # Sites are assigned by the same tiling _window_intervals() uses.
         edges = np.array([lo for lo, _ in intervals] + [intervals[-1][1]],

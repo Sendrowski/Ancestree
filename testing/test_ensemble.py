@@ -4,6 +4,7 @@ Covers the two paths that reach the sampler (single-region and segmented),
 reproducibility, the non-uniform-map support, and that the plug-in estimate is
 recovered exactly at ``n_ensemble=1``.
 """
+import itertools
 import os
 import pathlib
 import tempfile
@@ -646,6 +647,37 @@ class TestSegmentEnsemble:
         assert keys.tolist() == [0, 1, 2]
         named = _pair_stream_keys(["s0", "s1", "s2"], pairs)
         assert len(set(named.tolist())) == 3 and named.tolist() != [0, 1, 2]
+
+    def test_a_pair_below_the_grid_floor_draws_inside_the_lowest_bin(self):
+        """The within-bin draw of a pair with ``t_bar`` below the grid floor
+        follows the floored prior the chain was built on.
+
+        A haplotype duplicated in the panel has ``t_bar = 0`` with its copy.
+        The chain prior floors that at the lowest edge, but the draw used the
+        raw mean, an ``Exp`` of mean zero, and so put every lowest-bin draw
+        exactly on the lowest edge.
+        """
+        sites, names, L = _sites()
+        sites = [Site(chrom=s.chrom, pos=s.pos, alleles=s.alleles,
+                      tip_alleles={**s.tip_alleles, "dup": s.tip_alleles["s0"]})
+                 for s in sites]
+        names = names + ["dup"]
+        builder = LocalTreeBuilder(sites, mu=2.5e-8, rec_rate=1e-8,
+                                   sample_names=names, sequence_length=L)
+        ens = SegmentEnsemble(builder, JC69(), len(names), None)
+        pair = list(itertools.combinations(range(len(names)), 2)).index(
+            (0, len(names) - 1))
+        draws = np.concatenate([c[:, :, pair].copy() for c in ens.draw_chunks(
+            64, member_chunk=16, seed=1)])
+        lo, hi = ens.edge_lo[0], ens.edge_hi[0]
+        bin0 = draws[draws < hi]
+        assert bin0.size > draws.size // 2
+        assert np.all(bin0 > lo), "lowest-bin draws sit on the lowest edge"
+        # A window mean below hi is a run of lowest-bin draws, each from
+        # Exp(mean lo) truncated to [lo, hi), of mean 2 lo - w / expm1(w / lo)
+        # with w = hi - lo.
+        w = hi - lo
+        assert bin0.mean() > 0.9 * (2 * lo - w / np.expm1(w / lo))
 
     def test_a_named_ingroup_marks_only_those_haplotypes(self):
         builder, names = self._builder()
