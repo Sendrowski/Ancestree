@@ -289,15 +289,13 @@ def test_local_tree_annotates_its_source_vcf(tmp_path):
         f"source VCF")
 
 
-class TestReAnnotationCarriesNothingFromTheEarlierRun:
-    """A second pass must not leave the first run's values in its output.
+class TestTheConfidenceIsWrittenAtFullPrecision:
+    """``AA_prob`` and ``AA_post`` agree within one record.
 
-    Two ways it did. The run-level ``AA_<key>`` fields were cleared only on
-    rows the new run did not score, so on scored rows a parameter the current
-    model never had sat beside the new run's own. And the confidence was handed
-    to cyvcf2 as a float, which renders at six significant digits, while the
-    posterior beside it was written at seventeen, so the two disagreed within
-    one record and a near-certain call read back as exactly 1.
+    The confidence was handed to cyvcf2 as a float, which renders at six
+    significant digits, while the posterior beside it was written at
+    seventeen, so the two disagreed within one record and a near-certain call
+    read back as exactly 1.
     """
 
     @staticmethod
@@ -323,22 +321,6 @@ class TestReAnnotationCarriesNothingFromTheEarlierRun:
                        values=np.array([top, rest, rest, rest])))
             for i in range(n)
         ]
-
-    def test_a_run_level_field_does_not_survive_into_the_next_run(self, tmp_path):
-        first, second = str(tmp_path / "r1.vcf"), str(tmp_path / "r2.vcf")
-        template = self._template(tmp_path)
-        anc.VCFWriter(template, first).write(
-            self._pairs(), info={"kappa": 2.5, "prior": "run1"})
-        anc.VCFWriter(first, second).write(
-            self._pairs(), info={"prior": "run2"})
-
-        import cyvcf2
-
-        record = next(iter(cyvcf2.VCF(second)))
-        carried = {str(k) for k, _ in record.INFO
-                   if str(k).startswith("AA_")
-                   and str(k) not in ("AA_prob", "AA_post")}
-        assert carried == {"AA_prior"}
 
     def test_the_confidence_and_the_posterior_agree_in_one_record(self, tmp_path):
         out = str(tmp_path / "a.vcf")

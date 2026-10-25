@@ -576,8 +576,9 @@ class VCFWriter(Writer):
     carries, and drops ``AA_post`` when the run stores no posterior. For
     each variant the writer looks up the posterior by ``(chrom, pos)`` and,
     if found, sets the ``INFO`` fields. Variants without a matching posterior
-    are written unannotated, and an ``AA`` value the template carries on them
-    is cleared, since the header declares ``AA`` as ancestree's. Without an input VCF, each site is written as one
+    are written unannotated, and an ``AA``, ``AA_prob`` or ``AA_post`` value
+    the template carries on them is cleared, since the header declares these
+    fields as ancestree's. Without an input VCF, each site is written as one
     ``PASS`` record carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
     :attr:`Site.unphased <ancestree.sites.Site.unphased>`. An individual's
@@ -641,21 +642,6 @@ class VCFWriter(Writer):
         if self._output.lower().endswith(".bcf"):
             return values[0] if len(values) == 1 else tuple(values)
         return ",".join(f"{v:.17g}" for v in values)
-
-    @staticmethod
-    def _clear_owned_info(variant) -> None:
-        """Drop the run-level ``AA_<key>`` fields a previous run left behind.
-
-        Only the extra fields are cleared. ``AA``, ``AA_prob`` and ``AA_post``
-        are rewritten unconditionally by the caller.
-
-        :param variant: The template record being emitted.
-        """
-        for field_id in list(getattr(variant, "INFO", [])):
-            key = field_id[0] if isinstance(field_id, tuple) else field_id
-            if (str(key).startswith("AA_")
-                    and str(key) not in ("AA_prob", "AA_post")):
-                del variant.INFO[str(key)]
 
     @staticmethod
     def _coerce_info_value(value: object, vcf_type: str) -> object:
@@ -899,11 +885,9 @@ class VCFWriter(Writer):
                                    info_fields)
                     n_annotated += 1
                 else:
-                    # Unscored rows and AA_* fields from earlier runs are cleared.
                     for field_id in ("AA", "AA_prob", "AA_post"):
                         if variant.INFO.get(field_id) is not None:
                             del variant.INFO[field_id]
-                    self._clear_owned_info(variant)
                 writer.write_record(variant)
         except BaseException:
             writer.close()
@@ -957,7 +941,6 @@ class VCFWriter(Writer):
             variant.INFO["AA_post"] = self._float_info(*(float(v) for v in post))
         elif variant.INFO.get("AA_post") is not None:
             del variant.INFO["AA_post"]
-        self._clear_owned_info(variant)
         for field_id, vcf_type, value in info_fields:
             variant.INFO[field_id] = self._coerce_info_value(value, vcf_type)
 

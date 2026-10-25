@@ -259,6 +259,41 @@ class TestTheTemplateHeaderDefersToTheRun:
         assert '##ancestree_provenance={"version":"OLD"}' in Path(out).read_text()
 
 
+class TestForeignAAFieldsArePassedThrough:
+    """A template's own ``AA_*`` ``INFO`` fields reach the output unchanged."""
+
+    _HEADER = (
+        "##fileformat=VCFv4.2\n"
+        "##contig=<ID=1,length=1000>\n"
+        '##INFO=<ID=AA,Number=1,Type=String,Description="EPO ancestral allele">\n'
+        '##INFO=<ID=AA_ENSEMBL,Number=1,Type=String,Description="Ensembl AA">\n'
+        '##INFO=<ID=AA_CONF,Number=1,Type=Integer,Description="AA confidence">\n'
+        '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n"
+        "1\t5\t.\tA\tT\t.\tPASS\tAA=a;AA_ENSEMBL=a;AA_CONF=1\tGT\t0|1\n"
+        "1\t9\t.\tC\tG\t.\tPASS\tAA=g;AA_ENSEMBL=g;AA_CONF=0\tGT\t1|1\n"
+    )
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcf.gz", ".bcf"])
+    def test_foreign_aa_fields_survive_on_every_record(self, tmp_path, suffix):
+        """Regression: every ``INFO`` key starting with ``AA_`` was deleted,
+        annotated or not, so a 1000 Genomes-style template lost its
+        ``AA_ENSEMBL`` and ``AA_CONF`` fields."""
+        import cyvcf2
+
+        template = tmp_path / "in.vcf"
+        template.write_text(self._HEADER, encoding="utf-8")
+        out = str(tmp_path / f"out{suffix}")
+        site = Site(chrom="1", pos=5, alleles=("A", "T"), tip_alleles={})
+        VCFWriter(str(template), out).write(
+            iter([(site, post("A", 0.9))]), info={"model": "K2"},
+            store_posterior=suffix != ".bcf")
+        records = [(r.INFO.get("AA"), r.INFO.get("AA_ENSEMBL"),
+                    r.INFO.get("AA_CONF"), r.INFO.get("AA_model"))
+                   for r in cyvcf2.VCF(out)]
+        assert records == [("A", "a", 1, "K2"), (None, "g", 0, None)]
+
+
 class TestTheStoredVcfHeaderDeclaresTheRunsAA:
     """A template store's ``vcf_header`` declares ``AA`` as ancestree's."""
 
