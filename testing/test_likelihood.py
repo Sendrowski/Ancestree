@@ -469,3 +469,24 @@ class TestLikelihoodGuards:
         with pytest.raises(ValueError, match="exceeds the branch"):
             engine._split_edge(2.0, parent, np.zeros((2, 4, 4)), 2, 0,
                                path_child=1, edge_length=1.0)
+
+    def test_a_time_scale_argument_matches_the_tree_attribute(self):
+        """An explicit ``time_scale`` scores as the tree set to it does and
+        leaves the tree's own attribute alone."""
+        ts, ids = panel_ts()
+        site = panel_site(ids)
+        engine = Likelihood(JC69())
+        tree = TskitLocalTree(ts, position=0.0)
+        passed = engine.log_likelihoods(tree, [site], time_scale=0.3)
+        assert tree.time_scale == 1.0
+        tree.time_scale = 0.3
+        np.testing.assert_array_equal(
+            passed, engine.log_likelihoods(tree, [site]))
+
+    @pytest.mark.parametrize("time_scale", [0.0, -1.0, float("nan")])
+    def test_log_likelihoods_needs_a_positive_time_scale(self, time_scale):
+        ts, ids = panel_ts()
+        with pytest.raises(ValueError, match="time_scale must be positive"):
+            Likelihood(JC69()).log_likelihoods(
+                TskitLocalTree(ts, position=0.0), [panel_site(ids)],
+                time_scale=time_scale)

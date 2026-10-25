@@ -1159,30 +1159,24 @@ class Inference(ReprMixin, ABC):
         from ancestree.priors import StationaryPrior
         bc = self.base_composition
         engine = Likelihood(self.model, base_composition=bc)
-        scale = self._scale_for(tree, site)
-        # The tree is scored at the site's rate and handed back at its own.
-        own_scale = tree.time_scale
-        if scale is not None:
-            tree.time_scale = scale
-        try:
-            view = self._focal_view(tree)
-            # Seed the ingroup weight as infer() does.
-            seeds = None
-            weight = self.ingroup_weight
-            if weight is not None:
-                anchor = view.ingroup_mrca
-                if anchor is None:
-                    raise ValueError(
-                        "infer_site: an ingroup weight is configured but the "
-                        f"tree supplied ({type(view).__name__}) has no ingroup "
-                        "MRCA to seed it on. Pass the ladder (or a focal view "
-                        "of it), or use a mode without an ingroup weight."
-                    )
-                with np.errstate(under="ignore"):
-                    seeds = {anchor: np.exp(weight.log_probs([site]))}
-            log_L = engine.log_likelihoods(view, [site], node_seeds=seeds)[0]
-        finally:
-            tree.time_scale = own_scale
+        view = self._focal_view(tree)
+        # Seed the ingroup weight as infer() does.
+        seeds = None
+        weight = self.ingroup_weight
+        if weight is not None:
+            anchor = view.ingroup_mrca
+            if anchor is None:
+                raise ValueError(
+                    "infer_site: an ingroup weight is configured but the "
+                    f"tree supplied ({type(view).__name__}) has no ingroup "
+                    "MRCA to seed it on. Pass the ladder (or a focal view "
+                    "of it), or use a mode without an ingroup weight."
+                )
+            with np.errstate(under="ignore"):
+                seeds = {anchor: np.exp(weight.log_probs([site]))}
+        log_L = engine.log_likelihoods(
+            view, [site], node_seeds=seeds,
+            time_scale=self._scale_for(tree, site))[0]
         if self.prior is not None:
             log_prior = self.prior.log_probs([site])[0]
         else:

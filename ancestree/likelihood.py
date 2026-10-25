@@ -168,6 +168,7 @@ class Likelihood(ReprMixin):
         tree: Tree,
         sites: Sequence[Site],
         node_seeds: "Mapping[int, np.ndarray] | None" = None,
+        time_scale: "float | None" = None,
     ) -> np.ndarray:
         """Return ``(n_sites, n_states)`` of ``log P(tip data | root = s)``.
 
@@ -182,14 +183,23 @@ class Likelihood(ReprMixin):
             likelihood vector to seed at a node that is not a tip, replacing
             its all-ones row. Used to enter a whole
             collapsed clade as a single observation at its ancestor.
+        :param time_scale: Multiplier taking the tree's branch lengths into
+            expected substitutions per site. ``None`` (default) reads
+            :attr:`Tree.time_scale <ancestree.trees.Tree.time_scale>`.
         :return: Array of shape ``(len(sites), model.n_states)`` with
             ``log P(observed tips | root = s)``. Empty ``sites`` returns
             a ``(0, n_states)`` array.
+        :raises ValueError: If ``time_scale`` is not positive.
         """
+        if time_scale is None:
+            time_scale = tree.time_scale
+        elif not float(time_scale) > 0.0:
+            raise ValueError(f"time_scale must be positive, got {time_scale}")
         if not sites:
             return np.empty((0, self.model.n_states), dtype=float)
 
-        return self._log_likelihoods_jit(tree, sites, node_seeds)
+        return self._log_likelihoods_jit(tree, sites, node_seeds,
+                                         float(time_scale))
 
     def posterior(
         self,
@@ -380,7 +390,8 @@ class Likelihood(ReprMixin):
         self,
         tree: Tree,
         sites: Sequence[Site],
-        node_seeds: "Mapping[int, np.ndarray] | None" = None,
+        node_seeds: "Mapping[int, np.ndarray] | None",
+        time_scale: float,
     ) -> np.ndarray:
         """Numba-JIT path for :meth:`log_likelihoods`.
 
@@ -416,12 +427,11 @@ class Likelihood(ReprMixin):
         # Per-edge transition matrices: P_per_node[d] = P on the edge
         # entering node d. Root's row is unused. One batched
         # transition_probs call for all edges.
-        ts_scale = tree.time_scale
         branch_t = np.zeros(n_nodes, dtype=float)
         for dense, orig in enumerate(nodes_orig):
             if dense == root_dense:
                 continue
-            branch_t[dense] = tree.branch_length(orig) * ts_scale
+            branch_t[dense] = tree.branch_length(orig) * time_scale
         P_all = self.model.transition_probs(
             branch_t, pi=self._pi,
         )  # (n_nodes, S, S)

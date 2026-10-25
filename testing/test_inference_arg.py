@@ -638,6 +638,69 @@ def test_infer_site_applies_mu_scaling(small_ts):
     )
 
 
+def test_infer_site_shares_a_tree_across_threads(monkeypatch):
+    """Two threads scoring sites of different rates on one tree each get the
+    posterior ``infer`` gives.
+
+    ``infer_site`` set the tree's ``time_scale`` to the site's rate for the
+    duration of the call, so a thread scoring in between read the other's
+    rate, and the tree was left at it.
+    """
+    import threading
+
+    from ancestree.likelihood import Likelihood
+
+    ts = msprime.sim_mutations(
+        msprime.sim_ancestry(8, ploidy=1, sequence_length=2e4,
+                             recombination_rate=1e-8, population_size=1e4,
+                             random_seed=3),
+        rate=1e-7, random_seed=3)
+    rate_map = msprime.RateMap(position=[0, 10_000, 2e4], rate=[1e-7, 1e-9])
+    inf = ARGBasedInference(ts, JC69(), mu=rate_map, progress=False,
+                            focal="panel_root")
+    tree = TskitLocalTree(inf.ts, position=10_000, sample_map=inf.sample_map)
+    left, right = tree._tree.interval
+    walk = [(s, p) for s, p in inf.infer()
+            if left <= s.local_tree_handle < right]
+    jobs = {"low": next(sp for sp in walk if sp[0].local_tree_handle >= 10_000),
+            "high": next(sp for sp in walk if sp[0].local_tree_handle < 10_000)}
+
+    # Each thread is inside infer_site while the other scores: "high" scores
+    # once "low" has entered the kernel, and "low" once "high" has returned.
+    entered = {"high": threading.Event(), "low": threading.Event()}
+    returned = threading.Event()
+    scored = Likelihood.log_likelihoods
+
+    def interleaved(self, *args, **kwargs):
+        name = threading.current_thread().name
+        entered[name].set()
+        if name == "high":
+            entered["low"].wait(5)
+        else:
+            returned.wait(5)
+        return scored(self, *args, **kwargs)
+
+    monkeypatch.setattr(Likelihood, "log_likelihoods", interleaved)
+    out = {}
+
+    def run(name):
+        out[name] = inf.infer_site(tree, jobs[name][0])
+        if name == "high":
+            returned.set()
+
+    threads = [threading.Thread(target=run, args=(n,), name=n)
+               for n in ("high", "low")]
+    threads[0].start()
+    entered["high"].wait(5)
+    threads[1].start()
+    for thread in threads:
+        thread.join()
+    for name, (_, expected) in jobs.items():
+        np.testing.assert_allclose(out[name].values, expected.values,
+                                   atol=1e-12)
+    assert tree.time_scale == 1.0
+
+
 def test_infer_site_all_neg_inf_falls_back_to_uniform(monkeypatch):
     """When the prior excludes every observed allele (all-``-inf``
     ``log_post``) ``infer_site`` routes through the shared normaliser and
