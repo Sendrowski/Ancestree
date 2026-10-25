@@ -800,7 +800,7 @@ class LocalTreeBuilder(ReprMixin):
         self.position_base = int(position_base)
         self._check_on_axis(self.sites.pos, self.axis_length)
         _, self.block_size, self.window_bp = self._resolve_widths(
-            window, block_size, len(self.sites), self.sequence_length)
+            window, block_size, len(self.sites), self._site_extent)
         self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
         if self.time_grid is not None:
             n_time_bins = self.time_grid.size - 1
@@ -864,6 +864,14 @@ class LocalTreeBuilder(ReprMixin):
             if n_tips or site.has_unrepresentable_allele:
                 self._n_unrepresentable_sites += 1
             yield site
+
+    @property
+    def _site_extent(self) -> float:
+        """The bp from the first site to the last, inclusive, over which the
+        SNP density is taken, or :attr:`sequence_length` without sites."""
+        pos = self.sites.pos
+        return (float(pos[-1] - pos[0] + 1) if len(pos)
+                else self.sequence_length)
 
     @staticmethod
     def _resolve_widths(window, block_size, n_sites: int,
@@ -1812,7 +1820,7 @@ class LocalTreeInference(Inference):
         # The builder resolved a tracked (None) block_size from the SNP density.
         self.block_size = self.builder.block_size
         _n = len(self.builder.sites)
-        _span = self.builder.sequence_length
+        _span = self.builder._site_extent
         self._warn_resolution(requested_bp=_width_bp(window, _n, _span,
                                                      name="window"),
                               n_sites=_n, span_bp=_span)
@@ -2014,10 +2022,10 @@ class LocalTreeInference(Inference):
 
         Takes at most one streaming pre-pass over the source, needed because a
         default or ``"<N>snp"`` ``block_size`` and a ``"<N>snp"`` window are
-        both sized from the global SNP density (total span / total sites). The
-        resolved block width is written back to ``self.block_size``, which every
-        segment builder then shares. An ``"auto"`` halo is grounded in the
-        recombination correlation length: it
+        both sized from the global SNP density, the sites per bp between each
+        contig's first and last site. The resolved block width is written back
+        to ``self.block_size``, which every segment builder then shares. An
+        ``"auto"`` halo is grounded in the recombination correlation length: it
         estimates per-bp pairwise diversity ``π`` from the site allele
         frequencies, converts to a mean pairwise TMRCA ``E[t] = π / (2μ)``,
         whence the bp over which the HMM's TMRCA decorrelates is
@@ -2045,8 +2053,7 @@ class LocalTreeInference(Inference):
                 n_sites += 1
                 if s.chrom != cur:
                     if cur is not None:
-                        span += max(last - p0 + 1,
-                                    int(self._declared_on(cur) or 0))
+                        span += last - p0 + 1
                     cur, p0 = s.chrom, s.pos
                 last = s.pos
                 if need_halo:
@@ -2056,9 +2063,7 @@ class LocalTreeInference(Inference):
                         same = sum(c * (c - 1) for c in Counter(vals).values())
                         pairdiff += 1.0 - same / (N * (N - 1))
             if cur is not None:
-                # Density divides by the region under analysis when it is
-                # known.
-                span += max(last - p0 + 1, int(self._declared_on(cur) or 0))
+                span += last - p0 + 1
 
         requested, self.block_size, self._wbp = LocalTreeBuilder._resolve_widths(
             w, self.block_size, n_sites, span)

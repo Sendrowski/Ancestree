@@ -474,3 +474,27 @@ def test_an_undeclared_length_is_read_per_contig_from_the_header(
                             sequence_length=float(length), chunk_size=None)
         assert _max_abs_difference(
             alone, {k: v for k, v in both.items() if k[0] == chrom}) == 0.0
+
+
+@pytest.mark.parametrize("chunk_size", [None, "1mb"])
+def test_snp_sized_widths_follow_the_sites_not_the_axis_length(chunk_size):
+    """An ``"<N>snp"`` width is taken at the density over the sites' extent.
+
+    The density divided by ``max(extent, sequence_length)``, so a regional VCF
+    whose header declares the whole chromosome resolved blocks and windows
+    sized for a density the region does not have.
+    """
+    sites, names = _sites(sequence_length=60_000)
+    widths = []
+    for length in (60_000.0, 6_000_000.0):
+        inference = LocalTreeInference(
+            sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
+            window="8snp", n_ensemble=None, progress=False,
+            sequence_length=length, chunk_size=chunk_size)
+        if chunk_size is None:
+            widths.append((inference.builder.block_size,
+                           inference.builder.window_bp))
+        else:
+            inference._resolve_segmentation_params()
+            widths.append((inference.block_size, inference._wbp))
+    assert widths[0] == widths[1]
