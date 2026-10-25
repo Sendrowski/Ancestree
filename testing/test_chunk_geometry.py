@@ -349,30 +349,59 @@ def test_chunked_segment_whose_core_holds_no_site_is_skipped():
     assert [s.pos for s, _ in out] == [s.pos for s in sites]
 
 
+def _covered(ts, lo, hi):
+    """Base pairs of ``[lo, hi)`` under a tree with edges."""
+    return sum(min(t.interval.right, hi) - max(t.interval.left, lo)
+               for t in ts.trees()
+               if t.num_edges and t.interval.left < hi and t.interval.right > lo)
+
+
 @pytest.mark.parametrize("chunk_size", [1000, None])
 @pytest.mark.parametrize("n_ensemble", [None, 4])
 def test_every_member_tiles_its_stretch(chunk_size, n_ensemble):
-    """Each genealogy from tree_sequences() holds a tree over its whole stretch.
+    """Each genealogy holds a tree over its whole stretch, and a core whose
+    segment holds no site is left edgeless.
 
     Sites at 0 to 900 and 4100 to 4400 over 5000 bp, a 1000 bp chunk and a
     500 bp halo, give the cores ``[1000, 2000)`` and ``[3000, 4000)`` only halo
-    sites and ``[2000, 3000)`` none at all. The ensemble drew only the windows
-    carrying a site, so its members left those cores, and every site-free
-    window elsewhere, without a tree while the plug-in tree tiled them.
+    sites and ``[2000, 3000)`` a segment without any. The ensemble drew only
+    the windows carrying a site, so its members left the halo-only cores, and
+    every site-free window elsewhere, without a tree while the plug-in tree
+    tiled them. A segment without sites built an HMM on nothing, and with a
+    recombination map undefined there it raised.
     """
     head, names = toy_sites(range(0, 1000, 100), seed=1)
     tail, _ = toy_sites(range(4100, 4500, 100), seed=2)
     inf = toy_chunked_inference(head + tail, names, n_ensemble=n_ensemble,
                                 chunk_size=chunk_size, sequence_length=5000)
     groups = [(iv, list(members)) for iv, members in inf.tree_sequences()]
-    assert groups[0][0][0] == 0.0 and groups[-1][0][1] == 5000.0
+    empty = (2000.0, 3000.0) if chunk_size else None
+    expected = [(float(a), float(a + 1000)) for a in range(0, 5000, 1000)
+                if (a, a + 1000) != empty] if chunk_size else [(0.0, 5000.0)]
+    assert [iv for iv, _ in groups] == expected
     for (lo, hi), members in groups:
         assert len(members) == (n_ensemble or 1)
         for member in members:
-            covered = sum(t.interval.right - t.interval.left
-                          for t in member.trees()
-                          if t.num_edges and lo <= t.interval.left < hi)
-            assert covered == pytest.approx(hi - lo)
+            assert member.sequence_length == 5000
+            assert _covered(member, lo, hi) == pytest.approx(hi - lo)
+    point = inf.point_tree_sequence()
+    assert point.sequence_length == 5000
+    assert _covered(point, 0, 5000) == pytest.approx(
+        4000 if chunk_size else 5000)
+    if chunk_size:
+        assert _covered(point, *empty) == 0
+
+
+def test_a_map_undefined_over_a_segment_is_not_sliced():
+    """A recombination map starting past a segment leaves it unmapped."""
+    head, names = toy_sites(range(0, 1000, 100), seed=1)
+    tail, _ = toy_sites(range(4100, 4500, 100), seed=2)
+    rec = msprime.RateMap(position=[0, 3500, 5000], rate=[np.nan, 1e-8])
+    inf = toy_chunked_inference(head + tail, names, sequence_length=5000,
+                                recombination_map=rec)
+    assert inf._slice_map(rec, 0, 2000) is None
+    assert inf._slice_map(rec, 3000, 2000).sequence_length == 2000
+    assert inf.point_tree_sequence().sequence_length == 5000
 
 
 def test_chunked_empty_source_has_no_trees_and_no_tmrcas():

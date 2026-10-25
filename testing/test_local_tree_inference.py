@@ -3006,11 +3006,11 @@ def test_vcf_site_at_the_last_base_is_scored_on_every_path(tmp_path):
     [*range(0, 1000, 20), *range(3400, 4000, 20)],  # a gap wider than a core
 ])
 def test_chunked_outputs_cover_the_declared_length(positions):
-    """Chunked tree outputs tile the declared region as the unchunked ones do,
-    including cores no site falls in or near.
+    """Chunked tree outputs span the declared region, with a tree over every
+    core whose segment holds a site and none over a core no site falls in or
+    near.
 
-    They used to stop at the last core holding a site and leave edgeless trees
-    over an empty core.
+    They used to stop at the last core holding a site.
     """
     sites, names = toy_sites(positions, seed=5)
     kw = dict(sequence_length=4000, n_ensemble=None)
@@ -3019,8 +3019,13 @@ def test_chunked_outputs_cover_the_declared_length(positions):
     unchunked = toy_inference(sites, names, **kw)
     ts, ref = chunked.point_tree_sequence(), unchunked.point_tree_sequence()
     assert ts.sequence_length == ref.sequence_length == 4000
-    assert all(tree.num_edges > 0 for tree in ts.trees())
+    built = [(lo, lo + 1000) for lo in range(0, 4000, 1000)
+             if any(lo - 200 <= p < lo + 1200 for p in positions)]
+    for tree in ts.trees():
+        inside = any(lo <= tree.interval.left < hi for lo, hi in built)
+        assert (tree.num_edges > 0) == inside
     assert (len(chunked.pairwise_tmrcas().block_midpoints)
             == len(unchunked.pairwise_tmrcas().block_midpoints))
-    assert [lo_hi for lo_hi, _ in chunked.tree_sequences()][-1][1] == 4000
+    assert ([lo_hi for lo_hi, _ in chunked.tree_sequences()]
+            == [(float(lo), float(hi)) for lo, hi in built])
 

@@ -2276,13 +2276,19 @@ class LocalTreeInference(Inference):
         :param rate_map: The map to slice, or ``None``.
         :param origin: Left edge of the segment, in base pairs.
         :param span: Width of the slice from ``origin``, in base pairs.
-        :return: The sub-map, or ``None`` when unset or outside the map.
+        :return: The sub-map, or ``None`` when unset or when the map defines
+            no rate over the slice.
         """
         if rate_map is None:
             return None
         length = float(getattr(rate_map, "sequence_length", origin + span))
         right = min(float(origin + span), length)
         if right <= float(origin):
+            return None
+        position = np.asarray(rate_map.position, dtype=np.float64)
+        defined = ((position[1:] > float(origin)) & (position[:-1] < right)
+                   & ~np.isnan(np.asarray(rate_map.rate, dtype=np.float64)))
+        if not defined.any():
             return None
         return rate_map.slice(left=float(origin), right=right, trim=True)
 
@@ -2551,7 +2557,9 @@ class LocalTreeInference(Inference):
         appends nodes / edges / baked sites into one growing table collection.
         The result tiles the covered genome with the per-window local trees,
         the same pseudo-ARG the non-chunked path produces, but reconstructed
-        without ever holding the whole-genome HMM TMRCA matrix.
+        without ever holding the whole-genome HMM TMRCA matrix. A segment
+        holding no site, in its core or its halo, is not built, and its core is
+        left without trees.
 
         Single contig only: a :class:`tskit.TreeSequence` has one coordinate
         axis, so a multi-contig source cannot be represented as one tree
@@ -2584,13 +2592,14 @@ class LocalTreeInference(Inference):
             seg, core_lo, core_hi, origin, _span, chrom = wu
             seen_chrom = self._same_contig(
                 seen_chrom, chrom, "point_tree_sequence() / to_arg()")
+            if not seg:
+                continue
             seg_ts = self._segment_builder(wu).to_tree_sequence()
             lo = max(0.0, core_lo - origin)
             hi = min(seg_ts.sequence_length, core_hi - origin)
             if hi <= lo:
-                # An empty core: with no declared length the segment's axis
-                # ends at its last site, which lies in the left halo. It carries
-                # no core sites, so it contributes nothing to the stitched output.
+                # With no declared length the segment's axis ends at its last
+                # site, which lies in the left halo, so the core holds no tree.
                 continue
             seg_ts = seg_ts.keep_intervals(
                 [[lo, hi]], simplify=False, record_provenance=False,
@@ -2634,6 +2643,7 @@ class LocalTreeInference(Inference):
 
         if seen_chrom is None:
             raise ValueError("no segments to build a tree sequence from")
+        seq_len = max(seq_len, float(self._axis_end(seen_chrom) or 0.0))
 
         out = tskit.TableCollection(sequence_length=seq_len)
         out.individuals.metadata_schema = tskit.MetadataSchema.permissive_json()
@@ -2874,7 +2884,9 @@ class LocalTreeInference(Inference):
         ensemble mode ``members`` yields the :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>` draws
         :meth:`infer` marginalises over, otherwise the single plug-in tree
         sequence. An unchunked run yields one group spanning the region; a
-        chunked run yields one per segment. The draws are a pure function of
+        chunked run yields one per segment holding a site, in its core or its
+        halo. A stretch whose segment holds none is left without trees, the
+        tskit representation of unsequenced sequence. The draws are a pure function of
         :paramref:`ensemble_seed <ancestree.local_tree_inference.LocalTreeInference.ensemble_seed>` and the HMM forward pass, so re-iterating
         reproduces them.
 
@@ -2909,6 +2921,8 @@ class LocalTreeInference(Inference):
             seg, core_lo, core_hi, origin, _span, chrom = work_unit
             seen_chrom = self._same_contig(
                 seen_chrom, chrom, "tree_sequences()")
+            if not seg:
+                continue
             end = float(self._axis_end(chrom) or 0.0)
             members = self._ensemble_members(self._segment_builder(work_unit),
                                              segment=(chrom, core_lo))
