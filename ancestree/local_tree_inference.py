@@ -2680,8 +2680,9 @@ class LocalTreeInference(Inference):
 
     def _segments_with_bar(self):
         """The segment work-units, under a progress bar when requested."""
-        # A segment holding no site has no posterior to report.
-        segments = (wu for wu in self._stream_segments() if wu[0])
+        # A segment holding no site in its core has no posterior to report.
+        segments = (wu for wu in self._stream_segments()
+                    if any(wu[1] <= site.pos < wu[2] for site in wu[0]))
         if not self.progress:
             return segments
         end = self._declared_length

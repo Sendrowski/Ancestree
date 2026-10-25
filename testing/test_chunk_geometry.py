@@ -498,3 +498,22 @@ def test_snp_sized_widths_follow_the_sites_not_the_axis_length(chunk_size):
             inference._resolve_segmentation_params()
             widths.append((inference.block_size, inference._wbp))
     assert widths[0] == widths[1]
+
+
+def test_a_core_holding_only_halo_sites_runs_no_segment():
+    """A core whose segment holds sites only in its halo is not built.
+
+    Such a core reports no posterior, yet its HMM still ran on the halo sites
+    and logged warnings about them.
+    """
+    sites, names = _sites(sequence_length=60_000)
+    last = max(s.pos for s in sites)
+    inference = LocalTreeInference(
+        sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
+        window=WINDOW_BP, block_size=BLOCK_BP, n_ensemble=None,
+        progress=False, sequence_length=float(last + 20_000),
+        chunk_size=last + 1, halo=5_000)
+    inference._resolve_segmentation_params()
+    units = list(inference._segments_with_bar())
+    assert len(units) == 1
+    assert len(list(inference.infer())) == len(sites)
