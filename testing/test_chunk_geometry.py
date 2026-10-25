@@ -349,6 +349,32 @@ def test_chunked_segment_whose_core_holds_no_site_is_skipped():
     assert [s.pos for s, _ in out] == [s.pos for s in sites]
 
 
+@pytest.mark.parametrize("chunk_size", [1000, None])
+@pytest.mark.parametrize("n_ensemble", [None, 4])
+def test_every_member_tiles_its_stretch(chunk_size, n_ensemble):
+    """Each genealogy from tree_sequences() holds a tree over its whole stretch.
+
+    Sites at 0 to 900 and 4100 to 4400 over 5000 bp, a 1000 bp chunk and a
+    500 bp halo, give the cores ``[1000, 2000)`` and ``[3000, 4000)`` only halo
+    sites and ``[2000, 3000)`` none at all. The ensemble drew only the windows
+    carrying a site, so its members left those cores, and every site-free
+    window elsewhere, without a tree while the plug-in tree tiled them.
+    """
+    head, names = toy_sites(range(0, 1000, 100), seed=1)
+    tail, _ = toy_sites(range(4100, 4500, 100), seed=2)
+    inf = toy_chunked_inference(head + tail, names, n_ensemble=n_ensemble,
+                                chunk_size=chunk_size, sequence_length=5000)
+    groups = [(iv, list(members)) for iv, members in inf.tree_sequences()]
+    assert groups[0][0][0] == 0.0 and groups[-1][0][1] == 5000.0
+    for (lo, hi), members in groups:
+        assert len(members) == (n_ensemble or 1)
+        for member in members:
+            covered = sum(t.interval.right - t.interval.left
+                          for t in member.trees()
+                          if t.num_edges and lo <= t.interval.left < hi)
+            assert covered == pytest.approx(hi - lo)
+
+
 def test_chunked_empty_source_has_no_trees_and_no_tmrcas():
     """A chunked source without sites raises on both genome-wide outputs."""
     names = [f"h{i}" for i in range(4)]

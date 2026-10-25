@@ -1324,27 +1324,31 @@ class SegmentEnsemble:
         return chunk
 
     def draw_chunks(self, n_members: int, *, member_chunk: int = 8,
-                    seed: int = 0):
+                    seed: int = 0, windows: "np.ndarray | None" = None):
         """Yield the drawn genealogies, ``member_chunk`` at a time.
 
-        Each yield is a ``(chunk, n_needed_windows, n_pairs)`` array of condensed
-        pairwise-TMRCA matrices, the draws before UPGMA. The buffer is reused
-        between yields, so a consumer that keeps a chunk must copy it. The
-        streams are those of :meth:`posterior`, so the materialised ensemble is
-        the one the posterior was scored on.
+        Each yield is a ``(chunk, n_windows, n_pairs)`` array of condensed
+        pairwise-TMRCA matrices, the draws before UPGMA, over ``windows``. The
+        buffer is reused between yields, so a consumer that keeps a chunk must
+        copy it. The streams are those of :meth:`posterior`, so the
+        materialised ensemble is the one the posterior was scored on. A draw
+        is keyed on its blocks, not on the windows requested alongside it.
 
         :param n_members: Ensemble size :math:`B`.
         :param member_chunk: Genealogies drawn at once.
         :param seed: Base seed.
+        :param windows: Window indices to draw, or ``None`` for the windows
+            carrying sites (``needed``).
         """
+        windows = self.needed if windows is None else windows
         chunk = self._path_chunk(
             self._chunk_size(n_members, member_chunk), n_members)
         path = self._draw_paths(chunk)
-        draws = np.empty((chunk, len(self.needed), self.alpha_ck.shape[0]))
+        draws = np.empty((chunk, len(windows), self.alpha_ck.shape[0]))
         for start in range(0, n_members, chunk):
             self._paths_into(path, chunk, start, seed)
             paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
-                               self.needed, self.blk_lo, self.blk_hi, 0,
+                               windows, self.blk_lo, self.blk_hi, 0,
                                self.pair_key, self._stream_key(seed), start,
                                draws)
             yield draws
@@ -1380,9 +1384,10 @@ class SegmentEnsemble:
         """Yield the ensemble's genealogies as tree sequences, one per member.
 
         Reifies exactly the draws :meth:`posterior` marginalises over, one at a
-        time: peak memory holds a single member, not all :math:`B`. Only the
-        windows carrying sites are drawn, so the spans between them hold no
-        edges (an isolated-samples tree).
+        time: peak memory holds a single member, not all :math:`B`. Every
+        window is drawn, so a member tiles the builder's axis as the plug-in
+        tree does, and the windows carrying no site hold genealogies drawn
+        from the same HMM posterior.
 
         The members are topology only --- no sites, unlike the genotype-baked
         plug-in tree from :meth:`LocalTreeBuilder.to_tree_sequence`. They are
@@ -1396,14 +1401,16 @@ class SegmentEnsemble:
         """
         from ancestree._upgma import build_windowed_tree_sequence
         b = self.builder
-        all_intervals = b._window_intervals()
-        intervals = [all_intervals[i] for i in self.needed]
+        intervals = b._window_intervals()
+        windows = np.arange(len(intervals), dtype=np.int64)
+        weight = window_exposure(self.hmm_called, self.hmm_block_sites,
+                                 self.blk_lo, self.blk_hi)
         n = self.n_hap
-        Z = np.empty((len(self.needed), n - 1, 4))
+        Z = np.empty((len(windows), n - 1, 4))
         for draws in self.draw_chunks(n_members, member_chunk=member_chunk,
-                                      seed=seed):
+                                      seed=seed, windows=windows):
             for member in draws:
-                upgma_batch(member, n, Z, self.win_weight)
+                upgma_batch(member, n, Z, weight)
                 yield build_windowed_tree_sequence(
                     n, b.axis_length, intervals, list(Z),
                     sample_names=b.sample_names)
