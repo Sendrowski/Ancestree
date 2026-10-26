@@ -116,6 +116,32 @@ class TestRendererLabels:
         assert f"{ids['b']}=?" in out
         assert f"{ids['a']}=A" in out
 
+    def test_svg_labels_are_xml_escaped(self):
+        """Names holding ``&`` or ``<`` render as well-formed XML. They were
+        inserted raw, so the SVG did not parse."""
+        import xml.dom.minidom
+
+        from ancestree._viz import TreeRenderer
+        from ancestree.trees import FixedTree
+
+        tree = FixedTree.from_newick("((a&b:0.1,c<d:0.1):0.1,e:0.2);")
+        svg = TreeRenderer.draw_svg(tree, focal_at=(tree.root, 0.0),
+                                    focal_label="f<1>")
+        xml.dom.minidom.parseString(svg)
+        for text in ("a&amp;b", "c&lt;d", "f&lt;1&gt;"):
+            assert text in svg
+        assert TreeRenderer._svg_name("x<_1&2").startswith("x&lt;<tspan")
+        assert TreeRenderer._svg_name("x<_1&2").endswith(">1&amp;2</tspan>")
+
+    def test_tskit_backend_svg_labels_are_xml_escaped(self):
+        import xml.dom.minidom
+
+        ts, ids = panel_ts()
+        tree = TskitLocalTree(ts, position=0.0, sample_map={"a&<b": ids["a"]})
+        svg = tree.draw_svg()
+        xml.dom.minidom.parseString(svg)
+        assert "a&amp;&lt;b" in svg
+
     def test_the_svg_root_carries_the_map_state(self):
         posterior = Posterior(alleles=STATES,
                               values=np.array([0.7, 0.2, 0.05, 0.05]))

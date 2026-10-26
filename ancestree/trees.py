@@ -655,14 +655,18 @@ class TskitLocalTree(Tree):
         **tskit_kwargs,
     ) -> str:
         """SVG render via :meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>` with label overlays."""
+        from xml.sax.saxutils import escape
+
         from ancestree._viz import TreeRenderer
         node_labels: dict[int, str] = {}
         for node in self._tree.nodes(self._root):
             if self._tree.is_sample(node):
                 sample_id = self.sample_for_tip(node)
-                node_labels[node] = TreeRenderer.format_tip_label(sample_id, node, site)
+                node_labels[node] = escape(
+                    TreeRenderer.format_tip_label(sample_id, node, site))
             elif node == self._root and posterior is not None:
-                node_labels[node] = TreeRenderer.format_root_label(posterior)
+                node_labels[node] = escape(
+                    TreeRenderer.format_root_label(posterior))
         kwargs = {"node_labels": node_labels, **tskit_kwargs}
         return self._tree.draw_svg(**kwargs)
 

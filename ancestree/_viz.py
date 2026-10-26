@@ -5,6 +5,7 @@ Backs :meth:`Tree.draw_text() <ancestree.trees.Tree.draw_text>` and
 :meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>` for every backend.
 """
 from typing import TYPE_CHECKING
+from xml.sax.saxutils import escape
 
 #: Colour the focal node is drawn in, shared by every renderer so the marker
 #: reads the same whichever one produced the figure.
@@ -161,8 +162,9 @@ class TreeRenderer:
         )
         if focal_id is not None:
             name = labels.get(focal_id, "")
-            labels[focal_id] = (f"{name} ({focal_label})" if name and focal_label
-                                else focal_label or name)
+            text = escape(focal_label)
+            labels[focal_id] = (f"{name} ({text})" if name and text
+                                else text or name)
             # Scoped to this figure's root id, so several figures composed
             # into one document keep their own marker.
             scope = tskit_kwargs.get("root_svg_attributes", {}).get("id")
@@ -242,10 +244,10 @@ class TreeRenderer:
                 time=height_of[node],
             )
             if is_tip:
-                labels[new_id[node]] = cls._tip_label(
-                    tree, node, site, known_samples)
+                labels[new_id[node]] = escape(cls._tip_label(
+                    tree, node, site, known_samples))
             elif node == tree.root and posterior is not None:
-                labels[new_id[node]] = cls.format_root_label(posterior)
+                labels[new_id[node]] = escape(cls.format_root_label(posterior))
             else:
                 labels[new_id[node]] = cls._svg_name(tree.node_name(node) or "")
         focal_id = None
@@ -279,16 +281,16 @@ class TreeRenderer:
 
     @staticmethod
     def _svg_name(name: str) -> str:
-        """``x_k`` rendered as ``x`` with ``k`` in subscript.
+        """``x_k`` rendered as ``x`` with ``k`` in subscript, XML-escaped.
 
         :param name: A node name.
         :return: The SVG text, with a ``tspan`` for the subscript.
         """
         head, sep, sub = name.partition("_")
         if not sep:
-            return name
-        return (f'{head}<tspan baseline-shift="sub" font-size="75%">'
-                f'{sub}</tspan>')
+            return escape(name)
+        return (f'{escape(head)}<tspan baseline-shift="sub" font-size="75%">'
+                f'{escape(sub)}</tspan>')
 
     @classmethod
     def _tip_label(
