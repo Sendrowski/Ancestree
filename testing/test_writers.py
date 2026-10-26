@@ -1180,9 +1180,12 @@ def test_the_output_format_follows_the_suffix(tmp_path, suffix, magic):
 
 def _remote_inference(path):
     """A local-tree inference over toy sites read from a remote ``path``."""
+    from ancestree.sites import SiteSource, _path_format
+
     sites, names = toy_sites(range(20, 1000, 20))
 
-    class Remote:
+    class Remote(SiteSource):
+        format = _path_format(path)
         _path = path
 
         def samples(self):
@@ -1238,7 +1241,7 @@ def test_a_store_without_a_suffix_is_a_store(tmp_path):
     inf = LocalTreeInference(VcfZarrSource(store), mu=5e-8, rec_rate=1e-8,
                              sequence_length=2e5, chunk_size=None,
                              n_ensemble=None, progress=False)
-    assert (inf._input_store_path, inf._input_vcf_path) == (store, None)
+    assert (inf._input_source.path, inf._input_source.format) == (store, "vcz")
 
 
 @pytest.mark.parametrize("chunk_size", [None, 25_000])

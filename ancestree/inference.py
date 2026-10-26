@@ -38,7 +38,7 @@ from ancestree import DEFAULT_MU, STATE_INDEX, STATES
 from ancestree._repr import ReprMixin
 from ancestree.sites import (
     _NEITHER, _SIBLING, _as_tips, _by_individual, _individual_of, _named,
-    _path_format, _refuse_overlap, _resolve_panel, _unlabelled,
+    _refuse_overlap, _resolve_panel, _unlabelled,
 )
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
@@ -127,15 +127,10 @@ class Inference(ReprMixin, ABC):
     #: Likelihood of the ingroup alleles given the state at the ingroup MRCA,
     #: set by the mode that fits one.
     ingroup_weight: "IngroupWeight | None" = None
-    #: The local VCF Zarr store this inference was constructed from, where it
-    #: was one, which :meth:`Inference.to_zarr` annotates by default.
-    _input_store_path: "str | None" = None
-    #: The VCF this inference was constructed from, where it was one, which
-    #: :meth:`Inference.to_vcf` annotates by default.
-    _input_vcf_path: "str | None" = None
-    #: The contig label and tree sequence, or its path, this inference was
-    #: constructed from, where it was one.
-    _input_trees: "tuple[str, object] | None" = None
+    #: The resolved source this inference reads. Its VCF, or its local VCF
+    #: Zarr store, is the file :meth:`Inference.to_vcf` or
+    #: :meth:`Inference.to_zarr` annotates by default.
+    _input_source: "SiteSource | Sequence[Site] | None" = None
     #: Set where the caller's correctness depends on scoring in-process,
     #: so the global parallelism switch cannot promote a worker pool.
     _force_serial: bool = False
@@ -551,36 +546,6 @@ class Inference(ReprMixin, ABC):
             self._n_unrepresentable_tips += n_tips
             if n_tips or site.has_unrepresentable_allele:
                 self._n_unrepresentable_sites += 1
-
-    def _set_input_paths(self, source) -> None:
-        """Take the file a source was read from as the file an output of the
-        same format annotates.
-
-        A local directory is a VCF Zarr store, which
-        :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`
-        annotates. Any other path naming neither a store nor a tree sequence
-        is a VCF, which
-        :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`
-        annotates. A tree sequence, or its path, is kept for its length.
-
-        :param source: A path, a tree sequence, or a source carrying the path
-            or tree sequence it read.
-        """
-        import tskit
-
-        path = (str(source) if isinstance(source, (str, os.PathLike))
-                else getattr(source, "_path", None))
-        fmt = _path_format(path) if path is not None else None
-        store = path is not None and os.path.isdir(path)
-        self._input_store_path = path if store else None
-        self._input_vcf_path = (
-            path if path is not None and not store
-            and fmt not in ("vcz", "trees") else None)
-        ts = getattr(source, "_ts", source)
-        self._input_trees = (
-            (getattr(source, "_chrom", "1"), ts)
-            if isinstance(ts, tskit.TreeSequence)
-            else ("1", path) if fmt == "trees" else None)
 
     @staticmethod
     def _check_filter_labelled(sample_filter, ingroup_samples,
@@ -1251,25 +1216,12 @@ class Inference(ReprMixin, ABC):
                 params.update(totals)
 
     def _contig_lengths(self) -> dict[str, int]:
-        """The length of each contig a tree sequence or a local input declares.
+        """The length of each contig the input declares.
 
         :return: ``{contig: length}``, empty for an input declaring none.
         """
-        import tskit
-
-        from ancestree.sources import CyVCF2Source, VcfZarrSource
-
-        if self._input_trees is not None:
-            chrom, ts = self._input_trees
-            if not isinstance(ts, tskit.TreeSequence):
-                ts = tskit.load(ts, skip_tables=True)
-            return {chrom: math.ceil(ts.sequence_length)}
-        if (self._input_vcf_path is not None
-                and os.path.isfile(self._input_vcf_path)):
-            return CyVCF2Source._contig_lengths(self._input_vcf_path)
-        if self._input_store_path is not None:
-            return VcfZarrSource._contig_lengths(self._input_store_path)
-        return {}
+        source = self._input_source
+        return source.contig_lengths() if isinstance(source, SiteSource) else {}
 
     def _output_template(
         self, given: "str | os.PathLike | None", fmt: str,
@@ -1289,11 +1241,12 @@ class Inference(ReprMixin, ABC):
         :return: ``(template, samples)``, the template ``None`` for an output
             written from the sites and ``samples`` ``None`` for every sample.
         """
-        if given is not None:
-            template: "str | None" = str(given)
-        else:
-            template = (self._input_vcf_path if fmt == "vcf"
-                        else self._input_store_path)
+        source = self._input_source
+        template = str(given) if given is not None else None
+        if (template is None and isinstance(source, SiteSource)
+                and source.format == fmt
+                and (fmt == "vcf" or os.path.isdir(source.path))):
+            template = source.path
         if template is None:
             self._log.info(
                 "No %s input to annotate, so %s is written from the sites, "
@@ -2755,10 +2708,9 @@ class FixedTreeInference(Inference):
             stream = isinstance(
                 source, (str, os.PathLike, SiteSource, tskit.TreeSequence))
 
-        self._set_input_paths(source)
         self._chrom_filter = chrom_filter
         self._sample_filter = list(sample_filter) if sample_filter else None
-        sites = SiteSource.resolve(
+        sites = self._input_source = SiteSource.resolve(
             source, sample_filter=sample_filter,
             chrom_filter=chrom_filter, ploidy=ploidy,
         )

@@ -1208,6 +1208,11 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     #: ``1`` for VCF and VCF-Zarr sources and the filters wrapping them,
     #: ``0`` for tree sequences and for a list of sites.
     position_base: int = 0
+    #: The format of the input the source reads: ``"vcf"``, ``"vcz"`` or
+    #: ``"trees"``, ``None`` for sites held in memory and the filters
+    #: wrapping a source.
+    format: "str | None" = None
+    _path: "str | None" = None
     #: Whether the unphased-genotype notice has been emitted.
     _noted_unphased: bool = False
     _phase_seed: int = 0
@@ -1216,6 +1221,19 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     #: Whether a record carrying more haplotypes than the resolved ploidy has
     #: been reported.
     _warned_ploidy_truncated: bool = False
+
+    @property
+    def path(self) -> "str | None":
+        """The file or store the source reads, ``None`` for an input held in
+        memory."""
+        return self._path
+
+    def contig_lengths(self) -> dict[str, int]:
+        """The length of each contig the input declares one for.
+
+        :return: ``{contig: length}``, empty for an input declaring none.
+        """
+        return {}
 
     @staticmethod
     def _refuse_unsupported_filters(kind, sample_filter, chrom_filter, ploidy,

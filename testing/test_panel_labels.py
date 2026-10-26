@@ -198,7 +198,7 @@ def test_local_tree_sites_hold_only_the_panel(tmp_path):
                              ingroup_samples=["i0", "i1"],
                              outgroup_samples=["o1"], sequence_length=2e5,
                              chunk_size=None, n_ensemble=None, progress=False)
-    assert inf._input_store_path == store
+    assert inf._input_source.path == store
     res = list(inf.infer())
     panel = set(inf.sample_names)
     assert all(set(site.tip_alleles) <= panel for site, _ in res)

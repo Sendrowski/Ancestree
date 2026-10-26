@@ -13,6 +13,7 @@ keeps the original name.
 """
 from __future__ import annotations
 
+import math
 import os
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
@@ -112,6 +113,8 @@ class TskitSource(SiteSource):
         is to share one ``sample_map`` between the source and the trees.
     """
 
+    format = "trees"
+
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
@@ -150,6 +153,13 @@ class TskitSource(SiteSource):
     def samples(self) -> list[str]:
         """Caller-facing sample ids in the canonical order from the tskit ts."""
         return list(self._samples_list)
+
+    def contig_lengths(self) -> dict[str, int]:
+        """The tree sequence's length, as the length of its contig.
+
+        :return: ``{chrom: length}``.
+        """
+        return {self._chrom: math.ceil(self._ts.sequence_length)}
 
     def sample_map(self) -> dict[str, int]:
         """The sample-id → tskit-sample-node map.
@@ -204,6 +214,7 @@ class CyVCF2Source(SiteSource):
     """
 
     position_base = 1
+    format = "vcf"
 
     @property
     def _repr_params(self) -> dict[str, object]:
@@ -286,18 +297,16 @@ class CyVCF2Source(SiteSource):
         """Per-haplotype tip ids in ``sample_filter`` order, else file order."""
         return list(self._samples_list)
 
-    @staticmethod
-    def _contig_lengths(path: str) -> dict[str, int]:
-        """The length of each contig a VCF header declares with one.
+    def contig_lengths(self) -> dict[str, int]:
+        """The length of each contig the VCF header declares with one.
 
-        :param path: VCF / BCF path.
         :return: ``{contig: length}``.
         """
         import re
 
         cyvcf2 = import_cyvcf2()
 
-        vcf = cyvcf2.VCF(path)
+        vcf = cyvcf2.VCF(self._path)
         try:
             header = vcf.raw_header
         finally:
@@ -458,6 +467,7 @@ class VcfZarrSource(SiteSource):
     """
 
     position_base = 1
+    format = "vcz"
 
     @property
     def _repr_params(self) -> dict[str, object]:
@@ -609,16 +619,12 @@ class VcfZarrSource(SiteSource):
                     padded=_interned(padded, seen_padded),
                 )
 
-    @staticmethod
-    def _contig_lengths(path: str) -> dict[str, int]:
-        """The length of each contig a store records one for.
+    def contig_lengths(self) -> dict[str, int]:
+        """The length of each contig the store records one for.
 
-        :param path: Store path.
         :return: ``{contig: length}``, empty without ``contig_length``.
         """
-        import zarr
-
-        root = zarr.open(path, mode="r")
+        root = self._open_root()
         if "contig_length" not in root:
             return {}
         return {SiteSource._decode(c): int(n) for c, n in

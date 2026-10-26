@@ -1292,14 +1292,13 @@ class LocalTreeInference(Inference):
         explicit_panel = sample_names is not None
         if sample_names is None and callable(getattr(source, "samples", None)):
             sample_names = list(source.samples())
-        self._set_input_paths(source)
+        self._input_source = source
         if sequence_length is None:
             sequence_length = Inference._contig_lengths(self) or None
             if sequence_length is not None:
-                self._length_source = (
-                    "the tree sequence" if self._input_trees is not None
-                    else "the VCF header" if self._input_vcf_path is not None
-                    else "the VCF Zarr store")
+                self._length_source = {
+                    "trees": "the tree sequence", "vcf": "the VCF header",
+                    "vcz": "the VCF Zarr store"}[source.format]
         # A partial base is a whole one, on both paths.
         self._declared_length = (
             {c: math.ceil(v) for c, v in sequence_length.items()}
