@@ -159,6 +159,8 @@ class Inference(ReprMixin, ABC):
     _warned_no_sites: bool = False
     #: Whether the ingroup and outgroup samples have been logged.
     _logged_panel: bool = False
+    #: Whether the floored-rate warning has already been emitted.
+    _warned_zero_rate: bool = False
 
     #: The diagnostic counters a walk accumulates, in the order
     #: :meth:`_diagnostic_counts` reports and :meth:`_add_counts` consumes.
@@ -1034,7 +1036,7 @@ class Inference(ReprMixin, ABC):
         :return: ``(n_sites,)`` positive rates.
         """
         rate, n_floored = site_rates(positions, self.mu if mu is None else mu)
-        if n_floored and not getattr(self, "_warned_zero_rate", False):
+        if n_floored and not self._warned_zero_rate:
             self._log.warning(
                 "Rate-map mu is zero or undefined at %d site(s); flooring "
                 "to %g so they are scored as mutationally uninformative "
@@ -1455,7 +1457,7 @@ _ARG_INFERENCE_FOR_FORK: "ARGBasedInference | None" = None
 
 def _arg_infer_chunk_worker(
     chunk: tuple[int, int],
-) -> tuple[list[tuple[Site, np.ndarray]], int, int, int, int, int, int, int]:
+) -> tuple[list[tuple[Site, np.ndarray]], tuple[int, ...]]:
     """Worker entrypoint for :meth:`ARGBasedInference._infer_fork_pool`.
 
     :param chunk: ``(tree_start, tree_stop)`` tree-index range.
@@ -3637,17 +3639,15 @@ class FixedTreeInference(Inference):
             )
         yield from gen
 
-    def _iter_site_batches(
-        self, batch_size: int = 4096,
-    ) -> "Iterator[list[Site]]":
-        """Yield the sites in ``batch_size`` chunks, one pass over
+    def _iter_site_batches(self) -> "Iterator[list[Site]]":
+        """Yield the sites in batches of 4096, one pass over
         :attr:`sites`. Shared by the inference pass and the adaptive weight's
         stage-2 fit, so a streamed source keeps peak memory flat in genome
         length."""
         batch: list[Site] = []
         for site in self.sites:
             batch.append(site)
-            if len(batch) >= batch_size:
+            if len(batch) >= 4096:
                 yield batch
                 batch = []
         if batch:

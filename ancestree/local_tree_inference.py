@@ -64,6 +64,10 @@ from ancestree.sites import (BaseComposition, Site, SiteSource,
                              SiteTable, _PanelSites, _path_format)
 from ancestree._repr import ReprMixin
 
+#: Deepest time grid the sampled-path storage can address. Bin indices are
+#: ``int8`` (see ``SegmentEnsemble``).
+MAX_TIME_BINS: int = int(np.iinfo(np.int8).max)
+
 # Set by LocalTreeInference._infer_segmented just before forking the segment
 # pool. Children inherit it via copy-on-write fork (no pickling of the input).
 _LOCAL_TREE_FOR_FORK: "LocalTreeInference | None" = None
@@ -78,11 +82,6 @@ def _segment_worker(spec):
             "propagate the module global."
         )
     return inst._process_segment(spec)
-
-
-#: Deepest time grid the sampled-path storage can address. Bin indices are
-#: ``int8`` (see ``SegmentEnsemble``).
-MAX_TIME_BINS: int = int(np.iinfo(np.int8).max)
 
 
 @dataclass(frozen=True)
