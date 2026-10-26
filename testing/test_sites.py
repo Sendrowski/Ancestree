@@ -156,21 +156,6 @@ class TestAlleleCategories:
         assert self._site(("a", "c"), {"a": "a", "b": "c"}).has_representable_allele
 
 
-class TestIsCalled:
-    """``Site.is_called`` recognises the no-call spellings in any case."""
-
-    @pytest.mark.parametrize("allele", [None, "", ".", "N", "n"])
-    def test_missing_spellings_are_not_called(self, allele):
-        assert Site.is_called(allele) is False
-
-    def test_non_strings_are_not_called(self):
-        assert Site.is_called(0) is False
-
-    @pytest.mark.parametrize("allele", ["A", "a", "T"])
-    def test_bases_are_called(self, allele):
-        assert Site.is_called(allele) is True
-
-
 class TestBaseCompositionEdges:
     """Blank FASTA lines, count-free κ and a stream with no called base."""
 

@@ -74,17 +74,17 @@ class FocalTreePlot:
         # One fixed canvas for every focal position, so a marker that moves is
         # the only difference between figures. The deepest node is its top.
         self.canvas = tree.as_deep_rooted() or tree
-        self._position, self._depth = self._layout()
+        self._position = self._layout()
         self._parent = {
             kid: node for node in self.canvas.postorder()
             for kid in self.canvas.children(node)
         }
 
-    def _layout(self) -> "tuple[dict[int, tuple[float, float]], dict[int, float]]":
-        """Tip-ordered x positions and root-relative depths for every node.
+    def _layout(self) -> "dict[int, tuple[float, float]]":
+        """Tip-ordered x positions for every node.
 
-        :return: ``({node: (x, y)}, {node: depth})`` with ``y`` increasing
-            toward the root, so the deepest node sits at the top of the axes.
+        :return: ``{node: (x, y)}`` with ``y`` increasing toward the root, so
+            the deepest node sits at the top of the axes.
         """
         depth: dict[int, float] = {self.canvas.root: 0.0}
         order: list[int] = []
@@ -121,7 +121,7 @@ class FocalTreePlot:
 
         assign(self.canvas.root)
         height = max(depth.values()) or 1.0
-        return {n: (x[n], height - depth[n]) for n in order}, depth
+        return {n: (x[n], height - depth[n]) for n in order}
 
     def focal_point(self) -> "tuple[float, float]":
         """Coordinates of the focal position on the drawn tree.

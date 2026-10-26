@@ -50,18 +50,6 @@ class Site:
         return upper if upper in STATE_INDEX else None
 
     @staticmethod
-    def is_called(allele: "str | None") -> bool:
-        """Whether an allele records an observation at all.
-
-        :param allele: The observed allele, in any case.
-        :return: ``False`` for anything in
-            :data:`ancestree.MISSING_ALLELES`, compared upper-cased.
-        """
-        if not isinstance(allele, str):
-            return False
-        return allele.upper() not in MISSING_ALLELES
-
-    @staticmethod
     def _is_unrepresentable(allele: "str | None") -> bool:
         """Whether an allele is neither a model state nor a no-call.
 
