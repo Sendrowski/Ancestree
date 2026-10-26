@@ -12,10 +12,8 @@ overlap with truth-known sites are scored. Others are skipped.
 This script is invoked ONCE per ``(chunk_idx, f_del)`` cell (no n_out
 dimension — tsinfer-ARG inference is ingroup-only by construction).
 """
-import argparse
 import json
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -26,18 +24,6 @@ from ancestree import ARGBasedInference, JC69
 STATES = ("A", "C", "G", "T")
 
 
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    """CLI fallback when not driven by snakemake."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--in-inferred", required=True)
-    p.add_argument("--in-truth-trees", required=True)
-    p.add_argument("--in-meta", required=True)
-    p.add_argument("--out-json", required=True)
-    p.add_argument("--f-del", type=float, required=True)
-    p.add_argument("--mu-slim", type=float, required=True)
-    return p.parse_args(argv)
-
-
 try:
     in_inferred = snakemake.input.inferred  # type: ignore[name-defined]
     in_truth_trees = snakemake.input.truth_trees  # type: ignore[name-defined]
@@ -46,13 +32,12 @@ try:
     f_del = float(snakemake.wildcards.f_del)  # type: ignore[name-defined]
     mu_slim = float(snakemake.params.mu_slim)  # type: ignore[name-defined]
 except NameError:
-    _args = _parse_args(sys.argv[1:])
-    in_inferred = _args.in_inferred
-    in_truth_trees = _args.in_truth_trees
-    in_meta = _args.in_meta
-    out_json = _args.out_json
-    f_del = _args.f_del
-    mu_slim = _args.mu_slim
+    in_inferred = "results/data/slim_outgroup_bias_fdel0.0_chunk0_tsinfer_ingroup.trees"
+    in_truth_trees = "results/data/slim_outgroup_bias_fdel0.0_chunk0.trees"
+    in_meta = "results/data/slim_outgroup_bias_fdel0.0_chunk0_meta.json"
+    out_json = "results/data/slim_outgroup_bias_fdel0.0_chunk0_tsinfer_arg.json"
+    f_del = 0.0
+    mu_slim = 1.25e-7
 
 
 with open(in_meta, encoding="utf-8") as f:

@@ -3,7 +3,7 @@ mutations, write a final tree sequence + VCF + meta.
 
 The upstream SLiM script simulates the ingroup p0 + N outgroups p1..pN
 (nested closest-first ladder) in a single forward-time run. N is read from
-the length of ``--outgroup-split-times-target`` (3 for the B14 / est-sfs
+the length of ``outgroup_split_times_target`` (3 for the B14 / est-sfs
 benchmark, 10 for the robustness heatmap), so this step is purely a
 clean-up pass:
 
@@ -17,7 +17,7 @@ clean-up pass:
    mutations) so every site lives in a clean A/C/G/T alphabet.
 4. Identify ingroup vs outgroup samples by their tskit population
    metadata. Pick one haploid per outgroup pop (closest first by split
-   time → p1, p2, p3) and subsample p0 to ``--n-ingroup-haps``.
+   time → p1, p2, p3) and subsample p0 to ``n_ingroup_haps``.
 5. Write VCF + meta. ``outgroup_names`` is the closest-first ladder
    (``out_T1, out_T2, out_T3``) that :class:`OutgroupLadderTree` expects.
 6. Truth ancestral state at each polymorphic site = ``site.ancestral_state``
@@ -25,9 +25,7 @@ clean-up pass:
 
 Run via snakemake or directly as ``python recap_and_mutate_slim_outgroup_bias.py``.
 """
-import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -35,29 +33,6 @@ import msprime
 import numpy as np
 import pyslim
 import tskit
-
-
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    """CLI fallback when not driven by snakemake. Mirrors the params block."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--slim-trees", required=True)
-    p.add_argument("--out-trees", required=True)
-    p.add_argument("--out-vcf", required=True)
-    p.add_argument("--out-meta", required=True)
-    p.add_argument("--f-del", type=float, required=True)
-    p.add_argument("--chunk-idx", type=int, required=True)
-    p.add_argument("--seed", type=int, required=True)
-    p.add_argument("--mu-slim", type=float, required=True)
-    p.add_argument("--rec-rate-slim", type=float, required=True)
-    p.add_argument("--n-e-slim", type=int, required=True)
-    p.add_argument("--mu-target", type=float, required=True)
-    p.add_argument("--time-scaling", type=float, required=True,
-                   help="s = Ne_target / Ne_slim; back-converts SLiM times to target scale.")
-    p.add_argument("--outgroup-split-times-target", type=float, nargs="+", required=True,
-                   help="Closest-first (T1, T2, T3) at the target Ne scale.")
-    p.add_argument("--n-ingroup-haps", type=int, required=True)
-    p.add_argument("--seq-len", type=int, required=True)
-    return p.parse_args(argv)
 
 
 try:
@@ -83,22 +58,22 @@ try:
     n_ingroup_haps = int(snakemake.params.n_ingroup_haps)  # type: ignore[name-defined]
     seq_len = int(snakemake.params.seq_len)  # type: ignore[name-defined]
 except NameError:
-    _args = _parse_args(sys.argv[1:])
-    in_slim_trees = _args.slim_trees
-    out_trees = _args.out_trees
-    out_vcf = _args.out_vcf
-    out_meta = _args.out_meta
-    f_del = _args.f_del
-    chunk_idx = _args.chunk_idx
-    base_seed = _args.seed
-    mu_slim = _args.mu_slim
-    rec_rate_slim = _args.rec_rate_slim
-    N_e_slim = _args.n_e_slim
-    mu_target = _args.mu_target
-    time_scaling = _args.time_scaling
-    outgroup_split_times_target = list(_args.outgroup_split_times_target)
-    n_ingroup_haps = _args.n_ingroup_haps
-    seq_len = _args.seq_len
+    in_slim_trees = "results/data/slim_outgroup_bias_fdel0.0_chunk0_slim.trees"
+    out_trees = "results/data/slim_outgroup_bias_fdel0.0_chunk0.trees"
+    out_vcf = "results/data/slim_outgroup_bias_fdel0.0_chunk0.vcf"
+    out_meta = "results/data/slim_outgroup_bias_fdel0.0_chunk0_meta.json"
+    f_del = 0.0
+    chunk_idx = 0
+    base_seed = 42
+    mu_slim = 1.25e-7
+    rec_rate_slim = 1e-7
+    N_e_slim = 1_000
+    mu_target = 1.25e-8
+    # s = Ne_target / Ne_slim, which converts SLiM times to the target scale.
+    time_scaling = 10.0
+    outgroup_split_times_target = [3e5, 9e5, 1.5e6]
+    n_ingroup_haps = 20
+    seq_len = 100_000
 
 # Each chunk uses an independent per-chunk seed so the per-chunk SLiM /
 # recap / mutate runs are reproducible AND statistically independent.

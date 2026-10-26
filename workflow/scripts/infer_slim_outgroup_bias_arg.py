@@ -26,9 +26,7 @@ Run directly::
 
     python workflow/scripts/infer_slim_outgroup_bias_arg.py
 """
-import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -39,18 +37,6 @@ from ancestree import ARGBasedInference, JC69
 STATES = ("A", "C", "G", "T")
 
 
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    """CLI fallback when not driven by snakemake."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--in-trees", required=True)
-    p.add_argument("--in-meta", required=True)
-    p.add_argument("--out-json", required=True)
-    p.add_argument("--f-del", type=float, required=True)
-    p.add_argument("--n-out", type=int, required=True)
-    p.add_argument("--mu-slim", type=float, required=True)
-    return p.parse_args(argv)
-
-
 try:
     in_trees = snakemake.input.trees  # type: ignore[name-defined]
     in_meta = snakemake.input.meta  # type: ignore[name-defined]
@@ -59,13 +45,12 @@ try:
     n_out = int(snakemake.wildcards.n_out)  # type: ignore[name-defined]
     mu_slim = float(snakemake.params.mu_slim)  # type: ignore[name-defined]
 except NameError:
-    _args = _parse_args(sys.argv[1:])
-    in_trees = _args.in_trees
-    in_meta = _args.in_meta
-    out_json = _args.out_json
-    f_del = _args.f_del
-    n_out = _args.n_out
-    mu_slim = _args.mu_slim
+    in_trees = "results/data/slim_outgroup_bias_fdel0.0_chunk0.trees"
+    in_meta = "results/data/slim_outgroup_bias_fdel0.0_chunk0_meta.json"
+    out_json = "results/data/slim_outgroup_bias_fdel0.0_chunk0_arg_n1.json"
+    f_del = 0.0
+    n_out = 1
+    mu_slim = 1.25e-7
 
 
 with open(in_meta, encoding="utf-8") as f:

@@ -26,9 +26,7 @@ Run directly::
 
     python workflow/scripts/fit_slim_outgroup_bias.py
 """
-import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -40,19 +38,6 @@ from ancestree import (
 )
 
 
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    """CLI fallback when not driven by snakemake."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--in-vcfs", nargs="+", required=True)
-    p.add_argument("--in-metas", nargs="+", required=True)
-    p.add_argument("--out-json", required=True)
-    p.add_argument("--f-del", type=float, required=True)
-    p.add_argument("--n-out", type=int, required=True)
-    p.add_argument("--length", type=int, required=True,
-                   help="Cumulative target sequence length across chunks.")
-    return p.parse_args(argv)
-
-
 try:
     in_vcfs: list[str] = list(snakemake.input.vcfs)  # type: ignore[name-defined]
     in_metas: list[str] = list(snakemake.input.metas)  # type: ignore[name-defined]
@@ -61,13 +46,12 @@ try:
     n_out = int(snakemake.wildcards.n_out)  # type: ignore[name-defined]
     length = int(snakemake.params.length)  # type: ignore[name-defined]
 except NameError:
-    _args = _parse_args(sys.argv[1:])
-    in_vcfs = list(_args.in_vcfs)
-    in_metas = list(_args.in_metas)
-    out_json = _args.out_json
-    f_del = _args.f_del
-    n_out = _args.n_out
-    length = _args.length
+    in_vcfs = [f"results/data/slim_outgroup_bias_fdel0.0_chunk{c}.vcf" for c in range(10)]
+    in_metas = [p.replace(".vcf", "_meta.json") for p in in_vcfs]
+    out_json = "results/data/slim_outgroup_bias_fdel0.0_n1_fit.json"
+    f_del = 0.0
+    n_out = 1
+    length = 1_000_000
 
 
 # ------------------------------------------------------------------ metadata

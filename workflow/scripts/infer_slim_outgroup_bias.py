@@ -27,9 +27,7 @@ Run directly::
 
     python workflow/scripts/infer_slim_outgroup_bias.py
 """
-import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
@@ -38,20 +36,6 @@ from ancestree import (
     JC69,
     KingmanIngroupWeight,
 )
-
-
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    """CLI fallback when not driven by snakemake."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--in-vcf", default="results/data/slim_outgroup_bias_fdel0.0_chunk0.vcf")
-    p.add_argument("--in-meta", default="results/data/slim_outgroup_bias_fdel0.0_chunk0_meta.json")
-    p.add_argument("--in-fit", default="results/data/slim_outgroup_bias_fdel0.0_n1_fit.json")
-    p.add_argument("--out-json", default="results/data/slim_outgroup_bias_fdel0.0_chunk0_n1.json")
-    p.add_argument("--f-del", type=float, default=0.0)
-    p.add_argument("--n-out", type=int, default=1)
-    p.add_argument("--length", type=int, default=10000,
-                   help="Per-chunk sequence length.")
-    return p.parse_args(argv)
 
 
 try:
@@ -63,14 +47,13 @@ try:
     n_out = int(snakemake.wildcards.n_out)  # type: ignore[name-defined]
     length = int(snakemake.params.length)  # type: ignore[name-defined]
 except NameError:
-    _args = _parse_args(sys.argv[1:])
-    in_vcf = _args.in_vcf
-    in_meta = _args.in_meta
-    in_fit = _args.in_fit
-    out_json = _args.out_json
-    f_del = _args.f_del
-    n_out = _args.n_out
-    length = _args.length
+    in_vcf = "results/data/slim_outgroup_bias_fdel0.0_chunk0.vcf"
+    in_meta = "results/data/slim_outgroup_bias_fdel0.0_chunk0_meta.json"
+    in_fit = "results/data/slim_outgroup_bias_fdel0.0_n1_fit.json"
+    out_json = "results/data/slim_outgroup_bias_fdel0.0_chunk0_n1.json"
+    f_del = 0.0
+    n_out = 1
+    length = 100_000
 
 
 with open(in_meta, encoding="utf-8") as f:
@@ -200,10 +183,7 @@ for entry in per_site:
 result = {
     "f_del": f_del,
     "n_out": n_out,
-    # Carry the chunk_idx through from the upstream meta (set by
-    # recap_and_mutate_slim_outgroup_bias). The infer rule is invoked
-    # via mamba-run shell so it can't read snakemake.wildcards directly;
-    # the meta is the canonical source.
+    # The chunk_idx recap_and_mutate_slim_outgroup_bias wrote to the meta.
     "chunk_idx": meta.get("chunk_idx"),
     "ingroup_size": n_ingroup,
     "outgroup_names_used": outgroup_names,

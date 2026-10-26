@@ -11,11 +11,11 @@ not exercised here, since the inference layer has its own tests.
 """
 import collections
 import json
-import os
+import runpy
 import shutil
 import subprocess
-import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import tskit
@@ -110,31 +110,18 @@ def test_recap_and_mutate(tmp_path: Path) -> None:
     out_trees = tmp_path / "smoke_final.trees"
     out_vcf = tmp_path / "smoke_final.vcf"
     out_meta = tmp_path / "smoke_meta.json"
-    result = subprocess.run(
-        [
-            sys.executable, str(RECAP_SCRIPT),
-            "--slim-trees", str(FIXTURE),
-            "--out-trees", str(out_trees),
-            "--out-vcf", str(out_vcf),
-            "--out-meta", str(out_meta),
-            "--f-del", "0.0",
-            "--chunk-idx", "0",
-            "--seed", "123",
-            "--mu-slim", "1.25e-7",
-            "--rec-rate-slim", "1e-7",
-            "--n-e-slim", "100",
-            "--mu-target", "1.25e-8",
-            "--time-scaling", "10.0",
-            "--outgroup-split-times-target", "1000", "2000", "3000",
-            "--n-ingroup-haps", "100",
-            "--seq-len", "10000",
-        ],
-        capture_output=True, text=True, encoding="utf-8", timeout=120,
-        env={**os.environ, "PYTHONPATH": str(REPO_ROOT), "PYTHONIOENCODING": "utf-8"},
+    snakemake = SimpleNamespace(
+        input=SimpleNamespace(slim_trees=str(FIXTURE)),
+        output=SimpleNamespace(
+            trees=str(out_trees), vcf=str(out_vcf), meta=str(out_meta)),
+        wildcards=SimpleNamespace(f_del="0.0", chunk_idx="0"),
+        params=SimpleNamespace(
+            seed=123, mu_slim=1.25e-7, rec_rate_slim=1e-7, N_e_slim=100,
+            mu_target=1.25e-8, time_scaling=10.0,
+            outgroup_split_times_target=[1000, 2000, 3000],
+            n_ingroup_haps=100, seq_len=10000),
     )
-    assert result.returncode == 0, (
-        f"recap_and_mutate failed: stdout={result.stdout!r}, "
-        f"stderr={result.stderr!r}")
+    runpy.run_path(str(RECAP_SCRIPT), init_globals={"snakemake": snakemake})
     assert out_trees.exists()
     assert out_vcf.exists()
     assert out_meta.exists()

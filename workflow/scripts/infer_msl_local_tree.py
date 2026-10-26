@@ -17,9 +17,8 @@ Positions are offset to chunk-relative coordinates for the builder (whose
 windows tile ``[0, sequence_length)``) and mapped back to absolute chr1
 coordinates on output.
 
-Args (module defaults glob every chunk; ``--max-chunks N`` for a timing probe).
+Run directly, it globs every chunk.
 """
-import argparse
 import glob
 import json
 import sys
@@ -43,14 +42,6 @@ MSL_MU = 1.25e-8
 MSL_REC = 1e-8
 
 
-def _parse_args(argv):
-    p = argparse.ArgumentParser()
-    p.add_argument("--max-chunks", type=int, default=0,
-                   help="if >0, only process the first N chunks (timing probe)")
-    p.add_argument("--out-stem", default="results/data/msl_localtree_chr1_full")
-    return p.parse_args(argv)
-
-
 try:
     # A sharded rule passes one path, and snakemake hands that over as a plain
     # str --- list() would iterate its characters, so wrap before listing.
@@ -61,18 +52,15 @@ try:
     out_anc = snakemake.output.anc  # type: ignore[name-defined]
     out_meta = snakemake.output.meta  # type: ignore[name-defined]
     out_posteriors = snakemake.output.posteriors  # type: ignore[name-defined]
-    max_chunks = 0
 except NameError:
-    _a = _parse_args(sys.argv[1:])
     npz_paths = sorted(
         p for p in glob.glob("results/data/msl_polymorphic_chr1_*.npz")
         if not p.endswith("_meta.json")
     )
     meta_paths = [p.replace(".npz", "_meta.json") for p in npz_paths]
-    out_anc = f"{_a.out_stem}_calls.txt"
-    out_meta = f"{_a.out_stem}_meta.json"
-    out_posteriors = f"{_a.out_stem}_posteriors.npz"
-    max_chunks = _a.max_chunks
+    out_anc = "results/data/msl_localtree_chr1_full_calls.txt"
+    out_meta = "results/data/msl_localtree_chr1_full_meta.json"
+    out_posteriors = "results/data/msl_localtree_chr1_full_posteriors.npz"
 
 
 def _meta(path):
@@ -83,9 +71,6 @@ def _meta(path):
 order = sorted(range(len(npz_paths)), key=lambda i: int(_meta(meta_paths[i])["start"]))
 npz_paths = [npz_paths[i] for i in order]
 meta_paths = [meta_paths[i] for i in order]
-if max_chunks > 0:
-    npz_paths = npz_paths[:max_chunks]
-    meta_paths = meta_paths[:max_chunks]
 
 
 def build_ingroup_sites(z, start):

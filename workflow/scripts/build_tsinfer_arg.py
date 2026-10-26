@@ -18,7 +18,6 @@ Output is a single ``.trees`` file holding the dated ts. The next
 script (``infer_slim_outgroup_bias_tsinfer_arg.py``) runs Felsenstein
 on it.
 """
-import argparse
 import json
 import sys
 import time
@@ -29,17 +28,6 @@ import numpy as np
 import tsinfer
 
 
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    """CLI fallback when not driven by snakemake."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--in-vcf", required=True)
-    p.add_argument("--in-meta", required=True)
-    p.add_argument("--out-trees", required=True)
-    p.add_argument("--rec-rate-slim", type=float, required=True)
-    p.add_argument("--mu-slim", type=float, required=True)
-    return p.parse_args(argv)
-
-
 try:
     in_vcf = snakemake.input.vcf  # type: ignore[name-defined]
     in_meta = snakemake.input.meta  # type: ignore[name-defined]
@@ -47,12 +35,11 @@ try:
     rec_rate_slim = float(snakemake.params.rec_rate_slim)  # type: ignore[name-defined]
     mu_slim = float(snakemake.params.mu_slim)  # type: ignore[name-defined]
 except NameError:
-    _args = _parse_args(sys.argv[1:])
-    in_vcf = _args.in_vcf
-    in_meta = _args.in_meta
-    out_trees = _args.out_trees
-    rec_rate_slim = _args.rec_rate_slim
-    mu_slim = _args.mu_slim
+    in_vcf = "results/data/slim_outgroup_bias_fdel0.0_chunk0.vcf"
+    in_meta = "results/data/slim_outgroup_bias_fdel0.0_chunk0_meta.json"
+    out_trees = "results/data/slim_outgroup_bias_fdel0.0_chunk0_tsinfer_ingroup.trees"
+    rec_rate_slim = 1e-7
+    mu_slim = 1.25e-7
 
 
 with open(in_meta, encoding="utf-8") as f:
