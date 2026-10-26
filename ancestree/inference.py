@@ -292,14 +292,6 @@ class Inference(ReprMixin, ABC):
         """
         return self.focal.anchor == "ingroup_mrca"
 
-    @property
-    def _focal_is_ingroup_mrca(self) -> bool:
-        """Whether this pass reports at the ingroup MRCA itself, with zero
-        placement above the anchor.
-        """
-        return (self._focal_anchored_at_ingroup_mrca
-                and not self.focal._placement)
-
     @abstractmethod
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` for every variant.
@@ -458,7 +450,8 @@ class Inference(ReprMixin, ABC):
             order, or ``None`` to count them here.
         :return: The tally, ``ingroup_monomorphic`` set.
         """
-        if not self._focal_is_ingroup_mrca:
+        # Only a pass reading at the ingroup MRCA itself counts them.
+        if self.focal.anchor != "ingroup_mrca" or self.focal._placement:
             return _Tally()
         ingroup = self._resolved_ingroup
         if not ingroup:
