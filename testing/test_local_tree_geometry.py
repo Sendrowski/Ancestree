@@ -32,6 +32,8 @@ HALO = 5_000
 #: Contig 2: longer than contig 1, with three sites past contig 1's end, the
 #: last at POS == L.
 HEADER_2 = 600_000
+#: Last position of a short contig 2, whose windows are wider than contig 1's.
+SHORT_2 = 37_000
 SITES_2 = (450_101, 451_377, HEADER_2)
 #: Wider than either contig, so every segment holds its whole contig.
 WIDE_HALO = 2_000_000
@@ -304,6 +306,31 @@ class TestResolvedWidths:
         """The density sums the site extents of both contigs."""
         inference = _inference(inputs[store], chunk_size=CHUNK)
         assert _resolved(inference) == (3690, 7380, 7409)
+
+
+    def test_a_contig_missing_from_the_header_sets_the_halo_floor(
+            self, inputs, tmp_path):
+        """A contig the header lists without a length ends at its last site,
+        and its widest window raises a narrower explicit halo. The halo floor
+        was taken over the header's lengths and the undeclared contigs a
+        pre-pass saw, but bp widths and a fixed halo skip the pre-pass, so
+        the contig missing from the header was left out and a halo narrower
+        than its windows cut them at segment edges."""
+        rows = [("1", *r) for r in _simulated_rows()]
+        rows += [("2", pos - OFFSET, alleles, g) for _c, pos, alleles, g
+                 in rows if pos - OFFSET <= SHORT_2]
+        end_2 = rows[-1][1] + 1
+        missing = _write_vcf(tmp_path / "missing.vcf", rows,
+                             [("1", HEADER), ("2", "")])
+        declared = _write_vcf(tmp_path / "declared.vcf", rows,
+                              [("1", HEADER), ("2", end_2)])
+        kwargs = dict(chunk_size=CHUNK, window=5000, block_size=1000,
+                      halo=1000)
+        n = round(end_2 / 5000)
+        widest = int(np.ceil(end_2 / n + 1))
+        assert widest > 5001
+        assert _resolved(_inference(missing, **kwargs))[2] == widest
+        assert _resolved(_inference(declared, **kwargs))[2] == widest
 
 
 class TestEverySiteScoredOnce:

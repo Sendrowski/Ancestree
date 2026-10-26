@@ -1599,7 +1599,7 @@ class LocalTreeInference(Inference):
         whence the bp over which the HMM's TMRCA decorrelates is
         ``L_c ≈ 1 / (r · E[t])``, and takes ``halo = 5·L_c`` (≈ e⁻⁵ residual
         correlation), capped at ``chunk_size/2``. Either halo is raised to the
-        widest window of the global grid and to ``block_size``.
+        widest window of every contig with sites and to ``block_size``.
         """
         if getattr(self, "_wbp", None) is not None:
             return
@@ -1614,8 +1614,9 @@ class LocalTreeInference(Inference):
         n_sites = 0
         span = 0
         pairdiff = 0.0
-        if (need_window or need_halo or need_density
-                or self._declared_length is None):
+        declared = self._declared_length
+        per_contig = declared is None or isinstance(declared, Mapping)
+        if need_window or need_halo or need_density or per_contig:
             self._last_sites = {}
             cur = None
             p0 = last = 0
@@ -1654,11 +1655,9 @@ class LocalTreeInference(Inference):
         # At least one block, so a segment's truncated final block is never
         # emitted beside the next segment's, and at least the widest window,
         # so every window overlapping a core lies inside its segment.
-        declared = self._declared_length
-        ends = list(declared.values() if isinstance(declared, Mapping)
-                    else [declared])
-        ends += [last + 1 for chrom, last in self._last_sites.items()
-                 if not self._declared_on(chrom)]
+        ends = ([self._declared_on(chrom) or last + 1
+                 for chrom, last in self._last_sites.items()]
+                if per_contig else [declared])
         floor = max(self.block_size, int(np.ceil(max(
             (float(np.ptp(ContigGeometry(
                 end, position_base=self._position_base, block=self.block_size,
