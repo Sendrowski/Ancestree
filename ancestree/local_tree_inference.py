@@ -1782,9 +1782,12 @@ class LocalTreeInference(Inference):
         halo = self._halo_value
 
         def unit(contig, buf, core_lo, core_hi, data):
-            """One work unit: the core plus its halo."""
-            seg = [s for s in buf if core_lo - halo <= s.pos < core_hi + halo]
-            return seg, contig.segment(core_lo, core_hi, data)
+            """One work unit: the core plus its halo, from the segment's
+            origin on the block grid."""
+            geometry = contig.segment(core_lo, core_hi, data)
+            seg = [s for s in buf
+                   if geometry.origin <= s.pos < core_hi + halo]
+            return seg, geometry
 
         cur = contig = None
         buf: list[Site] = []
@@ -1812,7 +1815,8 @@ class LocalTreeInference(Inference):
                 yield unit(contig, buf, core_lo, core_lo + cs,
                            (first, np.inf))
                 core_lo += cs
-                cut = core_lo - halo  # drop sites before next halo
+                # Drop sites before the next segment's origin.
+                cut = contig.origin(core_lo)
                 k = 0
                 while k < len(buf) and buf[k].pos < cut:
                     k += 1

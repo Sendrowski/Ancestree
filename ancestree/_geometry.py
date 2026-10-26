@@ -604,6 +604,14 @@ class ContigGeometry(ReprMixin):
             start = hi
         return out
 
+    def origin(self, core_lo: int) -> int:
+        """Genome coordinate of the frame origin of the core from ``core_lo``.
+
+        :param core_lo: Left edge of the core.
+        :return: Its halo's left end, snapped down to the block grid.
+        """
+        return (max(0, core_lo - self.halo) // self.block) * self.block
+
     def segment(self, core_lo: int, core_hi: int, data) -> BuildGeometry:
         """The frame a core's segment is built in.
 
@@ -616,7 +624,7 @@ class ContigGeometry(ReprMixin):
         """
         bs = self.block
         hi = core_hi + self.halo
-        origin = (max(0, core_lo - self.halo) // bs) * bs
+        origin = self.origin(core_lo)
         span = min(int(self.length), hi) - origin
         axis = span + (self.position_base if hi >= self.axis_end else 0)
         # A window overlapping the core is clipped to the segment's axis.

@@ -479,18 +479,18 @@ class TestPinnedPosteriors:
         ("gapped", CHUNK, None, "short"): {
             251657: [0.00016604069578, 5.91916857123e-08, 5.91916857123e-08,
                      0.999833840921],
-            311098: [0.000208676076056, 0.000208676076056, 0.600824761936,
-                     0.398757885912],
-            329591: [0.999997835657, 7.21447667926e-07, 7.21447667996e-07,
-                     7.21447667926e-07],
+            311098: [0.00020866723008, 0.00020866723008, 0.601412962398,
+                     0.398169703142],
+            329591: [0.999996021213, 1.32626236037e-06, 1.32626236049e-06,
+                     1.32626236037e-06],
         },
         ("gapped", CHUNK, N_ENSEMBLE, None): {
             251657: [0.0540224294849, 1.09646672176e-05, 1.09646672176e-05,
                      0.945955641181],
-            311098: [0.000191681734047, 0.000191681734047, 0.602955391186,
-                     0.396661245346],
-            329591: [0.999876515673, 1.41685431589e-07, 0.000123200956251,
-                     1.41685431589e-07],
+            311098: [0.000192476744173, 0.000192476744173, 0.602805640439,
+                     0.396809406073],
+            329591: [0.999866311268, 2.15055476417e-07, 0.000133258621051,
+                     2.15055476417e-07],
         },
     }
 
@@ -691,3 +691,26 @@ class TestDeclaredLength:
         with pytest.raises(ValueError, match="Pass a sequence_length"):
             _posteriors(_inference(short_header, chunk_size=chunk_size,
                                    sequence_length=20_000))
+
+
+class TestSegments:
+    """The sites and frames of the chunked work units."""
+
+    @pytest.mark.parametrize("dataset", ["regional", "gapped"])
+    def test_a_segment_holds_every_site_of_its_frame(self, inputs, dataset):
+        """The frame origin is the left halo end snapped down to the block
+        grid, but the sites were selected from the unsnapped halo end, so the
+        block holding the origin was partly emptied of its sites while it
+        emitted at full exposure."""
+        inference = _inference(inputs[dataset], chunk_size=CHUNK)
+        inference._resolve_segmentation_params()
+        positions = np.asarray(_positions(inputs[dataset]))
+        n_snapped = 0
+        for sites, geometry in inference._stream_segments():
+            lo = geometry.origin
+            hi = geometry.genome_core[1] + inference._halo_value
+            expected = positions[(positions >= lo) & (positions < hi)]
+            assert [s.pos for s in sites] == expected.tolist(), lo
+            n_snapped += bool(np.any(
+                (expected < geometry.genome_core[0] - inference._halo_value)))
+        assert n_snapped
