@@ -11,15 +11,11 @@ the exact ``P(t) = exp(Q * t)``, which admits any number of substitutions per
 branch. Every model normalises ``Q`` to ``sum_i pi_i (-Q[i, i]) = 1``, where
 ``pi_i`` is the equilibrium frequency of state ``i`` and ``-Q[i, i]`` its escape
 rate, so one unit of branch length is one expected substitution per site.
-
-Scalar calls are cached per model instance. See
-:meth:`SubstitutionModel.transition_probs() <ancestree.models.SubstitutionModel.transition_probs>`.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from functools import lru_cache
 from typing import cast
 
 import numpy as np
@@ -55,19 +51,10 @@ class SubstitutionModel(ReprMixin, ABC):
     #: Number of states, ``len(states)``.
     n_states: int = 4
 
-    TRANSITION_CACHE_MAXSIZE: int = 2048
-    """LRU cap on :meth:`transition_probs` results, per instance."""
-
     def __init__(self) -> None:
-        """Install the per-instance transition-probability cache."""
-        self._install_cache()
-
-    @staticmethod
-    def _pi_to_key(pi: "np.ndarray | None") -> tuple[float, ...] | None:
-        """Coerce a ``pi`` array to a hashable cache key (or ``None`` for default)."""
-        if pi is None:
-            return None
-        return tuple(float(x) for x in pi)
+        """Start an empty eigendecomposition cache."""
+        # Keyed by Q's bytes.
+        self._eig_cache: dict[bytes, "tuple | None"] = {}
 
     @staticmethod
     def _validate_pi(pi: "Sequence[float] | np.ndarray") -> np.ndarray:
@@ -82,35 +69,6 @@ class SubstitutionModel(ReprMixin, ABC):
             raise ValueError(f"pi must sum to 1; got sum={total}")
         # Renormalise exactly.
         return arr / total
-
-    def _install_cache(self) -> None:
-        """(Re-)attach the lru_cache closure. Called from __init__ + after
-        unpickling (closures are not picklable, so they are stripped and rebuilt)."""
-        @lru_cache(maxsize=self.TRANSITION_CACHE_MAXSIZE)
-        def _cached(
-            t: float,
-            pi_key: tuple[float, ...] | None,
-            q_key: bytes,
-        ) -> np.ndarray:
-            """Transition matrix cached per ``t``, ``pi`` and rate matrix."""
-            pi = np.asarray(pi_key, dtype=float) if pi_key is not None else None
-            return self._transition_probs_full(t, pi=pi)
-
-        self._cached_P = _cached
-        # Eigendecomposition cache, keyed by Q's bytes.
-        self._eig_cache: dict[bytes, "tuple | None"] = {}
-
-    def __getstate__(self) -> dict:
-        """Strip the unpicklable lru_cache closure for pickling."""
-        state = self.__dict__.copy()
-        state.pop("_cached_P", None)  # closure: not picklable, rebuilt on load
-        state.pop("_eig_cache", None)  # rebuilt empty on load
-        return state
-
-    def __setstate__(self, state: dict) -> None:
-        """Restore attributes and rebuild the lru_cache closure."""
-        self.__dict__.update(state)
-        self._install_cache()
 
     def _exchangeability(self) -> np.ndarray:
         """Symmetric exchangeability matrix :math:`R` with a zero diagonal.
@@ -195,11 +153,6 @@ class SubstitutionModel(ReprMixin, ABC):
     ) -> np.ndarray:
         """Return ``P(t)`` with ``P(t)[i, j] = P(state j at child | state i at parent)``.
 
-        Scalar ``t`` is looked up in an LRU cache keyed by ``t``, ``pi`` and
-        the current rate matrix, so a change to the model's parameters is
-        never served a stale matrix. A hit returns the cached matrix
-        unchanged. Array ``t`` bypasses the cache (no vector-keyed cache).
-
         :param t: Branch length(s). May be a scalar or any-shape array. The
             returned array has shape ``t.shape + (n_states, n_states)``.
         :param pi: Optional length-4 base frequencies. See :meth:`Q`.
@@ -218,27 +171,7 @@ class SubstitutionModel(ReprMixin, ABC):
                 f"transition_probs requires t >= 0 (and not NaN); got {t!r}"
             )
         pi_arr = np.asarray(pi, dtype=float) if pi is not None else None
-        if np.ndim(t) == 0:
-            # A read-only view of the cached matrix: the cache is shared across
-            # every call at this key, so a caller mutating it would poison them.
-            cached = self._cached_P(float(t), self._pi_to_key(pi_arr),
-                                    self.Q(pi=pi_arr).tobytes())
-            view = cached.view()
-            view.flags.writeable = False
-            return view
         return self._transition_probs_full(t, pi=pi_arr)
-
-    def clear_cache(self) -> None:
-        """Drop all cached transition matrices on this model instance."""
-        self._cached_P.cache_clear()
-
-    def cache_info(self):
-        """LRU cache statistics for this instance's transition-matrix cache.
-
-        :return: ``functools.CacheInfo`` named tuple
-            ``(hits, misses, maxsize, currsize)``.
-        """
-        return self._cached_P.cache_info()
 
     # ---------------------------------------------------- free-parameter protocol
 

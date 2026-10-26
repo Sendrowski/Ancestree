@@ -151,7 +151,7 @@ class TestFullModeEigPath:
             ref = np.stack([scipy.linalg.expm(Q * tk) for tk in t])
             got = m.transition_probs(t, pi=pi)
             np.testing.assert_allclose(got, ref, atol=1e-13)
-            # scalar (cached) path agrees too
+            # scalar path agrees too
             np.testing.assert_allclose(
                 m.transition_probs(0.037, pi=pi),
                 scipy.linalg.expm(Q * 0.037), atol=1e-13,
@@ -204,64 +204,7 @@ def test_negative_branch_length_raises():
         JC69().transition_probs(np.array([0.1, -0.2, 0.3]))
 
 
-class TestTransitionCache:
-    def test_scalar_call_is_cached(self):
-        """A repeat scalar call should be served from the cache."""
-        m = JC69()
-        assert m.cache_info().currsize == 0
-        m.transition_probs(0.5)
-        info1 = m.cache_info()
-        assert info1.misses == 1
-        assert info1.hits == 0
-        assert info1.currsize == 1
-        m.transition_probs(0.5)
-        info2 = m.cache_info()
-        assert info2.hits == 1
-        assert info2.misses == 1
-        assert info2.currsize == 1
-
-    def test_a_new_t_misses_and_a_repeat_hits(self):
-        m = JC69()
-        m.transition_probs(0.5)
-        m.transition_probs(0.5)  # same t
-        m.transition_probs(0.6)  # different t
-        info = m.cache_info()
-        assert info.misses == 2
-        assert info.hits == 1
-        assert info.currsize == 2
-
-    def test_array_t_bypasses_cache(self):
-        """Batched ``t`` should NOT touch the scalar cache."""
-        m = JC69()
-        m.transition_probs(np.array([0.1, 0.2, 0.3]))
-        info = m.cache_info()
-        assert info.misses == 0
-        assert info.hits == 0
-        assert info.currsize == 0
-
-    def test_clear_cache_resets_state(self):
-        m = JC69()
-        m.transition_probs(0.5)
-        m.transition_probs(0.6)
-        assert m.cache_info().currsize == 2
-        m.clear_cache()
-        info = m.cache_info()
-        assert info.currsize == 0
-        assert info.hits == 0
-        assert info.misses == 0
-
-    def test_separate_instances_have_separate_caches(self):
-        m1 = JC69()
-        m2 = JC69()
-        m1.transition_probs(0.5)
-        m2.transition_probs(0.5)
-        assert m1.cache_info().currsize == 1
-        assert m2.cache_info().currsize == 1
-        assert m1.cache_info().hits == 0
-        m1.transition_probs(0.5)
-        assert m1.cache_info().hits == 1
-        assert m2.cache_info().hits == 0
-
+class TestParameterChange:
     @pytest.mark.parametrize("model, change", [
         (K2(kappa=2.0), lambda m: setattr(m, "kappa", 10.0)),
         (HKY(kappa=2.0), lambda m: setattr(m, "kappa", 10.0)),
@@ -276,13 +219,6 @@ class TestTransitionCache:
         assert not np.allclose(after, before)
         np.testing.assert_allclose(
             after, model.transition_probs(np.array([0.1]))[0], atol=1e-15)
-
-    def test_cached_value_matches_uncached(self):
-        m = JC69()
-        cached = m.transition_probs(0.42)  # caches
-        # Compare to a direct, uncached call via the array path on the same t.
-        uncached = m.transition_probs(np.array([0.42]))[0]
-        np.testing.assert_allclose(cached, uncached, atol=1e-15)
 
 
 class TestK2EstimateKappaFromData:
@@ -367,16 +303,14 @@ class _NearDefectiveModel(JC69):
 
 class TestFittedModelPickling:
     """``pickle.loads(pickle.dumps(model))`` must reproduce ``P(t)`` bit-for-bit
-    after the strip-and-rebuild-cache round trip, for a fitted HKY and GTR."""
+    for a fitted HKY and GTR."""
 
     def test_hky_pickle_roundtrip_bit_identical(self):
         m = HKY(kappa=2.0, fit_kappa=True)
         m.set_free_params({"kappa": 3.3})  # "fit" the model
-        m.transition_probs(0.37, pi=PI)  # prime the scalar cache
+        m.transition_probs(0.37, pi=PI)
         clone = pickle.loads(pickle.dumps(m))
         assert clone.kappa == m.kappa
-        # The cache closure is stripped on pickling and rebuilt on load.
-        assert clone.cache_info().currsize == 0
         t_scalar = 0.53
         t_arr = np.array([0.05, 0.37, 1.2])
         for t in (t_scalar, t_arr):
@@ -387,11 +321,10 @@ class TestFittedModelPickling:
     def test_gtr_pickle_roundtrip_bit_identical(self):
         m = GTR(rates=[0.5, 1.2, 0.8, 1.0, 0.9, 1.1], fit_rates=True)
         m.set_free_params({"rate_AC": 0.7, "rate_GT": 1.4})  # "fit" the model
-        m.transition_probs(0.21, pi=PI)  # prime the scalar cache
+        m.transition_probs(0.21, pi=PI)
         clone = pickle.loads(pickle.dumps(m))
         np.testing.assert_array_equal(clone.rates, m.rates)
         assert clone.fit_mask == m.fit_mask
-        assert clone.cache_info().currsize == 0
         t_scalar = 0.61
         t_arr = np.array([0.02, 0.21, 0.9])
         for t in (t_scalar, t_arr):
@@ -477,7 +410,7 @@ class TestRealEigDeclines:
 
 class TestArrayTNonSymmetricModels:
     """The array-``t`` transition path for F81 / HKY / GTR, whose ``Q``
-    depends on ``pi``, equals the stack of per-scalar (cached) calls."""
+    depends on ``pi``, equals the stack of per-scalar calls."""
 
     def _models(self):
         return [

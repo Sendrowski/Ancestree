@@ -1,8 +1,7 @@
-"""Model inputs that produced NaN matrices or aliased state.
+"""Model inputs that produced NaN matrices.
 
 Each reached the kernel silently: an all-NaN P(t) enters Felsenstein as a
-valid array, and a shared cached matrix lets one caller's in-place edit change
-another's answer.
+valid array.
 """
 import numpy as np
 import pytest
@@ -20,15 +19,6 @@ def test_an_infinite_kappa_is_refused():
     """An infinite kappa gives an all-NaN Q, so the constructor refuses it."""
     with pytest.raises(ValueError, match="positive and finite"):
         anc.K2(kappa=np.inf)
-
-
-def test_the_cached_matrix_cannot_be_mutated():
-    """The cache is shared across every call at one key."""
-    m = anc.JC69()
-    P = m.transition_probs(0.1)
-    with pytest.raises(ValueError):
-        P[0, 0] = 0.5
-    assert m.transition_probs(0.1)[0, 0] == pytest.approx(P[0, 0])
 
 
 def test_pi_is_renormalised_so_rows_sum_to_one():
