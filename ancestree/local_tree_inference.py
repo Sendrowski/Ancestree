@@ -1545,14 +1545,6 @@ class LocalTreeInference(Inference):
         log_post = log_post + prior.log_probs(list(sites))
         return _normalise(log_post, self.model.n_states)
 
-    def _ensemble_fraction(self) -> float:
-        """Fraction along the anchor-to-root path the ensemble reads at, ``1``
-        for a focal node not anchored at the ingroup MRCA."""
-        spec = self.focal
-        if not self._focal_anchored_at_ingroup_mrca:
-            return 1.0
-        return float(spec.fraction or 0.0)
-
     def _ensemble_placement(self) -> "tuple[float, int]":
         """Where the ensemble reads.
 
@@ -1560,9 +1552,11 @@ class LocalTreeInference(Inference):
             anchor or ``-1`` when ``fraction`` places the readout.
         """
         spec = self.focal
-        if self._focal_anchored_at_ingroup_mrca and spec.coalescences is not None:
+        if not self._focal_anchored_at_ingroup_mrca:
+            return 1.0, -1
+        if spec.coalescences is not None:
             return 0.0, int(spec.coalescences)
-        return self._ensemble_fraction(), -1
+        return float(spec.fraction or 0.0), -1
 
     def _stitch_segment_tree_sequence(self) -> "tskit.TreeSequence":
         """The genome-wide tree sequence over the data stretch of a single
@@ -1690,10 +1684,6 @@ class LocalTreeInference(Inference):
         params.update(self._map_provenance())
         return params
 
-    def _ensemble_mode(self) -> bool:
-        """Whether this run marginalises over an ensemble."""
-        return self.n_ensemble is not None
-
     def _map_provenance(self) -> dict:
         """Summary of the maps applied, with the files they were read from.
 
@@ -1735,7 +1725,7 @@ class LocalTreeInference(Inference):
 
     def _ensemble_provenance(self) -> dict[str, object]:
         """The ensemble's parameters, empty outside ensemble mode."""
-        if not self._ensemble_mode():
+        if self.n_ensemble is None:
             return {}
         return {
             "n_ensemble": int(self.n_ensemble),
@@ -1802,7 +1792,7 @@ class LocalTreeInference(Inference):
             ``n_ensemble`` draws in ensemble mode, else the one plug-in tree
             sequence.
         """
-        if not self._ensemble_mode():
+        if self.n_ensemble is None:
             return iter([builder.to_tree_sequence()])
         from ancestree._ensemble import SegmentEnsemble
 
