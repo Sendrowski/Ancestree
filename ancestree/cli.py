@@ -1112,9 +1112,6 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         ("halo", not chunked, "without --chunk-size"),
         ("ensemble_size", no_ens, "with --no-ensemble"),
         ("ensemble_seed", no_ens, "with --no-ensemble"),
-        ("n_workers", not chunked and not no_ens,
-         "on the default single-region ensemble path, which is threaded "
-         "inside the kernel: pass --chunk-size or --no-ensemble to fan out"),
         ("member_chunk", no_ens, "with --no-ensemble"),
     ])
     out_format = _out_format(args, "local-tree", ("vcf", "vcz", "trees"))

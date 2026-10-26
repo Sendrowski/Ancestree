@@ -1097,6 +1097,20 @@ class TestLocalTreeDispatchGuards:
         with pytest.raises(SystemExit, match="must end with"):
             _run_local_tree(_args(out="result.txt"))
 
+    def test_n_workers_is_honoured_without_chunking(self, tmp_path, caplog):
+        """An unchunked ensemble run fans its per-contig segments across the
+        pool, so --n-workers is not reported as ignored there. --halo, which
+        that run does ignore, is reported in the same call."""
+        with caplog.at_level(logging.WARNING, logger="ancestree.cli"):
+            with pytest.raises(Exception):
+                run(["local-tree", "--vcf", str(tmp_path / "missing.vcf"),
+                     "--mu", "1e-7", "--chunk-size", "none",
+                     "--n-workers", "2", "--halo", "1000",
+                     "--out", str(tmp_path / "o.vcf")])
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("--halo is ignored" in m for m in messages)
+        assert not any("--n-workers" in m for m in messages)
+
 
 def test_an_existing_directory_that_is_no_store_is_not_replaced(tmp_path):
     """``--out`` naming a directory of other files is refused before the run,
