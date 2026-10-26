@@ -39,7 +39,9 @@ import numpy as np
 
 from numba import njit  # noqa: F401
 
-@njit(cache=True, fastmath=True)
+# The helpers are inlined so the kernel holds the only compiled copy of them,
+# and a cached and a freshly compiled run execute the same reductions.
+@njit(cache=True, fastmath=True, inline="always")
 def _emission(counts_k, lam, log_lam, s, e):
     """Fill ``e[i] ∝ Poisson(counts_k | s·λ_i)`` for all bins.
 
@@ -61,7 +63,7 @@ def _emission(counts_k, lam, log_lam, s, e):
         e[i] = np.exp(e[i] - mx)
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, inline="always")
 def _step_r(r, s, rk):
     """Fill ``rk[i] = r[i] ** s``, the no-recombination probability over a
     step of ``s`` nominal blocks (genetic distance in block units).
@@ -78,7 +80,7 @@ def _step_r(r, s, rk):
             rk[i] = r[i] ** s
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, inline="always")
 def _reset_row(pi, rk, nu):
     """Fill ``nu[j] ∝ pi[j] · (1 - rk[j])``, the post-recombination row.
 
