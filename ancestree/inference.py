@@ -2941,7 +2941,8 @@ class FixedTreeInference(Inference):
         n_sites = 0
         for site in sample:
             n_sites += 1
-            observed = [site.tip_alleles.get(o) for o in outgroups]
+            observed = [Site.canonical(site.tip_alleles.get(o))
+                        for o in outgroups]
             for k, (i, j) in enumerate(pairs):
                 ai, bj = observed[i], observed[j]
                 if ai is None or bj is None:

@@ -1284,6 +1284,24 @@ class TestCalibrationIsCheckedWhenAFitRuns:
             self._unfitted(_no_counts()).fit()
 
 
+@pytest.mark.parametrize("copy", [
+    lambda i: "a",
+    lambda i: "N" if i % 20 == 0 else "A",
+], ids=["lower-case", "uncalled"])
+def test_the_redundancy_check_compares_model_states(copy, caplog):
+    """Raw alleles were compared, so a lower-case copy of an outgroup counted
+    as differing at every site, and an ``N`` as an observed difference."""
+    sites = _ladder_sites(
+        100, outgroups=("i1", "o0", "o1"),
+        pattern=lambda i, o: copy(i) if o == "o1" else "A")
+    with caplog.at_level(logging.WARNING):
+        FixedTreeInference(
+            sites, JC69(), ingroup_samples=["i1"], outgroup_samples=["o0", "o1"],
+            n_target_sites=1_000, fit_required=False, progress=False,
+            baseline_check=False)
+    assert "near-redundant" in caplog.text
+
+
 def test_an_unfitted_run_scores_at_the_initial_rates():
     """With ``fit_required=False`` the posterior is the one at
     ``initial_rates``.
