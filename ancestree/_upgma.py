@@ -10,10 +10,11 @@ window's ``[left, right)`` interval. The result carries topology and branch
 lengths (in generations) but no sites or mutations. Genotypes are
 supplied separately to the kernel.
 
-UPGMA is appropriate because coalescent node ages are ultrametric;
-``scipy.cluster.hierarchy.linkage(method="average")`` merge heights are
-read directly as internal-node times, with a tiny epsilon bump where a tie
-violates tskit's strictly-increasing-time requirement.
+UPGMA is appropriate because coalescent node ages are ultrametric. The
+average-linkage merge heights of
+:func:`~ancestree._ensemble.upgma_batch` are read directly as internal-node
+times, with a tiny epsilon bump where a tie violates tskit's
+strictly-increasing-time requirement.
 """
 from __future__ import annotations
 
@@ -193,26 +194,17 @@ class WindowedUpgmaTreeSequence:
         :return: A :class:`tskit.TreeSequence` with ``n_samples`` sample nodes,
             one local tree per window, branch lengths in generations.
         """
-        from scipy.cluster.hierarchy import linkage
+        from ancestree._ensemble import upgma_batch
 
+        n_pairs = self.n_samples * (self.n_samples - 1) // 2
+        condensed = np.ascontiguousarray(
+            self.window_condensed_tmrcas, dtype=np.float64).reshape(-1, n_pairs)
         weights = self.window_weights
-        if weights is not None and len(weights):
-            from ancestree._ensemble import upgma_batch
-
-            condensed = np.ascontiguousarray(
-                self.window_condensed_tmrcas, dtype=np.float64)
-            stacked = np.empty((len(condensed), self.n_samples - 1, 4))
-            upgma_batch(condensed, self.n_samples, stacked,
-                        np.ascontiguousarray(weights, dtype=np.float64))
-            linkages = list(stacked)
-        else:
-            # UPGMA. linkage tolerates zeros. Merge heights become node times.
-            linkages = [
-                linkage(np.ascontiguousarray(condensed, dtype=np.float64),
-                        method="average")
-                for condensed in self.window_condensed_tmrcas
-            ]
+        weights = (np.empty((0, n_pairs)) if weights is None or not len(weights)
+                   else np.ascontiguousarray(weights, dtype=np.float64))
+        linkages = np.empty((len(condensed), self.n_samples - 1, 4))
+        upgma_batch(condensed, self.n_samples, linkages, weights)
         return build_windowed_tree_sequence(
             self.n_samples, self.sequence_length, self.window_intervals,
-            linkages, sample_names=self.sample_names,
+            list(linkages), sample_names=self.sample_names,
         )
