@@ -369,6 +369,21 @@ def _refuse_overlap(ingroup: "Iterable[str]", outgroup: "Iterable[str]") -> None
             f"outgroup_samples: {both[:5]}")
 
 
+def _refuse_duplicates(**lists: "Iterable[str] | None") -> None:
+    """Refuse a sample list naming one sample twice.
+
+    :param lists: The lists by argument name, ``None`` for one not given.
+    :raises ValueError: If a list repeats a name.
+    """
+    for label, names in lists.items():
+        repeated = sorted(
+            s for s, n in Counter(names or ()).items() if n > 1)
+        if repeated:
+            raise ValueError(
+                f"{label} names {len(repeated)} sample(s) more than once: "
+                f"{repeated[:5]}")
+
+
 def _resolve_panel(
     panel: "Iterable[str]", ingroup: "Iterable[str]",
     outgroup: "Iterable[str]", *, chosen_by: "str | None" = None,

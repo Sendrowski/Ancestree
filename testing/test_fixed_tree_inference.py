@@ -1207,6 +1207,54 @@ def test_initial_rates_array_not_mutated_by_fixed_params():
     np.testing.assert_array_equal(rates, original)  # caller's buffer untouched
 
 
+@pytest.mark.parametrize("lists", [
+    {"ingroup_samples": ["i1", "i1"], "outgroup_samples": ["o1", "o2"]},
+    {"ingroup_samples": ["i1"], "outgroup_samples": ["o1", "o1"]},
+    {"ingroup_samples": ["i1", "i1"], "outgroup_samples": []},
+])
+def test_a_repeated_sample_name_is_refused(lists):
+    """A repeated name was accepted in every mode: a repeated outgroup
+    became two ladder tips fitted as two lineages carrying identical data."""
+    sites = _ladder_sites(20, outgroups=("i1", "o1", "o2"))
+    with pytest.raises(ValueError, match="more than once"):
+        FixedTreeInference(sites, JC69(), n_target_sites=1_000,
+                           progress=False, baseline_check=False, **lists)
+
+
+class TestListsGivenWithALadder:
+    """Sample lists passed beside a ladder must name the ladder's samples.
+
+    Conflicting lists were silently overridden by the ladder for the fit,
+    and ``outgroup_samples=[]`` dropped the ladder for the no-outgroup mode.
+    """
+
+    @staticmethod
+    def _run(**lists):
+        ladder = OutgroupLadderTree(["i0_h0", "i0_h1", "i1_h0"], ["o1", "o2"])
+        return FixedTreeInference(
+            _ladder_sites(20, outgroups=("i0_h0", "i0_h1", "i1_h0", "o1", "o2")),
+            JC69(), tree=ladder, n_target_sites=1_000, progress=False,
+            baseline_check=False, **lists)
+
+    @pytest.mark.parametrize("lists", [
+        {"ingroup_samples": ["i0_h0"]},
+        {"outgroup_samples": ["o2"]},
+        {"outgroup_samples": ["o2", "o1"]},
+        {"outgroup_samples": []},
+    ])
+    def test_a_conflicting_list_raises(self, lists):
+        with pytest.raises(ValueError, match="differ from the ladder"):
+            self._run(**lists)
+
+    @pytest.mark.parametrize("lists", [
+        {"ingroup_samples": ["i1_h0", "i0_h1", "i0_h0"],
+         "outgroup_samples": ["o1", "o2"]},
+        {"ingroup_samples": ["i0", "i1"], "outgroup_samples": ["o1", "o2"]},
+    ])
+    def test_a_matching_list_is_accepted(self, lists):
+        assert self._run(**lists).tree.outgroup_samples == ("o1", "o2")
+
+
 def test_an_unfitted_run_scores_at_the_initial_rates():
     """With ``fit_required=False`` the posterior is the one at
     ``initial_rates``.

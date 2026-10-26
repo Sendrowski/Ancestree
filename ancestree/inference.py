@@ -38,7 +38,7 @@ from ancestree._maps import _ZERO_RATE_FLOOR, site_rates
 from ancestree._repr import ReprMixin
 from ancestree.sites import (
     _NEITHER, _SIBLING, _as_tips, _by_individual, _individual_of, _named,
-    _refuse_overlap, _resolve_panel, _unlabelled,
+    _refuse_duplicates, _refuse_overlap, _resolve_panel, _unlabelled,
 )
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
@@ -2359,7 +2359,7 @@ class FixedTreeInference(Inference):
         or a ``list[Site]``. Ingroup alleles enter through the ingroup weight,
         outgroup alleles through the Felsenstein kernel.
     :param tree: Optional pre-built :class:`~ancestree.trees.OutgroupLadderTree`,
-        fitted in place, whose sample lists are read from it, or a
+        fitted in place, whose sample lists any given ones must match, or a
         :class:`~ancestree.trees.FixedTree` used as given. ``None``
         (default) builds the ladder from the sample names.
     :param ingroup_samples: Ingroup sample names. Defaults to every panel
@@ -2438,9 +2438,10 @@ class FixedTreeInference(Inference):
         :class:`tskit.TreeSequence`, and materialises a ``list[Site]``.
         Results are identical either way.
 
-    :raises ValueError: On a tree with no outgroups, an ingroup and
-        outgroup set that overlap, a ``sample_filter`` entry in neither list,
-        or an unresolvable focal placement.
+    :raises ValueError: On a tree with no outgroups, a sample list naming a
+        sample twice or differing from the ladder's, an ingroup and outgroup
+        set that overlap, a ``sample_filter`` entry in neither list, or an
+        unresolvable focal placement.
     """
 
     #: AFS projection dimension the fit's configs are projected onto, in
@@ -2500,11 +2501,16 @@ class FixedTreeInference(Inference):
             tree is not None and not isinstance(tree, OutgroupLadderTree))
 
         # An explicit ladder carries its own sample lists.
+        if isinstance(tree, OutgroupLadderTree):
+            self._refuse_ladder_conflict(tree, ingroup_samples,
+                                         outgroup_samples)
         if tree is not None:
             if ingroup_samples is None:
                 ingroup_samples = list(tree.ingroup_samples) or None
             if outgroup_samples is None:
                 outgroup_samples = list(tree.outgroup_samples) or None
+        _refuse_duplicates(ingroup_samples=ingroup_samples,
+                           outgroup_samples=outgroup_samples)
 
         # No-outgroup mode: the posterior comes from the ingroup alone.
         self._no_outgroup_mode = (
@@ -2982,6 +2988,42 @@ class FixedTreeInference(Inference):
         on an unfitted instance (matching their documented behaviour)."""
         if self.fit_required and self._params_mle is None:
             self.fit()
+
+    @staticmethod
+    def _refuse_ladder_conflict(tree: OutgroupLadderTree,
+                                ingroup_samples: "Sequence[str] | None",
+                                outgroup_samples: "Sequence[str] | None",
+                                ) -> None:
+        """Refuse sample lists that name other samples than the ladder holds.
+
+        A name matches a ladder id that is it, or whose individual it is. The
+        ingroup is compared as a set, the outgroups in order.
+
+        :param tree: The given ladder.
+        :param ingroup_samples: Named ingroup ids, or ``None``.
+        :param outgroup_samples: Named outgroup ids, or ``None``.
+        :raises ValueError: If a given list differs from the ladder's.
+        """
+        def names(name: str, own: str) -> bool:
+            return _named(own, _as_tips([name], [own]))
+
+        own_in = list(tree.ingroup_samples)
+        own_out = list(tree.outgroup_samples)
+        conflicts = []
+        if ingroup_samples is not None:
+            given = list(ingroup_samples)
+            if not (all(any(names(n, o) for n in given) for o in own_in)
+                    and all(any(names(n, o) for o in own_in) for n in given)):
+                conflicts.append(("ingroup_samples", given, own_in))
+        if outgroup_samples is not None:
+            given = list(outgroup_samples)
+            if not (len(given) == len(own_out)
+                    and all(map(names, given, own_out))):
+                conflicts.append(("outgroup_samples", given, own_out))
+        for label, given, own in conflicts:
+            raise ValueError(
+                f"FixedTreeInference: {label} {given[:5]} differ from the "
+                f"ladder's {own[:5]}. Omit the list or pass the ladder's.")
 
     @staticmethod
     def _as_panel_ids(ingroup_samples: "Sequence[str] | None",

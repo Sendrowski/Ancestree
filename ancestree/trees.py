@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from ancestree._repr import ReprMixin
-from ancestree.sites import Site
+from ancestree.sites import Site, _refuse_duplicates
 
 if TYPE_CHECKING:
     import tskit
@@ -1271,13 +1271,15 @@ class OutgroupLadderTree(Tree):
     ) -> None:
         """Build the ladder topology + param→branch map from the sample lists.
 
-        :raises ValueError: If no outgroup is given, or if a sample is named
-            as both ingroup and outgroup. An overlapping sample would serve
-            as an outgroup tip in the kernel and as an ingroup haplotype in
-            the ingroup weight at the same time.
+        :raises ValueError: If no outgroup is given, if a list names a sample
+            twice, or if a sample is named as both ingroup and outgroup. An
+            overlapping sample would serve as an outgroup tip in the kernel
+            and as an ingroup haplotype in the ingroup weight at the same time.
         """
         if len(outgroup_samples) == 0:
             raise ValueError("OutgroupLadderTree requires at least one outgroup.")
+        _refuse_duplicates(ingroup_samples=ingroup_samples,
+                           outgroup_samples=outgroup_samples)
         overlap = set(ingroup_samples) & set(outgroup_samples)
         if overlap:
             raise ValueError(

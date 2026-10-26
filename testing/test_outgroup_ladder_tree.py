@@ -271,6 +271,16 @@ class TestConstructorValidation:
         with pytest.raises(ValueError, match="outgroup"):
             OutgroupLadderTree(["i0"], [])
 
+    @pytest.mark.parametrize("ingroup, outgroups", [
+        (["i0", "i1"], ["o1", "o1"]),
+        (["i0", "i0"], ["o1", "o2"]),
+    ])
+    def test_a_repeated_name_raises(self, ingroup, outgroups):
+        """A repeated name was accepted: a repeated outgroup became two tips
+        under one name, the first unreachable through ``tip_for_sample``."""
+        with pytest.raises(ValueError, match="more than once"):
+            OutgroupLadderTree(ingroup, outgroups)
+
 
 class TestDrawText:
     """``draw_text`` should produce ASCII output naming the outgroup samples."""
