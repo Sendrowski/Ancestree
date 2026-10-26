@@ -67,8 +67,8 @@ x = np.arange(NING + 1)
 for ax, nout in zip(axes, NOUTS):
     ax.axvspan(-0.5, 0.5, color="0.92", zorder=0)
     ax.axvspan(NING - 0.5, NING + 0.5, color="0.92", zorder=0)
-    for (sk, slab), col in zip(SCEN, COLORS):
-        for mk, mlab, ls in MODES:
+    for (sk, _), col in zip(SCEN, COLORS):
+        for mk, _, ls in MODES:
             y = per_bin_brier(sk, mk, nout)
             ax.plot(x, y, color=col, linestyle=ls, linewidth=1.7, alpha=0.5)
     ax.set_xlim(-0.5, NING + 0.5)

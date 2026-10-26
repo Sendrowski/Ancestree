@@ -72,7 +72,6 @@ fig.tight_layout()
 fig.savefig(out_pdf)
 plt.close(fig)
 
-import shutil  # noqa: E402
 from pathlib import Path  # noqa: E402
 Path(out_json).write_text(json.dumps(cells, indent=2), encoding="utf-8")
 print(f"wrote {out_pdf} and {out_json}")

@@ -314,8 +314,6 @@ def infer_chunk_batched_fast(
     posts_acc: list[np.ndarray] = []
     n_skipped = n_multi_root = n_trees_used = 0
 
-    NUC_TO_IDX = {"A": 0, "C": 1, "G": 2, "T": 3}
-
     i = 0
     while i < n_snps:
         pos = int(positions[i])

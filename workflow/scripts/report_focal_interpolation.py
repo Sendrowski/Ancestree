@@ -174,7 +174,6 @@ def main() -> None:
         samples = list(ts.samples())
         names = {int(n): f"s{i}" for i, n in enumerate(samples)}
         ing_nodes = samples[:len(ingroup)]
-        sample_map = {v: k for k, v in names.items()}
 
         # Three classes, not two. A monomorphic ingroup fixed for the
         # simulation's ancestral allele is answered correctly at the ingroup

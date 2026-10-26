@@ -219,7 +219,7 @@ for (mode, f_del, n_out), chunk_payloads in per_cell_chunks.items():
 # read the vcf cells under f"{f_del}_n{n_out}" with no mode prefix. Keep
 # those keys pointing at the vcf cells so the existing report sections
 # stay byte-compatible for that mode.
-for (mode, f_del, n_out), payload_list in per_cell_chunks.items():
+for mode, f_del, n_out in per_cell_chunks:
     if mode == "vcf":
         cells[f"{f_del}_n{n_out}"] = cells[f"{mode}_{f_del}_n{n_out}"]
 

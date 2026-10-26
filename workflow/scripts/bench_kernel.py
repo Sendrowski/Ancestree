@@ -143,11 +143,6 @@ def _run_arg_config(ts: tskit.TreeSequence, *, use_numba: bool,
                     n_workers: int, mu: float) -> dict:
     """Time one ARG-mode ``(numba, n_workers)`` cell."""
     label = f"ARG numba={'on ' if use_numba else 'off'} / {n_workers}w"
-    if False:
-        return {
-            "mode": "arg", "label": label, "use_numba": use_numba,
-            "n_workers": n_workers, "skipped": "numba not installed",
-        }
     _jit_kernel.use_numba = use_numba
     inf = ARGBasedInference(
         source=ts, model=JC69(), mu=mu,
@@ -180,12 +175,6 @@ def _run_vcf_config(
     (``parallelize=True, n_starts=n_workers``).
     """
     label = f"VCF numba={'on ' if use_numba else 'off'} / {n_workers}w"
-    if False:
-        return {
-            "mode": "vcf", "label": label, "use_numba": use_numba,
-            "n_workers": int(n_workers),
-            "skipped": "numba not installed",
-        }
     _jit_kernel.use_numba = use_numba
     prior = KingmanIngroupWeight(ingroup_samples=ingroup_names)
     inf = FixedTreeInference(
@@ -231,11 +220,6 @@ def _run_local_tree_config(
     """
     label = (f"LocalTree numba={'on ' if use_numba else 'off'} / {n_workers}w"
              f" / chunk={chunk_size or 'none'}")
-    if False:
-        return {
-            "mode": "local_tree", "label": label, "use_numba": use_numba,
-            "n_workers": int(n_workers), "skipped": "numba not installed",
-        }
     _jit_kernel.use_numba = use_numba
     _smc_kernel.use_numba = use_numba
     inf = LocalTreeInference(
@@ -441,9 +425,6 @@ results: list[dict] = []
 for mode, use_numba, n_w, chunk, threads in config_grid:
     print(f"=== {mode} numba={'on ' if use_numba else 'off'} / {n_w}w"
           f" / chunk={chunk or 'none'} / threads={threads}", flush=True)
-    if False:
-        print("  skipped: numba not installed", flush=True)
-        continue
     r = _run_subprocess(mode, use_numba, n_w, chunk, threads)
     if r is None or r.get("skipped"):
         print(f"  skipped: {(r or {}).get('skipped', 'no result')}", flush=True)

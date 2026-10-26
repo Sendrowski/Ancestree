@@ -140,10 +140,11 @@ print(f"fit_infer_msl_vcf: built {len(fit_sites):,} Site records in {t_build:.1f
 t_bc0 = time.perf_counter()
 bc = BaseComposition.from_polymorphic_sites(fit_sites)
 kappa_hat = bc.kappa_estimate
+t_bc = time.perf_counter() - t_bc0
 print(
     f"fit_infer_msl_vcf: empirical pi={bc.pi.tolist()}, "
     f"n_ts={bc.n_ts}, n_tv={bc.n_tv}, kappa_hat={kappa_hat:.3f}  "
-    f"({time.perf_counter() - t_bc0:.1f}s)",
+    f"({t_bc:.1f}s)",
     flush=True,
 )
 
@@ -266,7 +267,7 @@ meta = {
     "timings_seconds": {
         "load_npz": t_build0 - t0,
         "build_sites": t_build,
-        "base_composition": time.perf_counter() - t_bc0 if False else None,  # captured above
+        "base_composition": t_bc,
         "fit": t_fit,
         "infer": t_infer,
         "total": time.perf_counter() - t0,

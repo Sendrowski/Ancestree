@@ -175,7 +175,6 @@ ts = tskit.load(in_trees)
 sample_nodes = list(ts.samples())
 n_ingroup = int(sim_meta["n_ingroup"])
 n_outgroup = int(sim_meta["n_outgroup"])
-outgroup_divergences_sim = list(sim_meta["outgroup_divergences"])
 outgroup_names_sim = list(sim_meta["outgroup_names"])
 
 # Under ploidy=1 the simulator's first n_ingroup individuals are the ingroup

@@ -230,26 +230,21 @@ def score_arg_draws(draws, ts_panel, *, model, mu, sample_map,
                     burn_in=0, return_per_sample=False, focal=None,
                     ingroup_samples=None, outgroup_samples=None,
                     mu_matches_time_units=False):
-    """Average :func:`score_arg_topology` posteriors over a list of ARG draws.
+    """Score every in-window site over a list of ARG draws.
 
-    The Bayesian marginalisation over an ARG posterior: score every in-window
-    site on each draw's topology, then average across draws (dropping the first
-    ``burn_in`` MCMC warm-up draws). A single-draw method (Relate / tsinfer)
+    The Bayesian marginalisation over an ARG posterior: the draws, less the
+    first ``burn_in`` MCMC warm-up draws, are combined in likelihood space
+    with the prior applied once. A single-draw method (Relate / tsinfer)
     passes a one-element list with ``burn_in=0`` and gets a plain per-site score.
 
     :return: ``(post_by_pos, obs_by_pos)``, or, with ``return_per_sample``, a
         third element: the list of per-draw ``{pos: array}`` posteriors.
     """
-    acc: dict[int, np.ndarray] = {}
-    nseen: dict[int, int] = {}
     obs_by_pos: dict[int, set] = {}
     per_sample: list[dict] = []
-    # Every draw is baked onto the panel's genotypes and handed to ONE
+    # Every draw is baked onto the panel's genotypes and handed to one
     # ARGBasedInference, which combines them in likelihood space with the
-    # prior applied once --- the estimator the ensemble path uses and the one
-    # the manuscript states. Accumulating normalised per-draw posteriors here
-    # instead gave every draw equal weight, which is only correct for exact
-    # posterior samples; SINGER's are MCMC draws.
+    # prior applied once, as the ensemble path does.
     baked = []
     for k, arg in enumerate(draws):
         ts_baked, s_obs = score_arg_topology(

@@ -40,8 +40,6 @@ except NameError:
     out_json = "results/reports/msl_agreement_matrix.json"
     out_pdf = "results/reports/msl_agreement_heatmap.pdf"
 
-PB = ("external/polarbear/data/real_data/ancestral_state/"
-      "PolarBEAR_gammaSMC/anc_state.txt")
 ES = ("external/polarbear/data/real_data/ancestral_state/"
       "est_sfs/est-sfs_ancstate.txt")
 # PolarBEAR's own published per-site posteriors, from the archive: one row per

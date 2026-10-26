@@ -89,7 +89,6 @@ sample_id_to_node: dict[str, int] = {
     f"tsk_{ind.id}": int(ind.nodes[0]) for ind in ts.individuals()
 }
 ingroup_node_set = {sample_id_to_node[s] for s in ingroup_names}
-outgroup_name_set = set(outgroup_names)
 
 truth_by_pos: dict[int, str] = {
     int(site.position): site.ancestral_state for site in ts.sites()

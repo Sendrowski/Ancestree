@@ -34,7 +34,6 @@ mu = float(cfg.get("mu", 1.25e-8))
 depths = list(payload["depths"])
 depth_vals = [float(d) for d in depths]
 tau_vals = [t / (2 * Ne) for t in depth_vals]
-subs_vals = [2 * t * mu for t in depth_vals]
 
 mode_styles = {
     "ARG mode (lower is better)": dict(color="#1f77b4", marker="o", linestyle="-"),

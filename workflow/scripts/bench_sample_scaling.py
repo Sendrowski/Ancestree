@@ -82,7 +82,7 @@ for n_ing in SIZES:
     sites, names, ingroup, outgroup = _panel(ts)
     sample_map = {nm: int(node) for nm, node in zip(names, ts.samples())}
 
-    t_arg, n_arg = _timed(lambda: sum(1 for _ in anc.ARGBasedInference(
+    t_arg, _ = _timed(lambda: sum(1 for _ in anc.ARGBasedInference(
         ts, JC69(), mu=MU, sample_map=sample_map, progress=False,
         ingroup_samples=ingroup, outgroup_samples=outgroup).infer()))
 

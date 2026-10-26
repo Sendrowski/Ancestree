@@ -77,17 +77,10 @@ def _density(data, key, factor, extra=1):
     return mid, counts / counts.sum() / np.diff(np.log10(ed))
 
 
-def _moments(data, key):
-    """``(mean, sd)`` of log10 TMRCA from the shards' exact accumulators."""
-    n, s, ss = data[key]
-    mean = s / n
-    return mean, np.sqrt(max(ss / n - mean ** 2, 0.0))
-
-
 SERIES = [
-    ("hist_draws", "moments_draws", "posterior draws", "#762a83", "-", 1),
-    ("hist_truth", "moments_truth", "simulated truth", "#222222", "-", 2),
-    ("hist_point", "moments_point", "posterior mean (plug-in)",
+    ("hist_draws", "posterior draws", "#762a83", "-", 1),
+    ("hist_truth", "simulated truth", "#222222", "-", 2),
+    ("hist_point", "posterior mean (plug-in)",
      "#2166ac", "-", 3),
 ]
 ESTIMATES = [
@@ -105,7 +98,7 @@ for r, ((data, meta), (ax, ax2)) in enumerate(zip(rows, axes)):
     factor = max(1, int(round((float(data["grid_step"]) / fine)
                               / BINS_PER_GRID_STEP)))
     peak = 0.0
-    for key, mkey, label, colour, style, layer in SERIES:
+    for key, label, colour, style, layer in SERIES:
         extra = TRUTH_BIN_FACTOR if key == "hist_truth" else 1
         x, d = _density(data, key, factor, extra)
         peak = max(peak, float(d.max()))

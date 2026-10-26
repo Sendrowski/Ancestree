@@ -220,7 +220,6 @@ mut_ts = mut_ts.simplify(samples=keep_nodes, filter_sites=True)
 # their NEW node-id space. tskit's simplify assigns sample ids 0..k-1
 # in the order of the ``samples`` argument, so:
 n_ingroup_kept = int(ingroup_sample_nodes.size)
-new_samples = list(mut_ts.samples())
 ingroup_indices = list(range(n_ingroup_kept))
 outgroup_indices_by_pop = {
     p: n_ingroup_kept + i for i, p in enumerate(outgroup_pops)

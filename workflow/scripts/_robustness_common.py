@@ -24,9 +24,7 @@ import bisect
 import json
 import logging
 import os
-import sys
 import time
-import types
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -91,40 +89,6 @@ FOCAL_MONO = "panel_root"
 # ingroup-polymorphic sites at the ingroup MRCA, ingroup-fixed sites at the
 # root of the full outgroup panel. Both nodes are fixed by construction.
 FOCAL_PASSES = ((FOCAL_POLY, True), (FOCAL_MONO, False))
-
-#: Report modules loaded by :func:`_report_module`, keyed by file stem.
-_REPORT_MODULES: dict = {}
-
-
-def _report_module(name: str):
-    """Load a sibling report script for its definitions, without running its
-    sweep.
-
-    The focal scans are snakemake ``script:`` targets, so each ends in a bare
-    ``main()`` call that computes a multi-hour sweep on import. The trailing
-    call is dropped so the classes can be driven from here. The module then
-    takes its ``except NameError`` branch and fills in defaults the caller
-    overrides. Loaded modules are memoised, so the numba kernels compile once
-    per process.
-
-    :param name: File stem of the script under ``workflow/scripts``.
-    :return: The executed module.
-    """
-    if name in _REPORT_MODULES:
-        return _REPORT_MODULES[name]
-    path = Path(__file__).resolve().parent / f"{name}.py"
-    source = path.read_text(encoding="utf-8")
-    marker = "\nmain()\n"
-    if not source.endswith(marker):
-        raise ValueError(f"{path} does not end in a bare main() call")
-    module = types.ModuleType(name)
-    module.__file__ = str(path)
-    sys.modules[name] = module
-    _REPORT_MODULES[name] = module
-    exec(compile(source[:-len(marker)] + "\n", str(path), "exec"),
-         module.__dict__)
-    return module
-
 
 def _sumsq(post) -> float:
     """Σ_i posterior_i² for a Posterior (the off-diagonal Brier term needs it)."""
@@ -730,8 +694,6 @@ class Scenario:
         import tsinfer
         if n_out > len(self.all_outgroup_names):
             return [], 0, 0.0, self.mu
-        sel = self._select_outgroups(n_out)
-        keep_names = self.ingroup_names + sel
         ts_sub, offset = self._windowed_panel(n_out, window)
         # The orientation is the shared first stage of every panel-ARG method
         # and is cached across them, so it sits outside the timer here exactly
@@ -1632,36 +1594,6 @@ def _slim_chunk_arg_live(chunk_idx: int, n_out: int,
     return out
 
 
-def _slim_chunk_ft_map(chunk_idx: int, n_out: int) -> dict[int, str]:
-    """Per-site fixed-tree MAP ancestral allele for one SLiM chunk (used to
-    orient tsinfer with the inferred, not the true, ancestral allele)."""
-    ts_sub, keep_names, n_ingroup, truth_by_pos = _slim_chunk_ts_and_samples(
-        chunk_idx, n_out,
-    )
-    ingroup_names = keep_names[:n_ingroup]
-    outgroup_names = keep_names[n_ingroup:]
-    sites: list[Site] = []
-    for v in ts_sub.variants():
-        pos = int(v.site.position)
-        if truth_by_pos.get(pos) not in STATES:
-            continue
-        tip_alleles = {sid: v.alleles[v.genotypes[j]]
-                       for j, sid in enumerate(keep_names)}
-        sites.append(Site(chrom="1", pos=pos, alleles=tuple(v.alleles),
-                          tip_alleles=tip_alleles))
-    if not sites:
-        return {}
-    prior = KingmanIngroupWeight(ingroup_samples=ingroup_names)
-    inf = FixedTreeInference(
-        sites, ingroup_samples=ingroup_names, outgroup_samples=outgroup_names,
-        model=JC69(), n_target_sites=int(ts_sub.sequence_length),
-        ingroup_weight=prior, parallelize=False, progress=False,
-    )
-    if outgroup_names:
-        inf.fit()
-    return {int(s.pos): p.map_allele for s, p in inf.infer()}
-
-
 def _slim_pooled_ft(n_out: int, *, adaptive: bool = False) -> PerSite:
     """Fixed-tree on the SLiM column with ONE joint fit pooling every chunk's
     Sites (then per-site posteriors), instead of a separate fit per 100-kb
@@ -1853,7 +1785,7 @@ def summarize_persite(records, *, scenario: str, method: str, n_out: int,
     """Reduce a per-site record list to the light summary (sufficient stats).
 
     Bins records by (klass, sfs_bin, rec=n_mut>1) accumulating the sums the
-    plots need; NaN-posterior guards match filtered_mean / per_bin_brier
+    plots need; NaN-posterior guards match per_bin_brier
     (map uses all records, p_true/Brier use only valid-posterior records via
     ``pv_n``). A per-bin confidence histogram is built for ``anc_arg`` only
     (the sole consumer is the SFS-confidence-filter figure).
@@ -1943,7 +1875,7 @@ def merge_summaries(summaries) -> dict:
 
 def _group_metric(g: list, metric: str) -> tuple[float, int]:
     """(metric_sum, count) for one (klass,bin,rec) group, matching
-    _site_metric/filtered_mean semantics."""
+    per-site metric semantics."""
     if metric == "map":
         return g[2], g[0]
     if metric == "ptrue":
@@ -2957,40 +2889,6 @@ def load_cell_summaries(paths) -> None:
 def load_summary(path) -> dict:
     """Load a single cell summary JSON."""
     return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-# ----------------------------------------------------------- aggregation
-def _site_metric(tup, metric: str) -> float:
-    """Per-site value for the chosen ``metric``.
-
-    - ``"map"``   → MAP-hit (0/1), field 2.
-    - ``"ptrue"`` → posterior mass on the truth, field 3.
-    - ``"brier"`` → Brier score ``(1 − p_true)² + Σ_{i≠t} p_i²`` =
-      ``1 − 2·p_true + Σ_i p_i²`` (fields 3 and 5). Lower is better.
-    """
-    if metric == "map":
-        return float(tup[2])
-    if metric == "ptrue":
-        return float(tup[3])
-    if metric == "brier":
-        return 1.0 - 2.0 * float(tup[3]) + float(tup[5])
-    raise ValueError(f"unknown metric {metric!r}")
-
-
-def filtered_mean(records: PerSite, predicate, *, metric: str) -> tuple[float, int]:
-    """Mean per-site ``metric`` over records satisfying
-    ``predicate(bin, klass, n_mut)``."""
-    s, n = 0.0, 0
-    for tup in records:
-        if predicate(tup[0], tup[1], tup[4]):
-            val = _site_metric(tup, metric)
-            if val != val:  # NaN guard (e.g. missing posterior)
-                continue
-            s += val
-            n += 1
-    if n == 0:
-        return (float("nan"), 0)
-    return (s / n, n)
 
 
 # ----------------------------------------------------------- plot helpers
