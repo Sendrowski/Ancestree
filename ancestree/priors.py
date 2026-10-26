@@ -723,23 +723,13 @@ class AdaptiveIngroupWeight(IngroupWeight):
         ``1 - P_j``, other alleles ``-inf``.
         """
         n_sub = self.subsample_size
-        j_values = np.arange(n_sub + 1)
         m = KingmanIngroupWeight._hypergeom_pmf(int(n_obs), int(n_minor), int(n_sub))
-        # Per-j conditional ancestral probabilities for major and minor.
-        p_major_given_j = np.array([self._pi[j] for j in j_values], dtype=float)
-        p_minor_given_j = 1.0 - p_major_given_j
-
+        p_major = np.array([self._pi[j] for j in range(n_sub + 1)], dtype=float)
         out = np.full(4, -np.inf)
         with np.errstate(divide="ignore"):
-            log_m = np.log(np.where(m > 0, m, 1.0))  # mask zeros; -inf below
-            log_pmaj = np.log(np.where(p_major_given_j > 0, p_major_given_j, 1.0))
-            log_pmin = np.log(np.where(p_minor_given_j > 0, p_minor_given_j, 1.0))
-            # Zero out impossible (mass) and -inf out impossible (conditional).
-            log_m = np.where(m > 0, log_m, -np.inf)
-            log_pmaj = np.where(p_major_given_j > 0, log_pmaj, -np.inf)
-            log_pmin = np.where(p_minor_given_j > 0, log_pmin, -np.inf)
-            out[STATE_INDEX[major]] = float(logsumexp(log_m + log_pmaj))
-            out[STATE_INDEX[minor]] = float(logsumexp(log_m + log_pmin))
+            log_m = np.log(m)
+            out[STATE_INDEX[major]] = float(logsumexp(log_m + np.log(p_major)))
+            out[STATE_INDEX[minor]] = float(logsumexp(log_m + np.log(1.0 - p_major)))
         return out
 
 
