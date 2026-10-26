@@ -2609,6 +2609,12 @@ class FixedTreeInference(Inference):
             prior if prior is not None
             else StationaryPrior(model, self.base_composition)
         )
+        # The readout node. A ladder fit itself maximises at the ingroup MRCA.
+        self.focal = FocalNode.parse(focal)
+        self._engine = Likelihood(model, base_composition=self.base_composition)
+        self._params_mle: np.ndarray | None = None
+        self._model_params_mle: dict[str, float] | None = None
+        self._log_likelihood_mle: float | None = None
 
         if self._no_outgroup_mode:
             # No ladder, parameters or fit: infer() emits the normalised
@@ -2628,11 +2634,6 @@ class FixedTreeInference(Inference):
                 "Supply outgroup_samples for a proper fit, or pass a smoother "
                 "IngroupWeight explicitly."
             )
-            # provenance() and every annotated write read the focal node.
-            self.focal = FocalNode.parse(focal)
-            self._params_mle = None
-            self._log_likelihood_mle = None
-            self._model_params_mle = None
             return
 
         if self._given_tree:
@@ -2642,14 +2643,8 @@ class FixedTreeInference(Inference):
                     "tree used as given, where every sample is a tip of the "
                     "tree."
                 )
-            self.focal = FocalNode.parse(focal)
             self._warn_single_ingroup(len(self._resolved_ingroup))
             self.ingroup_weight = None
-            self._engine = Likelihood(
-                model, base_composition=self.base_composition)
-            self._params_mle = None
-            self._log_likelihood_mle = None
-            self._model_params_mle = None
             return
 
         if self.n_starts < 1:
@@ -2693,10 +2688,6 @@ class FixedTreeInference(Inference):
         if not self.fit_required:
             tree.set_params(x0)
 
-        self._engine = Likelihood(
-            model,
-            base_composition=self.base_composition,
-        )
         from ancestree.models import _PiModel
 
         if (isinstance(model, _PiModel)
@@ -2732,10 +2723,6 @@ class FixedTreeInference(Inference):
             model.free_params[name][0] for name in self._model_free_param_names
         ]
 
-        self._params_mle: np.ndarray | None = None
-        self._model_params_mle: dict[str, float] | None = None
-        self._log_likelihood_mle: float | None = None
-
         if not self.tree.ingroup_samples:
             self._refuse_empty_ingroup(
                 len(self.tree.ingroup_samples) + len(self.tree.outgroup_samples),
@@ -2743,9 +2730,6 @@ class FixedTreeInference(Inference):
         self._fit_configs = self._fit_weights = self._fit_log_prior = None
         if self.fit_required:
             self._prepare_fit()
-
-        # The readout node. The fit itself maximises at the ingroup MRCA.
-        self.focal = FocalNode.parse(focal)
 
         self._warn_on_redundant_outgroups(outgroup_similarity_threshold)
 
