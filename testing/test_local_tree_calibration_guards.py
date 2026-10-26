@@ -50,7 +50,7 @@ def test_explicit_time_grid_sets_the_bin_count():
     assert hmm.n_time_bins == 3
     sites, names = toy_sites(range(0, 2000, 20))
     b = toy_builder(sites, names, 2000.0, time_grid=grid)
-    assert b.n_time_bins == 3
+    assert b.hmm.n_time_bins == 3
     inf = toy_inference(sites, names, time_grid=grid, n_time_bins=32)
     assert inf.n_time_bins == 3
     np.testing.assert_array_equal(inf.time_grid, grid)

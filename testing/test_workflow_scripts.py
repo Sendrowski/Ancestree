@@ -128,7 +128,7 @@ def test_the_deepened_grid_extends_the_builders_own():
     exec(compile(ast.Module([node], []), "deepen", "exec"), namespace)
     sites, names = toy_sites(range(0, 2000, 20))
     builder = toy_builder(sites, names, 2010.0)
-    own = builder.prepared_hmm()[2].edges
+    own = builder.prepared_hmm[2].edges
     edges = namespace["_deepen_floor"](builder, 10.0)
     assert edges[-1] == own[-1]
     assert edges[0] == max(own[0] / 10.0, 10.0)

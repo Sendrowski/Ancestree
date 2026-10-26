@@ -174,7 +174,7 @@ def test_builder_rejects_nonpositive_rec_rate():
 
 
 def test_builder_needs_two_samples():
-    with pytest.raises(ValueError, match=r"need >= 2 samples, got 1"):
+    with pytest.raises(ValueError, match=r"need >= 2 haplotypes, got 1"):
         LocalTreeBuilder(
             [], mu=1.25e-8, rec_rate=1e-8,
             sample_names=["only_one"], sequence_length=1000.0,

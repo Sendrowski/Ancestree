@@ -708,7 +708,7 @@ class TestHmmBlocks:
             geometry = builder.geometry
             edges = geometry.origin + geometry.block_edges
             assert edges[0] > left - block and edges[-1] < right + block
-            inputs_ = builder.prepared_hmm()[2]
+            inputs_ = builder.prepared_hmm[2]
             assert inputs_.counts.shape[1] == geometry.n_blocks
 
 

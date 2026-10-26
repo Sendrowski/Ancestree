@@ -47,7 +47,7 @@ def test_a_zero_rate_mutation_interval_is_floored_not_zero():
     mm = msprime.RateMap(position=[0.0, 6000.0, L], rate=[0.0, 1.25e-8])
     b = _builder(mutation_map=mm)
     _g, _bos, _pos, n_blocks = b._genotype_matrix()
-    step, block_mask, escale = b._hmm_inputs()
+    step, block_mask, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     zero_blocks = escale[:3]
     assert np.all(zero_blocks > 0.0), (
         f"zero-rate blocks have escale {zero_blocks}; a zero scale makes the "
@@ -64,7 +64,7 @@ def test_a_zero_rate_region_does_not_pin_tmrca_to_the_deepest_bin():
     mm = msprime.RateMap(position=[0.0, 6000.0, L], rate=[0.0, 1.25e-8])
     b = _builder(mutation_map=mm)
     g, _pos, bos, n_blocks = b._genotype_matrix()
-    step, block_mask, escale = b._hmm_inputs()
+    step, block_mask, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     hmm = anc.PairwiseCoalescentHMM(n_haplotypes=len(NAMES), mu=1.25e-8,
                                    rec_rate=1e-8, block_size=BLOCK)
     t = hmm.block_tmrcas(g, bos, n_blocks, step=step, block_mask=block_mask,
@@ -78,7 +78,7 @@ def test_a_masked_recombination_interval_is_not_perfect_linkage():
                          rate=[1e-8, np.nan, 1e-8])
     b = _builder(recombination_map=rm)
     _g, _bos, _pos, n_blocks = b._genotype_matrix()
-    step, block_mask, escale = b._hmm_inputs()
+    step, block_mask, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     # A step whose blocks straddle the masked interval carries no cumulative
     # mass, so without the guard it reads as 0 and r ** 0 == 1 is perfect
     # linkage. The guard invalidates it, and an invalid step falls back to the
@@ -140,7 +140,8 @@ def test_an_uncovered_stretch_takes_mu_in_the_hmm_and_the_kernel(partial,
     rate and NaN sites at ``mu``, while the HMM took ``mu`` past the end and
     masked NaN blocks as zero-rate."""
     a, b = _builder(mutation_map=partial), _builder(mutation_map=complete)
-    for x, y in zip(a._hmm_inputs(), b._hmm_inputs()):
+    for x, y in zip(a.geometry.hmm_inputs(a.rec_rate, a.mu, log=None),
+                    b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)):
         assert (x is None) == (y is None)
         if x is not None:
             np.testing.assert_array_equal(x, y)

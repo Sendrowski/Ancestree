@@ -645,7 +645,8 @@ class LocalTreeBuilder(ReprMixin):
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
-        return {"window_bp": self.window_bp, "n_time_bins": self.n_time_bins}
+        return {"window_bp": self.window_bp,
+                "n_time_bins": self.hmm.n_time_bins}
 
     def __init__(
         self,
@@ -667,10 +668,6 @@ class LocalTreeBuilder(ReprMixin):
         geometry: "BuildGeometry | None" = None,
         position_base: int = 0,
     ) -> None:
-        if not np.isfinite(mu):
-            raise ValueError(f"mu must be positive and finite, got {mu}")
-        if mu <= 0:
-            raise ValueError(f"mu must be positive, got {mu}")
         if rec_rate <= 0:
             raise ValueError(f"rec_rate must be positive, got {rec_rate}")
         # Columnar: from_sites consumes the input one site at a time.
@@ -688,8 +685,6 @@ class LocalTreeBuilder(ReprMixin):
         self.mu = float(mu)
         self.rec_rate = float(rec_rate)
         self.sample_names: list[str] = list(sample_names)
-        if len(self.sample_names) < 2:
-            raise ValueError(f"need >= 2 samples, got {len(self.sample_names)}")
         if geometry is None:
             if sequence_length is None:
                 raise ValueError(
@@ -713,17 +708,14 @@ class LocalTreeBuilder(ReprMixin):
                                                     geometry.position_base)
         self.block_size, self.window_bp = geometry.block, geometry.window
         _check_on_axis(self.sites.pos, geometry.axis_length)
-        self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
-        if self.time_grid is not None:
-            n_time_bins = self.time_grid.size - 1
-        PairwiseCoalescentHMM._check_n_time_bins(n_time_bins)
-        self.n_time_bins = int(n_time_bins)
+        #: The pairwise-coalescent HMM the build runs.
+        self.hmm = PairwiseCoalescentHMM(
+            len(self.sample_names), mu=mu, rec_rate=rec_rate,
+            block_size=geometry.block, n_time_bins=n_time_bins,
+            time_grid=time_grid)
         self.bake_genotypes = bool(bake_genotypes)
         self._validate_coverage = bool(validate_coverage)
         self._ts = None
-        self._pair_block_t: "np.ndarray | None" = None
-        self._pair_called: "np.ndarray | None" = None
-        self._pair_block_sites: "np.ndarray | None" = None
 
     @property
     def axis_length(self) -> float:
@@ -759,12 +751,7 @@ class LocalTreeBuilder(ReprMixin):
         return (g, positions, self.geometry.block_of(self.sites.pos),
                 self.geometry.n_blocks)
 
-    def _hmm_inputs(self):
-        """Per-block ``(step, block_mask, emit_scale)`` of
-        :meth:`BuildGeometry.hmm_inputs() <ancestree._geometry.BuildGeometry.hmm_inputs>`."""
-        return self.geometry.hmm_inputs(self.rec_rate, self.mu, log=self._log,
-                                        validate=self._validate_coverage)
-
+    @cached_property
     def prepared_hmm(self) -> "tuple[np.ndarray, np.ndarray, HmmInputs]":
         """The genotypes and the HMM inputs prepared from them.
 
@@ -774,17 +761,24 @@ class LocalTreeBuilder(ReprMixin):
             :meth:`PairwiseCoalescentHMM.prepare() <ancestree.local_tree_inference.PairwiseCoalescentHMM.prepare>`.
         """
         g, positions, block_of_site, n_blocks = self._genotype_matrix()
-        return g, positions, self._prepare(g, block_of_site, n_blocks)
+        step, block_mask, emit_scale = self.geometry.hmm_inputs(
+            self.rec_rate, self.mu, log=self._log,
+            validate=self._validate_coverage)
+        return g, positions, self.hmm.prepare(
+            g, block_of_site, n_blocks, step=step, block_mask=block_mask,
+            emit_scale=emit_scale)
 
-    def _prepare(self, g, block_of_site, n_blocks) -> HmmInputs:
-        """The :class:`HmmInputs` of genotypes ``g`` on this build's blocks."""
-        step, block_mask, emit_scale = self._hmm_inputs()
-        return PairwiseCoalescentHMM(
-            len(self.sample_names), mu=self.mu, rec_rate=self.rec_rate,
-            block_size=self.block_size, n_time_bins=self.n_time_bins,
-            time_grid=self.time_grid,
-        ).prepare(g, block_of_site, n_blocks, step=step,
-                  block_mask=block_mask, emit_scale=emit_scale)
+    @cached_property
+    def block_tmrcas(self) -> np.ndarray:
+        """``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA in generations per
+        haplotype pair and HMM block, rows in :func:`itertools.combinations`
+        order."""
+        if not self._quiet:
+            n_hap = len(self.sample_names)
+            self._log.info(
+                "Running pairwise-coalescent HMM (%s pairs × %s blocks)",
+                f"{n_hap * (n_hap - 1) // 2:,}", f"{self.geometry.n_blocks:,}")
+        return PairwiseCoalescentHMM.posterior_means(self.prepared_hmm[2])
 
     def to_tree_sequence(self):
         """Build (and cache) the self-describing local-tree sequence.
@@ -803,10 +797,9 @@ class LocalTreeBuilder(ReprMixin):
             return self._ts
         import tskit
 
-        g, pos0, block_of_site, n_blocks = self._genotype_matrix()
         # tskit requires unique site positions.
-        if pos0.shape[0] > 1:
-            uniq_pos, counts = np.unique(pos0, return_counts=True)
+        if len(self.sites) > 1:
+            uniq_pos, counts = np.unique(self.sites.pos, return_counts=True)
             if np.any(counts > 1):
                 dup = uniq_pos[counts > 1]
                 raise ValueError(
@@ -817,7 +810,8 @@ class LocalTreeBuilder(ReprMixin):
                     f"sites split across records at the same position are the "
                     f"usual cause."
                 )
-        pair_block_t = self._pairwise_block_tmrcas(g, block_of_site, n_blocks)
+        pair_block_t = self.block_tmrcas
+        g, pos0, inputs = self.prepared_hmm
         geometry = self.geometry
         trees = geometry.tree_windows
         intervals = geometry.tree_intervals
@@ -830,7 +824,7 @@ class LocalTreeBuilder(ReprMixin):
             dtype=np.float64).reshape(-1, n * (n - 1) // 2)
         linkages = np.empty((len(condensed), n - 1, 4))
         upgma_batch(condensed, n, linkages, window_exposure(
-            self._pair_called, self._pair_block_sites, lo, hi))
+            inputs.called, inputs.block_sites, lo, hi))
         topo = build_windowed_tree_sequence(
             n, self.axis_length, intervals, list(linkages),
             sample_names=self.sample_names)
@@ -888,29 +882,6 @@ class LocalTreeBuilder(ReprMixin):
         self._ts = tables.tree_sequence()
         return self._ts
 
-    def _pairwise_block_tmrcas(
-        self, g: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
-    ) -> np.ndarray:
-        """Run (and cache) the pairwise-coalescent HMM.
-
-        :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA matrix, rows in
-            :func:`itertools.combinations` order.
-        """
-        if self._pair_block_t is not None:
-            return self._pair_block_t
-        n_hap = len(self.sample_names)
-        if not self._quiet:
-            n_all = n_hap * (n_hap - 1) // 2
-            self._log.info(
-                "Running pairwise-coalescent HMM (%s pairs × %s blocks)",
-                f"{n_all:,}", f"{n_blocks:,}",
-            )
-        inputs = self._prepare(g, block_of_site, n_blocks)
-        self._pair_block_t = PairwiseCoalescentHMM.posterior_means(inputs)
-        self._pair_called, self._pair_block_sites = (inputs.called,
-                                                     inputs.block_sites)
-        return self._pair_block_t
-
     def pairwise_tmrcas(self) -> PairwiseTmrcas:
         """Inferred per-block pairwise TMRCAs (the raw HMM output).
 
@@ -929,8 +900,6 @@ class LocalTreeBuilder(ReprMixin):
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
         """
-        g, _pos0, block_of_site, n_blocks = self._genotype_matrix()
-        pair_block_t = self._pairwise_block_tmrcas(g, block_of_site, n_blocks)
         names = self.sample_names
         pairs = tuple((names[a], names[b])
                       for a, b in combinations(range(len(names)), 2))
@@ -941,12 +910,12 @@ class LocalTreeBuilder(ReprMixin):
         span, core = geometry.tree_span, geometry.core
         s0, s1 = geometry.stretch
         owner = np.clip(mids, s0, np.nextafter(s1, -np.inf))
-        keep = (np.zeros(n_blocks, dtype=bool) if span is None else
+        keep = (np.zeros(geometry.n_blocks, dtype=bool) if span is None else
                 (hi > span[0]) & (lo < span[1])
                 & (owner >= core[0]) & (owner < core[1]))
         return PairwiseTmrcas(tuple(names), pairs,
                               geometry.origin + mids[keep],
-                              pair_block_t[:, keep])
+                              self.block_tmrcas[:, keep])
 
     def write(self, path: "str | os.PathLike") -> None:
         """Dump the inferred local-tree sequence to a ``.trees`` file."""

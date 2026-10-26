@@ -99,7 +99,7 @@ def test_the_final_ragged_block_is_written():
     _g, _pos, _bos, nb = builder._genotype_matrix()
     assert nb == 13
     # End to end: every per-block TMRCA is written (no leftover zero column).
-    pair_block_t = builder._pairwise_block_tmrcas(_g, _bos, nb)
+    pair_block_t = builder.block_tmrcas
     assert (pair_block_t[:, -1] > 0).all(), "final block left unwritten (zero)"
 
 
@@ -412,14 +412,13 @@ def test_genotype_matrix_refuses_a_sample_observed_nowhere():
         b._genotype_matrix()
 
 
-def test_pairwise_block_tmrcas_are_cached():
+def test_block_tmrcas_are_cached():
     """A second call returns the array of the first without a rerun."""
     sites, names = toy_sites(range(0, 1000, 20))
     b = toy_builder(sites, names, 1000.0)
-    g, _pos, bos, nb = b._genotype_matrix()
-    first = b._pairwise_block_tmrcas(g, bos, nb)
-    assert b._pairwise_block_tmrcas(g, bos, nb) is first
-    assert first.shape == (6, nb)
+    first = b.block_tmrcas
+    assert b.block_tmrcas is first
+    assert first.shape == (6, b.geometry.n_blocks)
 
 
 def test_uncalled_site_is_left_out_of_the_trees_and_scored_flat(caplog):
@@ -1390,7 +1389,7 @@ def test_accessibility_block_fraction_reaches_the_emission_scale():
     frac = b.geometry.accessible_fraction()
     np.testing.assert_allclose(
         frac, [0.0, 0.5, 1.0, 1.0, 0.2, 0.0, 0.0, 0.0, 1.0, 1.0])
-    _step, mask, escale = b._hmm_inputs()
+    _step, mask, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     np.testing.assert_array_equal(
         mask,
         [False, True, True, True, True, False, False, False, True, True])
@@ -1416,7 +1415,7 @@ def test_a_block_below_the_accessible_floor_does_not_emit():
                        (bs, bs + 100.0),  # 10% callable
                        (2 * bs, 3 * bs)],  # fully accessible
     )
-    _step, mask, escale = b._hmm_inputs()
+    _step, mask, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     np.testing.assert_array_equal(mask, [False, True, True])
     np.testing.assert_allclose(escale, [0.025, 0.1, 1.0])
 
@@ -1440,7 +1439,8 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         accessibility=[(0, 10040)],
     )
     np.testing.assert_allclose(tiny.geometry.accessible_fraction(), np.ones(11))
-    _step, mask, _escale = tiny._hmm_inputs()
+    _step, mask, _escale = tiny.geometry.hmm_inputs(tiny.rec_rate, tiny.mu,
+                                                    log=None)
     assert mask is not None and not mask[-1] and mask[:-1].all()
 
     # 400 bp of 1000 is 0.4, above the floor: emits at 0.4.
@@ -1449,7 +1449,7 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         sequence_length=10400, block_size=1000,
         accessibility=[(0, 10400)],
     )
-    _step, mask, escale = b._hmm_inputs()
+    _step, mask, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     np.testing.assert_array_equal(mask, np.ones(11, dtype=bool))
     expected = np.ones(11)
     expected[-1] = 400 / 1000
@@ -1460,7 +1460,8 @@ def test_a_truncated_final_block_carries_the_exposure_its_span_affords():
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=10400, block_size=1000,
     )
-    np.testing.assert_allclose(bare._hmm_inputs()[2], expected)
+    np.testing.assert_allclose(
+        bare.geometry.hmm_inputs(bare.rec_rate, bare.mu, log=None)[2], expected)
 
     # The final block holds 40 bp, of which 20 are accessible.
     half = LocalTreeBuilder(
@@ -1487,10 +1488,11 @@ def test_the_last_block_reads_the_mask_and_map_at_a_1_based_last_base(length):
                            rate=[mu, 3 * mu])
 
     def exposure(base, **maps):
-        return LocalTreeBuilder(
+        b = LocalTreeBuilder(
             [], mu=mu, rec_rate=1e-8, sample_names=["a", "b"],
             sequence_length=length, block_size=bs, position_base=base,
-            **maps)._hmm_inputs()[2]
+            **maps)
+        return b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)[2]
 
     for base, last in ((1, (span + 1) / bs), (0, span / bs)):
         masked = exposure(base, accessibility=[(0.0, length + 1.0)])
@@ -1524,7 +1526,8 @@ def test_a_chunked_run_reads_the_last_base_like_an_unchunked_one(tmp_path):
             vcf, JC69(), mu=MU, rec_rate=REC, sequence_length=length,
             window=200, block_size=bs, progress=False, accessibility=str(bed),
             mutation_map=str(graph), **kw)
-        return list(inf.segments())[-1]._hmm_inputs()[2][-1]
+        b = list(inf.segments())[-1]
+        return b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)[2][-1]
 
     # The last block spans POS 1950-2000, 51 bases: POS 1950-1970 and 2000
     # are accessible, and the mean rate is (50 + 4) / 51 mu.
@@ -1574,7 +1577,7 @@ def test_sub_block_gaps_leave_the_posterior_tmrca_unbiased():
     builder = LocalTreeBuilder(
         [], mu=mu, rec_rate=rec, sample_names=names, sequence_length=length,
         block_size=block_size, accessibility=acc)
-    _step, mask, escale = builder._hmm_inputs()
+    _step, mask, escale = builder.geometry.hmm_inputs(rec, mu, log=None)
     assert 0.4 < float(np.mean(escale)) < 0.6, (
         f"the mask is meant to leave about half of each block callable, got a "
         f"mean callable fraction of {float(np.mean(escale)):.3f}")
@@ -1622,7 +1625,7 @@ def test_recombination_map_step_tracks_local_rate():
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=900, block_size=100, recombination_map=rm,
     )
-    step, _, _ = b._hmm_inputs()
+    step, _, _ = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     assert step is not None and len(step) == 8
     assert step[3] == pytest.approx(5.0, rel=0.05)  # inside the 5× hotspot
     assert step[0] == pytest.approx(1.0, rel=0.05)  # 1× flank
@@ -1733,7 +1736,7 @@ def test_mutation_map_emit_scale_tracks_local_rate():
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=900, block_size=100, mutation_map=mm,
     )
-    _, _, escale = b._hmm_inputs()
+    _, _, escale = b.geometry.hmm_inputs(b.rec_rate, b.mu, log=None)
     assert escale is not None and len(escale) == 9
     assert escale[4] == pytest.approx(5e-8 / 1.25e-8, rel=0.05)  # hotspot block
     assert escale[0] == pytest.approx(1.0, rel=0.05)  # reference flank

@@ -1016,7 +1016,7 @@ class SegmentEnsemble:
         self.builder = builder  # kept for iter_tree_sequences()'s window geometry
         geometry = builder.geometry
 
-        genotypes, positions, inputs = builder.prepared_hmm()
+        genotypes, positions, inputs = builder.prepared_hmm
         n_blocks = len(inputs.block_sites)
         self.positions = positions.astype(np.int64)
         self.tip_states = genotypes

@@ -113,7 +113,7 @@ def _deepen_floor(builder, scale):
     """
     if scale == 1.0:
         return None
-    edges = builder.prepared_hmm()[2].edges
+    edges = builder.prepared_hmm[2].edges
     step = np.log10(edges[1] / edges[0])
     # Calibration puts the floor at the median over pairs of each pair's mean
     # crude TMRCA divided by 200, clamped at 10 generations. The clamp holds
@@ -236,7 +236,12 @@ def main() -> None:
         geometry = builder.geometry
         origin = geometry.origin
         core_lo, core_hi = geometry.genome_core
-        builder.time_grid = _deepen_floor(builder, FLOOR_SCALE)
+        grid = _deepen_floor(builder, FLOOR_SCALE)
+        if grid is not None:
+            builder = anc.LocalTreeBuilder(
+                builder.sites, mu=builder.mu, rec_rate=builder.rec_rate,
+                sample_names=builder.sample_names, time_grid=grid,
+                validate_coverage=False, geometry=geometry)
         ens = SegmentEnsemble(builder, model, n_hap, None)
         intervals = geometry.windows
         edges = origin + np.array(
@@ -244,9 +249,7 @@ def main() -> None:
         centre = 0.5 * (edges[:-1] + edges[1:])
         owned = (centre >= core_lo) & (centre < core_hi)
 
-        genotypes, _pos0, block_of_site, n_blocks = builder._genotype_matrix()
-        block_t = builder._pairwise_block_tmrcas(
-            genotypes, block_of_site, n_blocks)
+        block_t = builder.block_tmrcas
         keep = owned[ens.needed]
         rows = ens.needed[keep]
         point = np.stack([block_t[:, ens.blk_lo[w]:ens.blk_hi[w]].mean(axis=1)

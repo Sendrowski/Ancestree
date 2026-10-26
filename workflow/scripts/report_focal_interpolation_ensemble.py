@@ -220,9 +220,7 @@ class EnsembleFocalScan:
             raise ValueError("the segment's sites differ from the panel's")
 
         # The point estimate the non-marginalised mode scores.
-        genotypes, _pos0, block_of_site, n_blocks = builder._genotype_matrix()
-        block_t = builder._pairwise_block_tmrcas(
-            genotypes, block_of_site, n_blocks)
+        block_t = builder.block_tmrcas
         ens = self.ensemble
         self.point_condensed = np.ascontiguousarray(np.stack(
             [block_t[:, ens.blk_lo[w]:ens.blk_hi[w]].mean(axis=1)
