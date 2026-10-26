@@ -119,12 +119,9 @@ class Inference(ReprMixin, ABC):
     _log_L_sink: "dict | None" = None
     #: The current walk's diagnostic counts.
     _tally: _Tally = _Tally()
-    #: Set once a walk has finished, so the tally is final.
-    #: Provenance written ahead of the walk omits them.
-    _focal_counts_complete: bool = False
-    #: The last completed walk's focal diagnostics, kept for the provenance
-    #: record because the live counters are reset when the walk ends.
-    _focal_totals: dict = {}
+    #: The last finished walk's counts, for the provenance record. ``None``
+    #: until a walk finishes, so provenance written ahead of it omits them.
+    _walk_tally: "_Tally | None" = None
 
     #: The substitution model every site is scored under.
     model: "SubstitutionModel"
@@ -210,8 +207,11 @@ class Inference(ReprMixin, ABC):
 
     def _log_uniform_fallback_summary(self) -> None:
         """Log the walk's diagnostic tally once, at the end of :meth:`infer`,
-        then publish the focal totals and reset the tally.
+        then keep it as the finished walk's and reset it. A quiet inference
+        leaves its tally for the parent that drives it.
         """
+        if self._quiet:
+            return
         tally = self._tally
         n = tally.uniform_fallback
         if n:
@@ -246,32 +246,23 @@ class Inference(ReprMixin, ABC):
         summary = self._focal_summary()
         if summary:
             self._log.info("Focal node: %s", summary)
-        # The tally is per walk. The focal totals go to the provenance record.
-        self._publish_focal_totals()
-        self._tally = _Tally()
+        self._walk_tally, self._tally = tally, _Tally()
 
     def _focal_totals_entry(self) -> dict:
-        """The end-of-walk focal tallies.
+        """The finished walk's focal tallies.
 
-        :return: The tallies, empty until the walk publishes them and at a
-            focal node that is the tree's own root.
+        :return: The tallies, empty until a walk finishes and at a focal node
+            that is the tree's own root.
         """
-        if self.focal.is_root or not self._focal_counts_complete:
+        tally = self._walk_tally
+        if self.focal.is_root or tally is None:
             return {}
-        return dict(self._focal_totals)
-
-    def _publish_focal_totals(self) -> None:
-        """Record the finished walk's focal diagnostics for the provenance.
-
-        Every path that completes a walk calls this before its tally is reset.
-        """
-        self._focal_totals = {
+        return {
             "n_trees_ingroup_non_monophyletic":
-                int(self._tally.ingroup_non_monophyletic),
+                int(tally.ingroup_non_monophyletic),
             "n_segments_without_ingroup_mrca":
-                int(self._tally.focal_multiroot_fallback),
+                int(tally.focal_multiroot_fallback),
         }
-        self._focal_counts_complete = True
 
     def _focal_summary(self) -> str | None:
         """One line on how the focal node behaved over the walk.
@@ -1671,7 +1662,6 @@ class ARGBasedInference(Inference):
             ingroup_non_monophyletic=drawn.ingroup_non_monophyletic,
             focal_multiroot_fallback=drawn.focal_multiroot_fallback,
             uncoalesced_segments=drawn.uncoalesced_segments)
-        self._publish_focal_totals()
 
     def _chain_draws(self):
         """Every draw in the posterior sample, resolving paths as they come.
@@ -1715,7 +1705,6 @@ class ARGBasedInference(Inference):
         # A fresh tally per draw. The parent sums the genealogy-level counts
         # and tallies the per-site ones over the sites the merge emits.
         clone._tally = _Tally()
-        clone._focal_counts_complete = False
         return clone
 
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
@@ -1735,23 +1724,21 @@ class ARGBasedInference(Inference):
 
         :return: Iterator of ``(Site, Posterior)`` pairs.
         """
-        if self._draws_rest is not None:
-            if not self._quiet:
-                self._log.info(
-                    "Inferring the ancestral allele, marginalising over an ARG "
-                    "posterior sample")
-            yield from self._with_baseline_check(self._infer_marginalised())
-            if not self._quiet:
-                self._log_uniform_fallback_summary()
-            return
-        quiet = self._quiet
-        if not quiet:
+        marginal = self._draws_rest is not None
+        if marginal and not self._quiet:
+            self._log.info(
+                "Inferring the ancestral allele, marginalising over an ARG "
+                "posterior sample")
+        elif not self._quiet:
             self._log.info(
                 "Inferring the ancestral allele at %s sites over %s local trees from the ARG",
                 f"{self.ts.num_sites:,}", f"{self.ts.num_trees:,}",
             )
-        self._check_alphabet()
-        yield from self._with_baseline_check(self._infer_all(quiet))
+        if not marginal:
+            self._check_alphabet()
+        yield from self._with_baseline_check(
+            self._infer_marginalised() if marginal else self._infer_fork_pool())
+        self._log_uniform_fallback_summary()
 
     def _check_alphabet(self) -> None:
         """Refuse a tree sequence carrying no allele the model can read.
@@ -1779,14 +1766,6 @@ class ARGBasedInference(Inference):
             f"{sorted(states)}. A tree sequence built by tsinfer, SINGER or "
             f"msprime's binary mutation model carries a '0'/'1' alphabet and "
             f"must be re-encoded to nucleotides first.")
-
-    def _infer_all(
-        self, quiet: bool,
-    ) -> Iterator[tuple[Site, Posterior]]:
-        """Per-site posterior stream over the whole tree sequence."""
-        yield from self._infer_fork_pool()
-        if not quiet:
-            self._log_uniform_fallback_summary()
 
     def _infer_range(
         self,
