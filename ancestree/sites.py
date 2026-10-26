@@ -1249,21 +1249,16 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         return {}
 
     @staticmethod
-    def _refuse_unsupported_filters(kind, sample_filter, chrom_filter, ploidy,
-                                    phased=None, phase_seed=None):
+    def _refuse_unsupported_filters(kind, **filters):
         """Reject filter arguments a source cannot honour.
 
         :param kind: Description of the source, for the message.
+        :param filters: The reader arguments given, by name.
         :raises ValueError: If any filter was supplied.
         """
-        given = [n for n, v in (("sample_filter", sample_filter),
-                                ("chrom_filter", chrom_filter),
-                                ("ploidy", ploidy),
-                                ("phased", phased),
-                                ("phase_seed", phase_seed)) if v is not None]
-        if given:
+        if filters:
             raise ValueError(
-                f"{', '.join(given)} cannot be applied to {kind}: it carries its "
+                f"{', '.join(filters)} cannot be applied to {kind}: it carries its "
                 f"own panel and contigs. Subset the source before passing it, or "
                 f"pass a VCF/VCZ path, which these arguments do apply to.")
 
@@ -1325,58 +1320,35 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
             or a pre-built source, which carry their own panel and contigs, or
             if a directory holds no Zarr store.
         """
-        if isinstance(source, (SiteSource, list)):
-            cls._refuse_unsupported_filters(
-                "a pre-built site source", sample_filter, chrom_filter,
-                ploidy, phased, phase_seed)
-            return source
-        if isinstance(source, (str, os.PathLike)):
-            fmt = _path_format(source)
-            if fmt == "trees":
-                import tskit
-                from ancestree.sources import TskitSource
-                cls._refuse_unsupported_filters(
-                    "a tree sequence", sample_filter, chrom_filter,
-                    ploidy, phased, phase_seed)
-                return TskitSource(tskit.load(source))
-            kwargs: dict = {}
-            if sample_filter is not None:
-                kwargs["sample_filter"] = sample_filter
-            if chrom_filter is not None:
-                kwargs["chrom_filter"] = chrom_filter
-            if phased is not None:
-                kwargs["phased"] = phased
-            if phase_seed is not None:
-                kwargs["phase_seed"] = phase_seed
-            if fmt == "vcz":
-                from ancestree.sources import VcfZarrSource
-                if os.path.isdir(source) and not _is_zarr_store(source):
-                    raise ValueError(
-                        f"{source} is a directory but not a Zarr store; a "
-                        f"VCF Zarr input holds .zgroup or zarr.json.")
-                if ploidy is not None:
-                    raise ValueError(
-                        "ploidy is read from the store's call_genotype array for "
-                        "a VCF Zarr source, so it cannot be overridden; drop "
-                        "ploidy= or supply the data as VCF / BCF."
-                    )
-                return VcfZarrSource(source, **kwargs)
-            from ancestree.sources import CyVCF2Source
-            if ploidy is not None:
-                kwargs["ploidy"] = ploidy
-            return CyVCF2Source(source, **kwargs)
         import tskit
 
-        if isinstance(source, tskit.TreeSequence):
-            from ancestree.sources import TskitSource
-            cls._refuse_unsupported_filters(
-                "a tree sequence", sample_filter, chrom_filter,
-                ploidy, phased, phase_seed)
-            return TskitSource(source)
+        from ancestree.sources import CyVCF2Source, TskitSource, VcfZarrSource
+
+        filters = {k: v for k, v in (
+            ("sample_filter", sample_filter), ("chrom_filter", chrom_filter),
+            ("ploidy", ploidy), ("phased", phased),
+            ("phase_seed", phase_seed)) if v is not None}
+        is_path = isinstance(source, (str, os.PathLike))
+        fmt = _path_format(source) if is_path else None
+        if fmt == "trees" or isinstance(source, tskit.TreeSequence):
+            cls._refuse_unsupported_filters("a tree sequence", **filters)
+            return TskitSource(tskit.load(source) if is_path else source)
+        if is_path and fmt != "vcz":
+            return CyVCF2Source(source, **filters)
+        if is_path:
+            if os.path.isdir(source) and not _is_zarr_store(source):
+                raise ValueError(
+                    f"{source} is a directory but not a Zarr store; a "
+                    f"VCF Zarr input holds .zgroup or zarr.json.")
+            if ploidy is not None:
+                raise ValueError(
+                    "ploidy is read from the store's call_genotype array for "
+                    "a VCF Zarr source, so it cannot be overridden; drop "
+                    "ploidy= or supply the data as VCF / BCF."
+                )
+            return VcfZarrSource(source, **filters)
         if hasattr(source, "__iter__"):
-            cls._refuse_unsupported_filters(
-                "a pre-built site source", sample_filter, chrom_filter,
-                ploidy, phased, phase_seed)
+            cls._refuse_unsupported_filters("a pre-built site source", **filters)
             return list(source) if hasattr(source, "__next__") else source
         raise TypeError(
             f"unsupported source type "
