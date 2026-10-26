@@ -1308,10 +1308,6 @@ class SegmentEnsemble:
         b = self.builder
         geometry = b.geometry
         windows = geometry.tree_windows
-        intervals = [geometry.windows[w] for w in windows]
-        span = geometry.tree_span
-        clip = (span is not None and intervals
-                and span != (intervals[0][0], intervals[-1][1]))
         weight = window_exposure(self.hmm_called, self.hmm_block_sites,
                                  self.blk_lo[windows], self.blk_hi[windows])
         n = self.n_hap
@@ -1320,12 +1316,9 @@ class SegmentEnsemble:
                                       seed=seed, windows=windows):
             for member in draws:
                 upgma_batch(member, n, Z, weight)
-                ts = build_windowed_tree_sequence(
-                    n, b.axis_length, intervals, list(Z),
+                yield build_windowed_tree_sequence(
+                    n, b.axis_length, geometry.tree_intervals, list(Z),
                     sample_names=b.sample_names)
-                yield (ts.keep_intervals([span], simplify=False,
-                                         record_provenance=False)
-                       if clip else ts)
 
     def posterior(self, fraction: float, n_members: int, *, n_coal: int = -1,
                   member_chunk: int = 8, seed: int = 0):

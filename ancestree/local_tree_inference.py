@@ -820,7 +820,7 @@ class LocalTreeBuilder(ReprMixin):
         pair_block_t = self._pairwise_block_tmrcas(g, block_of_site, n_blocks)
         geometry = self.geometry
         trees = geometry.tree_windows
-        intervals = [geometry.windows[w] for w in trees]
+        intervals = geometry.tree_intervals
         lo, hi = (b[trees] for b in geometry.window_blocks)
         # Exact UPGMA over the full pairwise-TMRCA matrix (combinations order).
         from ancestree._ensemble import upgma_batch, window_exposure
@@ -835,10 +835,6 @@ class LocalTreeBuilder(ReprMixin):
             n, self.axis_length, intervals, list(linkages),
             sample_names=self.sample_names)
         span = geometry.tree_span
-        if span is not None and intervals and span != (intervals[0][0],
-                                                       intervals[-1][1]):
-            topo = topo.keep_intervals([span], simplify=False,
-                                       record_provenance=False)
         if not self.bake_genotypes:
             self._ts = topo
             return self._ts
@@ -851,8 +847,8 @@ class LocalTreeBuilder(ReprMixin):
         # Only the sites under a tree are baked.
         lo_site, hi_site = (0, 0) if span is None else np.searchsorted(
             pos0[order], span, side="left")
-        window_of = np.searchsorted([iv[0] for iv in intervals],
-                                    pos0[order], side="right") - 1
+        window_of = np.searchsorted(intervals[:, 0], pos0[order],
+                                    side="right") - 1
         n_uncalled = 0
         w_tree = tree = None
         for si in range(lo_site, hi_site):

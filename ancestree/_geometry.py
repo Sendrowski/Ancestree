@@ -328,6 +328,11 @@ class BuildGeometry(ReprMixin):
                         iv[self.tree_windows[-1], 1])
             if right > left:
                 self.tree_span = (float(left), float(right))
+        #: ``(n, 2)`` float64 windows of :attr:`tree_windows`, clipped to
+        #: :attr:`tree_span`.
+        self.tree_intervals = iv[self.tree_windows]
+        if self.tree_span is not None:
+            self.tree_intervals[0, 0], self.tree_intervals[-1, 1] = self.tree_span
 
     def block_of(self, positions) -> np.ndarray:
         """The HMM block holding each position.
