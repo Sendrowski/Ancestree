@@ -43,29 +43,24 @@ rule msl_outgroup_count_figure:
 
 rule gallery_figure:
     """Kernel worked-example gallery (Figure A1): hand-built cases, no data deps."""
-    input:
-        maker = "workflow/scripts/gallery.py",
     output:
-        f"{FIGURES_DIR}/gallery.pdf",
+        pdf = f"{FIGURES_DIR}/gallery.pdf",
+        json = f"{REPORTS}/gallery.json",
     conda:
         "../envs/bench.yml"
-    shell:
-        "python workflow/scripts/gallery.py && "
-        "cp results/reports/gallery.pdf {output}"
+    script:
+        "../scripts/gallery.py"
 
 
 rule root_examples_figure:
     """Root-state posteriors for example site patterns (appendix): one fixed
     genealogy, four tip configurations. Hand-built, no data deps."""
-    input:
-        maker = "workflow/scripts/gallery_root_examples.py",
     output:
-        f"{FIGURES_DIR}/gallery_root_examples.pdf",
+        pdf = f"{FIGURES_DIR}/gallery_root_examples.pdf",
     conda:
         "../envs/bench.yml"
-    shell:
-        "python workflow/scripts/gallery_root_examples.py && "
-        "cp results/reports/gallery_root_examples.pdf {output}"
+    script:
+        "../scripts/gallery_root_examples.py"
 
 
 rule expected_sfs_data:
@@ -225,22 +220,17 @@ rule prior_demog_comparison_figure:
 rule ingroup_size_figure:
     """Ingroup-size saturation (Figure A2)."""
     input:
-        f"{REPORTS}/ingroup_size.json",
-        f"{REPORTS}/outgroup_divergence.json",
-        f"{REPORTS}/single_outgroup_depth.json",
-        maker = "workflow/scripts/plot_benchmarks.py",
+        ingroup = f"{REPORTS}/ingroup_size.json",
+        divergence = f"{REPORTS}/outgroup_divergence.json",
+        single = f"{REPORTS}/single_outgroup_depth.json",
     output:
-        fig_copy = f"{FIGURES_DIR}/bench_ingroup_size.pdf",
-        lines_copy = f"{FIGURES_DIR}/bench_outgroup_divergence_lines.pdf",
-        ingroup_pdf = f"{REPORTS}/ingroup_size.pdf",
+        ingroup_pdf = f"{FIGURES_DIR}/bench_ingroup_size.pdf",
         divergence_pdf = f"{REPORTS}/outgroup_divergence.pdf",
-        divergence_lines_pdf = f"{REPORTS}/outgroup_divergence_lines.pdf",
+        divergence_lines_pdf = f"{FIGURES_DIR}/bench_outgroup_divergence_lines.pdf",
     conda:
         "../envs/bench.yml"
-    shell:
-        "python workflow/scripts/plot_benchmarks.py && "
-        "cp {output.ingroup_pdf} {output.fig_copy} && "
-        "cp {output.divergence_lines_pdf} {output.lines_copy}"
+    script:
+        "../scripts/plot_benchmarks.py"
 
 
 rule bench_sample_scaling:

@@ -2456,13 +2456,16 @@ rule bench_arg_kernel:
     All three modes run on one shared dataset (17 ingroup + 3 outgroups,
     100 Mb, JC69) and infer the same site set, reporting wall-clock seconds
     and peak RSS per (mode, workers, threads) configuration. Each
-    configuration runs in its own subprocess, invoked via ``shell`` because
-    the harness re-execs itself per config."""
+    configuration runs in its own subprocess, the script re-executing
+    itself."""
     input:
         maker = "workflow/scripts/bench_kernel.py",
     output:
         md = f"{REPORTS}/arg_kernel_bench.md",
         json = f"{REPORTS}/arg_kernel_bench.json",
+    params:
+        mu = 1.25e-8,
+        worker_grid = [1, 2, 4, 8],
     # The grid runs up to 8 fork-pool workers and the kernels are numba prange
     # loops, so the worker-scaling rows need real cores to measure anything.
     threads: 16
@@ -2474,8 +2477,8 @@ rule bench_arg_kernel:
         runtime = lambda wildcards, attempt: capped_runtime(480, attempt),
     conda:
         "envs/bench.yml"
-    shell:
-        "python workflow/scripts/bench_kernel.py"
+    script:
+        "scripts/bench_kernel.py"
 
 
 rule kernel_bench_table:

@@ -44,6 +44,19 @@ class TestWorkflowScriptConstructorArity:
         assert not bare, f"bare from_n_target_sites() calls: {bare}"
 
 
+def test_workflow_scripts_are_wired_with_script():
+    """A rule that runs a workflow script through ``shell:`` hands it no
+    ``snakemake`` object, so the script runs on its fallback paths and
+    parameters, as ``bench_arg_kernel`` did."""
+    import re
+
+    rules = [REPO / "workflow" / "Snakefile",
+             *sorted((REPO / "workflow" / "rules").glob("*.smk"))]
+    shelled = sorted({name for path in rules for name in re.findall(
+        r"python workflow/scripts/(\w+\.py)", path.read_text(encoding="utf-8"))})
+    assert not shelled, f"workflow scripts run through shell: {shelled}"
+
+
 def test_the_aborting_file_parses():
     """A malformed line must fail here, not during DAG construction."""
     entries = seeds.aborting_seeds()

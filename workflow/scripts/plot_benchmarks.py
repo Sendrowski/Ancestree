@@ -1,10 +1,10 @@
 """Plots for the ingroup-size and outgroup-divergence grids.
 
-Reads :file:`results/reports/ingroup_size.json` and
-:file:`results/reports/outgroup_divergence.json` and writes two PDF
-plots. Both inputs are produced by the snakemake reports of the
-matching name. Rule ``ingroup_size_figure`` runs this script. It refits
-nothing and only renders.
+Reads :file:`results/reports/ingroup_size.json`,
+:file:`results/reports/outgroup_divergence.json` and
+:file:`results/reports/single_outgroup_depth.json`, produced by the
+snakemake reports of the matching name, and writes three PDF plots. Rule
+``ingroup_size_figure`` runs this script. It refits nothing and only renders.
 
 Run::
 
@@ -18,13 +18,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-REPORTS = Path("results/reports")
-B7_JSON = REPORTS / "ingroup_size.json"
-B8_JSON = REPORTS / "outgroup_divergence.json"
-SINGLE_JSON = REPORTS / "single_outgroup_depth.json"
-B7_PDF = REPORTS / "ingroup_size.pdf"
-B8_PDF = REPORTS / "outgroup_divergence.pdf"
-B8_LINES_PDF = REPORTS / "outgroup_divergence_lines.pdf"
+try:
+    B7_JSON = Path(snakemake.input.ingroup)  # type: ignore[name-defined]
+    B8_JSON = Path(snakemake.input.divergence)  # type: ignore[name-defined]
+    SINGLE_JSON = Path(snakemake.input.single)  # type: ignore[name-defined]
+    B7_PDF = Path(snakemake.output.ingroup_pdf)  # type: ignore[name-defined]
+    B8_PDF = Path(snakemake.output.divergence_pdf)  # type: ignore[name-defined]
+    B8_LINES_PDF = Path(snakemake.output.divergence_lines_pdf)  # type: ignore[name-defined]
+except NameError:
+    B7_JSON = Path("results/reports/ingroup_size.json")
+    B8_JSON = Path("results/reports/outgroup_divergence.json")
+    SINGLE_JSON = Path("results/reports/single_outgroup_depth.json")
+    B7_PDF = Path("reports/manuscripts/latex/figures/bench_ingroup_size.pdf")
+    B8_PDF = Path("results/reports/outgroup_divergence.pdf")
+    B8_LINES_PDF = Path("reports/manuscripts/latex/figures/bench_outgroup_divergence_lines.pdf")
 
 
 def _save_both(fig, pdf_path: Path) -> None:
@@ -322,24 +329,13 @@ def plot_outgroup_divergence_lines(payload: dict, out_pdf: Path,
 
 
 def main() -> None:
-    """Render the ingroup-size and outgroup-divergence benchmark figures.
-
-    Both inputs are required: a missing one is a pipeline error, not a reason
-    to emit half the figures and exit successfully.
-    """
-    REPORTS.mkdir(parents=True, exist_ok=True)
-    missing = [p for p in (B7_JSON, B8_JSON) if not p.exists()]
-    if missing:
-        raise SystemExit(
-            "plot_benchmarks: missing input(s): "
-            + ", ".join(str(p) for p in missing)
-        )
+    """Render the ingroup-size and outgroup-divergence benchmark figures."""
+    for path in (B7_PDF, B8_PDF, B8_LINES_PDF):
+        path.parent.mkdir(parents=True, exist_ok=True)
     with open(B7_JSON, encoding="utf-8") as f:
         plot_ingroup_size(json.load(f), B7_PDF)
-    single = None
-    if SINGLE_JSON.exists():
-        with open(SINGLE_JSON, encoding="utf-8") as f:
-            single = json.load(f)
+    with open(SINGLE_JSON, encoding="utf-8") as f:
+        single = json.load(f)
     with open(B8_JSON, encoding="utf-8") as f:
         b8 = json.load(f)
     plot_outgroup_divergence(b8, B8_PDF)

@@ -6,7 +6,7 @@ a low-frequency derived allele to a genuinely ambiguous one at high frequency
 or under homoplasy.
 
 Reuses the kernel call and drawing primitives of gallery.py. Outputs
-results/reports/gallery_root_examples.pdf.
+reports/manuscripts/latex/figures/gallery_root_examples.pdf.
 """
 from pathlib import Path
 
@@ -61,4 +61,8 @@ def render(cases, out_pdf: Path):
 
 
 if __name__ == "__main__":
-    render(CASES, Path("results/reports/gallery_root_examples.pdf"))
+    try:
+        out_pdf = Path(snakemake.output.pdf)  # type: ignore[name-defined]
+    except NameError:
+        out_pdf = Path("reports/manuscripts/latex/figures/gallery_root_examples.pdf")
+    render(CASES, out_pdf)

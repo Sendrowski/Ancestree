@@ -9,7 +9,8 @@ natively: multi-allelic sites, missing outgroup tips, monoallelic-ingroup
 caterpillar polarisation, recurrent homoplasy, root polytomies, K2 with
 transition bias, and fixed-tree no-MLE.
 
-Outputs ``results/reports/gallery.pdf``.
+Writes the figure to ``reports/manuscripts/latex/figures/gallery.pdf`` and the
+per-case posteriors to ``results/reports/gallery.json``.
 
 Run::
 
@@ -37,7 +38,6 @@ from ancestree.plotting import FOCAL_COLOUR
 from ancestree.trees import RerootedTree
 
 
-OUT_PDF = Path("results/reports/gallery.pdf")
 STATE_COLORS = {"A": "#1f77b4", "C": "#2ca02c", "G": "#ff7f0e", "T": "#d62728"}
 
 
@@ -602,7 +602,7 @@ def _posterior(case) -> np.ndarray:
     return np.exp(log_post - logsumexp(log_post))
 
 
-def render(cases, out_pdf: Path) -> None:
+def render(cases, out_pdf: Path, out_json: Path) -> None:
     fig = plt.figure(figsize=(11, 10.6))
     outer = fig.add_gridspec(4, 2, hspace=0.42, wspace=0.18)
     for i, case in enumerate(cases):
@@ -653,11 +653,17 @@ def render(cases, out_pdf: Path) -> None:
             "map": STATES[int(np.argmax(post))],
             "max_prob": float(np.max(post)),
         })
-    json_path = out_pdf.with_suffix(".json")
-    with open(json_path, "w", encoding="utf-8") as f:
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_json, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    print(f"Wrote {json_path}")
+    print(f"Wrote {out_json}")
 
 
 if __name__ == "__main__":
-    render(CASES, OUT_PDF)
+    try:
+        out_pdf = Path(snakemake.output.pdf)  # type: ignore[name-defined]
+        out_json = Path(snakemake.output.json)  # type: ignore[name-defined]
+    except NameError:
+        out_pdf = Path("reports/manuscripts/latex/figures/gallery.pdf")
+        out_json = Path("results/reports/gallery.json")
+    render(CASES, out_pdf, out_json)
