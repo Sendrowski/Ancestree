@@ -250,25 +250,6 @@ class KingmanIngroupWeight(IngroupWeight):
         m.setflags(write=False)
         return m
 
-    @staticmethod
-    def _count_proportional_log_prior(counts, n_obs: int) -> np.ndarray:
-        """Kingman's count-proportional per-site log weight over the alphabet.
-
-        ``P(ingroup alleles | I = a) ∝ n_a / n_obs``, for the ingroup MRCA ``I``,
-        the count ``n_a`` of allele ``a`` and the total ``n_obs``. Unobserved
-        alleles get ``-inf``.
-
-        :param counts: Allele → observed ingroup count.
-        :param n_obs: Total observed ingroup count.
-        :return: Length-4 log weight in :data:`ancestree.STATES` order.
-        """
-        out = np.full(4, -np.inf)
-        with np.errstate(divide="ignore"):
-            for allele, c in counts.items():
-                out[STATE_INDEX[allele]] = np.log(c / n_obs)
-        return out
-
-
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
@@ -305,12 +286,15 @@ class KingmanIngroupWeight(IngroupWeight):
         return self._log_prior_from_counts(
             site.count_alleles(self.ingroup_samples))
 
-    def _log_prior_from_counts(self, counts: Counter) -> np.ndarray:
-        """The same log vector from a tally the caller supplies.
+    @staticmethod
+    def _log_prior_from_counts(counts: Counter) -> np.ndarray:
+        """The same log vector from a tally the caller supplies:
+        ``log(n_a / n_obs)`` for the count ``n_a`` of allele ``a`` and the total
+        ``n_obs``, ``-inf`` for an unobserved allele.
 
         :param counts: Canonical ingroup allele counts at one site, as
             :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>`
-            returns them over :attr:`ingroup_samples`.
+            returns them.
         :return: Length-4 log vector.
         """
         folded: Counter = Counter()
@@ -327,7 +311,11 @@ class KingmanIngroupWeight(IngroupWeight):
             (observed,) = counts
             out[STATE_INDEX[observed]] = 0.0
             return out
-        return KingmanIngroupWeight._count_proportional_log_prior(counts, n_obs)
+        out = np.full(4, -np.inf)
+        with np.errstate(divide="ignore"):
+            for allele, c in counts.items():
+                out[STATE_INDEX[allele]] = np.log(c / n_obs)
+        return out
 
     def log_probs_from_counts(
         self, counts: Sequence[Counter],
@@ -718,22 +706,10 @@ class AdaptiveIngroupWeight(IngroupWeight):
         """
         counts = site.count_alleles(self.ingroup_samples)
         n_obs = sum(counts.values())
-        if n_obs == 0:
-            return np.full(4, -np.log(4))
-        n_segregating = len(counts)
-        if n_segregating == 1:
-            out = np.full(4, -np.inf)
-            (allele,) = counts
-            out[STATE_INDEX[allele]] = 0.0
-            return out
-        if n_segregating == 2 and n_obs >= self.subsample_size:
+        if len(counts) == 2 and n_obs >= self.subsample_size:
             (major, _), (minor, n_minor) = counts.most_common(2)
             return self._log_prior_biallelic_subsampled(major, minor, n_minor, n_obs)
-        # Biallelic with partial ingroup observation (n_obs <
-        # subsample_size), or multi-allelic: count-proportional
-        # Kingman fallback (subsample-invariant, well-defined for any
-        # n_obs ≥ 1).
-        return KingmanIngroupWeight._count_proportional_log_prior(counts, n_obs)
+        return KingmanIngroupWeight._log_prior_from_counts(counts)
 
     def _log_prior_biallelic_subsampled(
         self, major: str, minor: str, n_minor: int, n_obs: int,
