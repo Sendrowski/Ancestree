@@ -449,8 +449,10 @@ rule manuscript_diff_tex:
     input:
         old=f"{LATEX_BASE}/main.tex",
         old_sections=glob.glob(f"{LATEX_BASE}/sections/*.tex"),
+        old_tables=glob.glob(f"{LATEX_BASE}/tables/*.tex"),
         new=f"{LATEX}/main.tex",
         new_sections=glob.glob(f"{LATEX}/sections/*.tex"),
+        new_tables=glob.glob(f"{LATEX}/tables/*.tex"),
     output:
         f"{LATEX_DIFF}/main.tex",
     conda:
