@@ -575,16 +575,17 @@ class LocalTreeBuilder(ReprMixin):
         it averages N SNPs at the data's mean density (default ``"8snp"``).
         One tree per window, shared by its SNPs. The primary resolution parameter.
         A window cannot be finer than one block, so it is floored to
-        ``block_size``. It spans a whole number of blocks:
-        ``ceil(N_window / N_block)`` when both are ``"<N>snp"`` specs, otherwise
-        the requested width rounded up.
+        ``block_size``, and its width is rounded up to a whole number of
+        blocks, ``ceil(N_window / N_block)`` when both are ``"<N>snp"`` specs.
+        A region of ``L`` bp is tiled by ``n = round(L / width)`` windows of
+        ``L / n`` bp, each averaging every block it overlaps.
         :class:`~ancestree.local_tree_inference.LocalTreeInference` warns when a spec is floored this way.
     :param block_size: HMM emission block width, an int / bp string, or a
         ``"<N>snp"`` spec (N SNPs' worth of span at the data's mean density, the
         natural density-invariant unit). ``None`` (default) sizes the block to a
         few SNPs' worth of span (well below the window), so the HMM emits several
-        blocks per output tree. An ``"<N>snp"`` window then holds ``N / 4``
-        blocks rounded half up, at least one, at every density. Set explicitly to override the
+        blocks per output tree. An ``"<N>snp"`` window is then sized at
+        ``N / 4`` blocks rounded half up, at least one, at every density. Set explicitly to override the
         density-adaptive default.
     :param n_time_bins: Discretized coalescent-time bins.
     :param time_grid: Explicit bin edges in generations, ascending and strictly
@@ -615,9 +616,10 @@ class LocalTreeBuilder(ReprMixin):
         reference rate the map is expressed against. The HMM emission of a
         block uses the map's mean rate over it (see
         :meth:`PairwiseCoalescentHMM.block_tmrcas`), and the kernel scales
-        the branches of each site by the map's rate at that site. Both take
-        ``mu`` over an interval the map leaves undefined (NaN) and past its
-        end. Defaults to ``None`` (a uniform rate).
+        the branches of each site by the map's rate at that site, binned into
+        at most 16 rate classes per segment (per tree for the plug-in). Both
+        take ``mu`` over an interval the map leaves undefined (NaN) and past
+        its end. Defaults to ``None`` (a uniform rate).
     :param validate_coverage: When ``True`` (default), raise if any declared
         sample is observed at zero sites, the signature of a ``sample_names`` /
         :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>` key
@@ -1065,7 +1067,8 @@ class LocalTreeInference(Inference):
         :class:`msprime.RateMap` (in the input's bp coordinates) giving the
         local mutation rate, with ``mu`` the reference rate. The HMM emission
         of a block uses the map's mean rate over it, and the kernel scales the
-        branches of each site by the map's rate at that site.
+        branches of each site by the map's rate at that site, binned into at
+        most 16 rate classes per segment (per tree for the plug-in).
 
         Each of the three also accepts a ``{contig: map}`` dict, whose entry
         for the sites' contig applies. A file, plain or gzip-compressed, is
@@ -1848,9 +1851,10 @@ class LocalTreeInference(Inference):
         coordinates and an iterator over the genealogies covering it. In
         ensemble mode ``members`` yields the :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>` draws
         :meth:`infer` marginalises over, otherwise the single plug-in tree
-        sequence. There is one group per core, or one per contig when
-        unchunked. A contig's genealogies span the windows from the one
-        holding its first site to the one holding its last, and the rest of
+        sequence. There is one group per core holding part of the data
+        stretch, or one per contig when unchunked, its interval the core. The
+        genealogies cover the data stretch, the windows from the one holding
+        the contig's first site to the one holding its last, and the rest of
         the contig carries no trees. The draws are fixed by
         :paramref:`ensemble_seed <ancestree.local_tree_inference.LocalTreeInference.ensemble_seed>`.
 
@@ -1860,8 +1864,8 @@ class LocalTreeInference(Inference):
         so members at the same index in two groups are independent samples.
         :meth:`point_tree_sequence` gives a single genome-wide plug-in tree.
 
-        For 1-based input (VCF / VCZ) the last interval ends at
-        ``sequence_length + 1``.
+        For 1-based input (VCF / VCZ) a core reaching the contig's end ends
+        at ``sequence_length + 1``.
 
         :return: Iterator of ``(interval, iterator of tskit.TreeSequence)``.
         """
