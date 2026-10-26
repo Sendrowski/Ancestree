@@ -75,15 +75,17 @@ class Site:
         return upper not in MISSING_ALLELES and upper not in STATE_INDEX
 
     @staticmethod
-    def tskit_pos(position: float) -> int:
+    def tskit_pos(position: float, length: "float | None" = None) -> int:
         """The :attr:`pos` of a tree-sequence site position: the nearest
         integer, ties to even, as :meth:`tskit.TreeSequence.write_vcf` writes
-        it.
+        it, at most ``ceil(length) - 1``.
 
         :param position: A :attr:`tskit.Site.position <tskit.Site.position>`.
+        :param length: The tree sequence's length, or ``None`` for no bound.
         :return: The integer position.
         """
-        return int(np.rint(position))
+        pos = int(np.rint(position))
+        return pos if length is None else min(pos, math.ceil(length) - 1)
 
     chrom: str
     """Contig / chromosome identifier."""

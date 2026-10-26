@@ -452,7 +452,7 @@ class Reader(ReprMixin):
             )
             called = site.ancestral_state not in ("", ".")
             yield Annotation(
-                pos=Site.tskit_pos(site.position),
+                pos=Site.tskit_pos(site.position, ts.sequence_length),
                 aa=block.get("map_allele") if called else None,
                 aa_prob=block.get("max_prob"),
                 chrom=None if chrom is None else str(chrom),

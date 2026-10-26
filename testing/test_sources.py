@@ -49,6 +49,32 @@ def test_positions_match_tskit_write_vcf():
     assert [s.pos for s in TskitSource(ts)] == vcf_pos
 
 
+def test_a_site_rounding_onto_the_length_is_held_on_the_axis():
+    """A continuous position within half a base of the sequence length rounded
+    to the length itself, off the axis ``[0, L)``, so local-tree mode refused
+    the tree sequence as one whose sites lie past its declared length."""
+    import msprime
+
+    ts = msprime.sim_ancestry(4, sequence_length=20_000, recombination_rate=1e-8,
+                              population_size=1e4, random_seed=5)
+    ts = msprime.sim_mutations(ts, rate=3e-8, random_seed=5)
+    assert ts.tables.sites.position[-1] < 19_999
+    tables = ts.dump_tables()
+    site = tables.sites.add_row(position=19_999.6, ancestral_state="A")
+    tables.mutations.add_row(site=site, node=0, derived_state="C",
+                             time=tskit.UNKNOWN_TIME)
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    ts = tables.tree_sequence()
+    assert list(TskitSource(ts))[-1].pos == 19_999
+    for n_ensemble in (None, 4):
+        inf = anc.LocalTreeInference(ts, JC69(), mu=3e-8, rec_rate=1e-8,
+                                     n_ensemble=n_ensemble, chunk_size=None,
+                                     progress=False)
+        assert [s.pos for s, _ in inf.infer()][-1] == 19_999
+
+
 def test_samples_list_matches_sample_map(small_ts):
     src = TskitSource(small_ts)
     samples = src.samples()

@@ -239,8 +239,8 @@ class Grade:
         from ancestree.sites import Site
 
         if isinstance(truth, tskit.TreeSequence):
-            return {Site.tskit_pos(s.position): s.ancestral_state
-                    for s in truth.sites()}
+            return {Site.tskit_pos(s.position, truth.sequence_length):
+                    s.ancestral_state for s in truth.sites()}
         if isinstance(truth, Mapping):
             return {int(k): v for k, v in truth.items()}
         return {int(k): v for k, v in truth}
@@ -319,7 +319,7 @@ class Grade:
                     allele = Grade._allele_at(tree, site, int(tree.root), 0.0)
                 else:
                     allele = site.ancestral_state
-                out[Site.tskit_pos(site.position)] = allele
+                out[Site.tskit_pos(site.position, ts.sequence_length)] = allele
         return out
 
     @staticmethod
