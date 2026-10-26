@@ -1262,6 +1262,17 @@ class TestInputChecks:
                  "--min-confidence", "1.5", "--out", str(tmp_path / "o.vcf")])
         assert "not in [0, 1]" in capsys.readouterr().err
 
+    @pytest.mark.parametrize("command", [
+        ["fixed-tree", "--vcf", "missing.vcf", "--outgroups", "o0"],
+        ["arg", "--trees", "missing.trees", "--mu", "1e-7"],
+        ["local-tree", "--vcf", "missing.vcf", "--mu", "1e-7"],
+    ], ids=lambda c: c[0])
+    def test_a_bcf_output_with_the_posterior(self, tmp_path, command):
+        """Refused before the input is read, naming --no-posterior. The
+        writer raised only once the fit and the inference had run."""
+        with pytest.raises(SystemExit, match="--no-posterior"):
+            run([*command, "--out", str(tmp_path / "o.bcf")])
+
     def test_a_single_contig_output_of_a_multi_contig_store(self, tmp_path):
         from testing._helpers import write_vcz
 

@@ -877,12 +877,14 @@ def _out_format(args, command: str, allowed: "tuple[str, ...]") -> str:
     """The output format ``--out`` names, refused before the run when the
     subcommand cannot write it.
 
-    :param args: Parsed argparse namespace, read for ``out``.
+    :param args: Parsed argparse namespace, read for ``out`` and
+        ``no_posterior``.
     :param command: The subcommand, named in the error.
     :param allowed: Formats the subcommand accepts, named in the error.
     :return: One of ``"vcf"``, ``"vcz"`` and ``"trees"``.
-    :raises SystemExit: If ``--out`` has an unsupported extension, or names
-        a store path holding something other than a Zarr store.
+    :raises SystemExit: If ``--out`` has an unsupported extension, names
+        a store path holding something other than a Zarr store, or names a
+        ``.bcf`` file without ``--no-posterior``.
     """
     out_format = _path_format(args.out)
     if out_format not in allowed:
@@ -899,6 +901,10 @@ def _out_format(args, command: str, allowed: "tuple[str, ...]") -> str:
         raise SystemExit(
             f"{command} --out {args.out!r} exists and is not a Zarr store, so "
             f"it is not replaced. Write to a new path.")
+    if str(args.out).lower().endswith(".bcf") and not args.no_posterior:
+        raise SystemExit(
+            f"{command} --out {args.out!r}: BCF cannot carry the AA_post "
+            f"posterior. Pass --no-posterior, or write .vcf or .vcf.gz.")
     return out_format
 
 
