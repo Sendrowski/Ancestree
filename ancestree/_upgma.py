@@ -1,20 +1,11 @@
 """Assemble per-window UPGMA trees into a sites-free tskit TreeSequence.
 
-Given, per genomic window, a condensed matrix of pairwise TMRCA estimates
-(generations) between the panel haplotypes, this builds one ultrametric
-UPGMA tree per window and stitches them into a single
-:class:`tskit.TreeSequence` spanning the region: the ``n`` panel haplotypes are
-shared sample leaves (node ids ``0..n-1``) present in every window, while
-each window contributes its own internal nodes and edges over that
-window's ``[left, right)`` interval. The result carries topology and branch
-lengths (in generations) but no sites or mutations. Genotypes are
-supplied separately to the kernel.
-
-UPGMA is appropriate because coalescent node ages are ultrametric. The
-average-linkage merge heights of
-:func:`~ancestree._ensemble.upgma_batch` are read directly as internal-node
-times, with a tiny epsilon bump where a tie violates tskit's
-strictly-increasing-time requirement.
+The ``n`` panel haplotypes are sample nodes ``0..n-1`` shared by every window,
+and each window adds its own internal nodes and edges over its
+``[left, right)`` interval. Merge heights of
+:func:`~ancestree._ensemble.upgma_batch` are the internal-node times in
+generations, bumped by a tiny epsilon where a tie would break tskit's
+strictly increasing times.
 """
 from __future__ import annotations
 
@@ -31,12 +22,8 @@ def build_windowed_tree_sequence(
     window_linkages: "Sequence[np.ndarray]",
     sample_names: "Sequence[str] | None" = None,
 ):
-    """Assemble per-window SciPy linkage matrices into a sites-free tskit TS.
-
-    Back end for the UPGMA local-tree
-    constructions: each window supplies a SciPy-format linkage matrix ``Z``
-    (``(n-1, 4)``: ``[child1, child2, height, size]``) whose merge heights are
-    read directly as internal-node times.
+    """Assemble per-window SciPy linkage matrices ``(n-1, 4)``, rows
+    ``[child1, child2, height, size]``, into a sites-free tskit tree sequence.
 
     :param n_samples: Panel haplotypes, the shared leaves.
     :param sequence_length: Region length in tskit coordinates.
@@ -138,10 +125,8 @@ class WindowedUpgmaTreeSequence:
     :param window_condensed_tmrcas: One condensed pairwise-TMRCA vector
         per window (scipy ``pdist`` order: ``(0,1),(0,2),…,(n-2,n-1)``),
         lengths ``n_samples·(n_samples-1)/2``, in generations.
-    :param sample_names: Optional per-leaf names. When given, each sample
-        node is attached to an individual carrying ``{"name": ...}`` so the
-        tree sequence is self-describing (``ARGBasedInference`` recovers the
-        sample map from individual metadata).
+    :param sample_names: Optional per-leaf names, stored as individual
+        metadata ``{"name": ...}`` of each sample node.
     :param window_weights: Optional ``(n_windows, n(n-1)/2)`` exposure of each
         pair in each window, which weights the cluster means. ``None`` or zero
         rows is the plain average.
@@ -221,12 +206,9 @@ class WindowedUpgmaTreeSequence:
         )
 
     def window_tree(self, w: int):
-        """The tree of window ``w`` alone, as the only tree of a tree sequence
-        of its own.
-
+        """The tree of window ``w`` as the only tree of its own tree sequence.
         Its node ``n_samples + i`` is node ``n_samples + w·(n_samples - 1) + i``
-        of :meth:`build`, and its arrays span one window's nodes, not every
-        window's, so a per-site pass over it costs ``O(n_samples)``.
+        of :meth:`build`.
 
         :param w: Index of the window.
         :return: The :class:`tskit.Tree`.

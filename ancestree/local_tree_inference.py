@@ -1,32 +1,23 @@
-"""Local-tree inference from genotypes: genealogy estimation + ancestral-allele calling.
+"""Local-tree inference from genotypes: genealogy estimation and ancestral-allele inference.
 
-The two main public classes, backed by the lower-level
-:class:`~ancestree.local_tree_inference.PairwiseCoalescentHMM` and :class:`~ancestree.local_tree_inference.PairwiseTmrcas`:
-
-- :class:`~ancestree.local_tree_inference.LocalTreeBuilder`, the genealogy estimator. Infers local
-  dated trees along the genome from genotypes alone (a discretized
-  PSMC′-style pairwise-TMRCA HMM, condensed per window into one ultrametric
-  tree) and emits a self-describing :class:`tskit.TreeSequence` (sample names
-  + the observed genotypes baked in as sites).
+- :class:`~ancestree.local_tree_inference.LocalTreeBuilder` infers dated
+  local trees along the genome from phased genotypes, with a discretized
+  PSMC′-style pairwise-TMRCA HMM
+  (:class:`~ancestree.local_tree_inference.PairwiseCoalescentHMM`) condensed
+  per window into one ultrametric tree. It emits a :class:`tskit.TreeSequence`
+  carrying the sample names and the observed genotypes as sites.
   :meth:`LocalTreeBuilder.write() <ancestree.local_tree_inference.LocalTreeBuilder.write>`
-  dumps a ``.trees`` file that can be fed straight to
-  :class:`~ancestree.inference.ARGBasedInference`.
-- :class:`~ancestree.local_tree_inference.LocalTreeInference`, which builds the
-  trees from genotypes via :class:`~ancestree.local_tree_inference.LocalTreeBuilder`
-  and scores the per-site ancestral-allele posterior over an ensemble of drawn
-  genealogies, or on the single plug-in genealogy through
-  :class:`~ancestree.inference.ARGBasedInference` when the ensemble is off.
-  Implements the
-  :class:`~ancestree.inference.Inference` contract
-  (:meth:`Inference.infer() <ancestree.inference.Inference.infer>` yields
-  ``(Site, Posterior)``).
+  writes a ``.trees`` file that
+  :class:`~ancestree.inference.ARGBasedInference` accepts.
+- :class:`~ancestree.local_tree_inference.LocalTreeInference` builds these
+  trees and scores the per-site ancestral-allele posterior over an ensemble of
+  drawn genealogies, or on the single plug-in genealogy when the ensemble is
+  off. :meth:`Inference.infer() <ancestree.inference.Inference.infer>` yields
+  ``(Site, Posterior)``.
 
-The genealogy estimator follows the SMC family in reading local trees from
-pairwise coalescence times, using a discretized-time HMM, not a
-continuous approximation. It requires no ancestral-allele call and assumes
-phased haplotypes. Outgroups are supported, not required: they are extra panel
-haplotypes the local tree places, so ILS is accommodated by the inferred tree
-and not by an assumed outgroup-ladder topology.
+Outgroups are optional. They are extra panel haplotypes the local tree
+places, so incomplete lineage sorting is absorbed by the inferred tree and not
+by an assumed outgroup-ladder topology.
 """
 from __future__ import annotations
 
@@ -112,22 +103,25 @@ class PairwiseCoalescentHMM(ReprMixin):
     """Discretized PSMC′-style estimator of local pairwise TMRCAs.
 
     Estimates, for every haplotype pair, the posterior-mean coalescence
-    time (in generations) within each fixed-width block along the
-    sequence. The hidden state is a discretized coalescent time
-    (``n_time_bins`` log-spaced bins). The emission is the count of
-    pairwise differences per block as ``Poisson(2·μ·t·block_size)``, which,
-    unlike a binary heterozygosity flag, does not saturate at deep
-    TMRCAs. The transition resets the TMRCA to the prior with per-block
-    probability ``1 - e^{-2ρ t · block_size}`` (recombination), giving the
-    standard ``O(n_blocks · T)`` forward-backward.
+    time in generations within each fixed-width block. The hidden state is
+    the pair's coalescence time :math:`t` in generations, discretized into
+    ``n_time_bins`` log-spaced bins. The emission is the block's count of
+    pairwise differences,
 
-    The shared time grid is calibrated from the per-block difference
-    counts (top bin reaches the deepest observed divergence, so outgroup
-    pairs are not pinned to the last bin). The prior / reset distribution
-    is per-pair coalescent: each pair's local times are taken
-    ``Exponential`` with mean equal to that pair's own genome-average
-    TMRCA, so ingroup pairs receive a recent-concentrated prior and outgroup pairs a
-    deep one. No demographic truth is read.
+    .. math::
+
+        d \\sim \\mathrm{Poisson}(2 \\mu t B),
+
+    and between consecutive blocks the time resets to the prior with
+    probability :math:`1 - e^{-2 \\rho t B}`. Here :math:`d` is the number
+    of differences in the block, :math:`\\mu` the per-site per-generation
+    mutation rate ``mu``, :math:`\\rho` the per-site per-generation
+    recombination rate ``rec_rate`` and :math:`B` the block width
+    ``block_size`` in bp.
+
+    The time grid is calibrated from the per-block difference counts, its top
+    bin reaching the deepest observed divergence. The prior is per pair, an
+    exponential with mean equal to the pair's genome-average TMRCA.
 
     :param n_haplotypes: Number of panel haplotypes.
     :param mu: Per-site per-generation mutation rate.
@@ -292,13 +286,9 @@ class PairwiseCoalescentHMM(ReprMixin):
     def _calibrate_time_grid(
         self, counts: np.ndarray, overwrite_input: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Build the shared log-spaced grid (bin edges + representatives).
-
-        Calibrated from the per-block difference counts, not a binary
-        heterozygosity flag: ``crude TMRCA = count / (2·μ·block)``. Because the
-        count does not saturate, the top bin reaches the genuinely deep
-        coalescences (outgroup pairs) and does not cap at the
-        one-difference ceiling.
+        """The shared log-spaced time grid, calibrated from the crude TMRCAs
+        ``count / (2·μ·B)`` for a per-bp mutation rate ``μ`` and block width
+        ``B`` bp.
 
         :param counts: ``(n_pairs, n_blocks)`` per-block difference counts,
             divided by any per-block mutation-rate scale.
@@ -344,17 +334,10 @@ class PairwiseCoalescentHMM(ReprMixin):
         return edges, t_rep
 
     def _coalescent_prior(self, edges: np.ndarray, t_bar: float) -> np.ndarray:
-        """Per-pair coalescent prior: ``Exp(1/t_bar)`` mass per grid bin.
-
-        A pair whose genome-average TMRCA is ``t_bar`` has its local
-        coalescence times distributed (under a constant-size coalescent)
-        as ``Exponential`` with mean ``t_bar``. Discretising that over the
-        shared grid gives a per-pair prior concentrated on recent bins for
-        ingroup pairs and on deep bins for outgroup pairs.
-
-        The grid is closed at both ends: mass below ``edges[0]`` joins the first
-        bin and mass above ``edges[-1]`` joins the last, so the bins carry the
-        whole distribution.
+        """Per-pair coalescent prior, the ``Exp(1/t_bar)`` mass per bin of
+        ``edges`` for a pair with genome-average TMRCA ``t_bar`` (generations).
+        The tails below ``edges[0]`` and above ``edges[-1]`` fold into the end
+        bins.
         """
         t_bar = max(float(t_bar), float(edges[0]))
         surv = np.exp(-edges / t_bar)  # survival at each edge
@@ -376,16 +359,14 @@ class PairwiseCoalescentHMM(ReprMixin):
             (0..3), ``-1`` for missing.
         :param block_of_site: ``(n_sites,)`` block index per site.
         :param n_blocks: Total number of blocks.
-        :param dtype: Integer dtype the count arrays are held in, which bounds
-            their memory. Wide enough to hold the busiest block's site count.
+        :param dtype: Integer dtype of the count arrays, wide enough for the
+            busiest block's site count.
         :return: ``(counts, called, block_sites)``. ``counts`` and ``called``
-            are ``(n(n-1)/2, n_blocks)`` in ``dtype``, with one row per
-            haplotype pair in :func:`itertools.combinations` order: the
-            pairwise differences per block, and the number of the block's sites
-            at which both haplotypes are called. ``block_sites`` is the
-            ``(n_blocks,)`` int64 site count of each block, so the count's
-            exposure is ``called / block_sites``. ``called`` is ``None`` when
-            no call is missing, meaning an exposure of 1 everywhere.
+            are ``(n(n-1)/2, n_blocks)`` in ``dtype``, rows in
+            :func:`itertools.combinations` order: the pairwise differences and
+            the sites at which both haplotypes are called (``None`` when no
+            call is missing). ``block_sites`` is the ``(n_blocks,)`` int64 site
+            count, so the exposure is ``called / block_sites``.
         """
         pairs = list(combinations(range(self.n_haplotypes), 2))
         counts = np.zeros((len(pairs), n_blocks), dtype=dtype)
@@ -753,10 +734,8 @@ class LocalTreeBuilder(ReprMixin):
     def _genotype_matrix(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Build the ``(n_sites, n_hap)`` allele-index matrix + block ids.
 
-        :return: ``(genotypes, positions, block_of_site, n_blocks)`` where
-            ``positions`` is each site's tskit coordinate, its own
-            ``site.pos`` on ``[0, axis_length)``, baked and emitted at the
-            same coordinate so the round-trip is position-stable.
+        :return: ``(genotypes, positions, block_of_site, n_blocks)``, with
+            ``positions`` each site's ``site.pos`` on ``[0, axis_length)``.
         """
         n_sites = len(self.sites)
         # The table holds exactly this matrix, in this column order.
@@ -916,10 +895,8 @@ class LocalTreeBuilder(ReprMixin):
     ) -> np.ndarray:
         """Run (and cache) the pairwise-coalescent HMM.
 
-        :return: ``(n_rows, n_blocks)`` posterior-mean TMRCA matrix, with
-            ``n_rows = n(n-1)/2`` in :func:`itertools.combinations` order.
-            Cached, so :meth:`to_tree_sequence` and :meth:`pairwise_tmrcas`
-            share one run.
+        :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA matrix, rows in
+            :func:`itertools.combinations` order.
         """
         if self._pair_block_t is not None:
             return self._pair_block_t
@@ -1142,11 +1119,8 @@ class LocalTreeInference(Inference):
 
     @staticmethod
     def _uncalled_tips(sites, sample_names) -> "list[str]":
-        """Full-panel coverage check: the samples that every site carries
-        with no allele, such as an outgroup with no aligned base or the
-        padded slot of a haploid sample in a diploid file. Early-exits once
-        every sample is called, so the overhead is a handful of sites for
-        well-formed input.
+        """The samples every site carries with no allele, stopping once every
+        sample is called.
 
         :param sites: The sites, re-iterable.
         :param sample_names: The panel.
@@ -1557,17 +1531,14 @@ class LocalTreeInference(Inference):
         return builder
 
     def _process_segment(self, work_unit):
-        """Build one segment work-unit's trees and run the kernel over them.
-
-        Returns ``([(orig_site, posterior values)], counts)`` for the segment's
-        core sites, the halo discarded. Raw value arrays keep the fork-pool
-        payload small. The parent rewraps them in
-        :class:`~ancestree.posterior.Posterior` and sums the counts, which a
-        forked worker cannot report any other way.
+        """Build one segment's trees and score its core sites, the halo
+        discarded.
 
         :param work_unit: One ``(sites, geometry)`` of
             :meth:`Segmentation.units() <ancestree._geometry.Segmentation.units>`.
-        :return: ``(rows, tally)``.
+        :return: ``(rows, tally)``: ``(site, posterior values)`` per core site,
+            in order, and the segment's diagnostic
+            :class:`~ancestree.inference._Tally`.
         """
         seg, geometry = work_unit
         core_lo, core_hi = geometry.genome_core
@@ -1611,13 +1582,13 @@ class LocalTreeInference(Inference):
     def _process_segment_ensemble(
         self, work_unit,
     ) -> "tuple[list[tuple[Site, np.ndarray]], _Tally]":
-        """Score one segment's core sites against an ensemble of genealogies.
+        """Score one segment's core sites, marginalised over
+        :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>`
+        genealogies drawn from the pairwise-HMM posterior.
 
-        The plug-in path scores the single agglomerated tree per window. Here
-        each window's posterior is instead marginalised over
-        :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>` genealogies drawn from the same pairwise-HMM
-        posterior, which is what removes the confidently-wrong calls where the
-        point estimate mis-resolves a split inside the ingroup.
+        :param work_unit: One ``(sites, geometry)`` of
+            :meth:`Segmentation.units() <ancestree._geometry.Segmentation.units>`.
+        :return: ``(rows, tally)`` as :meth:`_process_segment`.
         """
         seg, geometry = work_unit
         core_lo, core_hi = geometry.genome_core
@@ -1647,27 +1618,18 @@ class LocalTreeInference(Inference):
         return _normalise(log_post, self.model.n_states)
 
     def _ensemble_fraction(self) -> float:
-        """Where along the anchor-to-root path the ensemble reads.
-
-        The ensemble kernel places the readout by fraction (``_reroot``), so an
-        intermediate ``fraction`` is honoured as given. ``panel_root`` is the
-        far end whatever else is set.
-
-        """
+        """Fraction along the anchor-to-root path the ensemble reads at, ``1``
+        for a focal node not anchored at the ingroup MRCA."""
         spec = self.focal
         if not self._focal_anchored_at_ingroup_mrca:
             return 1.0
         return float(spec.fraction or 0.0)
 
     def _ensemble_placement(self) -> "tuple[float, int]":
-        """Where the ensemble reads, as ``(fraction, coalescences)``.
+        """Where the ensemble reads.
 
-        ``coalescences`` is topological -- the k-th join above the anchor --
-        so it is well defined in every drawn genealogy even though the drawn
-        heights differ, and it is passed through. ``-1``
-        means "not a coalescence placement", and the fraction applies.
-
-        :return: ``(fraction, n_coal)``. Exactly one is meaningful.
+        :return: ``(fraction, n_coal)``, ``n_coal`` the join count above the
+            anchor or ``-1`` when ``fraction`` places the readout.
         """
         spec = self.focal
         if self._focal_anchored_at_ingroup_mrca and spec.coalescences is not None:
@@ -1675,20 +1637,10 @@ class LocalTreeInference(Inference):
         return self._ensemble_fraction(), -1
 
     def _stitch_segment_tree_sequence(self) -> "tskit.TreeSequence":
-        """Assemble a genome-wide tree sequence from the segments.
+        """The genome-wide tree sequence over the data stretch of a single
+        contig, stitched from the segments built one at a time.
 
-        Streams one segment at a time (so the HMM's peak memory still tracks a
-        single segment span), builds each segment's local-tree sequence over
-        its core's part of the data stretch and appends it, on the genome
-        axis, to one table collection. The result tiles the data stretch with
-        the per-window local trees without ever holding the whole-genome HMM
-        TMRCA matrix. A core outside the data stretch is not built.
-
-        Single contig only: a :class:`tskit.TreeSequence` has one coordinate
-        axis, so a multi-contig source cannot be represented as one tree
-        sequence (use VCF / VCZ output instead).
-
-        :return: The stitched genome-wide pseudo-ARG tree sequence.
+        :return: The stitched pseudo-ARG tree sequence.
         :raises NotImplementedError: If the source spans more than one contig.
         :raises ValueError: If the source yields no segments.
         """
@@ -1775,12 +1727,8 @@ class LocalTreeInference(Inference):
     _MODE = "local-tree"
 
     def _provenance_parameters(self) -> dict[str, object]:
-        """Local-tree run parameters.
-
-        Model, prior and mu, the contig (a list for several), the ingroup
-        size, the tree-building parameters (rate, window, block size, time
-        bins), and in ensemble mode the member count, seed and chunk.
-        """
+        """Local-tree run parameters: model, prior, rates, tree-building
+        widths, contig, ingroup size, maps and ensemble settings."""
         params: dict[str, object] = {
             "model": self._model_name(self.model),
             "prior": type(self.prior).__name__ if self.prior is not None
@@ -1819,10 +1767,7 @@ class LocalTreeInference(Inference):
         return self.n_ensemble is not None
 
     def _map_provenance(self) -> dict:
-        """Which maps applied.
-
-        Each map is summarised from the object itself, per contig where it
-        was given per contig, with the file it was read from.
+        """Summary of the maps applied, with the files they were read from.
 
         :return: Provenance entries for the supplied maps.
         """
@@ -1861,11 +1806,7 @@ class LocalTreeInference(Inference):
         return entry
 
     def _ensemble_provenance(self) -> dict[str, object]:
-        """The ensemble's own parameters, or nothing when not in that mode.
-
-        The draws are a function of the seed, the member count and the HMM
-        forward pass, so the three together reproduce a run.
-        """
+        """The ensemble's parameters, empty outside ensemble mode."""
         if not self._ensemble_mode():
             return {}
         return {
@@ -1876,9 +1817,6 @@ class LocalTreeInference(Inference):
 
     def _ingroup_indices(self):
         """Panel positions of the ingroup, resolved by name.
-
-        The ensemble locates the ingroup MRCA by membership, so the ingroup is
-        not required to be the leading block of ``sample_names``.
 
         :return: Indices into ``sample_names``, or ``None`` for the whole panel.
         """
@@ -1897,25 +1835,17 @@ class LocalTreeInference(Inference):
         coordinates and an iterator over the genealogies covering it. In
         ensemble mode ``members`` yields the :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>` draws
         :meth:`infer` marginalises over, otherwise the single plug-in tree
-        sequence. A run yields one group per core reaching into the data
-        stretch, one per contig unchunked. The
-        genealogies cover each contig's data stretch, the whole windows from
-        the one holding its first site to the one holding its last, and leave
-        the rest without trees, the tskit representation of unsequenced
-        sequence. The draws are a pure function of
-        :paramref:`ensemble_seed <ancestree.local_tree_inference.LocalTreeInference.ensemble_seed>` and the HMM forward pass, so re-iterating
-        reproduces them.
+        sequence. There is one group per core, or one per contig when
+        unchunked. A contig's genealogies span the windows from the one
+        holding its first site to the one holding its last, and the rest of
+        the contig carries no trees. The draws are fixed by
+        :paramref:`ensemble_seed <ancestree.local_tree_inference.LocalTreeInference.ensemble_seed>`.
 
-        Both axes stream: a genome-wide pass holds one stretch, and within a
-        stretch a draw is built when it is pulled, so peak memory holds one
-        genealogy, not all :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>` of them. Call ``list()``
-        on a group to keep its draws. A group's iterator is consumed once, and
-        must be consumed before the next group is pulled.
-
-        A draw is taken per segment, so the member at one index in this group
-        and at the same index in the next are separate samples, not one
-        genealogy running the length of the genome. Call
-        :meth:`point_tree_sequence` for a single genome-wide plug-in tree.
+        Each draw is built when it is pulled. A group's iterator is consumed
+        once, and must be consumed before the next group is pulled. Call
+        ``list()`` on a group to keep its draws. Draws are taken per segment,
+        so members at the same index in two groups are independent samples.
+        :meth:`point_tree_sequence` gives a single genome-wide plug-in tree.
 
         For 1-based input (VCF / VCZ) the last interval ends at
         ``sequence_length + 1``.
@@ -2039,9 +1969,8 @@ class LocalTreeInference(Inference):
                 if len(lengths) == 1 else {})
 
     def _emitted(self, pairs):
-        """``pairs`` as this mode reports them: without the tree handle of a
-        tree-sequence source, which the inferred trees do not share, and on
-        contig ``chrom`` where set.
+        """``pairs`` without a source tree handle, and on contig ``chrom``
+        where set.
 
         :param pairs: The ``(Site, Posterior)`` stream.
         :return: Generator over the reported pairs.
@@ -2085,13 +2014,11 @@ class LocalTreeInference(Inference):
     def _source_tree_sequence(
         self, restrict_samples: bool = False,
     ) -> "tskit.TreeSequence":
-        """The local-tree sequence that
+        """The panel-only
+        :meth:`LocalTreeInference.point_tree_sequence() <ancestree.local_tree_inference.LocalTreeInference.point_tree_sequence>`
+        that
         :meth:`LocalTreeInference.to_arg() <ancestree.local_tree_inference.LocalTreeInference.to_arg>`
         annotates.
-
-        The stitch from
-        :meth:`LocalTreeInference.point_tree_sequence() <ancestree.local_tree_inference.LocalTreeInference.point_tree_sequence>`,
-        which holds only the panel.
 
         :param restrict_samples: Whether to hold only the samples the
             inference used.

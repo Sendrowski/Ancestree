@@ -1,35 +1,20 @@
-"""Numba-JIT forward-backward for the pairwise coalescent HMM.
+"""Numba-JIT forward-backward for the pairwise coalescent HMM of
+:class:`~ancestree.local_tree_inference.PairwiseCoalescentHMM`.
 
-Backs :class:`~ancestree.local_tree_inference.PairwiseCoalescentHMM`,
-which estimates the local TMRCA of a haplotype pair along the sequence
-(a discretized PSMC′-style HMM).
-
-The hidden state is a discretized coalescent time (``T`` bins). The per-block
-emission is the number of pairwise differences in block ``k``, modelled as
-``Poisson(s_k · λ_i)`` with ``λ_i = 2·μ·t_i·block`` the expected differences
-over a fully exposed block of ``block`` base pairs at bin representative time
-``t_i`` in generations, and ``s_k`` the block's exposure scale: the fraction of
-its base pairs over which a difference could have been observed for this pair
-(callable under the accessibility mask and called in both haplotypes) times its
-local mutation rate over the reference ``μ_ref``. It is ``1`` for a fully
-observed block at the reference rate. Being a count, not a binary
-heterozygosity flag, it does not saturate at deep TMRCAs. The log-likelihood
-for an observed count ``c`` is ``-s_k·λ_i + c·log λ_i`` up to terms constant
-across bins (``c·log s_k`` and ``log c!``), which cancel in the per-block
-normalisation.
-
-The transition is the "reset on recombination"
+The hidden state is one of ``T`` discretized coalescent-time bins. Block ``k``
+emits its count ``c`` of pairwise differences as ``Poisson(s_k · λ_i)``, with
+``λ_i = 2·μ·t_i·block`` the expected differences over a fully exposed block of
+``block`` base pairs at bin time ``t_i`` (generations), ``μ`` the reference
+mutation rate per base pair and generation, and ``s_k`` the block's exposure
+scale (observable base-pair fraction times local mutation rate over the
+reference). The transition is
 
     A[i, j] = r_i · δ_ij + (1 - r_i) · ν_j,    ν_j ∝ π_j · (1 - r_j)
 
-where ``r_i`` is the per-block probability of no recombination given TMRCA bin
-``i`` and ``π`` is the prior over bins. The reset row ``ν`` is the one that
-makes ``π`` invariant under ``A``: because ``r_i`` is depth-dependent, resetting
-to ``π`` itself would relax the chain toward ``π_j / (1 - r_j)`` and pull the
-posterior mean TMRCA toward the present along the sequence, whereas the
-coalescent marginal is the same at every position. Being diagonal plus rank one, it lets
-each forward / backward step run in ``O(T)``, not ``O(T²)``, so a full
-pass costs ``O(n_blocks · T)``.
+with ``r_i`` the per-block no-recombination probability in bin ``i``, ``δ_ij``
+the Kronecker delta and ``π`` the prior over bins. This ``ν`` keeps ``π``
+invariant under ``A``, and the diagonal-plus-rank-one form makes a full pass
+``O(n_blocks · T)``.
 """
 from __future__ import annotations
 
@@ -43,14 +28,8 @@ from numba import njit  # noqa: F401
 # and a cached and a freshly compiled run execute the same reductions.
 @njit(cache=True, fastmath=True, inline="always")
 def _emission(counts_k, lam, log_lam, s, e):
-    """Fill ``e[i] ∝ Poisson(counts_k | s·λ_i)`` for all bins.
-
-    ``s`` is the block's exposure scale, its observable base-pair fraction
-    times its local mutation rate over the reference (``1`` for a fully
-    observed block at the reference rate). Terms constant across bins are
-    dropped and the maximum subtracted before exponentiating, so ``e`` is
-    defined only up to a positive per-block factor, which the forward /
-    backward scaling absorbs.
+    """Fill ``e[i] ∝ Poisson(counts_k | s·λ_i)`` for all bins, ``s`` being the
+    block's exposure scale. ``e`` is defined up to a positive per-block factor.
     """
     T = lam.shape[0]
     mx = -1.0e300
@@ -67,9 +46,6 @@ def _emission(counts_k, lam, log_lam, s, e):
 def _step_r(r, s, rk):
     """Fill ``rk[i] = r[i] ** s``, the no-recombination probability over a
     step of ``s`` nominal blocks (genetic distance in block units).
-
-    ``s > 1`` (a masked gap or a wider rec-map step) lets more recombination
-    accumulate, ``s < 1`` less.
     """
     T = r.shape[0]
     if s == 1.0:
@@ -82,13 +58,9 @@ def _step_r(r, s, rk):
 
 @njit(cache=True, fastmath=True, inline="always")
 def _reset_row(pi, rk, nu):
-    """Fill ``nu[j] ∝ pi[j] · (1 - rk[j])``, the post-recombination row.
-
-    The transition ``A[i, j] = rk[i]·δ_ij + (1 - rk[i])·nu[j]`` leaves ``pi``
-    invariant exactly when ``nu`` carries this form, so the marginal over bins
-    stays ``pi`` at every block, as the coalescent requires. ``rk`` is the
-    no-recombination probability for the step being taken, so ``nu`` is
-    recomputed whenever the step width changes.
+    """Fill ``nu[j] ∝ pi[j] · (1 - rk[j])``, the post-recombination row that
+    keeps ``pi`` invariant for the step whose no-recombination probability is
+    ``rk``.
     """
     T = pi.shape[0]
     tot = 0.0
@@ -116,15 +88,9 @@ def _grid_mean(t_rep, T):
 
 def _pair_posterior_mean_impl(counts, t_rep, lam, log_lam, r, pi, step, mask,
                               escale):
-    """Forward-backward posterior-mean TMRCA per block for one pair.
-
-    :data:`_pair_posterior_mean_jit` is the compiled form.
-
-    The transition between consecutive blocks ``k`` and ``k+1`` uses a per-step
-    no-recombination probability ``r[i] ** step[k]``. With ``step`` all ones and
-    ``mask`` all true this is the classic scalar-``r`` PSMC′ kernel. A block
-    with ``mask[k] == False`` emits uniformly, contributing recombination
-    distance but no Poisson information.
+    """Forward-backward posterior-mean TMRCA per block for one pair, compiled
+    as :data:`_pair_posterior_mean_jit`. The step from block ``k`` to ``k+1``
+    uses ``r[i] ** step[k]``, and a masked block emits uniformly.
 
     :param counts: ``(n_blocks,)`` int, pairwise differences per block.
     :param t_rep: ``(T,)`` float64, representative time of each bin.
@@ -136,10 +102,8 @@ def _pair_posterior_mean_impl(counts, t_rep, lam, log_lam, r, pi, step, mask,
     :param step: ``(n_blocks-1,)`` float64, genetic distance of each
         inter-block step in nominal-block units (``1.0`` = adjacent).
     :param mask: ``(n_blocks,)`` bool, emission active per block.
-    :param escale: ``(n_blocks,)`` float64, per-block exposure scale applied
-        to the Poisson mean: the block's observable base-pair fraction times
-        its local mutation rate over the reference (``1.0`` = a fully observed
-        block at the reference rate).
+    :param escale: ``(n_blocks,)`` float64, per-block exposure scale of the
+        Poisson mean (``1.0`` = fully observed at the reference rate).
     :return: ``(n_blocks,)`` float64 posterior-mean TMRCA per block.
     """
     n = counts.shape[0]
@@ -264,11 +228,8 @@ def pair_posterior_mean_tmrca(
     mask: np.ndarray | None = None,
     escale: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Posterior-mean TMRCA per block for one haplotype pair.
-
-    Thin dispatcher over the compiled kernel: coerces every array to the
-    contiguous dtype the kernel is specialised on and fills the optional
-    arguments with their neutral defaults.
+    """Posterior-mean TMRCA per block for one haplotype pair, coercing the
+    arrays to the kernel's dtypes and filling neutral defaults.
 
     :param counts: ``(n_blocks,)`` number of pairwise differences per block.
     :param t_rep: ``(T,)`` representative bin times (generations).
@@ -281,10 +242,9 @@ def pair_posterior_mean_tmrca(
         (adjacent uniform blocks).
     :param mask: optional ``(n_blocks,)`` bool of callable blocks. ``None``
         is all callable. Non-callable blocks emit uniformly.
-    :param escale: optional ``(n_blocks,)`` per-block exposure scale applied to
-        the Poisson mean: the block's observable base-pair fraction times its
-        local mutation rate over the reference. ``None`` is all ones (fully
-        observed blocks at the reference rate).
+    :param escale: optional ``(n_blocks,)`` per-block exposure scale of the
+        Poisson mean (observable base-pair fraction times local mutation rate
+        over the reference). ``None`` is all ones.
     :return: ``(n_blocks,)`` posterior-mean TMRCA (generations).
     """
     counts = np.ascontiguousarray(counts, dtype=np.int64)

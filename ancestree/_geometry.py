@@ -1,21 +1,15 @@
 """Block, window and segment geometry of local-tree builds.
 
-A contig of region length ``L`` bp, read from a source whose first base sits at
-position ``b`` (``1`` for VCF / VCF-Zarr, ``0`` otherwise), lies on the axis
-``[0, L + b)``, so its last base ``L + b - 1`` lies on it. Blocks of width
-``B`` bp tile the axis from 0, the last ending at the axis end. Windows tile it
-into ``n = max(1, round(L / w))`` windows of ``L / n`` bp for a window width
-``w`` bp, the last ending at the axis end.
+A contig of region length ``L`` bp whose first base sits at position ``b``
+(``1`` for VCF / VCF-Zarr, ``0`` otherwise) lies on the axis ``[0, L + b)``.
+Blocks of width ``B`` bp tile the axis from 0, and ``n = max(1, round(L / w))``
+windows of ``L / n`` bp tile it for a window width ``w`` bp, the last block and
+window ending at the axis end. Trees cover the data stretch, the whole windows
+from the one holding the first site to the one holding the last.
 
-Trees cover a contig's data stretch: the whole windows from the one holding
-its first site to the one holding its last. A stretch without sites inside it
-is tiled, and everything outside it is left without trees.
-
-:class:`Segmentation` resolves the widths, chunk and halo of a run once and
-holds a :class:`ContigGeometry` per contig, which lays the window grid, the
-cores and their segments over the contig. :class:`BuildGeometry` is what one
-build reads, one segment shifted to a local 0: its blocks, windows, map slices
-and the windows that get trees.
+:class:`Segmentation` resolves a run's widths, chunk and halo and holds a
+:class:`ContigGeometry` per contig, which lays out its windows, cores and
+segments. :class:`BuildGeometry` is one segment shifted to a local 0.
 """
 from __future__ import annotations
 
@@ -120,9 +114,8 @@ def _snp_count(spec: "int | str", *, name: str) -> "int | None":
 
 def _width_bp(spec: "int | str", n_sites: int, span_bp: float,
               *, name: str) -> int:
-    """A window or block width in bp. An ``"<N>snp"`` spec is N sites' worth
-    of span at the data's mean SNP density. A bp / int spec is its parsed
-    width.
+    """A window or block width in bp, an ``"<N>snp"`` spec taking N sites'
+    worth of span at the mean SNP density.
 
     :param spec: The width spec.
     :param n_sites: Sites the density is taken over.
@@ -139,10 +132,9 @@ def _width_bp(spec: "int | str", n_sites: int, span_bp: float,
 
 def _default_block_bp(n_sites: int, span_bp: float, window_bp: int,
                       n_window: "int | None" = None) -> int:
-    """Density-adaptive default block width in bp, at least 1, sized so a
-    whole number of blocks spans the window: ``N / _DEFAULT_BLOCK_SNPS``
-    rounded half up for an ``"<N>snp"`` window, otherwise the count nearest to
-    ``_DEFAULT_BLOCK_SNPS`` SNPs per block at the mean density, at least one.
+    """Default block width in bp, a whole number of blocks spanning the window:
+    ``N / _DEFAULT_BLOCK_SNPS`` rounded half up for an ``"<N>snp"`` window,
+    else the count nearest ``_DEFAULT_BLOCK_SNPS`` SNPs per block, at least one.
 
     :param n_sites: Sites the density is taken over.
     :param span_bp: Span the density is taken over.
@@ -220,16 +212,14 @@ def _filled(mm, mu: float, end: float):
 
 
 class BuildGeometry(ReprMixin):
-    """The blocks, windows and maps one local-tree build reads, in its frame.
+    """The blocks, windows and maps one local-tree build reads, in its frame
+    ``[0, L_f + b_f)`` for a frame length ``L_f`` bp and position base ``b_f``,
+    placed at genome coordinate ``origin``.
 
-    The frame is the build's own axis ``[0, L_f + b_f)`` for a frame length
-    ``L_f`` bp and a frame position base ``b_f``, placed at genome coordinate
-    ``origin``. Blocks of width ``B`` bp tile the axis from 0, and the block
-    reaching ``L_f`` ends at the axis end. The HMM runs over the blocks
-    overlapping the data stretch ``stretch``, so block ``k`` of the build
-    spans ``[(k_0 + k)·B, (k_0 + k + 1)·B)`` for the first such
-    block ``k_0`` of the axis, :attr:`first_block`. Everything is resolved on
-    construction.
+    Blocks of width ``B`` bp tile the frame from 0. The HMM runs over those
+    overlapping ``stretch``, so HMM block ``k`` spans
+    ``[(k_0 + k)·B, (k_0 + k + 1)·B)`` with ``k_0`` = :attr:`first_block`, the
+    block reaching ``L_f`` ending at the axis end.
 
     :param length: Frame length ``L_f`` in bp.
     :param block: Block width ``B`` in bp.
@@ -244,16 +234,13 @@ class BuildGeometry(ReprMixin):
     :param mutation_map: :class:`msprime.RateMap` on the frame, or ``None``.
     :param core: ``(lo, hi)`` stretch of the frame the build reports trees and
         blocks for, or ``None`` for the whole axis.
-    :param data: ``(lo, hi)`` extent of the contig's sites on the frame, from
-        the first site to one past the last, a position of which a window must
-        hold to get a tree, or ``None`` when there is no site, so no window
-        gets one.
-        The HMM reads the frame outside it as not callable.
-    :param stretch: ``(lo, hi)`` data stretch on the frame, from the left edge
-        of the contig's window holding the first site to the right edge of
-        the one holding the last, or ``None`` to take it from ``windows`` and
-        ``data``.
-        The HMM runs over the blocks overlapping it.
+    :param data: ``(lo, hi)`` extent of the contig's sites on the frame, first
+        site to one past the last, or ``None`` without sites. A window gets a
+        tree only if it holds a position of it, and the HMM reads the frame
+        outside it as not callable.
+    :param stretch: ``(lo, hi)`` data stretch on the frame, from the window
+        holding the first site to the one holding the last, or ``None`` to take
+        it from ``windows`` and ``data``.
     :param origin: Genome coordinate of the frame's 0.
     :param contig: Contig the frame lies on.
     """
@@ -407,30 +394,18 @@ class BuildGeometry(ReprMixin):
 
     def hmm_inputs(self, rec_rate: float, mu: float, *, log,
                    validate: bool = True):
-        """Per-block HMM inputs: ``(step, block_mask, emit_scale)``.
+        """Per-block HMM inputs ``(step, block_mask, emit_scale)``.
 
-        ``step[k]`` is the genetic distance of the step from block ``k`` to
-        ``k+1`` in nominal-block units, the recombination map's local mass
-        over that bp interval divided by the reference ``rec_rate·B``;
-        ``None`` when no map is set (uniform).
-
-        ``emit_scale[k]`` is the Poisson exposure scale of block ``k``: the
-        product of ``a_k·(S_k/B)``, the accessible base pairs of block ``k`` as
-        a fraction of the nominal width ``B``, for a block spanning ``S_k``
-        base pairs and an accessible fraction ``a_k`` of that span
-        (dimensionless, in ``[0, 1]``, the share of the span within
-        :attr:`callable_intervals`), and ``μ_k / μ``, the mutation map's local
-        per-bp rate over the block divided by the reference rate ``μ``
-        (dimensionless, and ``1`` with no map). The emission mean of block
-        ``k`` in time bin ``i`` is then ``a_k·(S_k/B)·(μ_k/μ)·2·μ·B·t_i``
-        differences, for a bin representative time ``t_i`` in generations.
-        ``None`` when there are no sites, no mask and no map, and every block
-        is full width.
-
-        ``block_mask[k]`` is ``True`` when block ``k`` emits: more than
-        :data:`_ACCESS_FRAC_FLOOR` of its own base pairs are in
-        :attr:`callable_intervals`, it spans more than that fraction of ``B``,
-        and its local mutation rate is positive. ``None`` when no block is masked.
+        ``step[k]`` is the recombination-map mass between blocks ``k`` and
+        ``k+1`` over the reference ``rec_rate·B``. ``emit_scale[k]`` is
+        ``a_k·(S_k/B)·(μ_k/μ)``, so block ``k`` in time bin ``i`` has emission
+        mean ``emit_scale[k]·2·μ·B·t_i``, for ``S_k`` the block's span in bp,
+        ``a_k ∈ [0, 1]`` its fraction within :attr:`callable_intervals`,
+        ``μ_k`` the mutation map's local per-bp rate (``μ`` without a map),
+        ``μ`` the reference rate and ``t_i`` the bin time in generations.
+        ``block_mask[k]`` holds when more than :data:`_ACCESS_FRAC_FLOOR` of the
+        block's span is callable, the span exceeds that fraction of ``B``, and
+        ``μ_k > 0``.
 
         :param rec_rate: Reference recombination rate per bp per generation.
         :param mu: Reference mutation rate per bp per generation.
@@ -555,11 +530,9 @@ class BuildGeometry(ReprMixin):
 class ContigGeometry(ReprMixin):
     """The window grid, chunked cores and segments of one contig.
 
-    Cores of ``chunk`` bp tile the contig from 0. The segment of a core
-    extends it by ``halo`` bp on each side, starts on the block grid and ends
-    at the halo's end or the region's last base, and is built in its own frame
-    shifted to a local 0. A segment reads the contig's window grid, so every
-    segment calls a position in the same window.
+    Cores of ``chunk`` bp tile the contig from 0. A core's segment extends it
+    by ``halo`` bp each side, starts on the block grid and is built in its own
+    frame, reading the contig's window grid.
 
     :param length: Region length ``L`` in bp.
     :param position_base: Coordinate of the region's first base in the sites'
@@ -690,9 +663,6 @@ class ContigGeometry(ReprMixin):
     def _slice_map(rate_map, origin: int, span: int):
         """Sub-map over ``[origin, origin+span)`` shifted to a local ``0``.
 
-        A build reads per-block rates as cumulative-mass differences over each
-        block, so the slice's constant offset cancels.
-
         :param rate_map: The map to slice, or ``None``.
         :param origin: Left edge of the segment, in base pairs.
         :param span: Width of the slice from ``origin``, in base pairs.
@@ -763,16 +733,11 @@ class Segmentation(ReprMixin):
     """The block, window, chunk and halo of a local-tree run, resolved once,
     and the :class:`ContigGeometry` of each contig.
 
-    Resolving reads the sites once when a width is sized from the SNP
-    density, the sites per bp between each contig's first and last site (a
-    default or ``"<N>snp"`` block, a ``"<N>snp"`` window), when a contig
-    declares no length and so ends at its last site, or when the halo is
-    ``"auto"``. An ``"auto"`` halo is ``5·L_c``, capped at half the chunk, for
-    the bp ``L_c ≈ 1 / (r·E[t])`` over which the HMM's TMRCA decorrelates, with
+    An ``"auto"`` halo is ``5 / (r·E[t])`` bp, capped at half the chunk, with
     ``r`` the recombination rate per bp per generation and ``E[t] = π / (2μ)``
     the mean pairwise TMRCA in generations for the ingroup's per-bp pairwise
-    diversity ``π`` and mutation rate ``μ``. Either halo is raised to the
-    widest window of every contig with sites and to the block width.
+    diversity ``π`` and mutation rate ``μ``. Any halo is raised to the widest
+    window and to the block width.
 
     :param sites: The sites, re-iterable, in sorted order within each contig.
     :param window: The window spec.
@@ -963,15 +928,11 @@ class Segmentation(ReprMixin):
                 f"{int(site.pos):,}; fix the header or pass sequence_length")
 
     def units(self):
-        """Stream the sites once, yielding ``(sites, geometry)`` per core.
-
-        Sites are streamed in sorted order through a sliding buffer holding
-        the sites within about ``chunk + 2·halo`` bp, so neither the full
-        input nor a whole contig is materialised. Each contig is cut into the
-        cores of :meth:`ContigGeometry.cores`, so a core may hold no site.
-        ``sites`` are those of the core's segment and ``geometry`` its
-        :meth:`ContigGeometry.segment`, whose trees cover the core's part of
-        the contig's data stretch.
+        """Stream the sites once, yielding ``(sites, geometry)`` per core of
+        :meth:`ContigGeometry.cores`, a core possibly holding no site:
+        ``sites`` of the core's segment and its
+        :meth:`ContigGeometry.segment`. At most about ``chunk + 2·halo`` bp of
+        sites are buffered.
 
         :return: Iterator of ``(sites, geometry)``.
         :raises ValueError: If a site lies off its contig's axis or out of

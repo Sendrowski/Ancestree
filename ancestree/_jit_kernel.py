@@ -1,11 +1,7 @@
 """Numba-JIT inner Felsenstein traversal for the
-:class:`~ancestree.likelihood.Likelihood` engine.
-
-The compiled kernel takes the tree topology as flat dense arrays
-(post-order node list, CSR children, per-node transition matrices,
-pre-initialised tip partials) so numba can specialise on numeric types
-and elide Python-object overhead. The Python caller packs these arrays
-once per tree and reuses them across batched sites.
+:class:`~ancestree.likelihood.Likelihood` engine, on a tree packed as flat
+dense arrays (post-order node list, CSR children, per-node transition matrices,
+seeded tip partials).
 """
 from __future__ import annotations
 
@@ -18,10 +14,8 @@ from numba import njit
 @njit(cache=True)
 def postorder_internal_core(parent, root: int, nslot: int, cofs, cflat, offs,
                             stack, next_child, out):
-    """Build the CSR children of a parent array and walk it in post-order.
-
-    Every buffer is caller-owned, so this allocates nothing and may be called
-    inside a ``prange``.
+    """Build the CSR children of a parent array and walk it in post-order,
+    allocating nothing (every buffer is caller-owned).
 
     :param parent: ``(nslot,)`` dense parent ids, ``-1`` where absent.
     :param root: Dense id of the node to walk from.
@@ -75,10 +69,8 @@ def postorder_internal_core(parent, root: int, nslot: int, cofs, cflat, offs,
 
 @njit(cache=True)
 def postorder_csr_from_parents(parent_dense, root_dense: int, n_nodes: int):
-    """CSR children and the internal-node post-order, from a parent array.
-
-    Both come out of one walk, so each parent's children and the traversal
-    that consumes them are in the same ascending dense id order.
+    """CSR children and the internal-node post-order of a parent array, both
+    in ascending dense id order.
 
     :param parent_dense: ``(n_nodes,)`` dense parent ids, ``-1`` at the root.
     :param root_dense: Dense id of the root to walk from.
@@ -138,14 +130,11 @@ def postorder_core(
     combined,  # (B, S) float64 scratch
     log_row,  # (S,) float64 scratch
 ):
-    """Run the post-order Felsenstein traversal on dense arrays.
+    """Post-order Felsenstein traversal on dense arrays.
 
-    For each internal node ``v`` in post-order, multiplies each child's
-    message ``partials[child] @ P[child].T`` element-wise into an accumulator
-    seeded from ``partials[v]``, then rescales by the per-batch row max and
-    accumulates the log-scaling factor. The seed carries the state of an
-    internal node that is itself an observed sample. Tip partials and the
-    per-edge ``P`` rows are supplied by the caller.
+    Each internal node ``v`` takes ``partials[v]`` (one-hot for an observed
+    internal sample) times every child's message ``partials[c] @ P[c].T``,
+    rescaled per batch row with the log factor accumulated in ``scale_log``.
 
     :return: ``root_partial[B, S]``. ``scale_log`` is filled in place.
     """
@@ -249,11 +238,8 @@ def felsenstein_postorder_dense(
     P_per_node,  # (n_nodes, S, S) float64, P on the edge into each node
     partials,  # (n_nodes, B, S) float64, tip partials seeded
 ):
-    """One tree's post-order traversal. See :func:`postorder_core`.
-
-    Owns the scratch and addresses ``P_per_node`` one row per node, i.e. the
-    identity index with no offset. The batched ensemble path calls
-    ``postorder_core`` directly with its own scratch and a packed ``P``.
+    """One tree's :func:`postorder_core` traversal with its own scratch and one
+    ``P_per_node`` row per node.
 
     :return: ``(root_partial[B, S], scale_log[B])``.
     """

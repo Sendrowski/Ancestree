@@ -209,11 +209,8 @@ class Inference(ReprMixin, ABC):
         return LocalTreeInference(*args, **kwargs)
 
     def _log_uniform_fallback_summary(self) -> None:
-        """Emit one warning summarising uniform-posterior fallbacks, if any.
-
-        ``_normalise_log_post`` accumulates a per-instance count of sites
-        whose log-posterior was degenerate (all ``-inf``). This reports the
-        total once, at the end of :meth:`infer`.
+        """Log the walk's diagnostic tally once, at the end of :meth:`infer`,
+        then publish the focal totals and reset the tally.
         """
         tally = self._tally
         n = tally.uniform_fallback
@@ -266,7 +263,7 @@ class Inference(ReprMixin, ABC):
     def _publish_focal_totals(self) -> None:
         """Record the finished walk's focal diagnostics for the provenance.
 
-        Every path that completes a walk calls this before its counters are reset.
+        Every path that completes a walk calls this before its tally is reset.
         """
         self._focal_totals = {
             "n_trees_ingroup_non_monophyletic":
@@ -299,22 +296,15 @@ class Inference(ReprMixin, ABC):
 
     @property
     def _focal_anchored_at_ingroup_mrca(self) -> bool:
-        """Whether the focal node is anchored at the ingroup MRCA.
-
-        The anchor alone, whatever placement is measured from it. Callers
-        positioning a readout point relative to the anchor want this;
-        callers asking where the run actually reports want
-        :attr:`Inference._focal_is_ingroup_mrca`.
+        """Whether the focal node is anchored at the ingroup MRCA, whatever the
+        placement measured from it.
         """
         return self.focal.anchor == "ingroup_mrca"
 
     @property
     def _focal_is_ingroup_mrca(self) -> bool:
-        """Whether this pass reports at the ingroup's own ancestor.
-
-        A placement above the anchor moves the readout point to a deeper node,
-        where ingroup-fixed sites are called against the outgroups. A zero
-        placement names the anchor itself, so it still reports there.
+        """Whether this pass reports at the ingroup MRCA itself, with zero
+        placement above the anchor.
         """
         return (self._focal_anchored_at_ingroup_mrca
                 and not self.focal._placement)
@@ -331,12 +321,10 @@ class Inference(ReprMixin, ABC):
 
 
     def _ensure_fitted(self) -> None:
-        """Hook: run any required ML fit before a full inference pass.
+        """Run any required ML fit before a full inference pass.
 
-        No-op for modes that need no fitting (ARG / local-tree / majority).
-        :class:`~ancestree.inference.FixedTreeInference` overrides this to fit branch rates on
-        demand, so :meth:`summary` / :meth:`grade` work on an unfitted
-        instance.
+        A no-op except in :class:`~ancestree.inference.FixedTreeInference`,
+        which fits the branch rates on demand.
         """
 
     def summary(self) -> "InferenceSummary":
@@ -417,11 +405,8 @@ class Inference(ReprMixin, ABC):
         )
 
     def _provenance_parameters(self) -> dict[str, object]:
-        """Mode-specific run parameters for :meth:`provenance`.
-
-        Overridden by each concrete inference to expose the constructor
-        arguments (and ML-fitted values) that determined the calls. The base
-        implementation returns an empty mapping.
+        """Mode-specific run parameters for :meth:`provenance`, empty in the
+        base class.
 
         :return: A JSON-serialisable ``dict`` of run parameters.
         """
@@ -429,11 +414,6 @@ class Inference(ReprMixin, ABC):
 
     def _model_provenance(self) -> dict[str, object]:
         """The model's own parameters and the composition the kernel read.
-
-        Naming the model class alone does not identify the run: two runs
-        differing only in a free parameter (HKY or K2 ``kappa``, GTR's
-        exchangeabilities) or in the base composition supplying pi make
-        different calls at the same sites.
 
         :return: JSON-serialisable model parameters and, where one is
             resolvable, the stationary distribution as a four-element list.
@@ -460,9 +440,8 @@ class Inference(ReprMixin, ABC):
     def _require_stationary_prior(prior) -> None:
         """Refuse an ingroup weight offered as the root prior.
 
-        An :class:`~ancestree.priors.IngroupWeight` conditions on a single
-        shared ingroup-MRCA polytomy. Only the outgroup ladder of the
-        fixed-tree mode has one, and it takes the weight as ``ingroup_weight``.
+        Only the fixed-tree mode takes an
+        :class:`~ancestree.priors.IngroupWeight`, as ``ingroup_weight``.
 
         :param prior: The ``prior`` argument, which may be ``None``.
         :raises TypeError: If it is anything other than a
@@ -482,16 +461,11 @@ class Inference(ReprMixin, ABC):
     def _count_ingroup_monomorphic(self, sites, counts=None) -> _Tally:
         """Tally sites carrying at most one allele across the ingroup.
 
-        A site monomorphic within the ingroup says nothing about the ingroup
-        MRCA on its own, so a run reporting there answers from the outgroups.
-        An unfolded spectrum built from those calls has no derived-fixed
-        entry, which is what the summary warns about.
-
         :param sites: The sites just scored.
-        :param counts: Ingroup allele counts tallied over
+        :param counts: Ingroup allele counts over
             :meth:`Inference._baseline_ingroup_samples`, one per site in site
-            order, or ``None`` to tally them here.
-        :return: The count, as a tally.
+            order, or ``None`` to count them here.
+        :return: The tally, ``ingroup_monomorphic`` set.
         """
         if not self._focal_is_ingroup_mrca:
             return _Tally()
@@ -506,12 +480,12 @@ class Inference(ReprMixin, ABC):
     def _count_unrepresentable(self, sites) -> _Tally:
         """Tally sites and tips whose alleles lie outside the alphabet.
 
-        A site counts once when its allele list carries such an allele or one
-        of its tips is observed at one. The tips are counted individually,
-        each of them marginalised by the kernel.
+        A site counts once when its allele list or one of its tips carries
+        such an allele. Tips count individually.
 
         :param sites: The sites just scored.
-        :return: The counts, as a tally.
+        :return: The tally, ``unrepresentable_sites`` and
+            ``unrepresentable_tips`` set.
         """
         n_sites = n_tips = 0
         for site in sites:
@@ -582,11 +556,8 @@ class Inference(ReprMixin, ABC):
         )
 
     def _note_unnamed_ingroup(self) -> None:
-        """Report that an unnamed ingroup is the whole panel.
-
-        The focal anchor then resolves to the panel root and not to a
-        clade's own ancestor, which is a different node and a different
-        answer.
+        """Report that an unnamed ingroup is the whole panel, so the focal
+        anchor resolves to the panel root.
         """
         if self.focal.is_root:
             return
@@ -622,22 +593,14 @@ class Inference(ReprMixin, ABC):
     ) -> str | None:
         """Build the one-line baseline-agreement INFO log message.
 
-        Walks two parallel ``(Site, Posterior)`` streams (the real
-        inference's posteriors and the baseline's) and computes:
+        Reports the overall MAP-agreement fraction and, with
+        ``ingroup_samples``, the agreement per folded-SFS bin and the two
+        lowest bins.
 
-        - the overall MAP-agreement fraction,
-        - the per-folded-SFS-bin agreement breakdown (when
-          ``ingroup_samples`` is available),
-        - the two bins with the lowest agreement (for the trailing
-          "largest disagreement at SFS bin X (0.78)" hint).
-
-        :param real: Iterator of ``(Site, Posterior)`` from the real
-            inference.
-        :param baseline: Iterator of ``(Site, Posterior)`` from the
-            baseline.
-        :param ingroup_samples: Ingroup ids for folded-SFS bin
-            stratification. When ``None`` or empty, the trailing
-            per-bin breakdown is omitted.
+        :param real: ``(Site, Posterior)`` pairs from the real inference.
+        :param baseline: ``(Site, Posterior)`` pairs from the baseline.
+        :param ingroup_samples: Ingroup ids for the folded-SFS bins. ``None``
+            or empty omits the per-bin breakdown.
         :return: A formatted log line, or ``None`` if no comparable
             sites were observed.
         """
@@ -711,12 +674,7 @@ class Inference(ReprMixin, ABC):
         """Refuse an uncalibrated ARG and flag one that never declared units.
 
         ``mu`` is a rate per unit of the tree sequence's own time. Times
-        declared ``uncalibrated`` admit no such rate and are refused. Times
-        declared ``unknown`` are assumed to be generations, with a warning:
-        coalescent-unit times need ``mu`` per that unit, ``4 N_e mu`` for
-        units of ``4 N_e`` generations. ``mu_matches_time_units`` asserts that
-        ``mu`` was derived against this tree sequence's own time axis, as a
-        rate fitted to the tree itself is.
+        declared ``unknown`` are assumed to be generations, with a warning.
 
         :param ts: The tree sequence about to be scored.
         :param mu_matches_time_units: Whether ``mu`` is expressed per
@@ -796,11 +754,9 @@ class Inference(ReprMixin, ABC):
         """Pass ``inner`` through, then run the baseline consistency check on the
         collected posteriors once the stream is exhausted.
 
-        Buffers at most :attr:`_BASELINE_CHECK_MAX_SITES` pairs (so streaming
-        inference stays bounded in memory), and only buffers at all when the
-        check will actually run: it is enabled, INFO logging is on, and
-        outgroups are designated. With no outgroups it just logs that the
-        comparison was skipped without retaining the stream.
+        At most :attr:`_BASELINE_CHECK_MAX_SITES` pairs are buffered, and only
+        when the check runs: it is enabled, INFO logging is on and outgroups
+        are designated.
 
         :param inner: The mode's own per-site posterior generator.
         :return: The same ``(Site, Posterior)`` stream, unchanged.
@@ -905,8 +861,8 @@ class Inference(ReprMixin, ABC):
     ) -> np.ndarray:
         """Log-softmax with a uniform fallback for degenerate rows.
 
-        An all-``-inf`` row takes the uniform distribution and is counted for
-        the summary warning at the end of :meth:`infer`.
+        An all-``-inf`` row takes the uniform distribution and is added to the
+        tally.
 
         :param log_post: ``(N, S)`` un-normalised log-posterior.
         :param n_states: ``S``, alphabet size for the uniform fallback.
@@ -967,11 +923,8 @@ class Inference(ReprMixin, ABC):
     def _scale_for(self, tree: "Tree", site: Site) -> "float | None":
         """The per-site rate scaling ``tree``'s branch lengths, or ``None``.
 
-        Branch lengths measured in generations, as an ARG local tree and the
-        local-tree mode's own genealogies are, need the per-site rate applied
-        ahead of the kernel, or every transition saturates. A
-        fixed-tree ladder's are in expected substitutions per site and
-        are left alone.
+        Branch lengths in generations take the per-site rate. A fixed-tree
+        ladder's, in expected substitutions per site, take none.
 
         :param tree: The tree about to be scored.
         :param site: The site scored on it, read at its exact position
@@ -1047,8 +1000,7 @@ class Inference(ReprMixin, ABC):
     def _tskit_focal_view(self, tree: "Tree", ts_tree, focal) -> "Tree":
         """``tree`` re-rooted at ``focal``, resolved on its own tskit tree.
 
-        The ingroup is located through ``tree``, not through this run's
-        panel, so a caller-supplied tree is read with its own node numbering.
+        The ingroup is located through ``tree``'s own node numbering.
 
         :param tree: The wrapper whose branch lengths the kernel will read.
         :param ts_tree: The :class:`tskit.Tree` backing it.
@@ -1155,11 +1107,8 @@ class Inference(ReprMixin, ABC):
         return provenance
 
     def _completing(self, stream, *records):
-        """``stream``, refreshing every one of ``records`` once the walk ends.
-
-        The focal counters are published at the end of the walk, while the
-        writers resolve their provenance before draining, so each record is
-        updated in place as the last item passes.
+        """``stream``, refreshing every one of ``records`` in place as the last
+        item passes, once the walk has published its focal totals.
 
         :param stream: The ``(Site, Posterior)`` pairs to forward.
         :param records: The provenance mappings to refresh: the one the writer
@@ -1406,8 +1355,7 @@ class Inference(ReprMixin, ABC):
     ) -> "tskit.TreeSequence":
         """Resolve the tree sequence whose sites :meth:`to_arg` annotates.
 
-        Overridden by the modes that have one. The base implementation
-        raises, making :meth:`to_arg` unavailable.
+        The base implementation raises.
 
         :param restrict_samples: Whether to hold only the samples the
             inference used.
@@ -1660,11 +1608,8 @@ class ARGBasedInference(Inference):
             \\qquad P(s \\mid x) \\propto \\pi(s)\\, P(x \\mid s),
 
         where ``x`` is the site's tip alleles, ``s`` the state at the focal
-        node and ``pi`` the root prior. One scorer per draw is walked
-        concurrently and the streams are merged on site position, so a site is
-        finished as soon as every draw has passed it and the accumulator holds
-        only the positional skew between the walks. A site missing from some
-        draw is averaged over the draws that carry it.
+        node and ``pi`` the root prior. A site missing from some draw is
+        averaged over the draws that carry it.
         """
         import heapq
         import itertools
@@ -1733,8 +1678,7 @@ class ARGBasedInference(Inference):
     def _chain_draws(self):
         """Every draw in the posterior sample, resolving paths as they come.
 
-        A re-walkable source (list, tuple) is iterated afresh on each call. A
-        one-shot generator cannot be rewound, so a second pass raises.
+        A second pass over a one-shot generator raises.
         """
         import tskit
 
@@ -1810,9 +1754,8 @@ class ARGBasedInference(Inference):
     def _check_alphabet(self) -> None:
         """Refuse a tree sequence carrying no allele the model can read.
 
-        Every tip would take the all-ones partial and every site would return
-        the prior unchanged, which is finite and so trips no underflow or
-        fallback counter.
+        Every site would return the prior unchanged without entering the
+        tally.
 
         :raises ValueError: If no allele in the tree sequence maps to a model
             state.
@@ -2085,12 +2028,8 @@ class ARGBasedInference(Inference):
         under root ``r``, with ``s`` the state at ``r``, ``pi_s`` the root
         prior and ``L_r`` the Felsenstein likelihood. A root that is a bare
         sample tip contributes ``pi_a`` for its observed allele ``a``, and 1
-        when that allele is absent or outside the alphabet.
-
-        The local trees of one draw are scored independently, so each carries
-        only the evidence of its own tips. Summing the others' log evidence
-        puts every draw's stashed row on the one scale
-        :meth:`Inference._infer_marginalised` mixes in.
+        when that allele is absent or outside the alphabet. It puts every
+        draw's stashed row on the one scale ``_infer_marginalised()`` mixes.
 
         :param engine: The :class:`~ancestree.likelihood.Likelihood` in use.
         :param tree: The tskit tree the roots belong to.
@@ -2128,9 +2067,6 @@ class ARGBasedInference(Inference):
 
     def _build_tree_chunks(self, n_chunks: int) -> list[tuple[int, int]]:
         """Group local trees into ``n_chunks`` roughly equal-site-count windows.
-
-        Site density varies along the ARG, so chunks are cut by site count,
-        not tree count.
 
         :return: Half-open ``(tree_start, tree_stop)`` pairs covering
             ``[0, num_trees)`` contiguously, empty chunks dropped.
@@ -2241,8 +2177,6 @@ class ARGBasedInference(Inference):
         Entry ``[b, i]`` is the model state index of sample column ``i`` at
         variant ``b``, or ``-1`` for missing: a missing genotype, an allele
         outside the model alphabet, or a column with no sample-map binding.
-        A ``-1`` yields the same all-ones tip partial as an absent
-        ``tip_alleles`` entry on the generic path.
 
         :param variants: The :class:`tskit.Variant` records for one local
             tree, in the order of the sites built by :meth:`_parse_variant`.
@@ -2333,10 +2267,8 @@ class ARGBasedInference(Inference):
     def _provenance_parameters(self) -> dict[str, object]:
         """ARG-mode run parameters: model, prior, μ, workers.
 
-        ``n_draws`` records how many genealogies the posterior was marginalised
-        over, so an annotated output distinguishes a single-ARG run from one
-        averaged across a chain. It is omitted where the sample is a one-shot
-        iterator of unknown length.
+        ``n_draws``, the number of genealogies marginalised over, is omitted
+        for a one-shot iterator of unknown length.
         """
         mu = self.mu
         params: dict[str, object] = {
@@ -2887,11 +2819,9 @@ class FixedTreeInference(Inference):
     def _ingroup_haplotype_count(self) -> int:
         """Panel tips the ingroup ids resolve to.
 
-        An id names a tip or the individual a tip belongs to, the resolution
-        :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>`
-        applies, so a diploid panel named per individual carries twice as many
-        ingroup haplotypes as ids. Falls back to the id count where the panel
-        is empty.
+        An id names a tip or the individual a tip belongs to, as in
+        :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>`.
+        An empty panel gives the id count.
 
         :return: Number of ingroup haplotypes in the panel.
         """
@@ -2908,15 +2838,15 @@ class FixedTreeInference(Inference):
     ) -> int:
         """Resolve the canonical AFS ``subsample_size`` for the config fit.
 
-        Explicit user argument wins. Otherwise inherit from a supplied
-        AFS-aware ingroup weight. Otherwise default to ``min(n_ingroup, 11)``.
-        Raises on a sub-2 explicit value (a subsample of 1 carries no
-        frequency information) or a mismatch against the supplied weight.
+        An explicit value wins, then that of an AFS-aware ingroup weight, then
+        ``min(n_ingroup, 11)``.
 
-        :param ingroup_weight: The user-supplied weight (or ``None``).
-        :param subsample_size: The user's explicit ``subsample_size`` (or
-            ``None`` to auto-resolve).
+        :param ingroup_weight: The user-supplied weight, or ``None``.
+        :param subsample_size: The explicit ``subsample_size``, or ``None``
+            to resolve it.
         :return: The resolved sub-sample size.
+        :raises ValueError: If an explicit value is below 2 or exceeds the
+            ingroup, or disagrees with the weight.
         """
         n_in_resolve = self._ingroup_haplotype_count()
         if subsample_size is not None:
@@ -2969,12 +2899,7 @@ class FixedTreeInference(Inference):
     _REDUNDANT_OUTGROUP_SAMPLE_CAP = 50_000
 
     def _warn_if_branch_rates_at_bounds(self) -> None:
-        """Post-fit warning when a fitted branch rate is within 1% of a bound.
-
-        A ``K_i`` at the lower bound means the outgroup tip carries no
-        divergence in the fitted topology: an identifiability ridge, redundant
-        outgroups, or too few polymorphic sites.
-        """
+        """Post-fit warning when a fitted branch rate is within 1% of a bound."""
         if self._params_mle is None or len(self._free_indices) == 0:
             return
         lo, hi = self.bounds
@@ -3001,11 +2926,8 @@ class FixedTreeInference(Inference):
                 )
 
     def _warn_on_redundant_outgroups(self, threshold: float) -> None:
-        """Pre-fit warning for outgroup pairs with low pairwise divergence.
-
-        Near-identical outgroups, typically both haplotypes of one diploid
-        individual, drive their branch rates to the lower bound. The check runs
-        on a bounded prefix of the sites.
+        """Pre-fit warning for outgroup pairs with low pairwise divergence,
+        checked on a bounded prefix of the sites.
         """
         if threshold <= 0:
             return
@@ -3135,13 +3057,10 @@ class FixedTreeInference(Inference):
                        tips: Sequence[str]) -> None:
         """Refuse a named sample or tree tip the panel does not carry.
 
-        An outgroup matching no tip pegs every branch rate at its lower bound,
-        and an ingroup id matching no tip silently shrinks the ingroup. An
-        outgroup id or a tip of a tree used as given matches a tip id exactly.
-        An ingroup id matches a tip id or the individual a tip belongs to, as
-        :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>`
-        reads it, and an ingroup the panel carries none of is the
-        outgroup-only mode. An empty panel is not checked.
+        An outgroup id or a tip of a tree used as given matches a tip id
+        exactly. An ingroup id also matches the individual a tip belongs to,
+        and an ingroup the panel carries none of is the outgroup-only mode. An
+        empty panel is not checked.
 
         :param ingroup_samples: Named ingroup ids, or ``None``.
         :param outgroup_samples: Named outgroup ids, or ``None``.
@@ -3280,8 +3199,7 @@ class FixedTreeInference(Inference):
 
     def _warn_if_outgroup_divergences_non_monotone(self) -> None:
         """Warn when the fitted ``I → O_k`` divergences do not increase along
-        the supplied outgroup order. For ``n_outgroups >= 3`` the ladder is
-        asymmetric and a mis-ordering biases the fit."""
+        the supplied outgroup order."""
         n = self.tree.n_outgroups
         if n < 2:
             return
@@ -3336,12 +3254,10 @@ class FixedTreeInference(Inference):
             self._run_one, starts))
 
     def _generate_starts(self) -> list[np.ndarray]:
-        """Initial points for the L-BFGS-B variable vector (free params only).
+        """Initial points for the L-BFGS-B vector of free parameters.
 
-        First start is always the user's ``initial_rates`` projection onto
-        the free axes (so a deterministic single-start fit is reproducible
-        as the ``n_starts=1`` case). Additional starts are log-uniformly
-        sampled from ``bounds`` using ``self.seed``.
+        The first is ``initial_rates`` projected onto the free axes, the rest
+        are drawn log-uniformly within ``bounds`` using ``self.seed``.
         """
         x0_free = np.array(
             [self._x0[i] for i in self._free_indices]
@@ -3438,11 +3354,8 @@ class FixedTreeInference(Inference):
     def _neg_log_likelihood(self, x_free: np.ndarray) -> float:
         """Set tree rates from the L-BFGS-B vector and return ``-log L``.
 
-        ``x_free`` holds the free branch rates and any trailing model
-        parameters; fixed entries come from ``self._x0``. The objective is the
-        multiplicity-weighted sum over the config histogram of
-        ``logsumexp(log_L + log_prior, axis=1)``, with the per-config ingroup
-        term precomputed at construction.
+        ``-log L`` is the multiplicity-weighted sum over the config histogram
+        of ``logsumexp(log_L + log_prior, axis=1)``.
         """
         self._apply_free_vector(x_free)
         if not self._fit_configs:
@@ -3515,9 +3428,7 @@ class FixedTreeInference(Inference):
 
     def _iter_site_batches(self) -> "Iterator[list[Site]]":
         """Yield the sites in batches of 4096, one pass over
-        :attr:`sites`. Shared by the inference pass and the adaptive weight's
-        stage-2 fit, so a streamed source keeps peak memory flat in genome
-        length."""
+        :attr:`sites`."""
         batch: list[Site] = []
         for site in self.sites:
             batch.append(site)

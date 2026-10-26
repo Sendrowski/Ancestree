@@ -68,12 +68,8 @@ class Settings:
 
     @staticmethod
     def _cap_worker_threads(n_workers: int) -> None:
-        """Give this worker process its share of the parent's numba threads.
-
-        Worker initialiser for every pool the package opens. A forked child
-        inherits the parent's ``NUMBA_NUM_THREADS`` pool size, so ``n_workers``
-        children each running a ``parallel=True`` kernel oversubscribe the
-        machine by a factor of ``n_workers``.
+        """Give this worker process its share of the parent's numba threads,
+        so ``n_workers`` siblings do not oversubscribe the machine.
 
         :param n_workers: Sibling worker processes sharing the machine.
         """
@@ -93,11 +89,8 @@ class Settings:
     def _fork_is_safe() -> bool:
         """Whether forking a worker pool is safe with the active numba layer.
 
-        GNU OpenMP, the ``omp`` layer on Linux, is fork-unsafe: a child forked
-        after a parallel kernel has run deadlocks inside its first parallel
-        region. Every other layer and platform is fork-safe.
-
-        :return: ``False`` only for the OpenMP layer on Linux.
+        :return: ``False`` only for the GNU OpenMP layer on Linux, where a
+            forked child deadlocks.
         """
         try:
             import numba

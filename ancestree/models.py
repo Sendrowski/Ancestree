@@ -115,11 +115,9 @@ class SubstitutionModel(ReprMixin, ABC):
     def _exchangeability(self) -> np.ndarray:
         """Symmetric exchangeability matrix :math:`R` with a zero diagonal.
 
-        :math:`R_{ij}` is the rate of the ``i ↔ j`` substitution relative to
-        the other pairs; the overall scale is set by :meth:`_beta_for`, so only
-        the ratios enter. The equal exchangeabilities returned here give
-        :class:`~ancestree.models.JC69` at uniform :math:`\\pi` and
-        :class:`~ancestree.models.F81` at any other :math:`\\pi`.
+        :math:`R_{ij}` is the relative rate of the ``i ↔ j`` substitution,
+        the scale being set by :meth:`_beta_for`. The base class returns equal
+        exchangeabilities.
 
         :return: Array of shape ``(n_states, n_states)``.
         """
@@ -327,10 +325,7 @@ class SubstitutionModel(ReprMixin, ABC):
     def _eig_of(self, Q: np.ndarray) -> "tuple | None":
         """Cached ``(λ, V, V⁻¹)`` with ``Q = V diag(λ) V⁻¹``.
 
-        Keyed by ``Q``'s bytes: ``Q`` is invariant across the objective
-        evaluations of a rate fit, so it is decomposed once. Returns ``None``
-        when ``V`` is too ill-conditioned for the reconstruction to be trusted,
-        and that verdict is cached too.
+        Keyed by ``Q``'s bytes, the ``None`` verdict cached too.
 
         :param Q: Rate matrix of shape ``(S, S)``.
         :return: ``(λ, V, Vinv)``, or ``None`` if ``Q`` is not usably
@@ -414,16 +409,14 @@ class SubstitutionModel(ReprMixin, ABC):
         """Vectorised ``exp(Q·t)`` over a branch-length array via the
         eigendecomposition of ``Q``.
 
-        With ``Q = V diag(λ) V⁻¹`` from :meth:`_eig_of`, the whole array is
-        exponentiated in one pass as ``P(t) = I + V diag(e^{λt} - 1) V⁻¹``,
-        with ``e^{λt} - 1`` from ``expm1``, so the off-diagonals keep full
-        relative precision at short branches.
+        Computes ``P(t) = I + V diag(e^{λt} - 1) V⁻¹`` with ``expm1``, for
+        eigenvalues ``λ`` and eigenvectors ``V`` of ``Q`` from :meth:`_eig_of`.
 
         :param Q: Rate matrix of shape ``(S, S)``.
         :param t_arr: Branch length(s), any shape (scalar ``ndim == 0`` allowed).
         :return: ``exp(Q·t)`` of shape ``t_arr.shape + (S, S)``, or ``None``
             when ``Q``'s eigenvector matrix is too ill-conditioned for the
-            reconstruction to be trusted (caller falls back to scipy).
+            reconstruction to be trusted.
         """
         S = self.n_states
         eig = self._eig_of(Q)
@@ -443,8 +436,7 @@ class SubstitutionModel(ReprMixin, ABC):
 class _KappaMixin:
     """The transition / transversion ratio and its ML-fitting protocol.
 
-    Mixed into the two models carrying a :math:`\\kappa` parameter
-    (:class:`~ancestree.models.K2`, :class:`~ancestree.models.HKY`), which differ only in their ``Q``.
+    Mixed into :class:`~ancestree.models.K2` and :class:`~ancestree.models.HKY`.
 
     :param kappa: Transition / transversion ratio. Must be positive.
     :param fit_kappa: Expose ``kappa`` through :attr:`free_params` so

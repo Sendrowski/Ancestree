@@ -1,35 +1,24 @@
 """Command-line interface for :mod:`ancestree`.
 
-Exposes three subcommands matching the three inference modes:
+One subcommand per inference mode:
 
 - ``ancestree fixed-tree``: :class:`~ancestree.inference.FixedTreeInference`
-  on a VCF / VCZ. ML-fits branch rates on the outgroup-ladder topology, or
-  scores a dated Newick tree as given, and emits an annotated VCF or
-  ``.vcz`` store.
-- ``ancestree arg``: :class:`~ancestree.inference.ARGBasedInference`
-  on a tskit ``.trees`` file. No outgroups required. The local ARG
-  trees carry the genealogical signal. Emits an annotated VCF, ``.vcz``
-  store or ``.trees`` file.
+  on a VCF / VCZ, fitting branch rates on the outgroup-ladder tree or scoring
+  a given dated Newick tree.
+- ``ancestree arg``: :class:`~ancestree.inference.ARGBasedInference` on a
+  tskit ``.trees`` file.
 - ``ancestree local-tree``:
-  :class:`~ancestree.local_tree_inference.LocalTreeInference` on a VCF / VCZ
-  of genotypes alone. Infers a dated local tree per window (PSMC'-style
-  pairwise-coalescent HMM → per-window UPGMA), then infers the ancestral
-  allele on it with the ARG kernel. No outgroups and no input ARG required.
-  Emits an annotated VCF, VCF-Zarr, or ``.trees`` file.
+  :class:`~ancestree.local_tree_inference.LocalTreeInference` on a VCF / VCZ,
+  inferring the local trees from the genotypes.
 
-The output format is inferred from the ``--out`` extension. An output
-annotates the input when the input is a VCF or a local VCF Zarr store of its
-format, and is otherwise written from the sites, holding the panel:
-
-- ``.vcf``, ``.vcf.gz``, ``.vcf.bgz``, ``.bcf`` route to
-  :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`;
-- ``.vcz`` routes to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`;
-- ``.trees`` (valid under ``arg`` and ``local-tree``) routes to the
-  matching ``to_arg`` writer.
-
-All three writers embed an ``ancestree`` provenance record (version, mode,
-parameters): the VCF header, the tskit provenance table, or the VCZ root
-``attrs`` respectively, so CLI and Python-API outputs are self-describing.
+The output format follows the ``--out`` extension: ``.vcf``, ``.vcf.gz``,
+``.vcf.bgz`` and ``.bcf`` go to
+:meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`, ``.vcz``
+to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`, and
+``.trees`` (``arg`` and ``local-tree`` only) to the mode's ``to_arg`` writer.
+An output annotates the input when the input is a VCF or a local VCF Zarr
+store of its format, and is otherwise written from the sites. Every output
+carries an ``ancestree`` provenance record.
 """
 from __future__ import annotations
 
@@ -58,9 +47,6 @@ _log = logging.getLogger("ancestree.cli")
 def _lib_default(cls, param: str):
     """The constructor default a flag configures.
 
-    A flag reads its default from the class it builds, so the two cannot state
-    different values.
-
     :param cls: The class whose constructor the flag feeds.
     :param param: Constructor parameter name.
     :return: That parameter's default.
@@ -74,12 +60,6 @@ def _lib_default(cls, param: str):
 
 def _chunk_size(value: str):
     """Parse ``--chunk-size``, with ``none`` opting out of chunking.
-
-    The constructor takes ``None`` to mean "build the whole input as one
-    region", which a command line has no other way to express once the flag
-    carries a width by default. The width itself is validated by the
-    constructor's own parser, whose message argparse reports only when it
-    arrives as an :class:`argparse.ArgumentTypeError`.
 
     :param value: Raw flag value.
     :return: ``None`` for ``none`` / ``off``, else the value for the
@@ -101,9 +81,6 @@ def _chunk_size(value: str):
 
 def _split_csv(value: str) -> list[str]:
     """Split a comma-separated string into a list of non-empty tokens.
-
-    Used by ``--ingroup`` / ``--outgroups`` so the user can pass either
-    ``pop1,pop2`` (no spaces) or quote a list with spaces.
 
     :param value: Raw flag value from the command line.
     :return: List of trimmed, non-empty tokens.
@@ -127,9 +104,8 @@ def _probability(value: str) -> float:
 def _warn_ignored(args, pairs) -> None:
     """Report flags that this combination discards.
 
-    Whether a flag was given is read off the parser's own record of which
-    destinations appeared on the command line, so a flag left at a non-empty
-    default is not reported and one passed at its default value still is.
+    A flag counts as given when it appeared on the command line, whatever
+    its value.
 
     :param args: Parsed arguments.
     :param pairs: ``(flag_attr, condition, reason)`` triples. The flag is
@@ -178,16 +154,15 @@ def _base_composition(value: str):
 def _build_model(name: str, *, fit_kappa: bool, fit_rates: bool, kappa: float | None = None):
     """Instantiate a :class:`~ancestree.models.SubstitutionModel` by short name.
 
-    ``--fit-kappa`` is honoured for the two κ-aware models (``K2``, ``HKY``)
-    and ``--fit-rates`` for ``GTR``. Both are silently ignored on models that
-    do not expose the matching free parameter.
+    ``fit_kappa`` and ``kappa`` apply to ``K2`` and ``HKY``, ``fit_rates`` to
+    ``GTR``, and each is ignored elsewhere.
 
     :param name: One of ``JC69``, ``K2``, ``F81``, ``HKY``, ``GTR``.
     :param fit_kappa: Forwarded to :class:`~ancestree.models.K2`
         / :class:`~ancestree.models.HKY` constructors.
     :param fit_rates: Forwarded to :class:`~ancestree.models.GTR`.
-    :param kappa: Starting transition / transversion ratio for ``K2`` / ``HKY``;
-        ``None`` keeps each model's own default.
+    :param kappa: Starting transition / transversion ratio for ``K2`` / ``HKY``,
+        ``None`` for each model's own default.
     :return: An instantiated substitution model.
     :raises ValueError: On an unknown model name.
     """
@@ -232,15 +207,9 @@ def _build_ingroup_weight(
 ):
     """Instantiate an :class:`~ancestree.priors.IngroupWeight` by short name.
 
-    - ``none`` → no weight. The ingroup contributes nothing and the outgroups
-      alone decide.
-    - ``kingman`` → :class:`~ancestree.priors.KingmanIngroupWeight`, the
-      closed-form ``(n - i) / n``.
-    - ``adaptive`` → :class:`~ancestree.priors.AdaptiveIngroupWeight`, one
-      probability per spectrum class fitted once the branch-rate MLE is in
-      hand.
-
-    :param name: ``none`` / ``kingman`` / ``adaptive``.
+    :param name: ``none`` (no weight), ``kingman``
+        (:class:`~ancestree.priors.KingmanIngroupWeight`) or ``adaptive``
+        (:class:`~ancestree.priors.AdaptiveIngroupWeight`).
     :param ingroup_samples: Required for ``kingman`` / ``adaptive``.
     :param parallelize: Whether ``adaptive`` dispatches its per-class fit
         across worker processes.
@@ -310,10 +279,6 @@ def _build_focal(args: argparse.Namespace) -> FocalNode:
 
 def _configure_logging(verbosity: int, quiet: bool) -> None:
     """Set the ``ancestree`` logger level from ``-v`` / ``--quiet`` flags.
-
-    Default is ``INFO`` (matching the package import-time default).
-    ``-v`` lowers to ``DEBUG``. ``--quiet`` raises to ``WARNING``.
-    The two are mutually exclusive, rejected by :func:`run`.
 
     :param verbosity: Count from ``-v`` (0 = INFO, ≥1 = DEBUG).
     :param quiet: ``True`` raises the level to WARNING.
@@ -433,10 +398,8 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True,
     ``--fit-kappa`` / ``--fit-rates`` toggles), identical across subcommands.
 
     :param p: Subcommand parser to extend.
-    :param fit_flags: When ``True`` (fixed-tree only) also add the
-        model-parameter fit toggles. ``False`` for ``arg`` and ``local-tree``
-        mode, which take branch lengths from the ARG or the inferred local
-        trees and never fit the rate matrix.
+    :param fit_flags: Whether to add the model-parameter fit toggles
+        (fixed-tree only).
     :return: Where ``--base-composition`` was added, a group exclusive with
         any other source of the composition when ``fit_flags``.
     """
@@ -530,10 +493,6 @@ def _warn_model_defaults(mode: str, model_name: str, *,
                          has_composition: bool = False) -> None:
     """Report the model parameters this subcommand cannot set.
 
-    ``arg`` and ``local-tree`` take branch lengths from the genealogy and
-    offer no fit toggles, so a model with free parameters runs at the model's
-    own default kappa.
-
     :param mode: Subcommand name, for the message.
     :param model_name: Value of ``--model``.
     :param has_composition: Whether ``--base-composition`` was given.
@@ -555,9 +514,6 @@ def _add_fixed_tree_parser(
     sub: argparse._SubParsersAction, *, parents: "list | None" = None,
 ) -> None:
     """Register the ``fixed-tree`` subcommand.
-
-    .. note:: Defaults come from :class:`~ancestree.inference.FixedTreeInference`
-       via :func:`_lib_default`.
 
     :param sub: The top-level subparsers action.
     :param parents: Parent parsers (e.g. the shared verbosity group) to
@@ -974,12 +930,6 @@ def _write_output(inference, args, out_format: str, **kwargs) -> int:
 def _run_fixed_tree(args: argparse.Namespace) -> int:
     """Execute the ``fixed-tree`` subcommand.
 
-    Builds an :class:`~ancestree.inference.FixedTreeInference` from the
-    parsed args, runs the branch-rate ML fit, and writes the annotated output:
-    a VCF via :meth:`FixedTreeInference.to_vcf() <ancestree.inference.FixedTreeInference.to_vcf>`, or a VCF
-    Zarr store via :meth:`FixedTreeInference.to_zarr() <ancestree.inference.FixedTreeInference.to_zarr>` when
-    ``--out`` is a ``.vcz`` path.
-
     :param args: Parsed argparse namespace from :func:`build_parser`.
     :return: Process exit code (0 on success).
     :raises SystemExit: If ``--out`` has an unsupported extension, or
@@ -1078,10 +1028,6 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
 def _run_arg(args: argparse.Namespace) -> int:
     """Execute the ``arg`` subcommand.
 
-    Routes to :meth:`ARGBasedInference.to_vcf() <ancestree.inference.ARGBasedInference.to_vcf>` or
-    :meth:`ARGBasedInference.to_arg() <ancestree.inference.ARGBasedInference.to_arg>` based on the
-    ``--out`` extension.
-
     :param args: Parsed argparse namespace from :func:`build_parser`.
     :return: Process exit code (0 on success).
     :raises SystemExit: If ``--out`` has an unsupported extension.
@@ -1147,11 +1093,6 @@ def _input_contigs(path: str) -> "list[str] | None":
 
 def _run_local_tree(args: argparse.Namespace) -> int:
     """Execute the ``local-tree`` subcommand.
-
-    Infers per-window local trees from the genotype VCF via
-    :class:`~ancestree.local_tree_inference.LocalTreeInference`, and writes an
-    annotated VCF, VCF-Zarr (``.vcz``), or ``.trees`` file based on the
-    ``--out`` extension.
 
     :param args: Parsed argparse namespace from :func:`build_parser`.
     :return: Process exit code (0 on success).
@@ -1241,10 +1182,6 @@ def _run_local_tree(args: argparse.Namespace) -> int:
 def _supplied_dests(argv: "Sequence[str]") -> frozenset:
     """Destination names whose long option appears in ``argv``.
 
-    Used to tell a flag left at its default from one passed at a value that
-    happens to equal the default, which a comparison against the default
-    cannot do.
-
     :param argv: Argument vector, without the program name.
     :return: Destination names, as argparse derives them from the long option.
     """
@@ -1284,8 +1221,7 @@ def run(argv: Sequence[str] | None = None) -> int:
 def _debug_requested(argv: "Sequence[str] | None") -> bool:
     """Whether ``--debug`` was asked for on this command line.
 
-    Read back through the parser, so an argparse abbreviation such as
-    ``--deb`` reaches the traceback path too.
+    An argparse abbreviation such as ``--deb`` counts.
 
     :param argv: Argument vector, or ``None`` for :data:`sys.argv`.
     :return: Whether the flag was given.

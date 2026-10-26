@@ -272,10 +272,6 @@ class FocalNode:
     ) -> tuple[int, float]:
         """Step from ``anchor`` toward the root by a fraction, a count or a depth.
 
-        Returns the node immediately below the resulting point together with the
-        remaining distance above it, so the caller is handed an edge and an offset
-        along it.
-
         :param tree: The tree to walk.
         :param anchor: Node to start from.
         :param fraction: Fraction of the anchor-to-root path, or ``None``.
@@ -331,10 +327,6 @@ class FocalNode:
 
 def _mrca(tree, nodes, postorder_rank: "dict[int, int] | None") -> int:
     """MRCA of ``nodes``, in one call where the post-order ranks are known.
-
-    A post-order traversal is a DFS, so each subtree occupies a contiguous run
-    of ranks. The MRCA of a set is therefore the MRCA of its rank-extremes.
-    Falls back to a pairwise fold when no ranks are supplied.
 
     :param tree: The tree to search.
     :param nodes: Node ids whose MRCA to find.

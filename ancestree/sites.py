@@ -235,8 +235,7 @@ def _path_format(path: "str | os.PathLike") -> "str | None":
     """The format a path names by its suffix, a local directory being a VCF
     Zarr store whatever its name.
 
-    A URL's query and fragment are ignored, so ``https://host/x.vcf.gz?raw=true``
-    names a VCF.
+    A URL's query and fragment are ignored.
 
     :param path: A file path or URL.
     :return: ``"trees"``, ``"vcz"`` or ``"vcf"``, or ``None`` for any other
@@ -591,9 +590,7 @@ class BaseComposition:
         """Apportion ``n_total`` integer counts across ``weights`` (summing to
         1) by the largest-remainder (Hamilton) method.
 
-        Floors each ``weights * n_total`` then hands the leftover units to the
-        largest fractional parts. Every count is non-negative and the total is
-        exactly ``n_total`` for any weight vector.
+        The counts are non-negative and sum to exactly ``n_total``.
 
         :param weights: Non-negative weights summing to ~1 (length-``k``).
         :param n_total: Integer total to distribute.
@@ -888,13 +885,7 @@ class BaseComposition:
     ) -> tuple[dict, int]:
         """Accumulate the polymorphic-site half of the config histogram.
 
-        Runs the per-site hypergeometric projection loop and returns the raw
-        (un-finalised) weight dict together with the number of sites the
-        iterator yielded. The site count lets
-        :class:`~ancestree.inference.FixedTreeInference` derive the
-        monomorphic-site total in the same pass, so a streaming source is read
-        once. ``_finalize_configs()`` merges the monomorphic counts and
-        materialises the config Sites.
+        ``_finalize_configs()`` merges the monomorphic counts into the result.
 
         :param sites: Iterable of full-``n`` polymorphic :class:`~ancestree.sites.Site` records.
         :param ingroup_samples: Ingroup sample ids in canonical order.
@@ -904,8 +895,7 @@ class BaseComposition:
             ``(sub_afs, og_pattern)`` to accumulated multiplicity (monomorphic
             counts not yet merged) and ``n_sites_seen`` counts every yielded
             site, including the multi-allelic ones that are skipped.
-        :raises ValueError: If ``subsample_size`` is below 1. The upper bound
-            is the ingroup haplotype count, which the caller enforces.
+        :raises ValueError: If ``subsample_size`` is below 1.
         """
         # Bounded above by the caller against the ingroup HAPLOTYPE count: an
         # id may name an individual, so the id count is not that bound. Sites
@@ -977,15 +967,11 @@ class BaseComposition:
     ) -> tuple[list[Site], np.ndarray]:
         """Merge monomorphic counts and materialise the config Sites.
 
-        Adds the monomorphic-boundary configs from ``mono_counts`` to the
-        polymorphic ``weights`` accumulated by ``_project_polymorphic()``,
-        then materialises one synthetic :class:`~ancestree.sites.Site` per unique config.
-        Consumes ``weights`` in place (mono mass is added to it).
+        One synthetic :class:`~ancestree.sites.Site` is built per unique
+        config. ``weights`` is updated in place.
 
         :param weights: The dict returned by ``_project_polymorphic()``.
-        :param mono_counts: Per-base monomorphic-site counts (``self.counts``
-            on the materialised path. The freshly derived counts on the
-            streaming path).
+        :param mono_counts: Per-base monomorphic-site counts.
         :param ingroup_samples: Ingroup sample ids in canonical order.
         :param outgroup_samples: Outgroup sample ids in canonical order.
         :param subsample_size: Target sub-sample size for the AFS projection.
@@ -1262,9 +1248,6 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                                     phased=None, phase_seed=None):
         """Reject filter arguments a source cannot honour.
 
-        :class:`~ancestree.sources.TskitSource` and a pre-built :class:`~ancestree.sites.SiteSource` take the panel
-        and contigs as they are.
-
         :param kind: Description of the source, for the message.
         :raises ValueError: If any filter was supplied.
         """
@@ -1401,10 +1384,9 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     def _phase_permutation(seed: int, pos: int, sample: str, ploidy: int) -> list[int]:
         """Draw a haplotype order for one unphased genotype.
 
-        A 64-bit key hashed from ``seed``, ``pos``, ``sample`` and ``ploidy``
-        is unranked into one of the ``ploidy!`` orderings through the
-        factorial number system. The modulo bias is below ``1e-14`` for
-        ploidy up to eight.
+        Deterministic in ``seed``, ``pos``, ``sample`` and ``ploidy``, and
+        uniform over the ``ploidy!`` orderings to within ``1e-14`` for ploidy
+        up to eight.
 
         :param seed: The source's ``phase_seed``.
         :param pos: The record's position.
@@ -1432,9 +1414,6 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     def _snp_alleles(raw: "Iterable[str | None]"):
         """A record's alleles upper-cased, and the SNP alleles among them.
 
-        An entry a record does not carry keeps its slot, so the genotype
-        indices stay aligned with the record.
-
         :param raw: The record's alleles, REF first, with ``None`` in the slot
             of an allele the record does not carry.
         :return: ``(alleles, site_alleles)``, or ``None`` where the record is
@@ -1454,9 +1433,8 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                      width: "int | None" = None) -> "list[int] | None":
         """The haplotype order of one unphased call.
 
-        A call whose alleles all agree reads the same in every order, so only
-        a heterozygote is randomised. Only the call's own slots are permuted,
-        the slots past its width keeping their place.
+        Only a heterozygote is randomised, and only within the call's own
+        slots.
 
         :param sample: The sample the call belongs to.
         :param pos: The record's position, which seeds the permutation.
@@ -1477,10 +1455,9 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                             calls) -> Iterator[Site]:
         """Decode VCF-style records into sites.
 
-        A record whose alleles are not a SNP is skipped. Each call is read up
-        to the source's ploidy, its slots past the call's own ploidy padded
-        and an unphased one drawn into a haplotype order. A haploid source
-        keeps the sample name, any other names haplotype ``k`` ``<name>_h<k>``.
+        Non-SNP records are skipped and unphased calls drawn into a haplotype
+        order. A haploid source keeps the sample name, any other names
+        haplotype ``k`` ``<name>_h<k>``.
 
         :param records: ``(chrom, pos, alleles, payload)`` per record in file
             order, ``alleles`` REF first with ``None`` or ``""`` in the slot of
@@ -1580,11 +1557,6 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     def _warn_split_multiallelic(self, chrom: str, pos: int) -> None:
         """Report a position carrying more than one record.
 
-        A split multiallelic recodes the carriers of every other alternate as
-        the reference allele, so each half reports an inflated reference
-        frequency and the position is scored more than once. The kernel takes
-        poly-allelic sites directly, so the joined form is the one to feed it.
-
         :param chrom: Contig of the repeated record.
         :param pos: Position of the repeated record.
         """
@@ -1617,8 +1589,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     def _decode(x: object) -> str:
         """Coerce a zarr-stored string-or-bytes scalar to a Python ``str``.
 
-        Decodes as UTF-8, matching how htslib / bio2zarr treat VCF text, so a
-        non-ASCII sample or contig name round-trips.
+        Bytes are decoded as UTF-8.
 
         :param x: The stored scalar.
         :return: Its ``str`` form.

@@ -1,11 +1,5 @@
-r"""Ensemble sampling for local-tree mode.
-
-Local-tree mode's plug-in estimate scores one genealogy per window: the per-pair
-TMRCA posterior mean out of the pairwise HMM, agglomerated by average linkage.
-Where that estimate mis-resolves a split inside the ingroup, the carrier set of a
-derived allele stops being a clade and the Felsenstein kernel is confidently
-wrong. Marginalising instead over :math:`B` genealogies drawn from the same HMM
-posterior replaces the plug-in likelihood with
+r"""Ensemble sampling for local-tree mode, marginalising the posterior over
+:math:`B` genealogies drawn from the pairwise HMM:
 
 .. math::
 
@@ -14,15 +8,11 @@ posterior replaces the plug-in likelihood with
 
 where :math:`s` is the ancestral state at the focal node (one of the four
 nucleotides), :math:`x` the observed tip alleles at a site, :math:`\pi(s)` the
-prior at that node, :math:`\tau_b` the :math:`b`-th sampled genealogy for the
-window carrying the site, and :math:`B` the ensemble size. Each :math:`\tau_b`
-is a joint draw of the per-block TMRCA path for every haplotype pair, taken by
-forward-filtering backward-sampling from the HMM's own forward matrix, condensed
-to per-window means and agglomerated by the same average-linkage rule the
-plug-in estimate uses.
-
-The kernels here are compiled and operate on dense arrays. The driver that feeds
-them one segment at a time is
+prior at that node and :math:`\tau_b` the :math:`b`-th sampled genealogy of the
+window carrying the site. Each :math:`\tau_b` is a joint forward-filtering
+backward-sampling draw of every pair's per-block TMRCA path, condensed to
+per-window means and agglomerated by average linkage. The compiled kernels are
+driven one segment at a time by
 :class:`~ancestree.local_tree_inference.LocalTreeInference`.
 """
 import llvmlite.ir as ir
@@ -120,11 +110,8 @@ def _nn_chain_average(D, n, Z):
 
 @njit(cache=True)
 def _nn_chain_weighted(D, Wt, n, Z):
-    """Nearest-neighbour chain for exposure-weighted average linkage.
-
-    The distance between two clusters is the mean of the pairwise distances
-    between them, each weighted by the pair's exposure. ``D`` and ``Wt`` are
-    scratch.
+    """Nearest-neighbour chain for average linkage with pair distances weighted
+    by exposure ``Wt``. ``D`` and ``Wt`` are scratch.
     """
     size = np.ones(n, np.float64)
     chain = np.empty(n, np.int64)
@@ -311,17 +298,14 @@ def _pack_base(Z, n, is_ingroup, mu, branch_t, parent0, sample_dense,
                stack_c, stack_s):
     """Dense arrays for one window's linkage, before any re-rooting.
 
-    Node ids are tskit's: a right-first post-order over the linkage, with the
-    tie bump that keeps a parent strictly above both children. The dense index
-    of a node is its position in tskit's own post-order, so the root is
-    ``2n - 2`` and the samples occupy whatever slots the traversal gives them.
+    Node ids follow tskit's right-first post-order with the tie bump, and a
+    node's dense index is its position in tskit's post-order (root ``2n - 2``).
 
     :param Z: ``(n-1, 4)`` scipy-format linkage.
     :param n: Panel haplotypes.
     :param is_ingroup: ``(n,)`` bool, whether each linkage leaf is an
-        ingroup haplotype. Membership, not a count: the ingroup is not
-        required to occupy the leading columns.
-    :param mu: Per-site per-generation mutation rate. Scales branch lengths
+        ingroup haplotype, in any column order.
+    :param mu: Per-site per-generation mutation rate scaling branch lengths
         into expected substitutions.
     :param branch_t: ``(2n+1,)`` out: scaled length of the edge above each
         dense node, ``0`` at the root. The two trailing slots are written by
@@ -484,17 +468,10 @@ def _reroot(parent0, branch_t, fmrca, n, fraction, n_coal, pidx, cofs, cflat,
             poi, par, path, offs, stack_c, nxtc):
     """Re-root one window at the focal point and emit the traversal arrays.
 
-    The focal point sits ``fraction`` of the way along the path from the
-    ingroup MRCA to the root, measured in branch length. A point strictly
-    inside an edge becomes one extra dense node with two children, the focal
-    subtree at distance ``tau`` below it and the rest of the tree at the
-    remaining ``L - tau``. The two lengths occupy the trailing slots of
-    ``branch_t``, which ``pidx`` then points the affected nodes at. Reversal
-    of the parent pointers alone handles the rest, since a time-reversible
-    model lets every edge keep its transition matrix.
-
-    A ``fraction`` of 1 or more reads at the tree's own root, which needs no
-    re-rooting at all.
+    The focal point sits ``fraction`` of the branch length from the ingroup
+    MRCA to the root (``1`` or more is the root itself). A point inside an edge
+    becomes an extra dense node whose two edge lengths fill the trailing
+    ``branch_t`` slots.
 
     :param parent0: ``(2n-1,)`` dense parents before re-rooting.
     :param branch_t: ``(2n+1,)`` scaled branch lengths. The trailing two slots
@@ -600,14 +577,10 @@ def score_ensemble(branch_t, lam, V, Vinv, pidx, poi,
                    row_idx, nslot, S, out):
     """``log P(tips | focal = s)`` per member and site.
 
-    The ensemble is a leading axis: the traversal arrays are ``(M, W, ...)``.
-    The tip partials depend on the site alone, so they are seeded once per
-    window and reused across the members.
-
-    Each edge's ``P(t)`` is rebuilt here as ``I + V diag(e^{λt} - 1) V⁻¹``, into a
-    buffer private to the thread handling the window, so only windows carrying
-    sites pay for the exponentials and no ``(M, W, nslot, S, S)`` array is
-    formed.
+    The traversal arrays are ``(M, W, ...)`` over members and windows. Each
+    edge's ``P(t) = I + V diag(e^{λt} - 1) V⁻¹`` is built per window carrying
+    sites, for branch length ``t``, eigenvalues ``λ`` and eigenvectors ``V`` of
+    the rate matrix ``Q``.
 
     :param branch_t: ``(M, W, nslot)`` scaled branch lengths, post-rerooting.
     :param lam: ``(S,)`` real eigenvalues of ``Q``. See
@@ -687,13 +660,9 @@ MAX_PATH_BYTES = 4 * 1024 ** 3
 
 
 def _ckpt_stride(n_blocks: int, n_pairs: int, n_time_bins: int) -> int:
-    """Blocks between retained forward distributions, to fit the budget.
-
-    Every ``stride``-th block of the ``(P, K, T)`` forward matrix is stored and
-    the segment between checkpoints is replayed as the backward walk reaches
-    it. The replay totals ``K`` blocks for any stride, so the stride is set from
-    :data:`MAX_HMM_ALPHA_BYTES` alone and is 1 when the full matrix fits.
-    Checkpoints are float64, so the sampled paths do not depend on the stride.
+    """Blocks between retained distributions of the ``(P, K, T)`` forward
+    matrix, so the checkpoints fit :data:`MAX_HMM_ALPHA_BYTES` (``1`` when the
+    full matrix fits). The sampled paths do not depend on the stride.
     """
     full = n_pairs * max(n_blocks, 1) * n_time_bins * 8
     return max(1, int(np.ceil(full / MAX_HMM_ALPHA_BYTES)))
@@ -701,10 +670,8 @@ def _ckpt_stride(n_blocks: int, n_pairs: int, n_time_bins: int) -> int:
 
 @njit(cache=True, inline="always")
 def _forward_init(counts_p, lam, log_lam, pi_p, esc, a, e, T):
-    """Filtered distribution at block 0, in place into ``a``.
-
-    ``esc`` is the fraction of block 0 over which this pair is called, so the
-    Poisson mean is the exposure the count was actually generated from.
+    """Filtered distribution at block 0, in place into ``a``, for a pair called
+    over fraction ``esc`` of the block.
     """
     mx = -1e300
     for i in range(T):
@@ -730,12 +697,8 @@ def _forward_init(counts_p, lam, log_lam, pi_p, esc, a, e, T):
 
 @njit(cache=True, inline="always")
 def _reset_row_k(pi_p, r, k, nu, T):
-    """Fill ``nu[j] ∝ pi_p[j] · (1 - r[k, j])``, the row a recombination
-    resets to when entering block ``k``.
-
-    ``pi_p`` is invariant under ``A[i, j] = r[k, i]·δ_ij + (1 - r[k, i])·nu[j]``
-    exactly for this ``nu``, so the marginal over time bins is the same at every
-    block, as the coalescent requires.
+    """Fill ``nu[j] ∝ pi_p[j] · (1 - r[k, j])``, the reset row entering block
+    ``k`` that keeps ``pi_p`` invariant.
 
     :return: The normaliser ``sum_j pi_p[j] · (1 - r[k, j])``.
     """
@@ -793,18 +756,10 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
                        w0, pair_key, key, member0, block0, out):
     """Window-mean sampled TMRCAs for one block of windows, from the paths.
 
-    Parallel over the windows in the block, each of which covers a contiguous
-    run of blocks. A path names a bin of the discretised chain. The time is
-    drawn from the pair's coalescent prior ``Exp(1/t_bar)`` truncated to the
-    bin ``[a, b)`` by inverse CDF, through ``expm1`` and ``log1p`` so a bin far
-    above ``t_bar`` still returns a time inside itself. The two extreme bins
-    carry the prior's folded tails (see
-    :meth:`PairwiseCoalescentHMM._coalescent_prior`). Consecutive blocks in
-    the same state are one coalescence and share one draw, followed back only
-    to the window's own first block. The stream is keyed on the segment, the
-    member's global index, the pair and the block's genome index, so the
-    draws do not depend on ``member_chunk``, on the window blocking or on the
-    blocks the HMM runs over.
+    Each sampled bin ``[a, b)`` takes a time drawn from the pair's prior
+    ``Exp(1/t_bar)`` truncated to the bin. A run of blocks in one bin shares
+    one draw, keyed on the segment, member, pair and genome block, so the draws
+    do not depend on the chunking.
 
     :param path: ``(M, P, K) int8`` sampled bin per member, pair and block.
     :param edge_lo: ``(T,)`` lower edge of each bin, in generations.
@@ -884,11 +839,8 @@ def hmm_forward_ckpt(counts, lam, log_lam, r, pi, called, block_sites, stride,
 @njit(cache=True, inline="always")
 def _replay_segment(counts_p, lam, log_lam, r, pi_p, called_p, block_sites,
                     alpha_ck_p, c, stride, K, seg, e, nu, T):
-    """Rebuild blocks ``[c*stride, min(c*stride+stride, K))`` into ``seg``.
-
-    Seeded from the checkpoint at ``c*stride``, which is the exact filtered
-    distribution there, so the rebuilt blocks match the full forward matrix
-    exactly.
+    """Rebuild blocks ``[c*stride, min(c*stride+stride, K))`` into ``seg`` from
+    the checkpoint at ``c*stride``.
 
     :return: Number of blocks written to ``seg``.
     """
@@ -906,12 +858,8 @@ def _replay_segment(counts_p, lam, log_lam, r, pi_p, called_p, block_sites,
 
 
 def _pair_stream_keys(sample_names, pairs) -> np.ndarray:
-    """A stable RNG stream key per haplotype pair.
-
-    Keyed on the pair's sample names, not its position in the panel, so
-    the same two haplotypes draw the same genealogies whichever columns they
-    occupy. Falls back to the pair index when the panel is unnamed, which only
-    the kernel-level tests do.
+    """An RNG stream key per haplotype pair, hashed from the pair's sample
+    names (the pair index for an unnamed panel).
 
     :param sample_names: Panel names in genotype-column order, or ``None``.
     :param pairs: ``(i, j)`` column pairs, in the order the kernel walks them.
@@ -931,12 +879,8 @@ def _pair_stream_keys(sample_names, pairs) -> np.ndarray:
 @njit(cache=True, parallel=True)
 def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
                block_sites, key, member0, pair_key, block0, path):
-    """Joint forward-filtering backward-sampling draws of the TMRCA path.
-
-    Writes the sampled time-bin index per member, pair and block into ``path``
-    as ``int8``. Window means are reduced from it by
-    :func:`paths_to_condensed`. Each segment between checkpoints is replayed
-    as the backward walk reaches it (see :func:`_ckpt_stride`).
+    """Joint forward-filtering backward-sampling draws of the TMRCA path,
+    replaying each checkpointed segment as the backward walk reaches it.
 
     :param alpha_ck: ``(P, n_ckpt, T) float64`` retained forward distributions.
     :param stride: Blocks between checkpoints.
@@ -949,12 +893,10 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
     :param block_sites: ``(K,)`` site count each ``called`` entry is out of.
     :param key: Segment stream key, from :meth:`SegmentEnsemble._stream_key`.
     :param member0: Global index of ``path``'s first member.
-    :param pair_key: ``(P,) uint64`` per-pair stream key. Derived from the
-        pair's sample names, not its column position, so a panel
-        given in a different column order draws the same genealogies.
-    :param block0: Genome block index of block 0. Each block's draws are
-        keyed on its genome block index, so they do not depend on where the
-        chain starts or ends.
+    :param pair_key: ``(P,) uint64`` per-pair stream key, from
+        :func:`_pair_stream_keys`.
+    :param block0: Genome block index of block 0, which the draws are keyed
+        on.
     :param path: ``(M, P, K) int8`` out, the sampled time-bin index per member,
         pair and block.
     """
@@ -1066,10 +1008,8 @@ MAX_SCRATCH_BYTES = 256 * 1024 ** 2
 
 
 def _window_block(n_windows, n_members, n_hap):
-    """How many windows to score at once, under :data:`MAX_SCRATCH_BYTES`.
-
-    Floored at 256 so the ``prange`` over windows still saturates the cores.
-    """
+    """How many windows to score at once under :data:`MAX_SCRATCH_BYTES`, at
+    least 256 or all of them."""
     nslot = 2 * n_hap + 1
     per_window = n_members * (
         nslot * 8  # branch_t
@@ -1080,25 +1020,20 @@ def _window_block(n_windows, n_members, n_hap):
 
 
 class SegmentEnsemble:
-    """Posteriors for one segment, marginalised over sampled genealogies.
-
-    Wraps the compiled kernels above around a resolved
-    :class:`~ancestree.local_tree_inference.LocalTreeBuilder`: the pairwise HMM
-    forward pass is run once, then genealogies are drawn from that posterior in
-    chunks, scored, and folded into a running per-site sum.
+    """Posteriors for one segment, marginalised over genealogies drawn in
+    chunks from one pairwise HMM forward pass of a resolved
+    :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
 
     :param builder: A resolved builder for one segment.
     :param model: Substitution model supplying ``transition_probs``.
     :param n_hap: Haplotypes in the panel.
-    :param ingroup: Ingroup haplotype indices into the panel, or ``None``
-        for the whole panel. Resolved by identity, so the ingroup need
-        not be the leading block of columns.
+    :param ingroup: Ingroup haplotype indices into the panel, in any order, or
+        ``None`` for the whole panel.
     :param pi: Equilibrium frequencies for ``Q``, or ``None`` for the model's
-        own. The root prior is NOT applied here --- ``posterior`` returns a
-        normalised likelihood, and the caller weights it by the prior.
-    :param segment: ``(contig, position)`` locating the segment on the genome.
-        Hashed with the seed into the segment's stream key, so every segment
-        and contig draws independently.
+        own. No root prior is applied, :meth:`posterior` returning a
+        normalised likelihood.
+    :param segment: ``(contig, position)`` of the segment, hashed with the seed
+        into its stream key.
     """
 
     #: Per site, whether it was given a uniform posterior because its
@@ -1233,13 +1168,8 @@ class SegmentEnsemble:
 
     def _score_chunk(self, path, fraction, n_coal, out, arrays, cond,
                      seed, member0):
-        """Reduce and score one member chunk, a window block at a time.
-
-        The window block is the pipeline's unit: its condensed matrices are
-        built from the sampled paths, scored, and overwritten, so the full
-        ``(member, window, pair)`` array is never formed. Segmentation is
-        bounded by memory, not by contig boundaries.
-        """
+        """Reduce and score one member chunk, one window block at a time,
+        without forming the full ``(member, window, pair)`` array."""
         W_all = len(self.needed)
         step = self._w_block
         for w0 in range(0, W_all, step):
@@ -1283,7 +1213,6 @@ class SegmentEnsemble:
     def _path_chunk(self, member_chunk: int, n_members: int) -> int:
         """Members whose sampled paths, ``(n_pairs, n_blocks) int8`` each,
         fit :data:`MAX_PATH_BYTES`, reduced to a divisor of the ensemble size.
-        Each member chunk pays one backward pass and its checkpoint replay.
         """
         per = max(self.alpha_ck.shape[0] * self.n_blocks, 1)
         cap = max(int(MAX_PATH_BYTES // per), 1)
@@ -1295,12 +1224,8 @@ class SegmentEnsemble:
         return c
 
     def _chunk_size(self, n_members: int, member_chunk: int) -> int:
-        """Genealogies drawn at once.
-
-        The largest divisor of ``n_members`` no greater than ``member_chunk``,
-        so any ensemble size is accepted. A member's draws are keyed on its
-        global index, so the chunking does not reach the result. It only
-        bounds peak memory.
+        """Genealogies drawn at once, the largest divisor of ``n_members`` no
+        greater than ``member_chunk``. The result does not depend on it.
 
         :param n_members: Ensemble size.
         :param member_chunk: Upper bound on genealogies held at once.
@@ -1320,11 +1245,8 @@ class SegmentEnsemble:
         """Yield the drawn genealogies, ``member_chunk`` at a time.
 
         Each yield is a ``(chunk, n_windows, n_pairs)`` array of condensed
-        pairwise-TMRCA matrices, the draws before UPGMA, over ``windows``. The
-        buffer is reused between yields, so a consumer that keeps a chunk must
-        copy it. The streams are those of :meth:`posterior`, so the
-        materialised ensemble is the one the posterior was scored on. A draw
-        is keyed on its blocks, not on the windows requested alongside it.
+        pairwise TMRCAs over ``windows``, the draws :meth:`posterior` scores.
+        The buffer is reused between yields, so a kept chunk must be copied.
 
         :param n_members: Ensemble size :math:`B`.
         :param member_chunk: Genealogies drawn at once.
@@ -1358,10 +1280,8 @@ class SegmentEnsemble:
                    self.pair_key, self.block0, path)
 
     def _stream_key(self, seed: int) -> np.uint64:
-        """The segment's stream key, a hash of the seed and ``segment``.
-
-        Members, pairs and blocks branch off it inside the kernels, so two
-        seeds, contigs or segments share no draws.
+        """The segment's stream key, a hash of the seed and ``segment``, off
+        which the kernels branch members, pairs and blocks.
 
         :param seed: Base seed.
         :return: 64-bit key.
@@ -1375,17 +1295,9 @@ class SegmentEnsemble:
                             seed: int = 0):
         """Yield the ensemble's genealogies as tree sequences, one per member.
 
-        Reifies exactly the draws :meth:`posterior` marginalises over, one at a
-        time: peak memory holds a single member, not all :math:`B`. A member
-        covers
-        :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`
-        as the plug-in tree does, every window there drawn, including those
-        carrying no site.
-
-        The members are topology only --- no sites, unlike the genotype-baked
-        plug-in tree from :meth:`LocalTreeBuilder.to_tree_sequence`. They are
-        the sampled genealogies, not self-describing ARGs. Re-scoring one needs
-        the genotypes supplied alongside it.
+        These are the draws :meth:`posterior` marginalises over, sites-free,
+        each covering
+        :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`.
 
         :param n_members: Ensemble size :math:`B`.
         :param member_chunk: Genealogies drawn at once (memory bound).
@@ -1425,8 +1337,8 @@ class SegmentEnsemble:
         :param n_coal: Coalescences to climb above the anchor when the focal
             node is placed by join count. ``-1`` means the placement is not a
             coalescence count, so ``fraction`` positions the readout instead.
-        :param member_chunk: Genealogies drawn and scored at once. Bounds peak
-            memory, which does not otherwise grow with ``n_members``.
+        :param member_chunk: Genealogies drawn and scored at once, bounding
+            peak memory.
         :param seed: Base seed, hashed with ``segment`` into the stream key
             (see :meth:`_stream_key`).
         :return: ``(n_sites, 4)`` posterior, rows aligned with ``positions``.

@@ -902,14 +902,12 @@ class RerootedTree(Tree):
 class OutgroupLadderTree(Tree):
     """Fixed species-tree topology for EST-SFS mode: ingroup MRCA as inference root, outgroup ladder above.
 
-    The ingroup haplotypes are collapsed under their MRCA ``I``. Their whole
-    contribution is the vector ``P(ingroup alleles | I = s)``, weighted by
-    :class:`~ancestree.priors.KingmanIngroupWeight` and seeded on ``I``
-    through
-    :paramref:`node_seeds <ancestree.likelihood.Likelihood.log_likelihoods.node_seeds>`,
-    so the ingroup has no node of its own. The tree carries the species-level
-    topology, the ingroup MRCA ``I`` and ``n`` outgroup tips in a ladder of
-    increasing divergence, and has exactly ``2n`` nodes.
+    The ingroup has no node of its own. Its haplotypes enter as the vector
+    ``P(ingroup alleles | I = s)``, with ``s`` the nucleotide at the ingroup
+    MRCA ``I``, seeded on ``I`` through
+    :paramref:`node_seeds <ancestree.likelihood.Likelihood.log_likelihoods.node_seeds>`.
+    The tree holds ``I`` and the ``n`` outgroup tips in a ladder of
+    increasing divergence, ``2n`` nodes in all.
 
     .. code-block:: text
 
@@ -925,8 +923,7 @@ class OutgroupLadderTree(Tree):
                           /   \\
                     O_{n-1}   O_n
 
-    Free branch-rate parameters (``2·n − 1`` for ``n`` outgroups), named as
-    in fastDFE's ``MaximumLikelihoodAncestralAnnotation``:
+    The ``2n − 1`` free branch-rate parameters:
 
     - ``K0``       : ``I → n_1`` (or ``I → O_1`` for ``n=1``)
     - ``K1``       : ``n_1 → O_1``
@@ -938,9 +935,8 @@ class OutgroupLadderTree(Tree):
 
     The path length from ``I`` to outgroup ``O_k`` is
     ``K0 + K2 + … + K{2(k-1)} + K{2k-1}`` for ``k < n`` and
-    ``K0 + K2 + … + K{2(n-2)} + K{2(n-1)}`` for ``k = n``, matching
-    fastDFE's ``get_outgroup_divergence`` convention. ``K0`` is identifiable
-    only under a non-stationary root prior.
+    ``K0 + K2 + … + K{2(n-2)} + K{2(n-1)}`` for ``k = n``. ``K0`` is
+    identifiable only under a non-stationary root prior.
 
     :param ingroup_samples: Sample ids for the ingroup haplotypes, used for
         SFS-class lookup by :class:`~ancestree.inference.FixedTreeInference`.
@@ -1487,12 +1483,9 @@ class OutgroupLadderTree(Tree):
     def _backbone_limit(self) -> float:
         """How far along the backbone the readout may be placed.
 
-        The far end is the ancestor of the whole panel, which sits on the
-        deepest outgroup's branch at a position the exact transition matrix
-        cannot identify, since it satisfies ``P(a) P(b) == P(a + b)``. The
-        ultrametric convention places it at ``(d - h) / 2``, for the deepest
-        outgroup's divergence ``d`` and the :attr:`ingroup_depth` ``h``, and
-        no lower than the deepest join.
+        The far end, the ancestor of the whole panel, lies at ``(d - h) / 2``
+        for the deepest outgroup's divergence ``d`` and the
+        :attr:`ingroup_depth` ``h``, and no lower than the deepest join.
 
         :return: Distance from the ingroup MRCA, in substitutions per site.
         """

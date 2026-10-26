@@ -1,13 +1,8 @@
 """Tree rendering: ASCII layout and the shared tip/root label helpers.
 
-The user-facing entry points are
-:meth:`Tree.draw_text() <ancestree.trees.Tree.draw_text>` and
-:meth:`Tree.draw_svg() <ancestree.trees.Tree.draw_svg>`.
-``TreeRenderer`` provides the ASCII layout, the SVG
-layout and the label-formatting helpers both share. SVG goes through
-:meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>` for every backend: a
-non-tskit tree is copied into a single-tree tree sequence whose node times
-reproduce its branch lengths.
+Backs :meth:`Tree.draw_text() <ancestree.trees.Tree.draw_text>` and
+:meth:`Tree.draw_svg() <ancestree.trees.Tree.draw_svg>`. SVG goes through
+:meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>` for every backend.
 """
 from typing import TYPE_CHECKING
 
@@ -85,9 +80,8 @@ class TreeRenderer:
         """ASCII layout used when no backend-specific renderer overrides
         :meth:`Tree.draw_text() <ancestree.trees.Tree.draw_text>`.
 
-        Tip labels resolve to ``sample_id=allele`` if a ``site`` is given
-        and the tip's sample id is known via :meth:`Tree.tip_for_sample() <ancestree.trees.Tree.tip_for_sample>`.
-        Otherwise to the node id.
+        Tip labels read ``sample_id=allele`` when a ``site`` is given and the
+        sample id is known, else the node id.
 
         :param site: Optional :class:`~ancestree.sites.Site` for tip-allele overlay.
         :param posterior: Optional :class:`~ancestree.posterior.Posterior`
@@ -192,11 +186,9 @@ class TreeRenderer:
     ) -> "tuple[tskit.Tree, dict[int, str], int | None]":
         """Copy ``tree`` into a one-tree tree sequence, with its node labels.
 
-        The copy is drawn ultrametric: every tip sits at height zero and an
-        internal node at the longest path down to a tip below it, in the
-        tree's own branch units. :mod:`tskit` requires a parent strictly above
-        its children, so a zero-length branch is given a display floor of a
-        thousandth of the tree height.
+        The copy is ultrametric, each internal node at the longest path down
+        to a tip. A zero-length branch is drawn at a thousandth of the tree
+        height.
 
         :param tree: The tree to copy.
         :param site: Optional site supplying the tip-allele overlay.
@@ -307,10 +299,6 @@ class TreeRenderer:
         known_samples: list[str],
     ) -> str:
         """Name one tip: its backend name, else its sample id and allele.
-
-        A tip the backend names carries no observed allele, such as the
-        fixed-tree ladder's collapsed ingroup once a re-rooted view turns it
-        into a tip, so the name stands alone.
 
         :param tree: The tree being rendered.
         :param node: Tip node id.

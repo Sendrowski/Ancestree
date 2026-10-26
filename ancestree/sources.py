@@ -40,9 +40,9 @@ def _site_from_tskit_variant(
 ) -> Site:
     """Convert one tskit variant into a :class:`~ancestree.sites.Site`.
 
-    Alleles are upper-cased. Alleles outside A/C/G/T pass through and the
-    kernel marginalises them at the tip. A missing genotype (``-1``) and the
-    empty-string placeholder allele both map to ``tip_alleles[s] = None``.
+    Alleles are upper-cased, and those outside A/C/G/T pass through. A
+    missing genotype (``-1``) and the empty-string placeholder allele both map
+    to ``tip_alleles[s] = None``.
 
     :param variant: A variant from ``ts.variants()``.
     :param sample_nodes: The ``ts.samples()`` array, aligned with

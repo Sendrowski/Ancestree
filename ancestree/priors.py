@@ -53,13 +53,9 @@ def _fit_pi_bin(
 ) -> float:
     """L-BFGS-B fit of a single ``π_i`` with multistart from ``seed``.
 
-    Module-level helper (picklable for :class:`~concurrent.futures.ProcessPoolExecutor`).
-    ``data`` is the list of ``(p_major, p_minor, weight)`` per-site
-    likelihoods for the bin. The weight is the hypergeometric
-    probability that the site lands in this bin under the configured
-    ``subsample_size`` (1.0 when no subsampling is in effect).
-    ``n_runs`` independent L-BFGS-B starts from initial values drawn
-    uniformly on ``[0.05, 0.95]`` pick the best by objective.
+    ``data`` holds the bin's ``(p_major, p_minor, weight)`` per-site
+    likelihoods, ``weight`` the hypergeometric probability of the bin. The
+    best of ``n_runs`` starts drawn uniformly on ``[0.05, 0.95]`` is kept.
     """
     if not data:
         return 0.5  # no data → keep the symmetric default
@@ -249,9 +245,7 @@ class KingmanIngroupWeight(IngroupWeight):
     @staticmethod
     @lru_cache(maxsize=8192)
     def _hypergeom_pmf(n_obs: int, n_minor: int, n_sub: int) -> np.ndarray:
-        """Hypergeometric mass over subsample bins ``0..n_sub``, cached: it depends
-        only on ``(n_obs, n_minor, n_sub)``, not on the site's likelihoods, and is
-        otherwise recomputed once per site."""
+        """Hypergeometric mass over subsample bins ``0..n_sub``, cached."""
         m = hypergeom.pmf(np.arange(n_sub + 1), M=n_obs, n=n_minor, N=n_sub)
         m.setflags(write=False)
         return m
@@ -354,31 +348,29 @@ class KingmanIngroupWeight(IngroupWeight):
 class AdaptiveIngroupWeight(IngroupWeight):
     """Per-bin ancestral-state probabilities fit by L-BFGS-B from data.
 
-    Generalises :class:`~ancestree.priors.KingmanIngroupWeight`: in place of
-    the closed-form ``(n - i)/n`` weights for biallelic sites, one free
-    parameter ``π_j`` per SFS-class bin ``j`` is fitted in a canonical
-    subsampled space (folded, ``π_{n_sub-j} = 1 - π_j`` by symmetry). Each
-    site contributes hypergeometric mass across the reachable bins (see
-    ``subsample_size``), so sites with different missing-data patterns share
-    one bin coordinate. The per-bin mixture likelihood
+    Generalises :class:`~ancestree.priors.KingmanIngroupWeight`: each
+    biallelic site is projected by hypergeometric subsampling onto
+    :math:`n_{\\text{sub}}` haplotypes (``subsample_size``), and each folded
+    bin :math:`j` of minor-allele count gets a free parameter
+    :math:`\\pi_j \\in [0, 1]`, the probability that the major allele is
+    ancestral, with :math:`\\pi_{n_{\\text{sub}} - j} = 1 - \\pi_j`. Each bin
+    maximises
 
     .. math::
 
-        L(\\pi_i) = \\sum_{\\text{sites in bin } i}
-            \\log \\bigl[ \\pi_i \\, p_{\\text{major}}(\\text{site})
-                  + (1 - \\pi_i) \\, p_{\\text{minor}}(\\text{site}) \\bigr]
+        \\ell(\\pi_j) = \\sum_s m_j(s) \\log \\bigl[ \\pi_j \\,
+            p_{\\text{major}}(s) + (1 - \\pi_j) \\, p_{\\text{minor}}(s) \\bigr],
 
-    is maximised independently for each bin, where ``p_major`` and ``p_minor``
-    are the Felsenstein likelihoods of the site given the major and the minor
-    allele at the ingroup MRCA, at the fitted tree rates, supplied through
-    :meth:`accumulate`.
+    where :math:`s` runs over the sites, :math:`m_j(s)` is the
+    hypergeometric mass site :math:`s` places in bin :math:`j`, and
+    :math:`p_{\\text{major}}(s)` and :math:`p_{\\text{minor}}(s)` are the
+    likelihoods of site :math:`s` given the major and the minor allele at the
+    ingroup MRCA, at the fitted tree rates.
 
     Multi-allelic sites take the count-proportional Kingman baseline, a
     monomorphic ingroup a delta on its allele, and an unobserved ingroup
-    uniform, as in :class:`~ancestree.priors.KingmanIngroupWeight`. Until a
-    fit completes the ``π_j`` sit at their Kingman values ``(n_sub - j)/n_sub``,
-    which are also the neutral-coalescent truth, so the fitted weight converges
-    to Kingman on large neutral data.
+    uniform. Before a fit, :math:`\\pi_j` takes the Kingman value
+    :math:`(n_{\\text{sub}} - j) / n_{\\text{sub}}`.
 
     :param ingroup_samples: Sample ids for the ingroup haplotypes, or the
         individuals they belong to, whose haplotype count an inference sizes
@@ -469,12 +461,9 @@ class AdaptiveIngroupWeight(IngroupWeight):
     ) -> None:
         """Size the weight to ``n`` ingroup haplotypes.
 
-        An inference passes the count its ids resolve to in the panel, so an
-        ingroup named per individual is sized by its haplotypes. A default
-        ``subsample_size`` follows the inference's, or ``min(n, 11)``.
-
-        A fitted weight keeps its size. Until a fit, the per-bin ``π_j`` are
-        the Kingman values ``(n_sub - j) / n_sub``.
+        A default ``subsample_size`` follows the inference's, or
+        ``min(n, 11)``. A fitted weight keeps its size. Until a fit, the
+        per-bin ``π_j`` are the Kingman values ``(n_sub - j) / n_sub``.
 
         :param n: Number of ingroup haplotypes.
         :param check: Whether to refuse an explicit ``subsample_size`` above
@@ -680,14 +669,7 @@ class AdaptiveIngroupWeight(IngroupWeight):
 
     def _warn_on_unstable_pi(self) -> None:
         """Log a warning if per-bin (weighted) sample sizes are low or fits
-        hit the parameter bounds. Both signal noisy MLE estimates.
-
-        With few sites per bin (or short divergences making p_major ≈
-        p_minor), the per-bin L-BFGS-B has little to constrain π_j and
-        often pegs at 0 or 1. The overall posteriors may still be
-        robust if the Felsenstein likelihood dominates (typical with
-        ≥2 informative outgroups), but the fitted π_j themselves are
-        unreliable and should not be reported as-is.
+        hit the parameter bounds.
         """
         n_sub = self.subsample_size
         fittable_bins = list(range(1, (n_sub + 1) // 2))
@@ -758,16 +740,11 @@ class AdaptiveIngroupWeight(IngroupWeight):
     ) -> np.ndarray:
         """Hypergeometric mixture of subsampled bin priors for a biallelic site.
 
-        For each reachable subsampled bin ``j`` (mass ``m_j > 0``):
-
-        - ``P(major was ancestral | bin j)`` is ``1`` at ``j=0``
-          (all-major subsample), ``0`` at ``j=n_sub`` (all-minor),
-          and ``π_j`` otherwise.
-        - ``P(minor was ancestral | bin j) = 1 - the above``.
-
-        The site log weight for major is
-        ``logsumexp_j[log(m_j) + log P(major | j)]`` and likewise for
-        minor. Other alleles get ``-inf``.
+        The major allele gets ``logsumexp_j[log(m_j) + log P_j]`` over bins
+        ``j`` with hypergeometric mass ``m_j > 0``, where ``P_j``, the
+        probability that the major allele was ancestral, is ``1`` at ``j = 0``,
+        ``0`` at ``j = n_sub`` and ``π_j`` otherwise. The minor allele takes
+        ``1 - P_j``, other alleles ``-inf``.
         """
         n_sub = self.subsample_size
         j_values = np.arange(n_sub + 1)

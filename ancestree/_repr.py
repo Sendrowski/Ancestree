@@ -1,10 +1,8 @@
 """Shared ``__repr__`` and logger for the package's classes.
 
-:class:`~ancestree._repr.ReprMixin` renders ``ClassName(field=value, ...)`` from the fields a
-class declares in :attr:`ReprMixin._repr_params <ancestree._repr.ReprMixin._repr_params>`,
-so every class prints its identifying configuration. It also carries
-:attr:`ReprMixin._log <ancestree._repr.ReprMixin._log>`, the per-class logger
-every subclass emits its diagnostics on.
+:class:`~ancestree._repr.ReprMixin` renders ``ClassName(field=value, ...)`` from
+:attr:`ReprMixin._repr_params <ancestree._repr.ReprMixin._repr_params>` and
+carries the per-class logger :attr:`ReprMixin._log <ancestree._repr.ReprMixin._log>`.
 """
 from __future__ import annotations
 

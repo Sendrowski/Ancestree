@@ -39,10 +39,6 @@ if TYPE_CHECKING:
 def _normalise(log_post: np.ndarray, n_states: int) -> tuple[np.ndarray, int]:
     """Log-softmax rows, falling back to uniform where a row is degenerate.
 
-    A row that is all ``-inf`` (a prior excluding every observed allele, or a
-    likelihood that underflowed to zero everywhere) has ``logsumexp`` of
-    ``-inf``, so the subtraction would give NaN. Those rows are made uniform.
-
     :param log_post: ``(N, S)`` un-normalised log-posterior.
     :param n_states: ``S``, the alphabet size used for the uniform fallback.
     :return: ``(N, S)`` posteriors summing to 1 per row, and how many rows fell
@@ -129,10 +125,8 @@ class Likelihood(ReprMixin):
     ) -> "dict[int, np.ndarray]":
         """Validate ``node_seeds`` and neutralise rows that carry no mass.
 
-        A row that is all-zero, or holds a non-finite entry, cannot be
-        rescaled and would propagate NaN through the postorder. Such a row
-        is replaced by all-ones, the same value a tip with a missing allele
-        carries, which marginalises the node's state out.
+        An all-zero or non-finite row is replaced by all-ones, which
+        marginalises the node's state out.
 
         :param node_seeds: ``{node: (B, S)}`` as passed by the caller, or
             ``None``.
@@ -393,16 +387,7 @@ class Likelihood(ReprMixin):
         node_seeds: "Mapping[int, np.ndarray] | None",
         time_scale: float,
     ) -> np.ndarray:
-        """Numba-JIT path for :meth:`log_likelihoods`.
-
-        Builds dense flat arrays from the tree topology and the per-site
-        tip data, then dispatches to the compiled
-        ``felsenstein_postorder_dense``.
-
-        The dense-array packing is per-tree-only, not per-site, so the
-        cost amortises naturally across batched sites. The only
-        per-site work is filling in the tip partials.
-        """
+        """Numba-JIT path for :meth:`log_likelihoods`."""
         S = self.model.n_states
         B = len(sites)
         tip_alleles_by_site = [s.tip_alleles for s in sites]
@@ -472,10 +457,8 @@ class Likelihood(ReprMixin):
     ) -> "tuple[np.ndarray, np.ndarray, int, int]":
         """Reverse the parent pointers along the focal-to-root path.
 
-        Each edge keeps its own transition matrix. Reversal only changes which
-        node that matrix hangs under, so ``P_per_node`` is permuted, not
-        recomputed. The old root is left in place as a unary node, which the
-        post-order traversal carries through unchanged.
+        ``P_per_node`` is permuted, not recomputed. The old root stays as a
+        unary node.
 
         :param tskit_tree: The tree being packed.
         :param focal: The resolved focal node.
@@ -533,15 +516,9 @@ class Likelihood(ReprMixin):
     ) -> "tuple[np.ndarray, np.ndarray, int, int]":
         """Insert the point ``tau`` above the focal node as one extra dense node.
 
-        A point part-way along an edge has to be a node for a rooted recursion
-        to start there. The new node takes two children: the focal subtree at
-        distance ``tau``, and whatever lay above the focal node at the
-        remaining ``L - tau``. Above the tree's own root there is no second
-        side, so the new node has one child and the posterior there is the root
-        posterior smoothed by ``P(tau)``.
-
-        The split lives in the packed arrays only. No tskit table and no
-        :class:`~ancestree.trees.Tree` is rebuilt.
+        The new node has two children, the focal subtree at distance ``tau``
+        and the rest of the edge of length ``L - tau``, or only the first above
+        the tree's own root. Only the packed arrays change.
 
         :param tau: Distance above the focal node, in substitution units.
         :param parent_dense: Dense parent ids.
@@ -588,10 +565,8 @@ class Likelihood(ReprMixin):
         """Invert :meth:`Tree.tip_for_sample() <ancestree.trees.Tree.tip_for_sample>`
         over the samples in this batch.
 
-        Only tips carrying tip-allele observations somewhere in this batch
-        need an entry. Samples absent from every site's
-        :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>` are
-        skipped, and the tip is treated as missing.
+        Samples absent from every site's tip alleles are skipped, and their
+        tips treated as missing.
 
         :param tree: The :class:`~ancestree.trees.Tree` being evaluated.
         :param tip_alleles_by_site: Per-site

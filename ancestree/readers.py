@@ -431,9 +431,8 @@ class Reader(ReprMixin):
     def _tskit_annotations(self, limit: int | None) -> Iterator[Annotation]:
         """Per-site assignments from each site's ``ancestree`` metadata block.
 
-        A tree sequence has no contig of its own, so the label comes from the
-        run's provenance record. The full posterior is present only when the
-        output was written with ``store_posterior=True``.
+        The contig label comes from the run's provenance record, and the full
+        posterior is present only with ``store_posterior=True``.
         """
         import tskit
 

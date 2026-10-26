@@ -100,12 +100,8 @@ class Writer(ReprMixin, ABC):
     def _row_locator(pos, contig, contig_ids, name_to_cidx):
         """Build a ``(chrom, pos) -> row`` lookup into a variant axis.
 
-        On a ``(contig, pos)``-sorted axis each key is found by
-        ``np.searchsorted`` over the contig's row block, using only the two
-        integer arrays. An unsorted axis falls back to a ``(chrom, pos) -> row``
-        dict. Either way the key maps to a single canonical row. Callers that must
-        reach every row sharing a key (multiallelic-split records) expand it with
-        :meth:`Writer._rows_for_site`.
+        Each key maps to a single canonical row, which
+        :meth:`Writer._rows_for_site` expands to every row sharing the key.
 
         :param pos: Per-variant position as an integer array.
         :param contig: Per-variant contig index array.
@@ -155,8 +151,7 @@ class Writer(ReprMixin, ABC):
     def _called_alleles(alleles) -> frozenset:
         """The called alleles of a record or site, as a set.
 
-        Drops the missing-data placeholder a tree sequence appends, so a site read
-        from a tree sequence compares equal to the template row it came from.
+        Drops the missing-data placeholder a tree sequence appends.
 
         :param alleles: Allele strings, possibly containing ``None``.
         :return: The non-empty allele strings.
@@ -167,12 +162,8 @@ class Writer(ReprMixin, ABC):
     def _rows_for_site(annotated, pos, contig, row: int, site, alleles=None):
         """Every row of a shared-key run that belongs to this site.
 
-        Several records can share a position: a split multiallelic, or an indel
-        beside a SNP. The sources yield a :class:`~ancestree.sites.Site` only for
-        records whose alleles are all single canonical bases, so the posterior
-        stream is a subset of the template rows and position alone does not
-        identify which row a posterior belongs to. When the template's alleles are
-        known the run is narrowed to the rows carrying this site's alleles.
+        When the template's alleles are known, the run of rows sharing the
+        site's position is narrowed to the rows carrying the site's alleles.
 
         :param annotated: Per-row bool marking placed rows.
         :param pos: Per-row integer position.
@@ -243,10 +234,8 @@ class Writer(ReprMixin, ABC):
         """A sibling path to build ``output`` at, renamed onto it once the
         block completes.
 
-        The marker is a prefix, so the extension chain (``.vcf.gz`` and the
-        like) is preserved. The leading dot keeps a partial build out of an
-        unqualified glob. The staged file is removed if the block or the
-        rename raises, so the destination is left as it was.
+        The staged file is removed if the block or the rename raises, leaving
+        the destination unchanged.
 
         :param output: Final path.
         :return: The staged path, in the same directory.
@@ -263,11 +252,6 @@ class Writer(ReprMixin, ABC):
 
     def _call(self, site: Site, posterior: Posterior) -> tuple[str, float]:
         """The MAP allele to write, and its probability.
-
-        A site carrying no A/C/G/T allele, or whose tips are all missing,
-        leaves every tip marginalised, so its posterior is the prior and its
-        MAP allele is an artefact of the tie-break. Such a site is written as
-        :attr:`AA_UNKNOWN`.
 
         :param site: The site the posterior was scored at.
         :param posterior: The site's :class:`~ancestree.posterior.Posterior`.
@@ -289,9 +273,7 @@ class Writer(ReprMixin, ABC):
     def _posterior_vector(posterior) -> list[float]:
         """The posterior as one probability per canonical state, in order.
 
-        A posterior is over its model's alphabet, which need not be the full
-        A/C/G/T set, so place each allele into its own slot and leave the
-        states it does not cover at zero.
+        States outside the model's alphabet are zero.
 
         :param posterior: The site's :class:`~ancestree.posterior.Posterior`.
         :return: One probability per entry of :data:`ancestree.STATES`.
@@ -309,10 +291,8 @@ class Writer(ReprMixin, ABC):
     ) -> tuple[int, int]:
         """Fill the pre-allocated per-row arrays from the posterior stream.
 
-        Each posterior's ``(chrom, pos)`` key locates a canonical template row,
-        which :meth:`Writer._rows_for_site` narrows to the rows carrying the site's
-        alleles. Keys absent from the template and keys whose rows are already
-        taken are counted and reported once each.
+        Keys absent from the template and keys whose rows are already taken
+        are counted and reported once each.
 
         :param posteriors: Iterable of ``(Site, Posterior)`` pairs.
         :param locate: The ``(chrom, pos) -> row`` lookup built by
@@ -486,10 +466,8 @@ class Writer(ReprMixin, ABC):
     def _columns(self, site: Site) -> "list[tuple[str, list[str | None]]]":
         """The sample columns of an output written from the sites.
 
-        A column holds the tips of the first site among the samples to write,
-        then the samples no such tip covers. An individual's haplotypes fill
-        its slots in the order the panel names them, so the column is as wide
-        as the individual has haplotypes.
+        Columns follow the tips of the first site, then the remaining samples.
+        An individual's haplotypes fill its slots in panel order.
 
         :param site: The first site written.
         :return: ``(individual, slots)`` per column, the slots holding tip ids
@@ -562,27 +540,21 @@ class Writer(ReprMixin, ABC):
 class VCFWriter(Writer):
     """Write a VCF with ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` annotations.
 
-    An input VCF is used as a template: its header and every variant field
-    other than the ``AA`` ``INFO`` fields, which each run rewrites, are
-    passed through to the output. The header declares ``AA``, ``AA_prob``
-    and ``AA_post`` as ancestree's, replacing any declaration the template
-    carries, and drops ``AA_post`` when the run stores no posterior. For
-    each variant the writer looks up the posterior by ``(chrom, pos)`` and,
-    if found, sets the ``INFO`` fields. Variants without a matching posterior
-    are written unannotated, and an ``AA``, ``AA_prob`` or ``AA_post`` value
-    the template carries on them is cleared, since the header declares these
-    fields as ancestree's. Without an input VCF, each site is written as one
-    ``PASS`` record carrying its alleles and the genotypes of its tips,
-    unphased for the individuals in
-    :attr:`Site.unphased <ancestree.sites.Site.unphased>`. An individual's
-    haplotypes fill its call in the order the panel names them and are
-    renumbered from ``_h0``, as
-    :meth:`TskitLocalTree.sample_map_from_individuals() <ancestree.trees.TskitLocalTree.sample_map_from_individuals>`
-    numbers them, so a sample carrying one haplotype is a haploid call.
+    An input VCF serves as a template: its header and every variant field
+    other than ``AA``, ``AA_prob`` and ``AA_post`` pass through. The header
+    declares these three fields, omitting ``AA_post`` when the run stores no
+    posterior. Each variant is annotated from the posterior at its
+    ``(chrom, pos)``, and a variant without one is written with these fields
+    cleared. Without an input VCF, each site is written as one ``PASS``
+    record carrying its alleles and the genotypes of its tips, unphased for
+    the individuals in :attr:`Site.unphased <ancestree.sites.Site.unphased>`.
+    An individual's haplotypes fill its call in panel order, numbered from
+    ``_h0`` as in
+    :meth:`TskitLocalTree.sample_map_from_individuals() <ancestree.trees.TskitLocalTree.sample_map_from_individuals>`,
+    so a sample with one haplotype is a haploid call.
 
-    The output format follows the extension of ``output_vcf``,
-    case-insensitively. A ``.gz`` or ``.bgz`` suffix writes bgzipped VCF,
-    ``.bcf`` writes BCF and any other suffix writes plain VCF.
+    A ``.gz`` or ``.bgz`` extension of ``output_vcf`` writes bgzipped VCF,
+    ``.bcf`` writes BCF and any other extension plain VCF, case-insensitively.
 
     :param input_vcf: Template VCF / VCF.GZ / BCF path, or ``None`` to write
         the records from the sites.
@@ -626,8 +598,7 @@ class VCFWriter(Writer):
     def _float_info(self, *values: float) -> "str | float | tuple[float, ...]":
         """One ``Type=Float`` ``INFO`` value, rendered for the output format.
 
-        Text VCF receives a full-mantissa string, since htslib formats a float
-        at six significant digits. BCF stores the number itself.
+        Text VCF receives a full-mantissa string, BCF the number itself.
 
         :param values: The value, or the whole vector for a multi-valued field.
         :return: The values as cyvcf2 should receive them.
@@ -787,14 +758,8 @@ class VCFWriter(Writer):
     ) -> int:
         """Two-pass placement: build key arrays, stream posteriors, then emit.
 
-        The output must differ from the template: pass 2 opens it while pass 1
-        is still reading the same file.
-
-        Pass 1 reads the template once to build the ``(pos, contig)`` integer
-        key arrays. Posteriors are streamed into their template rows (see
-        ``_row_locator()``). Pass 2 re-reads the template and emits,
-        annotating every record whose key locates to a placed row. Peak memory
-        is the O(n_variants) key and flag arrays, not the posterior stream.
+        The output must differ from the template. Peak memory is the
+        O(n_variants) key and flag arrays.
         """
         self._refuse_template_overwrite()
         cyvcf2 = import_cyvcf2()
@@ -931,9 +896,6 @@ class VCFWriter(Writer):
         provenance: Mapping[str, object] | None,
     ) -> int:
         """Write one annotated record per site.
-
-        The records are buffered in a temporary file until every contig is
-        known, since the header declares the contigs first.
 
         :return: Number of records written.
         """
@@ -1077,10 +1039,8 @@ class TskitWriter(Writer):
     def _repolarise(self, tables, repolarised: dict) -> None:
         """Rebuild the mutations of every site whose ancestral state changed.
 
-        A parsimonious mutation set is re-derived against the new state from
-        the genotypes the input tree sequence held, so every sample decodes to
-        the allele it carried in the input. This includes the blank state of a
-        sub-threshold site.
+        Every sample decodes to the allele it carried in the input, including
+        at a sub-threshold site with a blank state.
 
         :param tables: The table collection being written, with its sites
             rewritten.
@@ -1143,10 +1103,8 @@ class TskitWriter(Writer):
     def _coerce_metadata_to_dict(meta: object) -> dict:
         """Coerce arbitrary tskit ``site.metadata`` to a plain ``dict``.
 
-        Empty / null / unparseable byte payloads collapse to ``{}``.
-        Existing dicts are shallow-copied. Valid JSON bytes are parsed.
-        Anything else (e.g. raw bytes from a non-JSON schema) collapses to
-        ``{}``.
+        Dicts are shallow-copied, valid JSON bytes parsed, anything else
+        collapses to ``{}``.
         """
         if isinstance(meta, dict):
             return dict(meta)
@@ -1315,22 +1273,19 @@ class ZarrWriter(Writer):
     copied to ``output_zarr``. Without one, each site is written as one
     ``PASS`` variant carrying its alleles and the genotypes of its tips,
     unphased for the individuals in
-    :attr:`Site.unphased <ancestree.sites.Site.unphased>`, together with the
-    fixed fields and the ``region_index`` ``bio2zarr`` writes. An individual's
-    haplotypes fill its call in the order the panel names them and are
-    renumbered from ``_h0``, a call narrower than the row being padded with
-    the ``-2`` fill.
-    Variant-indexed arrays are added at the root:
-    ``variant_AA`` (MAP ancestral allele, ``"."`` where unannotated or below
-    ``min_confidence``), ``variant_AA_prob`` (``float32`` MAP probability) and
-    ``variant_AA_post`` (``(n_variants, 4) float32`` posterior over A, C, G, T).
-    Unannotated rows carry the VCF-Zarr float-missing sentinel, which reads as
-    ``NaN`` and exports as a missing ``INFO`` value.
+    :attr:`Site.unphased <ancestree.sites.Site.unphased>`, with the fixed
+    fields and ``region_index`` of a ``bio2zarr`` store. An individual's
+    haplotypes fill its call in panel order, numbered from ``_h0``, and a
+    narrower call is padded with ``-2``.
 
-    Each array carries ``_ARRAY_DIMENSIONS`` and a ``description`` attribute
-    from which an exporter builds the ``##INFO`` line. ``provenance`` and
-    ``info`` go in the root group's ``attrs`` under ``ancestree_provenance``
-    and ``ancestree_info``. Only directory-backed stores are supported.
+    The annotation arrays at the root are ``variant_AA`` (MAP ancestral
+    allele, ``"."`` where unannotated or below ``min_confidence``),
+    ``variant_AA_prob`` (``float32`` MAP probability) and ``variant_AA_post``
+    (``(n_variants, 4) float32`` posterior over A, C, G, T). Unannotated rows
+    of the float arrays read as ``NaN``. Each array carries a ``description``
+    attribute for the ``##INFO`` line. ``provenance`` and ``info`` go in the
+    root ``attrs`` under ``ancestree_provenance`` and ``ancestree_info``.
+    Only directory-backed stores are supported.
 
     :param input_zarr: Template VCZ store path, or ``None`` to write the
         variants from the sites.
@@ -1407,10 +1362,7 @@ class ZarrWriter(Writer):
     @staticmethod
     def _create_array(root, name, shape, dtype, dims, chunks=None):
         """Create (overwriting) an empty root array tagged with its VCZ
-        dimensions.
-
-        Bridges the zarr v2 (``create_dataset``) and v3 (``create_array``)
-        group APIs.
+        dimensions, under zarr v2 or v3.
 
         :param dims: Dimension names, one per axis.
         :param chunks: Chunk shape, or ``None`` for zarr's own choice.
@@ -1440,11 +1392,9 @@ class ZarrWriter(Writer):
                               variant_chunk=None, dtype=None):
         """Create (overwriting) a root array holding ``data``.
 
-        :param description: Text for the array's ``description`` attribute,
-            which is what an exporter reads to build the field's ``##INFO``
-            line on the way back out to VCF.
-        :param variant_chunk: Chunk length along the variants axis, shared by
-            every variant-indexed array in a VCZ store.
+        :param description: The array's ``description`` attribute, read back
+            as the field's ``##INFO`` line on export to VCF.
+        :param variant_chunk: Chunk length along the variants axis.
         :param dtype: Stored dtype, or ``None`` for that of ``data``.
         """
         chunks = (int(variant_chunk), *data.shape[1:]) if variant_chunk else None
@@ -1605,9 +1555,7 @@ class ZarrWriter(Writer):
     def _swap_into_place(src_dir: str, dst_dir: str) -> None:
         """Atomically rename ``src_dir`` onto ``dst_dir`` (same filesystem).
 
-        An existing ``dst_dir`` is renamed aside first and only removed
-        once the swap succeeds. A failed swap is rolled back so the original
-        store is never lost.
+        A failed swap is rolled back, so the original store is never lost.
         """
 
         if os.path.exists(dst_dir):
@@ -1754,9 +1702,8 @@ class ZarrWriter(Writer):
     ) -> int:
         """Write one annotated variant per site into an empty store.
 
-        The genotypes are appended a chunk at a time. Missing calls are ``-1``
-        and the slots beyond an individual's ploidy ``-2``. Alleles, ids,
-        contigs, samples and filters are stored as variable-length strings.
+        Missing calls are ``-1`` and the slots beyond an individual's ploidy
+        ``-2``.
 
         :param root: The empty group.
         :return: Number of variants written.
