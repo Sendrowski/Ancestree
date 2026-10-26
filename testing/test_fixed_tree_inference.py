@@ -1164,8 +1164,8 @@ class TestDeepReadoutFitNotRequired:
 
 
 class TestRedundantOutgroupCheckStreaming:
-    """The redundant-outgroup data-quality warning also fires in
-    streaming mode (the default VCF path), where self.sites is empty."""
+    """The redundant-outgroup data-quality warning also fires on a streamed
+    source (the default VCF path)."""
 
     def test_warns_on_identical_outgroups_via_vcf_stream(self, tmp_path, caplog):
         # Two outgroup samples that are byte-identical across all sites -> the
@@ -1639,9 +1639,28 @@ class TestOptimizerTotalFailure:
 
 
 class TestNoOutgroupMode:
-    def test_streaming_unsupported(self):
-        with pytest.raises(NotImplementedError, match="no-outgroup"):
-            FixedTreeInference([], JC69(), outgroup_samples=[], stream=True)
+    def test_streaming_matches_a_site_list(self):
+        """The no-outgroup mode streams a source like the other modes.
+
+        It refused ``stream=True`` with ``NotImplementedError`` and
+        materialised every path, tree sequence and source it was given.
+        """
+        import tskit
+        from testing._helpers import QUICKSTART_TREES
+
+        ts = tskit.load(QUICKSTART_TREES)
+        ingroup = [f"i{i}" for i in range(6)]
+
+        def posteriors(source, **kw):
+            inf = FixedTreeInference(
+                source, JC69(), ingroup_samples=ingroup, outgroup_samples=[],
+                progress=False, **kw)
+            return np.array([p.values for _, p in inf.infer()])
+
+        streamed = posteriors(ts, stream=True)
+        assert streamed.shape == (ts.num_sites, 4)
+        np.testing.assert_array_equal(
+            streamed, posteriors(list(anc.TskitSource(ts))))
 
     def test_ingroup_required(self):
         with pytest.raises(ValueError, match="ingroup_samples is required"):
@@ -2047,11 +2066,11 @@ def test_redundancy_check_skips_a_pair_never_observed_together(caplog):
     assert "'o1' and 'o2'" in reported[0].message
 
 
-def test_sample_presence_check_is_a_no_op_without_names():
-    site = Site(chrom="1", pos=1, alleles=("A",), tip_alleles={"o1": "A"})
-    assert FixedTreeInference._check_samples_present(None, [site]) is None
-    assert FixedTreeInference._check_samples_present([], [site],
-                                                     ingroup_samples=[]) is None
+def test_sample_presence_check_skips_an_empty_panel():
+    inf = FixedTreeInference(
+        [], JC69(), ingroup_samples=["i1"], outgroup_samples=["o1", "o2"],
+        n_target_sites=1_000, fit_required=False, progress=False)
+    assert list(inf.infer()) == []
 
 
 def test_no_outgroup_mode_has_nothing_to_fit_and_no_ladder(caplog):

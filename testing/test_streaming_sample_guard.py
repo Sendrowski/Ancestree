@@ -1,11 +1,11 @@
 """A mistyped outgroup must be rejected on the streaming path too.
 
-``_check_samples_present`` received the materialised site list, which is empty
+The presence guard once read only a materialised site list, which is empty
 whenever the source streams, and returned early on empty. Streaming is the
 auto-resolved default for a path, a SiteSource or a TreeSequence, so the guard
-never ran in production. Its own docstring names the failure: the ladder is
-built from the names, no tip ever matches, every branch rate pegs at its lower
-bound, and the fit reports convergence while emitting a uniform posterior.
+never ran in production. The failure it prevents: the ladder is built from the
+names, no tip ever matches, every branch rate pegs at its lower bound, and the
+fit reports convergence while emitting a uniform posterior.
 """
 import pytest
 import tskit
@@ -19,7 +19,7 @@ ING = [f"i{i}" for i in range(6)]
 
 def test_a_mistyped_outgroup_is_rejected_when_streaming():
     ts = tskit.load(TREES)
-    with pytest.raises(ValueError, match="absent from the source panel"):
+    with pytest.raises(ValueError, match="absent from the data"):
         anc.Inference.from_fixed_tree(
             ts, ingroup_samples=ING, outgroup_samples=["o0", "NOT_A_SAMPLE"],
             model=anc.JC69(), n_target_sites=50_000, progress=False)

@@ -495,8 +495,8 @@ class Inference(ReprMixin, ABC):
         """Refuse an ingroup weight offered as the root prior.
 
         An :class:`~ancestree.priors.IngroupWeight` conditions on a single
-        shared ingroup-MRCA polytomy. A mode that reads a local tree per site
-        has no such node, so the weight has nothing to condition on.
+        shared ingroup-MRCA polytomy. Only the outgroup ladder of the
+        fixed-tree mode has one, and it takes the weight as ``ingroup_weight``.
 
         :param prior: The ``prior`` argument, which may be ``None``.
         :raises TypeError: If it is anything other than a
@@ -508,9 +508,9 @@ class Inference(ReprMixin, ABC):
             raise TypeError(
                 "prior must be a StationaryPrior or None; got "
                 f"{type(prior).__name__}. An IngroupWeight conditions on a "
-                "single shared ingroup-MRCA polytomy, which this mode does "
-                "not have: every site carries its own local tree with the "
-                "ingroup samples as real tips."
+                "single shared ingroup-MRCA polytomy and is not a root prior. "
+                "FixedTreeInference takes it as ingroup_weight=, and a mode "
+                "reading a local tree per site has no such node."
             )
 
     def _count_ingroup_monomorphic(self, sites, counts=None) -> None:
@@ -2671,14 +2671,12 @@ class FixedTreeInference(Inference):
         ``min(n_ingroup, 11)``.
     :param stream: Stream sites in bounded memory. ``None`` (default) streams
         a path, a :class:`~ancestree.sites.SiteSource` and a
-        :class:`tskit.TreeSequence`, and materialises a ``list[Site]`` and the
-        no-outgroup mode. Results are identical either way.
+        :class:`tskit.TreeSequence`, and materialises a ``list[Site]``.
+        Results are identical either way.
 
     :raises ValueError: On a tree with no outgroups, an ingroup and
         outgroup set that overlap, a ``sample_filter`` entry in neither list,
         or an unresolvable focal placement.
-    :raises NotImplementedError: On a combination the fixed-tree kernel does
-        not implement, such as streaming with no outgroups named.
     """
 
     #: AFS projection dimension the fit's configs are projected onto, in
@@ -2736,8 +2734,6 @@ class FixedTreeInference(Inference):
         # A tree other than a ladder is used as given, every leaf a tip.
         self._given_tree = (
             tree is not None and not isinstance(tree, OutgroupLadderTree))
-        if self._given_tree:
-            fit_required = False
 
         # An explicit ladder carries its own sample lists.
         if tree is not None:
@@ -2751,43 +2747,32 @@ class FixedTreeInference(Inference):
             not self._given_tree
             and outgroup_samples is not None and len(outgroup_samples) == 0
         )
+        if self._given_tree or self._no_outgroup_mode:
+            fit_required = False
 
         if stream is None:
             import tskit
-            stream = (
-                isinstance(source, (str, os.PathLike, SiteSource, tskit.TreeSequence))
-                and not self._no_outgroup_mode
-            )
-        self._streaming = bool(stream)
-        self._stream_source = None
-        if self._streaming and self._no_outgroup_mode:
-            raise NotImplementedError(
-                "FixedTreeInference(stream=True) is not supported in the "
-                "no-outgroup mode."
-            )
+            stream = isinstance(
+                source, (str, os.PathLike, SiteSource, tskit.TreeSequence))
 
         self._set_input_paths(source)
         self._chrom_filter = chrom_filter
         self._sample_filter = list(sample_filter) if sample_filter else None
-        if self._streaming:
-            self._stream_source = SiteSource.resolve(
-                source, sample_filter=sample_filter,
-                chrom_filter=chrom_filter, ploidy=ploidy,
-            )
-            actual_sites: list[Site] = []  # streamed twice, never materialised
-        else:
-            actual_sites = list(SiteSource.resolve(
-                source, sample_filter=sample_filter,
-                chrom_filter=chrom_filter, ploidy=ploidy,
-            ))
+        sites = SiteSource.resolve(
+            source, sample_filter=sample_filter,
+            chrom_filter=chrom_filter, ploidy=ploidy,
+        )
+        #: The sites, re-iterated by every pass: the resolved source when
+        #: streaming, else a list.
+        self.sites: "SiteSource | Sequence[Site]" = (
+            sites if stream else list(sites))
         model = model if model is not None else JC69()
         actual_bc = (
             base_composition if base_composition is not None
             else BaseComposition.no_counts()
         )
 
-        panel_source = self._stream_source if self._streaming else actual_sites
-        self._panel = SiteSource._panel_of(panel_source)
+        self._panel = SiteSource._panel_of(self.sites)
         # Resolve the topology: no-outgroup (no ladder), an
         # explicit ladder, or one built from the ingroup / outgroup names.
         if self._no_outgroup_mode:
@@ -2797,7 +2782,6 @@ class FixedTreeInference(Inference):
                     "in the no-outgroup mode (outgroup_samples=[])."
                 )
             actual_tree = None
-            self._ingroup_samples_no_out: list[str] = list(ingroup_samples)
         elif tree is not None:
             actual_tree = tree
         else:
@@ -2807,20 +2791,41 @@ class FixedTreeInference(Inference):
                     "the OutgroupLadderTree (or pass a pre-built one via "
                     "tree=).")
             ingroup_samples, outgroup_samples = self._as_panel_ids(
-                ingroup_samples, outgroup_samples, panel_source, self._panel)
+                ingroup_samples, outgroup_samples, self.sites, self._panel)
             if ingroup_samples is None:
                 ingroup_samples = self._ingroup_of(self._panel, outgroup_samples)
             actual_tree = OutgroupLadderTree(ingroup_samples, outgroup_samples)
 
         self.tree = actual_tree
-        self.sites: list[Site] = list(actual_sites)
-        self._check_samples_present(outgroup_samples, actual_sites,
-                                    self._stream_source,
-                                    ingroup_samples=ingroup_samples)
+        tips: tuple[str, ...] = ()
+        if self._given_tree:
+            tips = tuple(
+                name for name in (
+                    tree.sample_for_tip(node) for node in tree.postorder()
+                    if not tree.children(node))
+                if name is not None
+            )
+        self._refuse_absent(ingroup_samples, outgroup_samples, tips)
         _refuse_overlap(ingroup_samples or (), outgroup_samples or ())
-        if not self._given_tree:
+        if self._given_tree:
+            labelled = (*(ingroup_samples or ()), *(outgroup_samples or ()))
+            unknown = sorted(set(labelled) - set(tips))
+            if unknown:
+                raise ValueError(
+                    f"FixedTreeInference: sample(s) {unknown} are not tips "
+                    f"of the tree, whose tips are {sorted(tips)}."
+                )
+            self._resolved_ingroup = (
+                tuple(ingroup_samples) if ingroup_samples else tips)
+            self._resolved_outgroups = tuple(outgroup_samples or ())
+        else:
             self._check_filter_labelled(sample_filter, ingroup_samples,
                                         outgroup_samples)
+            self._resolved_ingroup = tuple(
+                ingroup_samples if self.tree is None
+                else self.tree.ingroup_samples)
+            self._resolved_outgroups = tuple(
+                () if self.tree is None else self.tree.outgroup_samples)
         self.model = model
         actual_bc = BaseComposition.require(
             actual_bc, context="FixedTreeInference",
@@ -2835,21 +2840,14 @@ class FixedTreeInference(Inference):
                 ingroup_weight, subsample_size,
             )
             self.subsample_size = resolved_subsample_size
-            proj_source = (
-                self._stream_source if self._streaming else (self.sites or [])
-            )
             proj_weights, n_poly_projected = actual_bc._project_polymorphic(
-                proj_source,
+                self.sites,
                 self.tree.ingroup_samples,
                 self.tree.outgroup_samples,
                 resolved_subsample_size,
             )
         # A composition without per-base counts takes them from n_target_sites
         # as round(pi x n_target), keeping its empirical pi.
-        n_poly_for_counts = (
-            n_poly_projected if n_poly_projected is not None
-            else len(self.sites or [])
-        )
         if actual_bc.n_total == 0 and n_target_sites is not None:
             arr = BaseComposition._largest_remainder(
                 actual_bc.pi, int(n_target_sites),
@@ -2857,12 +2855,10 @@ class FixedTreeInference(Inference):
             actual_bc = dataclasses.replace(
                 actual_bc, counts=dict(zip(STATES, [int(x) for x in arr])))
         self.base_composition = actual_bc
-        mono_counts = actual_bc.monomorphic_counts(n_poly_for_counts)
         # A fit needs monomorphic-site calibration: non-zero counts or
         # n_target_sites.
         if (
             fit_required
-            and not self._no_outgroup_mode
             and self.base_composition.n_total == 0
             and n_target_sites is None
         ):
@@ -2890,13 +2886,7 @@ class FixedTreeInference(Inference):
         self.baseline_check = bool(baseline_check)
 
         from ancestree.priors import StationaryPrior
-        if prior is not None and not isinstance(prior, StationaryPrior):
-            raise TypeError(
-                f"prior must be a StationaryPrior or None; got "
-                f"{type(prior).__name__}. An IngroupWeight belongs in "
-                f"ingroup_weight=, where it is seeded once on the ingroup "
-                f"MRCA; passing it as prior= applies it again at the readout."
-            )
+        self._require_stationary_prior(prior)
         self.prior = (
             prior if prior is not None
             else StationaryPrior(model, self.base_composition)
@@ -2908,7 +2898,7 @@ class FixedTreeInference(Inference):
             from ancestree.priors import KingmanIngroupWeight
             self.ingroup_weight = (
                 ingroup_weight if ingroup_weight is not None
-                else KingmanIngroupWeight(self._ingroup_samples_no_out)
+                else KingmanIngroupWeight(list(self._resolved_ingroup))
             )
             self._log.warning(
                 "FixedTreeInference: no outgroups supplied (outgroup_samples=[]). "
@@ -2934,36 +2924,8 @@ class FixedTreeInference(Inference):
                     "tree used as given, where every sample is a tip of the "
                     "tree."
                 )
-            tips = tuple(
-                name for name in (
-                    tree.sample_for_tip(node) for node in tree.postorder()
-                    if not tree.children(node))
-                if name is not None
-            )
-            labelled = (*(ingroup_samples or ()), *(outgroup_samples or ()))
-            unknown = sorted(set(labelled) - set(tips))
-            if unknown:
-                raise ValueError(
-                    f"FixedTreeInference: sample(s) {unknown} are not tips "
-                    f"of the tree, whose tips are {sorted(tips)}."
-                )
-            panel = getattr(self._stream_source, "samples", None)
-            present = (
-                set(panel()) if callable(panel)
-                else {s for site in self.sites for s in site.tip_alleles})
-            absent = sorted(set(tips) - present)
-            if present and absent:
-                raise ValueError(
-                    f"FixedTreeInference: tip(s) {absent} of the tree are "
-                    f"absent from the data, whose samples are "
-                    f"{sorted(present)}."
-                )
-            self._given_ingroup: tuple[str, ...] = (
-                tuple(ingroup_samples) if ingroup_samples else tips)
-            self._given_outgroup: tuple[str, ...] = tuple(
-                outgroup_samples or ())
             self.focal = FocalNode.parse(focal)
-            self._warn_single_ingroup(len(self._given_ingroup))
+            self._warn_single_ingroup(len(self._resolved_ingroup))
             self.ingroup_weight = None
             self._engine = Likelihood(
                 model, base_composition=self.base_composition)
@@ -3067,7 +3029,7 @@ class FixedTreeInference(Inference):
         self._fit_configs, self._fit_weights = (
             self.base_composition._finalize_configs(
                 proj_weights,
-                mono_counts,
+                self.base_composition.monomorphic_counts(n_poly_projected),
                 self.tree.ingroup_samples,
                 self.tree.outgroup_samples,
                 subsample_size,
@@ -3172,7 +3134,7 @@ class FixedTreeInference(Inference):
     # ---------------------------------------------------------- redundancy check
 
     _MIN_SITES_FOR_SIMILARITY_CHECK = 50
-    # Stream prefix sampled for the redundant-outgroup check in streaming mode.
+    # Site prefix sampled for the redundant-outgroup check.
     _REDUNDANT_OUTGROUP_SAMPLE_CAP = 50_000
 
     def _warn_if_branch_rates_at_bounds(self) -> None:
@@ -3211,20 +3173,14 @@ class FixedTreeInference(Inference):
         """Pre-fit warning for outgroup pairs with low pairwise divergence.
 
         Near-identical outgroups, typically both haplotypes of one diploid
-        individual, drive their branch rates to the lower bound. In streaming
-        mode the check runs on a bounded prefix of the stream.
+        individual, drive their branch rates to the lower bound. The check runs
+        on a bounded prefix of the sites.
         """
         if threshold <= 0:
             return
-        if self.sites:
-            sample: "Iterable[Site]" = self.sites
-        elif self._streaming and self._stream_source is not None:
-            import itertools
-            sample = itertools.islice(
-                self._stream_source, self._REDUNDANT_OUTGROUP_SAMPLE_CAP,
-            )
-        else:
-            return
+        import itertools
+        sample = itertools.islice(
+            self.sites, self._REDUNDANT_OUTGROUP_SAMPLE_CAP)
         outgroups = self.tree.outgroup_samples
         pairs = [(i, j) for i in range(len(outgroups))
                  for j in range(i + 1, len(outgroups))]
@@ -3344,108 +3300,44 @@ class FixedTreeInference(Inference):
                 f"sample of the panel, leaving no ingroup. Name ingroup_samples.")
         return ingroup
 
-    @staticmethod
-    def _check_samples_present(outgroup_samples, sites, source=None,
-                               ingroup_samples=None) -> None:
-        """Reject named ids that appear on no site.
+    def _refuse_absent(self, ingroup_samples, outgroup_samples,
+                       tips: Sequence[str]) -> None:
+        """Refuse a named sample or tree tip the panel does not carry.
 
-        An outgroup matching no tip fits every branch rate to its lower bound
-        and emits uniform posteriors. An ingroup id matching no tip drops out
-        of the ingroup, which moves both the fitted branch rates and the MAP
-        calls. An outgroup id names a ladder tip and matches a tip id exactly.
-        An ingroup id enters through
-        :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>` and
-        matches a tip id or the individual a tip belongs to. An ingroup
-        absent in full is the outgroup-only mode, where the ladder carries no
-        ingroup tip and the ingroup enters as a flat vector, so only a
-        partially matched ingroup is refused.
+        An outgroup matching no tip pegs every branch rate at its lower bound,
+        and an ingroup id matching no tip silently shrinks the ingroup. An
+        outgroup id or a tip of a tree used as given matches a tip id exactly.
+        An ingroup id matches a tip id or the individual a tip belongs to, as
+        :meth:`Site.count_alleles() <ancestree.sites.Site.count_alleles>`
+        reads it, and an ingroup the panel carries none of is the
+        outgroup-only mode. An empty panel is not checked.
 
-        :param outgroup_samples: Named outgroup ids, or ``None``.
-        :param sites: The materialised sites, empty when the source streams.
-        :param source: The streaming source, whose panel stands in for the
-            sites. The check is skipped when neither is available.
         :param ingroup_samples: Named ingroup ids, or ``None``.
-        :raises ValueError: If a named sample is absent from every site.
+        :param outgroup_samples: Named outgroup ids, or ``None``.
+        :param tips: The sample names of a tree used as given, else empty.
+        :raises ValueError: If a named sample or a tip is absent.
         """
-        out_named = list(outgroup_samples or [])
-        in_named = list(ingroup_samples or [])
-        if not out_named and not in_named:
+        if not self._panel:
             return
-        want = set(out_named) | set(in_named)
-        want_in = set(in_named)
-        seen: set = set()
-        present: set = set()
-        if not sites:
-            # Streaming: the panel comes from the source.
-            panel = getattr(source, "samples", None)
-            if not callable(panel):
-                return
-            present = set(panel())
-            seen = (want & present) | (
-                want_in & {_individual_of(s) for s in present})
-            missing_out = [s for s in out_named if s not in seen]
-            missing_in = FixedTreeInference._unmatched_ingroup(in_named, seen)
-            if not missing_out and not missing_in:
-                return
+        panel = set(self._panel)
+        named_in_panel = _by_individual(panel)
+        ingroup = list(ingroup_samples or ())
+        missing_in = [s for s in ingroup if s not in named_in_panel]
+        missing = {
+            "outgroup": [s for s in outgroup_samples or () if s not in panel],
+            "ingroup": [] if len(missing_in) == len(ingroup) else missing_in,
+            "tree tip": sorted(t for t in tips if t not in panel),
+        }
+        clauses = [f"{kind} {ids[:6]}{' ...' if len(ids) > 6 else ''}"
+                   for kind, ids in missing.items() if ids]
+        if clauses:
             raise ValueError(
-                f"{len(missing_out) + len(missing_in)} named sample(s) are "
-                f"absent from the source panel: "
-                f"{FixedTreeInference._name_missing(missing_out, missing_in)}. "
-                f"A diploid is split into '<name>_h0' / '<name>_h1', and an "
-                f"outgroup is one ladder tip, so name one haplotype."
+                f"{sum(map(len, missing.values()))} sample(s) are absent from "
+                f"the data: {'; '.join(clauses)}. The data carries ids like "
+                f"{sorted(panel)[:4]}. A diploid is split into '<name>_h0' / "
+                f"'<name>_h1', and an outgroup is one ladder tip, so name one "
+                f"haplotype."
             )
-        individuals: set = set()
-        for site in sites:
-            ids = set(site.tip_alleles)
-            new_ids = ids - present
-            if new_ids:
-                present |= new_ids
-                individuals |= {_individual_of(s) for s in new_ids}
-            seen |= want & ids
-            seen |= want_in & individuals
-            if seen >= want:  # every named sample located. Stop early
-                break
-        missing_out = [s for s in out_named if s not in seen]
-        missing_in = FixedTreeInference._unmatched_ingroup(in_named, seen)
-        if missing_out or missing_in:
-            example = sorted(present)[:4]
-            raise ValueError(
-                f"{len(missing_out) + len(missing_in)} named sample(s) appear "
-                f"on no site: "
-                f"{FixedTreeInference._name_missing(missing_out, missing_in)}. "
-                f"Sites carry ids like {example}. A diploid is split into "
-                f"'<name>_h0' / '<name>_h1', and an outgroup is one ladder tip, "
-                f"so name one haplotype."
-            )
-
-    @staticmethod
-    def _unmatched_ingroup(named: Sequence[str], seen: set) -> list[str]:
-        """Ingroup ids the panel does not carry, where some of them it does.
-
-        :param named: The named ingroup ids.
-        :param seen: The ids located in the panel.
-        :return: The unmatched ids, empty where the panel carries none of
-            them, which is the outgroup-only mode.
-        """
-        missing = [s for s in named if s not in seen]
-        return [] if len(missing) == len(named) else missing
-
-    @staticmethod
-    def _name_missing(missing_out: Sequence[str],
-                      missing_in: Sequence[str]) -> str:
-        """Render the unmatched ids of both lists for the guard's message.
-
-        :param missing_out: Unmatched outgroup ids.
-        :param missing_in: Unmatched ingroup ids.
-        :return: One clause per non-empty list, each capped at six ids.
-        """
-        parts = []
-        for kind, missing in (("outgroup", missing_out), ("ingroup", missing_in)):
-            if missing:
-                parts.append(
-                    f"{kind} {list(missing[:6])}"
-                    f"{' ...' if len(missing) > 6 else ''}")
-        return "; ".join(parts)
 
     def fit(self) -> dict[str, float]:
         r"""Run L-BFGS-B to fit the tree's branch rates by ML.
@@ -3480,12 +3372,10 @@ class FixedTreeInference(Inference):
         """
         if self._no_outgroup_mode or self._given_tree:
             return {}
-        if self._streaming:
-            self._log.info(
-                "Streaming fit: pass 1 (config histogram) complete; fitting "
-                "%d branch rate(s) by ML, then a second streaming pass emits "
-                "posteriors.", len(self.tree.param_names),
-            )
+        self._log.info(
+            "Fitting %d branch rate(s) by ML over the config histogram.",
+            len(self.tree.param_names),
+        )
         starts = self._generate_starts()
         results = (
             self._run_parallel(starts)
@@ -3778,22 +3668,9 @@ class FixedTreeInference(Inference):
         yield from self._with_baseline_check(self._infer_inner())
         self._log_uniform_fallback_summary()
 
-    def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        if self._given_tree:
-            return self._given_outgroup
-        if not self._no_outgroup_mode and self.tree is not None:
-            return tuple(self.tree.outgroup_samples)
-        return ()
-
-    def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        if self._given_tree:
-            return self._given_ingroup
-        if not self._no_outgroup_mode and self.tree is not None:
-            return tuple(self.tree.ingroup_samples)
-        return tuple(getattr(self, "_ingroup_samples_no_out", ()))
-
     def _infer_inner(self) -> Iterator[tuple[Site, Posterior]]:
         """Core per-site posterior generator (no baseline-check side-effects)."""
+        n_sites = len(self.sites) if hasattr(self.sites, "__len__") else None
         if not self._quiet:
             if self._given_tree or self._no_outgroup_mode:
                 target = "the fixed tree"
@@ -3801,36 +3678,14 @@ class FixedTreeInference(Inference):
                 target = "the fitted outgroup ladder"
             else:
                 target = "the outgroup ladder"
-            if self._streaming:
+            if n_sites is None:
                 self._log.info(
                     "Inferring the ancestral allele on %s, streaming the "
                     "sites", target)
             else:
                 self._log.info(
                     "Inferring the ancestral allele at %s site(s) on %s",
-                    f"{len(self.sites):,}", target)
-        if self._no_outgroup_mode:
-            # The posterior is the normalised ingroup weight times the root
-            # prior. A monoallelic ingroup takes all mass on its observed
-            # allele.
-            if not self.sites:
-                return
-            self._count_ingroup_monomorphic(self.sites)
-            self._count_unrepresentable(self.sites)
-            log_pr = (self.ingroup_weight.log_probs(self.sites)
-                      + self.prior.log_probs(self.sites))
-            post = self._normalise_log_post(
-                log_pr, n_states=self.model.n_states)
-            states = self.model.states
-            state_index = STATE_INDEX
-            ingroup = self._ingroup_samples_no_out
-            for k, site in enumerate(self.sites):
-                counts = site.count_alleles(ingroup)
-                if len(counts) == 1:
-                    post[k] = 0.0
-                    post[k, state_index[next(iter(counts))]] = 1.0
-                yield site, Posterior(alleles=states, values=post[k])
-            return
+                    f"{n_sites:,}", target)
         if self._params_mle is None and self.fit_required:
             raise RuntimeError(
                 "FixedTreeInference.infer() called before fit(); "
@@ -3842,7 +3697,7 @@ class FixedTreeInference(Inference):
         gen = self._infer_stream()
         if self.progress:
             gen = tqdm(
-                gen, total=None if self._streaming else len(self.sites),
+                gen, total=n_sites,
                 desc="FixedTreeInference", unit=" sites",
                 disable=Settings.disable_pbar,
             )
@@ -3851,28 +3706,21 @@ class FixedTreeInference(Inference):
     def _iter_site_batches(
         self, batch_size: int = 4096,
     ) -> "Iterator[list[Site]]":
-        """Yield batches of sites: one batch of the materialised list, or the
-        streamed source in ``batch_size`` chunks. Shared by the streamed
-        inference pass and the adaptive prior's stage-2 fit, so both modes keep
-        peak memory flat in genome length when streaming."""
-        if self._streaming:
-            batch: list[Site] = []
-            for site in self._stream_source:
-                batch.append(site)
-                if len(batch) >= batch_size:
-                    yield batch
-                    batch = []
-            if batch:
+        """Yield the sites in ``batch_size`` chunks, one pass over
+        :attr:`sites`. Shared by the inference pass and the adaptive weight's
+        stage-2 fit, so a streamed source keeps peak memory flat in genome
+        length."""
+        batch: list[Site] = []
+        for site in self.sites:
+            batch.append(site)
+            if len(batch) >= batch_size:
                 yield batch
-        elif self.sites:
-            yield list(self.sites)
+                batch = []
+        if batch:
+            yield batch
 
     def _infer_stream(self) -> Iterator[tuple[Site, Posterior]]:
-        """Score the sites one batch at a time.
-
-        Streaming re-iterates the source so peak memory stays flat in genome
-        length. Materialised yields the held site list as a single batch.
-        """
+        """Score the sites one batch at a time."""
         for batch in self._iter_site_batches():
             yield from self._infer_site_batch(batch)
 
@@ -3880,29 +3728,46 @@ class FixedTreeInference(Inference):
         self, batch: "Sequence[Site]",
     ) -> Iterator[tuple[Site, Posterior]]:
         """Score one in-memory batch: Felsenstein on the focal view of the
-        ladder, plus the prior, normalised to posteriors."""
+        tree, plus the prior, normalised to posteriors.
+
+        Without a tree the posterior is the normalised ingroup weight times
+        the root prior, and an ingroup carrying one allele puts all mass on
+        it."""
         # The ingroup enters the kernel as one likelihood vector on its MRCA,
         # so it propagates to whatever node the run reports at. The prior
         # applies at that node.
-        seeds = None
+        log_w = None
         counts = self._shared_ingroup_counts(batch)
         if self.ingroup_weight is not None:
             log_w = (
                 self.ingroup_weight.log_probs(batch) if counts is None
                 else self.ingroup_weight.log_probs_from_counts(counts)
             )
-            with np.errstate(under="ignore"):
-                seeds = {self.tree.ingroup_mrca: np.exp(log_w)}
         if not self._given_tree:
             self._count_ingroup_monomorphic(batch, counts=counts)
         self._count_unrepresentable(batch)
         log_prior = self.prior.log_probs(batch)
-        log_L = self._engine.log_likelihoods(
-            self._focal_tree, batch, node_seeds=seeds,
-        )
-        posteriors = self._normalise_log_post(
-            log_L + log_prior, n_states=self.model.n_states,
-        )
+        if self.tree is None:
+            posteriors = self._normalise_log_post(
+                log_w + log_prior, n_states=self.model.n_states)
+            if counts is None:
+                counts = [site.count_alleles(self._resolved_ingroup)
+                          for site in batch]
+            for post, tally in zip(posteriors, counts):
+                if len(tally) == 1:
+                    post[:] = 0.0
+                    post[STATE_INDEX[next(iter(tally))]] = 1.0
+        else:
+            seeds = None
+            if log_w is not None:
+                with np.errstate(under="ignore"):
+                    seeds = {self.tree.ingroup_mrca: np.exp(log_w)}
+            log_L = self._engine.log_likelihoods(
+                self._focal_tree, batch, node_seeds=seeds,
+            )
+            posteriors = self._normalise_log_post(
+                log_L + log_prior, n_states=self.model.n_states,
+            )
         for site, p in zip(batch, posteriors):
             yield site, Posterior(alleles=self.model.states, values=p)
 
