@@ -1207,6 +1207,30 @@ def test_initial_rates_array_not_mutated_by_fixed_params():
     np.testing.assert_array_equal(rates, original)  # caller's buffer untouched
 
 
+def test_an_unfitted_run_scores_at_the_initial_rates():
+    """With ``fit_required=False`` the posterior is the one at
+    ``initial_rates``.
+
+    The rates were stored only as the optimiser's first start, so an
+    unfitted run scored at the tree's default rates of 1.0 instead.
+    """
+    sites = _ladder_sites(20)
+    rates = np.array([0.01, 0.02, 0.03])
+    given = FixedTreeInference(
+        sites, JC69(), tree=OutgroupLadderTree(["i1"], ["o1", "o2"]),
+        initial_rates=rates, fit_required=False, progress=False,
+        baseline_check=False)
+    preset = OutgroupLadderTree(["i1"], ["o1", "o2"])
+    preset.set_params(rates)
+    expected = FixedTreeInference(
+        sites, JC69(), tree=preset, fit_required=False, progress=False,
+        baseline_check=False)
+    np.testing.assert_array_equal(given.tree.param_vector, rates)
+    np.testing.assert_array_equal(
+        [p.values for _, p in given.infer()],
+        [p.values for _, p in expected.infer()])
+
+
 class TestBothSiteClassesArePinned:
     """Golden posteriors for the two readings fixed-tree mode produces.
 

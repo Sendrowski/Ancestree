@@ -2424,8 +2424,8 @@ class FixedTreeInference(Inference):
     :param fit_required: Require an ML branch-rate fit before :meth:`infer`.
         ``True`` (default) makes :meth:`infer` raise until
         :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`
-        has run, and ``False`` uses the tree's current rates and relaxes the
-        monomorphic-calibration check.
+        has run, and ``False`` scores at ``initial_rates`` until a fit runs and
+        relaxes the monomorphic-calibration check.
     :param baseline_check: INFO-log MAP agreement with the majority-outgroup
         rule (:class:`~ancestree.inference.MajorityOutgroupInference`) as a
         consistency check on the fitted model. Default ``True``.
@@ -2735,6 +2735,8 @@ class FixedTreeInference(Inference):
         for i, v in self._fixed_by_index.items():
             x0[i] = v
         self._x0 = x0
+        if not self.fit_required:
+            tree.set_params(x0)
 
         self._engine = Likelihood(
             model,
@@ -3377,9 +3379,9 @@ class FixedTreeInference(Inference):
         and the configured root prior
         (:class:`~ancestree.priors.KingmanIngroupWeight` by default).
         Run :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`
-        first. Otherwise the tree's branch rates are whatever
+        first. Otherwise the tree's branch rates are
         :paramref:`initial_rates <ancestree.inference.FixedTreeInference.initial_rates>`
-        was at construction.
+        with any ``fixed_params`` applied.
 
         :return: Iterator of ``(Site, Posterior)`` pairs in input order.
         :raises RuntimeError: If
