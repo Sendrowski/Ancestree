@@ -66,6 +66,18 @@ def test_sample_map_rejects_duplicate_individual_names():
         TskitLocalTree.sample_map_from_individuals(ts2)
 
 
+def test_restrict_simplifies_unless_the_map_covers_every_sample(small_ts):
+    """Two names on one node made the map as long as the sample count while
+    a sample was left out, and the tree sequence was returned unrestricted.
+    """
+    samples = [int(s) for s in small_ts.samples()]
+    names = {str(n): n for n in samples[:-1]}
+    names["alias"] = samples[0]
+    restricted, mapping = TskitLocalTree.restrict(small_ts, names)
+    assert restricted.num_samples == len(samples) - 1
+    assert mapping["alias"] == mapping[str(samples[0])]
+
+
 def test_from_tskit_tree_matches_position_constructor(small_ts):
     pos = small_ts.sequence_length / 2
     t_pos = TskitLocalTree(small_ts, position=pos)

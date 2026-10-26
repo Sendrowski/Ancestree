@@ -321,8 +321,8 @@ class TskitLocalTree(Tree):
         :return: The restricted tree sequence and ``sample_map`` in its
             numbering, both unchanged where ``sample_map`` covers every sample.
         """
-        nodes = sorted(int(n) for n in sample_map.values())
-        if len(nodes) >= ts.num_samples:
+        nodes = sorted({int(n) for n in sample_map.values()})
+        if set(nodes) == {int(n) for n in ts.samples()}:
             return ts, dict(sample_map)
         restricted = ts.simplify(samples=nodes, filter_sites=False,
                                  filter_nodes=not keep_node_ids,
