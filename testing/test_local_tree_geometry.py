@@ -441,20 +441,20 @@ class TestPinnedPosteriors:
     #: ``(dataset, chunk_size, n_ensemble, maps) -> {pos: posterior}``.
     PINNED = {
         ("regional", None, None, None): {
-            251657: [0.119768665401, 1.08042093165e-05, 1.08042093165e-05,
-                     0.88020972618],
-            292122: [0.000134031875427, 0.441790633343, 0.000134031875427,
-                     0.557941302906],
-            329591: [0.999999992427, 1.65375819505e-09, 4.26550400256e-09,
-                     1.65375819505e-09],
+            251657: [0.000431881862028, 1.03338667135e-07, 1.03338667135e-07,
+                     0.999567911461],
+            292122: [0.000206904810477, 0.458051250601, 0.000206904810477,
+                     0.541534939778],
+            329591: [0.99999995226, 1.0090924165e-08, 2.75577389017e-08,
+                     1.0090924165e-08],
         },
         ("regional", None, N_ENSEMBLE, "past"): {
-            251657: [0.000300036009559, 8.65445906146e-08, 8.65445906146e-08,
-                     0.999699790901],
-            292122: [0.000193251274443, 0.454229017595, 0.000193251274443,
-                     0.545384479856],
-            329591: [0.999999986038, 2.97490933898e-09, 8.01179337819e-09,
-                     2.97490933898e-09],
+            251657: [0.0134079008269, 5.16728831714e-06, 5.16728831714e-06,
+                     0.986581764596],
+            292122: [0.000203832334595, 0.453732730988, 0.000203832334595,
+                     0.545859604342],
+            329591: [0.999999905046, 3.16508227628e-08, 3.16523032763e-08,
+                     3.16508227628e-08],
         },
         ("gapped", CHUNK, None, "short"): {
             251657: [0.00016604069578, 5.91916857123e-08, 5.91916857123e-08,
@@ -465,12 +465,12 @@ class TestPinnedPosteriors:
                      7.21447667926e-07],
         },
         ("gapped", CHUNK, N_ENSEMBLE, None): {
-            251657: [0.0527647526117, 6.3453880277e-06, 6.3453880277e-06,
-                     0.947222556612],
+            251657: [0.0540224294849, 1.09646672176e-05, 1.09646672176e-05,
+                     0.945955641181],
             311098: [0.000191681734047, 0.000191681734047, 0.602955391186,
                      0.396661245346],
-            329591: [0.999999991306, 2.21667286063e-09, 4.26078683234e-09,
-                     2.21667286063e-09],
+            329591: [0.999876515673, 1.41685431589e-07, 0.000123200956251,
+                     1.41685431589e-07],
         },
     }
 
@@ -585,3 +585,40 @@ class TestDataStretch:
             covered = _merged(iv for _, members in groups
                               for iv in members[k])
             _assert_same_intervals(covered, expected)
+
+
+class TestDataPlacement:
+    """Posteriors and pairwise TMRCAs do not depend on where on the axis the
+    data sit, given block, window and chunk grids aligned under the shift."""
+
+    #: Shift onto a point of the block, window and chunk grids, moving the
+    #: panel from 250 kb to 10 kb on the same header.
+    SHIFT = 240_000
+    WIDTHS = dict(window=4000, block_size=1000)
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def shifted(cls, tmp_path_factory):
+        """The regional panel moved down by :attr:`SHIFT`."""
+        rows = [("1", pos - cls.SHIFT, alleles, g)
+                for pos, alleles, g in _simulated_rows()]
+        return _write_vcf(tmp_path_factory.mktemp("shifted") / "shifted.vcf",
+                          rows, [("1", HEADER)])
+
+    @pytest.mark.parametrize("chunk_size", [None, CHUNK])
+    def test_flanks_carry_no_weight(self, inputs, shifted, chunk_size):
+        """Without a mask, the blocks before the first site and after the
+        last entered the time-grid calibration, the per-pair prior mean and
+        the HMM as zero-difference sequence at full exposure, so a panel far
+        from 0 on a long header was pulled toward a TMRCA of 0 by its flanks,
+        and its posteriors moved with its placement and with chunk_size."""
+        runs = [_inference(path, chunk_size=chunk_size, **self.WIDTHS)
+                for path in (inputs["regional"], shifted)]
+        left, right = (_posteriors(run) for run in runs)
+        assert [r[1] - self.SHIFT for r in left] == [r[1] for r in right]
+        for a, b in zip(left, right):
+            np.testing.assert_allclose(a[2], b[2], rtol=0, atol=1e-12)
+        a, b = (run.pairwise_tmrcas() for run in runs)
+        np.testing.assert_array_equal(a.block_midpoints - self.SHIFT,
+                                      b.block_midpoints)
+        np.testing.assert_allclose(a.tmrca, b.tmrca, rtol=1e-12)

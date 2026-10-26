@@ -232,13 +232,15 @@ class BuildGeometry(ReprMixin):
         restarts, snapped to the block grid.
     :param recombination_map: :class:`msprime.RateMap` on the frame, or ``None``.
     :param accessibility: Half-open callable ``(start, end)`` intervals on the
-        frame, or ``None`` for all callable.
+        frame, or ``None`` for all callable. The HMM reads only their part
+        within ``data``.
     :param mutation_map: :class:`msprime.RateMap` on the frame, or ``None``.
     :param core: ``(lo, hi)`` stretch of the frame the build reports trees and
         blocks for, or ``None`` for the whole axis.
     :param data: ``(lo, hi)`` extent of the contig's sites on the frame, from
         the first site to one past the last, which a window must overlap to
         get a tree, or ``None`` when there is no site, so no window gets one.
+        The HMM reads the frame outside it as not callable.
     :param origin: Genome coordinate of the frame's 0.
     :param contig: Contig the frame lies on.
     """
@@ -344,12 +346,29 @@ class BuildGeometry(ReprMixin):
         rate = np.asarray(mm.get_rate(x), dtype=np.float64)
         return np.maximum(rate, _ZERO_RATE_FLOOR) / float(mu)
 
+    @cached_property
+    def callable_intervals(self) -> "np.ndarray | None":
+        """``(n, 2)`` float64 intervals the HMM reads as callable:
+        :attr:`accessibility` (the whole axis when unset) within :attr:`data`,
+        or ``None`` when neither restricts the axis."""
+        if self.data is None:
+            return (None if self.accessibility is None else
+                    np.asarray(self.accessibility,
+                               dtype=np.float64).reshape(-1, 2))
+        iv = (np.array([[0.0, self.axis_length]]) if self.accessibility is None
+              else np.asarray(self.accessibility,
+                              dtype=np.float64).reshape(-1, 2))
+        return np.column_stack((np.maximum(iv[:, 0], float(self.data[0])),
+                                np.minimum(iv[:, 1], float(self.data[1]))))
+
     def accessible_fraction(self) -> np.ndarray:
         """``(n_blocks,)`` float64 in ``[0, 1]``: the base pairs of each block
-        covered by :attr:`accessibility`, divided by that block's span."""
+        covered by :attr:`callable_intervals`, divided by that block's span."""
         edges = self.block_edges
         end = edges[-1]
-        iv = np.asarray(self.accessibility, dtype=np.float64).reshape(-1, 2)
+        iv = self.callable_intervals
+        if iv is None:
+            return np.ones(self.n_blocks, dtype=np.float64)
         lo = np.clip(iv[:, 0], 0.0, end)
         hi = np.clip(iv[:, 1], 0.0, end)
         keep = hi > lo
@@ -388,18 +407,19 @@ class BuildGeometry(ReprMixin):
         product of ``a_k·(S_k/B)``, the accessible base pairs of block ``k`` as
         a fraction of the nominal width ``B``, for a block spanning ``S_k``
         base pairs and an accessible fraction ``a_k`` of that span
-        (dimensionless, in ``[0, 1]``, and ``1`` with no mask on a full-width
-        block), and ``μ_k / μ``, the mutation map's local per-bp rate over the
-        block divided by the reference rate ``μ`` (dimensionless, and ``1``
-        with no map). The emission mean of block ``k`` in time bin ``i`` is
-        then ``a_k·(S_k/B)·(μ_k/μ)·2·μ·B·t_i`` differences, for a bin
-        representative time ``t_i`` in generations. ``None`` when neither a
-        mask nor a map is set and every block is full width.
+        (dimensionless, in ``[0, 1]``, the share of the span within
+        :attr:`callable_intervals`), and ``μ_k / μ``, the mutation map's local
+        per-bp rate over the block divided by the reference rate ``μ``
+        (dimensionless, and ``1`` with no map). The emission mean of block
+        ``k`` in time bin ``i`` is then ``a_k·(S_k/B)·(μ_k/μ)·2·μ·B·t_i``
+        differences, for a bin representative time ``t_i`` in generations.
+        ``None`` when there are no sites, no mask and no map, and every block
+        is full width.
 
         ``block_mask[k]`` is ``True`` when block ``k`` emits: more than
-        :data:`_ACCESS_FRAC_FLOOR` of its own base pairs are accessible, it
-        spans more than that fraction of ``B``, and its local mutation rate is
-        positive. ``None`` when no block is masked.
+        :data:`_ACCESS_FRAC_FLOOR` of its own base pairs are in
+        :attr:`callable_intervals`, it spans more than that fraction of ``B``,
+        and its local mutation rate is positive. ``None`` when no block is masked.
 
         :param rec_rate: Reference recombination rate per bp per generation.
         :param mu: Reference mutation rate per bp per generation.
@@ -446,7 +466,7 @@ class BuildGeometry(ReprMixin):
             step = np.where(valid, step, 1.0)
         block_mask = None
         access_frac = None
-        if self.accessibility is not None:
+        if self.callable_intervals is not None:
             access_frac = self.accessible_fraction()
             block_mask = access_frac > _ACCESS_FRAC_FLOOR
         emit_scale = None
@@ -499,6 +519,10 @@ class BuildGeometry(ReprMixin):
         if (callable_mask is not None and uninformative is not None
                 and uninformative.any()):
             callable_mask = callable_mask | uninformative
+        # Nor is a data stretch narrower than the floor without a mask.
+        if self.accessibility is None and access_frac is not None:
+            callable_mask = callable_mask | (
+                (access_frac > 0.0) & (trunc > _ACCESS_FRAC_FLOOR))
         if (callable_mask is not None and not callable_mask.any()
                 and validate):
             raise ValueError(
