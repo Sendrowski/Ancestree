@@ -85,9 +85,11 @@ for ax, (context, title) in zip(axes, CONTEXTS):
     ax.set_xlabel("derived-allele count", fontsize=10)
 axes[0].set_ylabel(f"difference from {'truth' if SIMULATION else 'EPO'} (%)", fontsize=10)
 handles, labels = axes[0].get_legend_handles_labels()
-fig.legend(handles, labels, fontsize=7.5, ncol=2, framealpha=0.9, loc="lower center",
-           bbox_to_anchor=(0.5, 0.02), borderpad=0.8, columnspacing=2.5, labelspacing=0.5)
 fig.subplots_adjust(left=0.09, right=0.99, top=0.93, bottom=0.36)
+# Centred under the axes, not under the figure, whose left margin holds the y label.
+x_centre = (axes[0].get_position().x0 + axes[-1].get_position().x1) / 2
+fig.legend(handles, labels, fontsize=7.5, ncol=2, framealpha=0.9, loc="lower center",
+           bbox_to_anchor=(x_centre, 0.02), borderpad=0.8, columnspacing=2.5, labelspacing=0.5)
 FIG.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(FIG)
 print(f"wrote {FIG}", flush=True)
