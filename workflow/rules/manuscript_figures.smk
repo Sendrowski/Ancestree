@@ -188,7 +188,7 @@ rule epo_simulation_spectra_figure_copy:
 
 
 rule epo_tables:
-    """The EPO comparison and matched-simulation tables."""
+    """The EPO comparison, matched-simulation and Brier-score tables."""
     input:
         spectra = f"{REPORTS}/epo_spectra.json",
         simulation = f"{REPORTS}/epo_simulation.json",
@@ -196,6 +196,7 @@ rule epo_tables:
     output:
         comparison = f"{LATEX}/tables/epo_comparison.tex",
         simulation = f"{LATEX}/tables/epo_simulation.tex",
+        brier = f"{LATEX}/tables/epo_brier.tex",
     conda:
         "../envs/bench.yml"
     shell:
