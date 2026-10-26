@@ -1001,7 +1001,7 @@ class TestDiagnosticsAndTraps:
                 focal="ingroup_mrca", n_workers=workers,
             )
             list(inference.infer())
-            counts.append(inference._n_ingroup_non_monophyletic)
+            counts.append(inference._tally.ingroup_non_monophyletic)
         # Incremented in a forked child, so without the return-value plumbing
         # the parent's copy would stay at zero.
         assert counts[0] == counts[1]

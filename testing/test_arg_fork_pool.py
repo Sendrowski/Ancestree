@@ -28,7 +28,7 @@ import pytest
 
 import ancestree.inference as inference_mod
 from ancestree import ARGBasedInference, JC69
-from ancestree.inference import _arg_infer_chunk_worker
+from ancestree.inference import _arg_infer_chunk_worker, _Tally
 from ancestree.settings import Settings
 
 
@@ -218,7 +218,7 @@ def test_fork_pool_propagates_uniform_fallback_count(fork_pool_ts, caplog, monke
     def _bump(self, log_post, *, n_states):
         # Force a fallback count on every batch (patched before the pool forks,
         # so children inherit it via copy-on-write).
-        self._n_uniform_fallback = getattr(self, "_n_uniform_fallback", 0) + 1
+        self._tally += _Tally(uniform_fallback=1)
         return orig(self, log_post, n_states=n_states)
 
     monkeypatch.setattr(ARGBasedInference, "_normalise_log_post", _bump)
@@ -233,27 +233,15 @@ def test_fork_pool_propagates_uniform_fallback_count(fork_pool_ts, caplog, monke
     ), "fork-pool dropped the uniform-fallback summary warning"
 
 
-#: Diagnostic counters every walk maintains, compared across execution paths.
-COUNTER_NAMES = (
-    "_n_uniform_fallback",
-    "_n_ingroup_monomorphic",
-    "_n_uncoalesced_segments",
-    "_n_ingroup_non_monophyletic",
-    "_n_focal_multiroot_fallback",
-    "_n_unrepresentable_sites",
-    "_n_unrepresentable_tips",
-)
-
-
 def _counters(ts, n_workers):
-    """Every diagnostic counter after a walk, before the summary clears them."""
+    """The walk's tally, read before the summary clears it."""
     inference = ARGBasedInference(
         ts, JC69(), mu=1e-8, progress=False, n_workers=n_workers,
     )
     # Quiet keeps the summary from clearing the counters it reports.
     inference._quiet = True
     list(inference.infer())
-    return {name: int(getattr(inference, name)) for name in COUNTER_NAMES}
+    return inference._tally
 
 
 def test_fork_pool_reports_the_serial_counters(fork_pool_ts):
@@ -263,7 +251,7 @@ def test_fork_pool_reports_the_serial_counters(fork_pool_ts):
     reported no uncoalesced segments whatever the serial walk had counted.
     """
     serial = _counters(fork_pool_ts, 1)
-    assert serial["_n_ingroup_monomorphic"] > 0, "fixture preconditions"
+    assert serial.ingroup_monomorphic > 0, "fixture preconditions"
     assert _counters(fork_pool_ts, 4) == serial
 
 
@@ -297,8 +285,8 @@ def test_fork_pool_reports_the_unrepresentable_allele_counts(indel_fork_pool_ts)
     them however many the serial walk had counted.
     """
     serial = _counters(indel_fork_pool_ts, 1)
-    assert serial["_n_unrepresentable_sites"] > 0, "fixture preconditions"
-    assert serial["_n_unrepresentable_tips"] > 0, "fixture preconditions"
+    assert serial.unrepresentable_sites > 0, "fixture preconditions"
+    assert serial.unrepresentable_tips > 0, "fixture preconditions"
     assert _counters(indel_fork_pool_ts, 4) == serial
 
 
@@ -342,15 +330,16 @@ def test_chunk_worker_refuses_to_run_without_a_parent(monkeypatch):
 
 def test_chunk_worker_reproduces_the_serial_walk(small_ts, monkeypatch):
     """The fork-pool worker, run in-process, returns the serial posteriors
-    and integer diagnostic counts."""
+    and tally."""
     inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
+    inf._quiet = True
     serial = [(s.pos, p.values) for s, p in inf.infer()]
+    serial_tally = inf._tally
     monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", inf)
-    results, counts = _arg_infer_chunk_worker((0, small_ts.num_trees))
+    results, tally = _arg_infer_chunk_worker((0, small_ts.num_trees))
     assert [(s.pos, v.tolist()) for s, v in results] == \
         [(pos, v.tolist()) for pos, v in serial]
-    assert len(counts) == len(ARGBasedInference._COUNTERS)
-    assert all(isinstance(c, int) for c in counts)
+    assert tally == serial_tally
 
 
 def test_infer_range_over_an_empty_window_yields_nothing(small_ts):
@@ -435,21 +424,8 @@ def test_fork_pool_with_fewer_chunks_than_its_window(few_trees_ts, monkeypatch):
         np.testing.assert_array_equal(a, b)
 
 
-def test_the_pool_totals_land_in_the_counter_they_were_raised_in(small_ts,
-                                                                 monkeypatch):
-    """The worker reports its counters positionally, so the parent has to read
-    them in the order they were written. A worker and a consumer that disagree
-    on the order attribute each tally to the wrong diagnostic, which no total
-    and no length check exposes.
-    """
-    inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
-    monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", inf)
-    _results, counts = _arg_infer_chunk_worker((0, small_ts.num_trees))
-    # Distinct values, so a permuted order cannot go unnoticed.
-    counts = tuple(range(1, len(ARGBasedInference._COUNTERS) + 1))
-    parent = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
-    parent._reset_counts()
-    parent._add_counts(counts)
-    assert parent._diagnostic_counts() == counts
-    for name, value in zip(ARGBasedInference._COUNTERS, counts):
-        assert getattr(parent, name) == value, f"{name} took another's tally"
+def test_tallies_add_field_by_field():
+    """Each count of a summed tally comes from the same count of both terms."""
+    a = _Tally(*range(1, 8))
+    b = _Tally(*range(10, 80, 10))
+    assert a + b == _Tally(11, 22, 33, 44, 55, 66, 77)

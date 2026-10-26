@@ -55,7 +55,8 @@ from ancestree._upgma import (
     WindowedUpgmaTreeSequence,
 )
 from ancestree.focal import FocalNode
-from ancestree.inference import ARGBasedInference, Inference
+from ancestree.inference import ARGBasedInference, Inference, _Tally
+from ancestree.likelihood import _normalise
 from ancestree.models import JC69, SubstitutionModel
 from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
@@ -1430,7 +1431,7 @@ class LocalTreeInference(Inference):
         self._log_uniform_fallback_summary()
 
     def _score_ensemble(self, builder, sites, keep=None,
-                        segment=("", 0)) -> np.ndarray:
+                        segment=("", 0)) -> "tuple[np.ndarray, _Tally]":
         """Prior-weighted per-site posteriors for one builder's sites.
 
         :param builder: The :class:`~ancestree.local_tree_inference.LocalTreeBuilder` covering ``sites``.
@@ -1438,7 +1439,7 @@ class LocalTreeInference(Inference):
         :param keep: Boolean mask over ``sites`` of the rows returned and
             tallied, ``None`` for all.
         :param segment: ``(contig, core start)`` keying the segment's draws.
-        :return: ``(n_kept, 4)`` posteriors.
+        :return: ``(n_kept, 4)`` posteriors and the uniform-fallback tally.
         """
 
         from ancestree._ensemble import SegmentEnsemble
@@ -1458,8 +1459,8 @@ class LocalTreeInference(Inference):
         if keep is not None:
             post, uniform = post[keep], uniform[keep]
             sites = list(compress(sites, keep))
-        self._n_uniform_fallback += int(uniform.sum())
-        return self._weight_by_prior(post, sites)
+        post, n_bad = self._weight_by_prior(post, sites)
+        return post, _Tally(uniform_fallback=int(uniform.sum()) + n_bad)
 
     # ------------------------------------------------------------- segments
     @cached_property
@@ -1581,34 +1582,20 @@ class LocalTreeInference(Inference):
 
         :param work_unit: One ``(sites, geometry)`` of
             :meth:`Segmentation.units() <ancestree._geometry.Segmentation.units>`.
-        :return: ``(rows, (n_ingroup_non_monophyletic, n_focal_multiroot_fallback,
-            n_uniform_fallback, n_ingroup_monomorphic, n_uncoalesced_segments,
-            n_unrepresentable_sites, n_unrepresentable_tips))``.
+        :return: ``(rows, tally)``.
         """
         seg, geometry = work_unit
         core_lo, core_hi = geometry.genome_core
         if self.n_ensemble is not None:
-            uniform_before = self._n_uniform_fallback
-            rows = self._process_segment_ensemble(work_unit)
-            uniform = self._n_uniform_fallback - uniform_before
-            self._n_uniform_fallback = uniform_before
-            # The remaining three counters are per-tree, and a window here
-            # carries n_ensemble of them, so they have no single value to
-            # report.
-            before = self._site_counts_before()
+            rows, tally = self._process_segment_ensemble(work_unit)
+            # The per-tree counts have no single value over the n_ensemble
+            # trees of a window, so they are not reported.
             core = [site for site, _ in rows]
-            self._count_ingroup_monomorphic(core)
-            self._count_unrepresentable(core)
-            counted, unrep_sites, unrep_tips = self._drain_site_counts(before)
-            return rows, self._counts_in_order({
-                "_n_uniform_fallback": uniform,
-                "_n_ingroup_monomorphic": counted,
-                "_n_unrepresentable_sites": unrep_sites,
-                "_n_unrepresentable_tips": unrep_tips,
-            })
+            return rows, (tally + self._count_ingroup_monomorphic(core)
+                          + self._count_unrepresentable(core))
         core = [site for site in seg if core_lo <= site.pos < core_hi]
         if not core:
-            return [], self._counts_in_order({})
+            return [], _Tally()
         segment = self._segment_builder(*work_unit)
         origin = geometry.origin
         # The trees lie on the core alone, so the per-tree tallies count no
@@ -1629,22 +1616,16 @@ class LocalTreeInference(Inference):
         n_states = len(self.model.states)
         flat = np.full(n_states, 1.0 / n_states)
         out = [(site, scored.get(int(site.pos - origin), flat)) for site in core]
-        # Tallied over the core rows the segment emits, never the halo.
-        before = self._site_counts_before()
-        self._count_ingroup_monomorphic(core)
-        self._count_unrepresentable(core)
-        counted, unrep_sites, unrep_tips = self._drain_site_counts(before)
-        return out, self._counts_in_order({
-            "_n_ingroup_non_monophyletic": arg._n_ingroup_non_monophyletic,
-            "_n_focal_multiroot_fallback": arg._n_focal_multiroot_fallback,
-            "_n_uniform_fallback": arg._n_uniform_fallback,
-            "_n_ingroup_monomorphic": counted,
-            "_n_uncoalesced_segments": arg._n_uncoalesced_segments,
-            "_n_unrepresentable_sites": unrep_sites,
-            "_n_unrepresentable_tips": unrep_tips,
-        })
+        # The per-site counts are tallied over the core rows the segment
+        # emits, never the halo.
+        per_tree = replace(arg._tally, ingroup_monomorphic=0,
+                           unrepresentable_sites=0, unrepresentable_tips=0)
+        return out, (per_tree + self._count_ingroup_monomorphic(core)
+                     + self._count_unrepresentable(core))
 
-    def _process_segment_ensemble(self, work_unit) -> list[tuple[Site, np.ndarray]]:
+    def _process_segment_ensemble(
+        self, work_unit,
+    ) -> "tuple[list[tuple[Site, np.ndarray]], _Tally]":
         """Score one segment's core sites against an ensemble of genealogies.
 
         The plug-in path scores the single agglomerated tree per window. Here
@@ -1657,26 +1638,28 @@ class LocalTreeInference(Inference):
         core_lo, core_hi = geometry.genome_core
         keep = np.fromiter((core_lo <= s.pos < core_hi for s in seg), bool,
                            len(seg))
-        post = self._score_ensemble(self._segment_builder(*work_unit), seg,
-                                    keep, segment=(geometry.contig, core_lo))
-        return list(zip(compress(seg, keep), post))
+        post, tally = self._score_ensemble(
+            self._segment_builder(*work_unit), seg, keep,
+            segment=(geometry.contig, core_lo))
+        return list(zip(compress(seg, keep), post)), tally
 
     def _weight_by_prior(self, post, sites):
         """Multiply marginalised likelihoods by the root prior and renormalise.
 
         :param post: ``(n_sites, S)`` normalised likelihoods.
         :param sites: The sites those rows correspond to, in the same order.
-        :return: ``(n_sites, S)`` prior-weighted posteriors.
+        :return: ``(n_sites, S)`` prior-weighted posteriors and the number of
+            rows that took the uniform fallback.
         """
         prior = self.prior
         if prior is None:
             if self.base_composition is None:
-                return post  # uniform prior: weighting is a no-op
+                return post, 0  # uniform prior: weighting is a no-op
             prior = StationaryPrior(self.model, self.base_composition)
         with np.errstate(divide="ignore"):
             log_post = np.log(np.asarray(post, dtype=float))
         log_post = log_post + prior.log_probs(list(sites))
-        return self._normalise_log_post(log_post, n_states=self.model.n_states)
+        return _normalise(log_post, self.model.n_states)
 
     def _ensemble_fraction(self) -> float:
         """Where along the anchor-to-root path the ensemble reads.
@@ -1798,9 +1781,9 @@ class LocalTreeInference(Inference):
                             initializer=Settings._cap_worker_threads,
                             initargs=(n_workers,)) as pool:
                         # imap streams work-units to workers in genomic order.
-                        for seg_out, counts in pool.imap(
+                        for seg_out, tally in pool.imap(
                                 _segment_worker, units):
-                            self._add_counts(counts)
+                            self._tally += tally
                             for orig, values in seg_out:
                                 yield orig, Posterior(alleles=states, values=values)
                 finally:
@@ -1812,8 +1795,8 @@ class LocalTreeInference(Inference):
                 "single-threaded.", self.n_workers,
             )
         for wu in units:
-            seg_out, counts = self._process_segment(wu)
-            self._add_counts(counts)
+            seg_out, tally = self._process_segment(wu)
+            self._tally += tally
             for orig, values in seg_out:
                 yield orig, Posterior(alleles=states, values=values)
 
@@ -1831,34 +1814,6 @@ class LocalTreeInference(Inference):
                  if end and not isinstance(end, Mapping) and chunk else None)
         return tqdm(segments, total=total, desc="LocalTreeInference",
                     unit=" segments", disable=Settings.disable_pbar)
-
-    def _site_counts_before(self) -> tuple[int, int, int]:
-        """The per-site counters, read before a segment tallies its core rows.
-
-        :return: ``(n_ingroup_monomorphic, n_unrepresentable_sites,
-            n_unrepresentable_tips)``.
-        """
-        return (self._n_ingroup_monomorphic, self._n_unrepresentable_sites,
-                self._n_unrepresentable_tips)
-
-    def _drain_site_counts(
-        self, before: tuple[int, int, int],
-    ) -> tuple[int, int, int]:
-        """One segment's per-site tallies, taken off the live counters.
-
-        The segment reports them to the parent, which rolls them in through
-        :meth:`~ancestree.inference.Inference._add_counts`.
-
-        :param before: The reading :meth:`_site_counts_before` returned.
-        :return: ``(n_ingroup_monomorphic, n_unrepresentable_sites,
-            n_unrepresentable_tips)`` accumulated since that reading.
-        """
-        delta = (self._n_ingroup_monomorphic - before[0],
-                 self._n_unrepresentable_sites - before[1],
-                 self._n_unrepresentable_tips - before[2])
-        (self._n_ingroup_monomorphic, self._n_unrepresentable_sites,
-         self._n_unrepresentable_tips) = before
-        return delta
 
     _MODE = "local-tree"
 

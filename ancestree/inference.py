@@ -71,6 +71,35 @@ if TYPE_CHECKING:
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class _Tally:
+    """Diagnostic counts of one walk, summed over its chunks, segments and
+    draws."""
+
+    #: Local trees whose ingroup is not monophyletic, so its MRCA subtends
+    #: outgroup tips.
+    ingroup_non_monophyletic: int = 0
+    #: Segments with no ingroup MRCA, reported at their own root instead.
+    focal_multiroot_fallback: int = 0
+    #: Sites whose log-posterior was degenerate and took a uniform fallback.
+    uniform_fallback: int = 0
+    #: Sites carrying one ingroup allele, counted only when the focal node is
+    #: the ingroup MRCA.
+    ingroup_monomorphic: int = 0
+    #: Local trees where no lineage had coalesced, so the posterior is the
+    #: prior alone.
+    uncoalesced_segments: int = 0
+    #: Sites carrying an allele that is neither a model state nor a no-call,
+    #: such as an indel, ``*`` or a symbolic allele.
+    unrepresentable_sites: int = 0
+    #: Tips marginalised for holding such an allele.
+    unrepresentable_tips: int = 0
+
+    def __add__(self, other: "_Tally") -> "_Tally":
+        return _Tally(**{name: value + other.__dict__[name]
+                         for name, value in self.__dict__.items()})
+
+
 class Inference(ReprMixin, ABC):
     """Abstract base for ancestral-allele inference orchestrators.
 
@@ -89,25 +118,9 @@ class Inference(ReprMixin, ABC):
     #: ``_infer_marginalised()`` while it combines
     #: draws. ``None`` disables the hook.
     _log_L_sink: "dict | None" = None
-    #: Sites seen this pass that carry one ingroup allele, counted only when
-    #: the focal node is the ingroup MRCA.
-    _n_ingroup_monomorphic: int = 0
-    #: Local trees where no lineage had coalesced, so the tree constrained no
-    #: ancestral node and the posterior is the prior alone.
-    _n_uncoalesced_segments: int = 0
-    #: Sites whose log-posterior was degenerate and took a uniform fallback.
-    _n_uniform_fallback: int = 0
-    #: Local trees whose ingroup is not monophyletic, so its MRCA subtends
-    #: outgroup tips. Only a per-tree walk can raise this.
-    _n_ingroup_non_monophyletic: int = 0
-    #: Segments with no ingroup MRCA, reported at their own root instead.
-    _n_focal_multiroot_fallback: int = 0
-    #: Sites carrying an allele that is neither a model state nor a no-call,
-    #: such as an indel, ``*`` or a symbolic allele.
-    _n_unrepresentable_sites: int = 0
-    #: Tips marginalised for holding such an allele.
-    _n_unrepresentable_tips: int = 0
-    #: Set once a walk has finished, so the counters above are final.
+    #: The current walk's diagnostic counts.
+    _tally: _Tally = _Tally()
+    #: Set once a walk has finished, so the tally is final.
     #: Provenance written ahead of the walk omits them.
     _focal_counts_complete: bool = False
     #: The last completed walk's focal diagnostics, kept for the provenance
@@ -162,15 +175,6 @@ class Inference(ReprMixin, ABC):
     #: Whether the floored-rate warning has already been emitted.
     _warned_zero_rate: bool = False
 
-    #: The diagnostic counters a walk accumulates, in the order
-    #: :meth:`_diagnostic_counts` reports and :meth:`_add_counts` consumes.
-    _COUNTERS: tuple[str, ...] = (
-        "_n_ingroup_non_monophyletic", "_n_focal_multiroot_fallback",
-        "_n_uniform_fallback", "_n_ingroup_monomorphic",
-        "_n_uncoalesced_segments", "_n_unrepresentable_sites",
-        "_n_unrepresentable_tips",
-    )
-
     #: Inference-mode tag recorded in :meth:`provenance`. The model-based
     #: modes override it (``"arg"`` / ``"fixed-tree"`` / ``"local-tree"``);
     #: the rule-based baselines keep ``"unknown"``.
@@ -205,37 +209,6 @@ class Inference(ReprMixin, ABC):
 
         return LocalTreeInference(*args, **kwargs)
 
-    @classmethod
-    def _counts_in_order(cls, values: "Mapping[str, int]") -> tuple[int, ...]:
-        """Diagnostic counters in :attr:`_COUNTERS` order, from named values.
-
-        :param values: Counter name to value, a name left out counting zero.
-        :return: The counts :meth:`_add_counts` consumes.
-        :raises KeyError: If a name is not a diagnostic counter.
-        """
-        unknown = set(values) - set(cls._COUNTERS)
-        if unknown:
-            raise KeyError(f"not diagnostic counters: {sorted(unknown)}")
-        return tuple(int(values.get(name, 0)) for name in cls._COUNTERS)
-
-    def _diagnostic_counts(self) -> tuple[int, ...]:
-        """This walk's diagnostic counters, in :attr:`_COUNTERS` order."""
-        return tuple(int(getattr(self, name)) for name in self._COUNTERS)
-
-    def _reset_counts(self) -> None:
-        """Zero every diagnostic counter, for a per-chunk or per-draw walk."""
-        for name in self._COUNTERS:
-            setattr(self, name, 0)
-
-    def _add_counts(self, counts: "Sequence[int]") -> None:
-        """Roll one walk's diagnostic counters into these.
-
-        :param counts: The counts in :attr:`_COUNTERS` order, as
-            :meth:`_diagnostic_counts` reports them.
-        """
-        for name, value in zip(self._COUNTERS, counts):
-            setattr(self, name, getattr(self, name) + int(value))
-
     def _log_uniform_fallback_summary(self) -> None:
         """Emit one warning summarising uniform-posterior fallbacks, if any.
 
@@ -243,48 +216,43 @@ class Inference(ReprMixin, ABC):
         whose log-posterior was degenerate (all ``-inf``). This reports the
         total once, at the end of :meth:`infer`.
         """
-        n = self._n_uniform_fallback
+        tally = self._tally
+        n = tally.uniform_fallback
         if n:
             self._log.warning(
                 "%d site(s) had a degenerate log-posterior (all -inf) and "
                 "were assigned a uniform fallback. Check whether the prior or "
                 "model assigns zero mass to all observed alleles there.", n,
             )
-            self._n_uniform_fallback = 0
-        n_mono = self._n_ingroup_monomorphic
+        n_mono = tally.ingroup_monomorphic
         if n_mono:
             self._log.warning(
                 "%d site(s) are monomorphic within the ingroup and were "
                 "reported at the ingroup MRCA, where the ingroup's own allele "
                 "is the answer.", n_mono,
             )
-            self._n_ingroup_monomorphic = 0
-        n_uncoal = self._n_uncoalesced_segments
+        n_uncoal = tally.uncoalesced_segments
         if n_uncoal:
             self._log.warning(
                 "%d local tree(s) carried no coalescence at all, so they "
                 "constrained no ancestral node and their sites were reported "
                 "at the prior alone.", n_uncoal,
             )
-            self._n_uncoalesced_segments = 0
-        n_unrep = self._n_unrepresentable_sites
+        n_unrep = tally.unrepresentable_sites
         if n_unrep:
             self._log.warning(
                 "%d site(s) carry an allele outside the A/C/G/T alphabet "
                 "(an indel, '*' or a symbolic allele) and %d tip(s) were "
                 "marginalised for holding one. A site with no A/C/G/T allele "
                 "at all is written unannotated.",
-                n_unrep, self._n_unrepresentable_tips,
+                n_unrep, tally.unrepresentable_tips,
             )
-            self._n_unrepresentable_sites = 0
-            self._n_unrepresentable_tips = 0
         summary = self._focal_summary()
         if summary:
             self._log.info("Focal node: %s", summary)
-        # Counters are per walk. The totals go to the provenance record.
+        # The tally is per walk. The focal totals go to the provenance record.
         self._publish_focal_totals()
-        self._n_ingroup_non_monophyletic = 0
-        self._n_focal_multiroot_fallback = 0
+        self._tally = _Tally()
 
     def _focal_totals_entry(self) -> dict:
         """The end-of-walk focal tallies.
@@ -303,9 +271,9 @@ class Inference(ReprMixin, ABC):
         """
         self._focal_totals = {
             "n_trees_ingroup_non_monophyletic":
-                int(self._n_ingroup_non_monophyletic),
+                int(self._tally.ingroup_non_monophyletic),
             "n_segments_without_ingroup_mrca":
-                int(self._n_focal_multiroot_fallback),
+                int(self._tally.focal_multiroot_fallback),
         }
         self._focal_counts_complete = True
 
@@ -317,14 +285,15 @@ class Inference(ReprMixin, ABC):
         if self.focal.is_root:
             return None
         parts = [f"reported at {self.focal.describe()}"]
-        if self._n_ingroup_non_monophyletic:
+        tally = self._tally
+        if tally.ingroup_non_monophyletic:
             parts.append(
-                f"{self._n_ingroup_non_monophyletic} tree(s) where the ingroup "
+                f"{tally.ingroup_non_monophyletic} tree(s) where the ingroup "
                 f"is not monophyletic, so its MRCA subtends outgroup tips"
             )
-        if self._n_focal_multiroot_fallback:
+        if tally.focal_multiroot_fallback:
             parts.append(
-                f"{self._n_focal_multiroot_fallback} multi-root segment(s) with "
+                f"{tally.focal_multiroot_fallback} multi-root segment(s) with "
                 f"no ingroup MRCA, reported at their own root instead"
             )
         return "; ".join(parts)
@@ -511,7 +480,7 @@ class Inference(ReprMixin, ABC):
                 "reading a local tree per site has no such node."
             )
 
-    def _count_ingroup_monomorphic(self, sites, counts=None) -> None:
+    def _count_ingroup_monomorphic(self, sites, counts=None) -> _Tally:
         """Tally sites carrying at most one allele across the ingroup.
 
         A site monomorphic within the ingroup says nothing about the ingroup
@@ -523,19 +492,19 @@ class Inference(ReprMixin, ABC):
         :param counts: Ingroup allele counts tallied over
             :meth:`Inference._baseline_ingroup_samples`, one per site in site
             order, or ``None`` to tally them here.
+        :return: The count, as a tally.
         """
         if not self._focal_is_ingroup_mrca:
-            return
+            return _Tally()
         ingroup = self._baseline_ingroup_samples()
         if not ingroup:
-            return
+            return _Tally()
         if counts is None:
             counts = (site.count_alleles(ingroup) for site in sites)
-        for tally in counts:
-            if sum(1 for c in tally.values() if c) <= 1:
-                self._n_ingroup_monomorphic += 1
+        return _Tally(ingroup_monomorphic=sum(
+            1 for tally in counts if sum(1 for c in tally.values() if c) <= 1))
 
-    def _count_unrepresentable(self, sites) -> None:
+    def _count_unrepresentable(self, sites) -> _Tally:
         """Tally sites and tips whose alleles lie outside the alphabet.
 
         A site counts once when its allele list carries such an allele or one
@@ -543,12 +512,15 @@ class Inference(ReprMixin, ABC):
         each of them marginalised by the kernel.
 
         :param sites: The sites just scored.
+        :return: The counts, as a tally.
         """
+        n_sites = n_tips = 0
         for site in sites:
-            n_tips = site.n_unrepresentable_tips()
-            self._n_unrepresentable_tips += n_tips
-            if n_tips or site.has_unrepresentable_allele:
-                self._n_unrepresentable_sites += 1
+            n = site.n_unrepresentable_tips()
+            n_tips += n
+            if n or site.has_unrepresentable_allele:
+                n_sites += 1
+        return _Tally(unrepresentable_sites=n_sites, unrepresentable_tips=n_tips)
 
     @staticmethod
     def _check_filter_labelled(sample_filter, ingroup_samples,
@@ -944,7 +916,7 @@ class Inference(ReprMixin, ABC):
         """
         values, n_bad = _normalise(log_post, n_states)
         if n_bad:
-            self._n_uniform_fallback += n_bad
+            self._tally += _Tally(uniform_fallback=n_bad)
         return values
 
     def grade(
@@ -1457,12 +1429,12 @@ _ARG_INFERENCE_FOR_FORK: "ARGBasedInference | None" = None
 
 def _arg_infer_chunk_worker(
     chunk: tuple[int, int],
-) -> tuple[list[tuple[Site, np.ndarray]], tuple[int, ...]]:
+) -> tuple[list[tuple[Site, np.ndarray]], _Tally]:
     """Worker entrypoint for :meth:`ARGBasedInference._infer_fork_pool`.
 
     :param chunk: ``(tree_start, tree_stop)`` tree-index range.
-    :return: The chunk's ``(Site, values)`` list and its seven diagnostic
-        counts, for the parent to sum.
+    :return: The chunk's ``(Site, values)`` list and its tally, for the
+        parent to sum.
     """
     inference = _ARG_INFERENCE_FOR_FORK
     if inference is None:
@@ -1471,12 +1443,12 @@ def _arg_infer_chunk_worker(
             "set in the parent; fork did not propagate module globals."
         )
     start, stop = chunk
-    inference._reset_counts()
+    inference._tally = _Tally()
     results = [
         (site, np.asarray(post.values))
         for site, post in inference._infer_range(start, stop, show_progress=False)
     ]
-    return results, inference._diagnostic_counts()
+    return results, inference._tally
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1695,10 +1667,6 @@ class ARGBasedInference(Inference):
         if not self._ingroup_nodes:
             self._refuse_empty_ingroup(len(self.sample_map))
         self._warn_single_ingroup(len(self._ingroup_nodes))
-        # Counted over the walk and reported once.
-        self._n_ingroup_non_monophyletic = 0
-        self._n_focal_multiroot_fallback = 0
-        self._focal_counts_complete = False
 
     def _focal_provenance(self) -> dict[str, object]:
         """The focal node and how often it was cleanly available.
@@ -1783,16 +1751,15 @@ class ARGBasedInference(Inference):
             log_post = log_mean + self.prior.log_probs([site])[0]
             values = self._normalise_log_post(
                 log_post[None, :], n_states=self.model.n_states)[0]
-            self._count_ingroup_monomorphic([site])
-            self._count_unrepresentable([site])
+            self._tally += (self._count_ingroup_monomorphic([site])
+                            + self._count_unrepresentable([site]))
             yield site, Posterior(alleles=alleles, values=values)
         # Genealogy-level events happen once per draw and add up.
-        self._n_ingroup_non_monophyletic += sum(
-            s._n_ingroup_non_monophyletic for s in scorers)
-        self._n_focal_multiroot_fallback += sum(
-            s._n_focal_multiroot_fallback for s in scorers)
-        self._n_uncoalesced_segments += sum(
-            s._n_uncoalesced_segments for s in scorers)
+        drawn = sum((s._tally for s in scorers), _Tally())
+        self._tally += _Tally(
+            ingroup_non_monophyletic=drawn.ingroup_non_monophyletic,
+            focal_multiroot_fallback=drawn.focal_multiroot_fallback,
+            uncoalesced_segments=drawn.uncoalesced_segments)
         self._publish_focal_totals()
 
     def _chain_draws(self):
@@ -1832,9 +1799,9 @@ class ARGBasedInference(Inference):
         clone.progress = False
         clone._quiet = True
         clone.baseline_check = False
-        # Fresh counters per draw. The parent sums the genealogy-level ones
+        # A fresh tally per draw. The parent sums the genealogy-level counts
         # and tallies the per-site ones over the sites the merge emits.
-        clone._reset_counts()
+        clone._tally = _Tally()
         clone._focal_counts_complete = False
         return clone
 
@@ -1983,7 +1950,7 @@ class ARGBasedInference(Inference):
                     focal = self._resolve_focal(tree)
                     if (focal is None and tree.num_roots > 1
                             and not self._coalesced_roots(tree)):
-                        self._n_uncoalesced_segments += 1
+                        self._tally += _Tally(uncoalesced_segments=1)
                     posteriors = np.empty(
                         (len(sites_in_tree), self.model.n_states))
                     for rate, rows in self._rate_batches(variants_in_tree):
@@ -1992,8 +1959,9 @@ class ARGBasedInference(Inference):
                             [variants_in_tree[i] for i in rows],
                             [sites_in_tree[i] for i in rows],
                             rate, focal)
-                    self._count_ingroup_monomorphic(sites_in_tree)
-                    self._count_unrepresentable(sites_in_tree)
+                    self._tally += (
+                        self._count_ingroup_monomorphic(sites_in_tree)
+                        + self._count_unrepresentable(sites_in_tree))
                     for site, p in zip(sites_in_tree, posteriors):
                         yield site, Posterior(alleles=self.model.states, values=p)
                 if pbar is not None:
@@ -2286,7 +2254,7 @@ class ARGBasedInference(Inference):
         import collections
 
         ctx = mp.get_context("fork")
-        # Workers return raw arrays and per-chunk counts for the parent to rewrap and sum.
+        # Workers return raw arrays and per-chunk tallies for the parent to rewrap and sum.
         states = self.model.states
         try:
             with ctx.Pool(
@@ -2304,12 +2272,12 @@ class ARGBasedInference(Inference):
                     in_flight.append(
                         pool.apply_async(_arg_infer_chunk_worker, (nxt,)))
                 while in_flight:
-                    chunk_results, counts = in_flight.popleft().get()
+                    chunk_results, tally = in_flight.popleft().get()
                     nxt = next(remaining, None)
                     if nxt is not None:
                         in_flight.append(
                             pool.apply_async(_arg_infer_chunk_worker, (nxt,)))
-                    self._add_counts(counts)
+                    self._tally += tally
                     for site, values in chunk_results:
                         yield site, Posterior(alleles=states, values=values)
                     del chunk_results
@@ -2411,11 +2379,11 @@ class ARGBasedInference(Inference):
         if self.focal.is_root:
             return None
         if FocalNode.spans_roots(tree, self._ingroup_nodes):
-            self._n_focal_multiroot_fallback += 1
+            self._tally += _Tally(focal_multiroot_fallback=1)
             return None
         resolved = self.focal.locate(tree, self._ingroup_nodes)
         if resolved is not None and resolved.ingroup_is_monophyletic is False:
-            self._n_ingroup_non_monophyletic += 1
+            self._tally += _Tally(ingroup_non_monophyletic=1)
         return resolved
 
     @staticmethod
@@ -3678,8 +3646,8 @@ class FixedTreeInference(Inference):
                 else self.ingroup_weight.log_probs_from_counts(counts)
             )
         if not self._given_tree:
-            self._count_ingroup_monomorphic(batch, counts=counts)
-        self._count_unrepresentable(batch)
+            self._tally += self._count_ingroup_monomorphic(batch, counts=counts)
+        self._tally += self._count_unrepresentable(batch)
         log_prior = self.prior.log_probs(batch)
         if self.tree is None:
             posteriors = self._normalise_log_post(

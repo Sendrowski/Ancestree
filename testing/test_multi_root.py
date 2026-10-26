@@ -247,7 +247,7 @@ class TestMultiRootReportsAtThePrincipalRoot:
         assert post.map_allele == "G"
         assert float(post["G"]) > 0.9
         assert float(post["A"]) < 0.05
-        assert inf._n_uncoalesced_segments == 0
+        assert inf._tally.uncoalesced_segments == 0
 
     def test_a_unary_internal_root_still_counts(self):
         """A unary root is not a lone tip: it is informative and must stay in.
@@ -280,7 +280,7 @@ class TestMultiRootReportsAtThePrincipalRoot:
                                 sample_map={str(i): i for i in range(2)},
                                 progress=False)
         post = list(inf.infer())[0][1]
-        assert inf._n_uncoalesced_segments == 0
+        assert inf._tally.uncoalesced_segments == 0
         assert post.map_allele == "G"
         assert not np.allclose(post.values, 0.25)
 
@@ -299,7 +299,7 @@ class TestMultiRootReportsAtThePrincipalRoot:
                                 sample_map=sample_map, progress=False)
         inf._quiet = True
         out = list(inf.infer())
-        assert inf._n_uncoalesced_segments == 1
+        assert inf._tally.uncoalesced_segments == 1
         for _site, post in out:
             np.testing.assert_allclose(post.values, np.full(4, 0.25),
                                        atol=1e-12)
@@ -328,18 +328,18 @@ class TestMultiRootReportsAtThePrincipalRoot:
         assert any("1 local tree(s) carried no coalescence" in r.message
                    for r in caplog.records)
         # The summary clears the per-walk counters it reports.
-        assert inf._n_uncoalesced_segments == 0
+        assert inf._tally.uncoalesced_segments == 0
 
 
 # ------------------------------------------ diagnostic counters across paths
 
 #: Diagnostic counters every walk maintains, compared across execution paths.
 COUNTER_NAMES = (
-    "_n_uniform_fallback",
-    "_n_ingroup_monomorphic",
-    "_n_uncoalesced_segments",
-    "_n_ingroup_non_monophyletic",
-    "_n_focal_multiroot_fallback",
+    "uniform_fallback",
+    "ingroup_monomorphic",
+    "uncoalesced_segments",
+    "ingroup_non_monophyletic",
+    "focal_multiroot_fallback",
 )
 
 
@@ -350,7 +350,7 @@ def _counters(inference) -> dict:
         so the summary has not cleared its counters.
     :return: ``{counter name: value}``.
     """
-    return {name: int(getattr(inference, name)) for name in COUNTER_NAMES}
+    return {name: getattr(inference._tally, name) for name in COUNTER_NAMES}
 
 
 @pytest.fixture(scope="module")
@@ -408,7 +408,7 @@ def test_the_fork_pool_reports_the_uncoalesced_count(alternating_coalescence_ts)
     ts, n_uncoalesced = alternating_coalescence_ts
     serial, serial_out = _quiet_walk(ts, n_workers=1)
     forked, forked_out = _quiet_walk(ts, n_workers=3)
-    assert serial._n_uncoalesced_segments == n_uncoalesced
+    assert serial._tally.uncoalesced_segments == n_uncoalesced
     assert _counters(forked) == _counters(serial)
     assert [int(s.pos) for s, _ in forked_out] == [int(s.pos) for s, _ in serial_out]
 
@@ -425,7 +425,7 @@ def test_marginalising_over_one_draw_reports_the_serial_counters(
     ts, _ = alternating_coalescence_ts
     serial, _ = _quiet_walk(ts)
     marginal, _ = _quiet_walk([ts])
-    assert serial._n_ingroup_monomorphic > 0, "fixture preconditions"
+    assert serial._tally.ingroup_monomorphic > 0, "fixture preconditions"
     assert _counters(marginal) == _counters(serial)
 
 
@@ -441,8 +441,8 @@ def test_marginalising_over_repeated_draws_keeps_the_site_counts(
     ts, n_uncoalesced = alternating_coalescence_ts
     serial, _ = _quiet_walk(ts)
     marginal, _ = _quiet_walk([ts, ts])
-    assert marginal._n_ingroup_monomorphic == serial._n_ingroup_monomorphic
-    assert marginal._n_uncoalesced_segments == 2 * n_uncoalesced
+    assert marginal._tally.ingroup_monomorphic == serial._tally.ingroup_monomorphic
+    assert marginal._tally.uncoalesced_segments == 2 * n_uncoalesced
 
 
 # ------------------------------------------- hand-built multi-root trees

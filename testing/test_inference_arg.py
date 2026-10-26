@@ -561,8 +561,8 @@ class TestUnrepresentableAllelesAreCounted:
             source, JC69(), mu=1e-8, progress=False, **kwargs)
         inference._quiet = True
         list(inference.infer())
-        return (int(inference._n_unrepresentable_sites),
-                int(inference._n_unrepresentable_tips))
+        return (int(inference._tally.unrepresentable_sites),
+                int(inference._tally.unrepresentable_tips))
 
     def test_the_single_arg_walk_counts_sites_and_tips(self):
         assert self._counters(self._ts()) == (
@@ -815,8 +815,8 @@ def test_ingroup_monomorphic_tally_counts_the_sites_itself(small_ts):
                 tip_alleles={**{s: "A" for s in ingroup}, names[-1]: "C"})
     poly = Site(chrom="1", pos=2, alleles=("A", "C"),
                 tip_alleles={**{s: "A" for s in ingroup}, ingroup[0]: "C"})
-    inf._count_ingroup_monomorphic([mono, poly, mono])
-    assert inf._n_ingroup_monomorphic == 2
+    assert inf._count_ingroup_monomorphic(
+        [mono, poly, mono]).ingroup_monomorphic == 2
 
 
 def test_all_outgroup_panel_leaves_nothing_to_resolve(small_ts):

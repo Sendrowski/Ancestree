@@ -1853,7 +1853,7 @@ class TestIngroupCountsAreTalliedOnce:
         end-of-run summary clears it."""
         inf._log_uniform_fallback_summary = lambda: None
         posteriors = [np.asarray(p.values) for _, p in inf.infer()]
-        return posteriors, inf._n_ingroup_monomorphic
+        return posteriors, inf._tally.ingroup_monomorphic
 
     def test_the_shared_tally_reproduces_a_separate_one(self, monkeypatch):
         shared_post, shared_mono = self._run(self._inference())
