@@ -1,4 +1,4 @@
-"""Substitution models: :class:`~ancestree.models.SubstitutionModel` ABC plus
+"""Substitution models: the :class:`~ancestree.models.SubstitutionModel` base plus
 :class:`~ancestree.models.JC69`, :class:`~ancestree.models.K2`,
 :class:`~ancestree.models.F81`, :class:`~ancestree.models.HKY`, and
 :class:`~ancestree.models.GTR`.
@@ -14,7 +14,6 @@ rate, so one unit of branch length is one expected substitution per site.
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import cast
 
@@ -36,7 +35,7 @@ _CACHE_MISS = object()  # sentinel distinguishing "absent" from a cached None
 #: clamped into. A pinned kappa is not constrained by it.
 _KAPPA_CLAMP: tuple[float, float] = (0.1, 50.0)
 
-class SubstitutionModel(ReprMixin, ABC):
+class SubstitutionModel(ReprMixin):
     """Continuous-time Markov substitution model on a fixed alphabet.
 
     Carries the structural substitution parameters (κ for K2/HKY,
@@ -111,11 +110,12 @@ class SubstitutionModel(ReprMixin, ABC):
         np.fill_diagonal(Q, -Q.sum(axis=1))
         return Q
 
-    @abstractmethod
     def Q(self, *, pi: "Sequence[float] | np.ndarray | None" = None) -> np.ndarray:
         """Instantaneous rate matrix of shape ``(n_states, n_states)``.
 
-        Off-diagonals are instantaneous substitution rates. Each row sums to
+        Off-diagonals are ``Q[i,j] = β · R[i,j] · π_j`` for the
+        exchangeabilities ``R`` and the :meth:`stationary` distribution
+        ``π``, the instantaneous substitution rates. Each row sums to
         zero. The diagonal entries ``Q[i,i]`` are negative and equal to
         ``-Σ_{j≠i} Q[i,j]``. The scale is fixed by
         ``Σ_i π_i (-Q[i,i]) = 1``, one expected substitution per unit ``t``.
@@ -127,6 +127,7 @@ class SubstitutionModel(ReprMixin, ABC):
             uniform when ``None``.
         :return: Rate matrix.
         """
+        return self._build_Q(self.stationary(pi=pi))
 
     def stationary(
         self,
@@ -454,8 +455,7 @@ class _KappaMixin:
 class _PiModel(SubstitutionModel):
     """Base for the models whose ``Q`` is driven by a base composition.
 
-    Subclasses supply :meth:`_exchangeability`. Resolving ``π`` and
-    assembling ``Q`` from it is shared.
+    Subclasses supply :meth:`_exchangeability`. Resolving ``π`` is shared.
     """
 
     def _resolve_pi(
@@ -468,16 +468,6 @@ class _PiModel(SubstitutionModel):
         """
         pi_arr = np.full(4, 0.25) if pi is None else self._validate_pi(pi)
         return pi_arr, self._beta_for(pi_arr)
-
-    def Q(self, *, pi: "Sequence[float] | np.ndarray | None" = None) -> np.ndarray:
-        """Rate matrix ``Q[i,j] = β · R[i,j] · π_j`` at the supplied composition.
-
-        :param pi: Length-4 base frequencies over ``(A, C, G, T)``. Uniform
-            when ``None``.
-        :return: Rate matrix, with ``Σ_i π_i (-Q[i,i]) = 1``.
-        """
-        pi_arr, _ = self._resolve_pi(pi)
-        return self._build_Q(pi_arr)
 
     def stationary(
         self, *, pi: "Sequence[float] | np.ndarray | None" = None,
@@ -497,14 +487,6 @@ class JC69(SubstitutionModel):
     by the inference orchestrator via :attr:`Tree.time_scale <ancestree.trees.Tree.time_scale>`
     on the tree.
     """
-
-    def Q(self, *, pi: "Sequence[float] | np.ndarray | None" = None) -> np.ndarray:
-        """JC69 rate matrix: off-diagonals ``1/(S−1)``, diagonals ``−1``.
-
-        The ``pi`` argument is accepted for interface uniformity but
-        ignored (JC69's stationary distribution is uniform by definition).
-        """
-        return self._build_Q(self.stationary())
 
 
 class K2(_KappaMixin, SubstitutionModel):
@@ -578,16 +560,6 @@ class K2(_KappaMixin, SubstitutionModel):
         if n_tv == 0:
             return _KAPPA_CLAMP[1]
         return float(np.clip(2.0 * n_ts / n_tv, *_KAPPA_CLAMP))
-
-    def Q(self, *, pi: "Sequence[float] | np.ndarray | None" = None) -> np.ndarray:
-        """K2 rate matrix: transition rate ``κ/(κ+2)``, transversion rate ``1/(κ+2)``.
-
-        Each row has one transition target and two transversion targets, so
-        the escape rate is ``1`` for every state. The ``pi`` argument is
-        accepted for interface uniformity but ignored (K2's stationary
-        distribution is uniform by definition).
-        """
-        return self._build_Q(self.stationary())
 
 
 class F81(_PiModel):
