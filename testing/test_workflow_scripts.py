@@ -84,3 +84,38 @@ def test_it_refuses_rather_than_returning_short():
     with pytest.raises(ValueError, match="runnable"):
         seeds.runnable_seeds("cpg_hypermut", "singer_arg_panel_ft", 10, 2,
                              n_seeds=seeds.MAX_SEED + 1)
+
+
+def test_scripts_compile_without_warnings():
+    """An invalid escape such as ``\\;`` in a non-raw docstring is a
+    ``SyntaxWarning`` that a future Python turns into an error."""
+    import warnings
+
+    for path in sorted(SCRIPTS.glob("*.py")):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            compile(path.read_text(encoding="utf-8"), str(path), "exec")
+
+
+def test_the_deepened_grid_extends_the_builders_own():
+    """The TMRCA-distribution report lowers the floor of the grid the segment
+    calibrates, keeping its ceiling. It recalibrated from the raw counts of
+    every block, unscaled by exposure, so its grid drifted from the one the
+    builder runs on."""
+    import ast
+
+    import numpy as np
+
+    from testing._helpers import toy_builder, toy_sites
+
+    src = (SCRIPTS / "report_tmrca_distributions.py").read_text(encoding="utf-8")
+    node = next(n for n in ast.parse(src).body
+                if isinstance(n, ast.FunctionDef) and n.name == "_deepen_floor")
+    namespace = {"np": np}
+    exec(compile(ast.Module([node], []), "deepen", "exec"), namespace)
+    sites, names = toy_sites(range(0, 2000, 20))
+    builder = toy_builder(sites, names, 2010.0)
+    own = builder.prepared_hmm()[2].edges
+    edges = namespace["_deepen_floor"](builder, 10.0)
+    assert edges[-1] == own[-1]
+    assert edges[0] == max(own[0] / 10.0, 10.0)

@@ -113,13 +113,7 @@ def _deepen_floor(builder, scale):
     """
     if scale == 1.0:
         return None
-    from ancestree.local_tree_inference import PairwiseCoalescentHMM
-    g, _pos, block_of_site, n_blocks = builder._genotype_matrix()
-    hmm = PairwiseCoalescentHMM(
-        g.shape[1], mu=builder.mu, rec_rate=builder.rec_rate,
-        block_size=builder.block_size, n_time_bins=builder.n_time_bins)
-    counts, _called, _sites = hmm._pair_block_counts(g, block_of_site, n_blocks)
-    edges, _ = hmm._calibrate_time_grid(counts)
+    edges = builder.prepared_hmm()[2].edges
     step = np.log10(edges[1] / edges[0])
     # Calibration puts the floor at the median over pairs of each pair's mean
     # crude TMRCA divided by 200, clamped at 10 generations. The clamp holds
