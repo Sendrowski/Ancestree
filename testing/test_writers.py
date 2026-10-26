@@ -1551,6 +1551,15 @@ class TestWritingFromTheSites:
                 _fake_posteriors([site]))
 
     @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
+    def test_a_site_with_an_empty_contig_name_is_refused(self, tmp_path, suffix):
+        """An empty contig name was written as is, as a CHROM the VCF format
+        does not allow and a store contig with no name."""
+        site = Site(chrom="", pos=3, alleles=("A", "G"), tip_alleles={"a": "A"})
+        with pytest.raises(ValueError, match="empty contig name"):
+            self._writer(suffix)(None, str(tmp_path / f"out{suffix}")).write(
+                _fake_posteriors([site]))
+
+    @pytest.mark.parametrize("suffix", [".vcf", ".vcz"])
     def test_a_site_without_alleles_has_reference_dot(self, tmp_path, suffix):
         """Both writers agree, and vcztools reads the store."""
         import subprocess

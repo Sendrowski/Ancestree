@@ -517,9 +517,14 @@ class Writer(ReprMixin, ABC):
             missing-data placeholder a tree sequence appends, or ``["."]`` for
             a site with none, and ``index`` numbering them.
         :raises ValueError: If the site lies before position 1, where no VCF
-            record can.
+            record can, or has an empty contig name.
         """
         pos = int(site.pos)
+        if not str(site.chrom).strip():
+            raise ValueError(
+                f"the site at position {site.pos} has an empty contig name, "
+                f"which no VCF record can carry. Name the contig, for example "
+                f"through the inference's chrom.")
         if pos < 1:
             raise ValueError(
                 f"the site at {site.chrom}:{site.pos} lies before position 1, "
