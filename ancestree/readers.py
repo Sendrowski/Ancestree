@@ -372,29 +372,20 @@ class Reader(ReprMixin):
 
         vcf = cyvcf2.VCF(self._path)
         try:
-            yield from self._annotations_from(vcf, limit)
+            for n, variant in enumerate(vcf):
+                if limit is not None and n >= limit:
+                    return
+                allele = variant.INFO.get("AA")
+                yield Annotation(
+                    pos=int(variant.POS),
+                    aa=None if allele in (None, ".") else str(allele),
+                    aa_prob=self._as_prob(variant.INFO.get(AA_PROB_FIELD)),
+                    chrom=str(variant.CHROM),
+                    alleles=(variant.REF, *variant.ALT),
+                    posterior=self._as_posterior(variant.INFO.get(AA_POST_FIELD)),
+                )
         finally:
             vcf.close()
-
-    def _annotations_from(self, vcf, limit: int | None) -> Iterator[Annotation]:
-        """Per-site assignments from an open reader. The caller owns closing it.
-
-        :param vcf: Open ``cyvcf2.VCF``.
-        :param limit: Stop after this many records, ``None`` for all.
-        """
-        for n, variant in enumerate(vcf):
-            if limit is not None and n >= limit:
-                return
-            allele = variant.INFO.get("AA")
-            yield Annotation(
-                pos=int(variant.POS),
-                aa=None if allele in (None, ".") else str(allele),
-                aa_prob=self._as_prob(variant.INFO.get(AA_PROB_FIELD)),
-                chrom=str(variant.CHROM),
-                alleles=(variant.REF, *variant.ALT),
-                posterior=self._as_posterior(variant.INFO.get(AA_POST_FIELD)),
-            )
-
 
     @staticmethod
     def _as_prob(raw: object) -> "float | None":
@@ -414,18 +405,22 @@ class Reader(ReprMixin):
 
     @staticmethod
     def _as_posterior(raw: object) -> "dict[str, float] | None":
-        """Parse an ``AA_post`` value into ``{state: probability}``.
+        """Parse an ``AA_post`` value or a stored posterior row into
+        ``{state: probability}``.
 
-        :param raw: The field's value, ``None`` where the writer did not
-            record one.
-        :return: The per-state posterior, or ``None``.
+        :param raw: The field's value or the row, ``None`` where the writer
+            did not record one.
+        :return: The per-state posterior, or ``None`` where absent, of the
+            wrong length, or holding the float arrays' NaN missing marker.
         """
         if raw is None:
             return None
-        values = raw if isinstance(raw, (tuple, list)) else str(raw).split(",")
+        values = (raw if isinstance(raw, (tuple, list, np.ndarray))
+                  else str(raw).split(","))
         if len(values) != len(STATES):
             return None
-        return dict(zip(STATES, (float(v) for v in values)))
+        probs = [float(v) for v in values]
+        return None if any(map(math.isnan, probs)) else dict(zip(STATES, probs))
 
     def _tskit_annotations(self, limit: int | None) -> Iterator[Annotation]:
         """Per-site assignments from each site's ``ancestree`` metadata block.
@@ -462,21 +457,6 @@ class Reader(ReprMixin):
                 posterior=block.get("posterior"),
             )
 
-    def _posterior_or_none(self, values):
-        """A stored posterior, or ``None`` where the row carries none.
-
-        The float arrays use NaN as their missing marker.
-
-        :param values: The row's stored probabilities, or ``None``.
-        :return: A posterior mapping, or ``None``.
-        """
-        if values is None:
-            return None
-        row = [float(v) for v in values]
-        if not row or any(math.isnan(v) for v in row):
-            return None
-        return self._as_posterior(row)
-
     def _zarr_annotations(self, limit: int | None) -> Iterator[Annotation]:
         """Per-site assignments from the store's ``variant_AA*`` arrays."""
         import zarr
@@ -508,10 +488,8 @@ class Reader(ReprMixin):
             yield Annotation(
                 pos=int(pos),
                 aa=_dec(allele) if called else None,
-                aa_prob=(None if prob is None or math.isnan(float(prob))
-                         else float(prob)),
+                aa_prob=self._as_prob(prob),
                 chrom=_dec(contigs[int(contig)]),
                 alleles=tuple(_dec(a) for a in alleles[i] if _dec(a)),
-                posterior=self._posterior_or_none(
-                    None if post is None else post[i]),
+                posterior=self._as_posterior(None if post is None else post[i]),
             )
