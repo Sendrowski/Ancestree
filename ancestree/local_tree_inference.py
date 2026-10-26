@@ -135,42 +135,36 @@ class PairwiseCoalescentHMM(ReprMixin):
     """
 
     @staticmethod
-    def _check_time_grid(time_grid):
-        """Validate an explicit time grid, or pass ``None`` through.
+    def _resolve_time_grid(time_grid, n_time_bins):
+        """Validate a time grid and the bin count it sets.
 
         :param time_grid: Bin edges in generations, ascending, or ``None`` to
             calibrate from the data.
-        :return: The edges as a float array, or ``None``.
+        :param n_time_bins: The grid depth when ``time_grid`` is ``None``.
+        :return: ``(edges, n_time_bins)``, the edges a float array or ``None``.
         :raises ValueError: If the edges are not one strictly ascending,
-            positive, finite dimension of at least two entries.
+            positive, finite dimension of at least two entries, or if the
+            depth is outside ``[1, MAX_TIME_BINS]``.
         """
-        if time_grid is None:
-            return None
-        edges = np.asarray(time_grid, dtype=np.float64)
-        if edges.ndim != 1 or edges.size < 2:
-            raise ValueError(
-                f"time_grid must be a 1-D array of at least 2 edges, got shape "
-                f"{edges.shape}")
-        if not np.all(np.isfinite(edges)) or edges[0] <= 0.0:
-            raise ValueError(
-                "time_grid edges must be finite and positive (the grid is "
-                f"log-spaced), got first edge {edges[0]}")
-        if not np.all(np.diff(edges) > 0):
-            raise ValueError("time_grid edges must be strictly ascending")
-        return edges
-
-    @staticmethod
-    def _check_n_time_bins(n_time_bins) -> None:
-        """Reject a time grid the sampled-path storage cannot address.
-
-        :param n_time_bins: The requested grid depth.
-        :raises ValueError: If it is outside ``[1, MAX_TIME_BINS]``.
-        """
+        edges = None
+        if time_grid is not None:
+            edges = np.asarray(time_grid, dtype=np.float64)
+            if edges.ndim != 1 or edges.size < 2:
+                raise ValueError(
+                    f"time_grid must be a 1-D array of at least 2 edges, got "
+                    f"shape {edges.shape}")
+            if not np.all(np.isfinite(edges)) or edges[0] <= 0.0:
+                raise ValueError(
+                    "time_grid edges must be finite and positive (the grid is "
+                    f"log-spaced), got first edge {edges[0]}")
+            if not np.all(np.diff(edges) > 0):
+                raise ValueError("time_grid edges must be strictly ascending")
+            n_time_bins = edges.size - 1
         if not 1 <= int(n_time_bins) <= MAX_TIME_BINS:
             raise ValueError(
                 f"n_time_bins must be in [1, {MAX_TIME_BINS}], got {n_time_bins}"
             )
-
+        return edges, int(n_time_bins)
 
     @property
     def _repr_params(self) -> dict[str, object]:
@@ -197,11 +191,8 @@ class PairwiseCoalescentHMM(ReprMixin):
         self.mu = float(mu)
         self.rec_rate = float(rec_rate)
         self.block_size = int(block_size)
-        self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
-        if self.time_grid is not None:
-            n_time_bins = self.time_grid.size - 1
-        PairwiseCoalescentHMM._check_n_time_bins(n_time_bins)
-        self.n_time_bins = int(n_time_bins)
+        self.time_grid, self.n_time_bins = (
+            PairwiseCoalescentHMM._resolve_time_grid(time_grid, n_time_bins))
 
     def calibrate(self, counts, *, emit_scale=None, block_mask=None,
                   called=None, block_sites=None):
@@ -1274,11 +1265,8 @@ class LocalTreeInference(Inference):
         self.window = window
         # The raw spec. None and "<N>snp" resolve from the SNP density later.
         self.block_size = block_size
-        self.time_grid = PairwiseCoalescentHMM._check_time_grid(time_grid)
-        if self.time_grid is not None:
-            n_time_bins = self.time_grid.size - 1
-        PairwiseCoalescentHMM._check_n_time_bins(n_time_bins)
-        self.n_time_bins = int(n_time_bins)
+        self.time_grid, self.n_time_bins = (
+            PairwiseCoalescentHMM._resolve_time_grid(time_grid, n_time_bins))
         # Every width is parsed before the source is touched, so a malformed
         # spec is reported without a streaming pre-pass. A "<N>snp" spec
         # resolves against the real density later.

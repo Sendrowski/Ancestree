@@ -36,10 +36,10 @@ def test_the_default_grid_is_accepted():
     ([10.0, 5.0], "strictly ascending"),
     ([10.0, 10.0], "strictly ascending"),
 ])
-def test_check_time_grid_rejects_malformed_edges(grid, message):
+def test_resolve_time_grid_rejects_malformed_edges(grid, message):
     """A grid must be one strictly ascending, positive, finite dimension."""
     with pytest.raises(ValueError, match=message):
-        PairwiseCoalescentHMM._check_time_grid(grid)
+        PairwiseCoalescentHMM._resolve_time_grid(grid, 32)
 
 
 def test_explicit_time_grid_sets_the_bin_count():
