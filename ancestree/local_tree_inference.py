@@ -543,7 +543,7 @@ class PairwiseTmrcas:
             mids = self.block_midpoints
             for (hi, hj), row in zip(self.pairs, self.tmrca):
                 for mid, t in zip(mids, row):
-                    w.writerow([hi, hj, f"{mid:g}", f"{t:.6g}"])
+                    w.writerow([hi, hj, repr(float(mid)), f"{t:.6g}"])
 
 
 class LocalTreeBuilder(ReprMixin):

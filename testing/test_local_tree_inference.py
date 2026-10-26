@@ -656,6 +656,18 @@ def test_pairwise_tmrcas_export(tmp_path):
         inf.write_pairwise_tmrcas(tmp_path / "t.bogus")
 
 
+def test_pairwise_tmrcas_csv_keeps_the_midpoints(tmp_path):
+    """The CSV midpoints read back exactly. Written to six significant
+    digits, half-base midpoints at chromosome scale collapsed onto one
+    value."""
+    import csv
+    mids = np.array([150_000_250.5, 150_000_750.5, 150_001_250.5])
+    PairwiseTmrcas(("a", "b"), (("a", "b"),), mids,
+                   np.array([[1.0, 2.0, 3.0]])).write(tmp_path / "t.csv")
+    rows = list(csv.reader(open(tmp_path / "t.csv", encoding="utf-8")))[1:]
+    assert [float(r[2]) for r in rows] == mids.tolist()
+
+
 def test_pairwise_tmrcas_unavailable_paths(tmp_path):
     """`pairwise_tmrcas()` gives the same matrix for one and several chunks."""
     ts = _sim(samples=6, length=120_000, seed=7)
