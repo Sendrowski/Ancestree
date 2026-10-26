@@ -1739,7 +1739,9 @@ def test_kernel_rate_of_a_zero_or_undefined_map_interval():
                                sequence_length=3000, block_size=50, mutation_map=mm)
     at = np.array([500.0, 1500.0, 2500.0])
     geometry = builder.geometry
-    np.testing.assert_allclose(geometry.site_rate_scale(at, mu),
+    from ancestree._maps import site_rates
+
+    np.testing.assert_allclose(site_rates(at, geometry.kernel_mu(mu))[0] / mu,
                                [1.0, 1e-12 / mu, 1.0])
     np.testing.assert_allclose(geometry.kernel_mu(mu).get_rate(at), [mu, 0.0, mu])
 

@@ -319,24 +319,6 @@ class BuildGeometry(ReprMixin):
         """
         return _filled(self.mutation_map, mu, float(self.axis_length))
 
-    def site_rate_scale(self, positions: np.ndarray,
-                        mu: float) -> "np.ndarray | None":
-        """Mutation rate at each frame position relative to ``mu``.
-
-        :param positions: Positions on the frame.
-        :param mu: The reference rate.
-        :return: ``(n,)`` positive multipliers, a zero rate floored, or
-            ``None`` without a :attr:`mutation_map`.
-        """
-        if self.mutation_map is None:
-            return None
-        from ancestree.inference import _ZERO_RATE_FLOOR
-        mm = self.kernel_mu(mu)
-        x = np.clip(np.asarray(positions, dtype=np.float64), 0.0,
-                    np.nextafter(float(mm.sequence_length), 0.0))
-        rate = np.asarray(mm.get_rate(x), dtype=np.float64)
-        return np.maximum(rate, _ZERO_RATE_FLOOR) / float(mu)
-
     @cached_property
     def callable_intervals(self) -> "np.ndarray | None":
         """``(n, 2)`` float64 intervals the HMM reads as callable:

@@ -15,6 +15,7 @@ import pytest
 
 import ancestree as anc
 from ancestree import LocalTreeInference
+from ancestree._maps import site_rates
 from testing._helpers import toy_inference, toy_sites
 
 L = 40_000.0
@@ -145,8 +146,9 @@ def test_an_uncovered_stretch_takes_mu_in_the_hmm_and_the_kernel(partial,
         if x is not None:
             np.testing.assert_array_equal(x, y)
     pos = np.array([1000.0, 10_000.0, 30_000.0])
-    np.testing.assert_array_equal(a.geometry.site_rate_scale(pos, a.mu),
-                                  b.geometry.site_rate_scale(pos, b.mu))
+    np.testing.assert_array_equal(
+        site_rates(pos, a.geometry.kernel_mu(a.mu))[0],
+        site_rates(pos, b.geometry.kernel_mu(b.mu))[0])
     sites, names = toy_sites(np.arange(500.0, L, 400.0), n_hap=4, seed=2)
     kw = dict(n_ensemble=None, sequence_length=L, window=4000, block_size=BLOCK)
     got = [p.values for _, p in toy_inference(

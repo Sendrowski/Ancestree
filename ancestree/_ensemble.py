@@ -34,7 +34,7 @@ from numba import njit, prange, types
 from numba.extending import intrinsic
 
 from ancestree._jit_kernel import postorder_core, postorder_internal_core
-from ancestree._maps import RateClasses
+from ancestree._maps import RateClasses, site_rates
 
 S_STATES = 4
 #: Linkage weight of a pair with no exposure in a window: small enough that any
@@ -1207,13 +1207,14 @@ class SegmentEnsemble:
         self.row_off[1:] = np.cumsum(per_win)
 
         # One site-row CSR per kernel rate class: (multiplier, offsets, rows).
-        scale = geometry.site_rate_scale(self.positions, builder.mu)
-        if scale is None:
+        if geometry.mutation_map is None:
             self._rate_classes = [(1.0, self.row_off, self.row_idx)]
         else:
             self._rate_classes = []
+            rate, _ = site_rates(self.positions.astype(np.float64),
+                                 geometry.kernel_mu(builder.mu))
             in_class = np.empty(self.n_sites, dtype=np.bool_)
-            for value, sites in RateClasses(scale):
+            for value, sites in RateClasses(rate / float(builder.mu)):
                 in_class[:] = False
                 in_class[sites] = True
                 rows = self.row_idx[in_class[self.row_idx]]

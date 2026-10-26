@@ -35,6 +35,7 @@ from tqdm import tqdm  # not tqdm.auto: avoids ipywidgets dep and per-line outpu
 
 
 from ancestree import DEFAULT_MU, STATE_INDEX, STATES
+from ancestree._maps import _ZERO_RATE_FLOOR, site_rates
 from ancestree._repr import ReprMixin
 from ancestree.sites import (
     _NEITHER, _SIBLING, _as_tips, _by_individual, _individual_of, _named,
@@ -1024,37 +1025,23 @@ class Inference(ReprMixin, ABC):
         return self.mu
 
     def _site_rates(self, positions: np.ndarray, mu=None) -> np.ndarray:
-        """The rate each site is scored at: ``mu``, or a rate-map ``mu`` at
-        the site's position, floored where it is zero or undefined.
+        """:func:`~ancestree._maps.site_rates`, warning once when a rate is
+        floored.
 
         :param positions: Site positions (bp).
         :param mu: A scalar rate or a rate map. ``None`` (default) reads
             :attr:`mu`.
         :return: ``(n_sites,)`` positive rates.
         """
-        mu = self.mu if mu is None else mu
-        if isinstance(mu, float):
-            return np.full(len(positions), mu)
-        if hasattr(mu, "get_rate"):
-            end = float(getattr(mu, "sequence_length", np.inf))
-            rate = np.asarray(mu.get_rate(
-                np.clip(positions, 0.0, np.nextafter(end, 0.0))), dtype=float)
-        else:
-            mass = (np.asarray(mu.get_cumulative_mass(positions + 1.0), float)
-                    - np.asarray(mu.get_cumulative_mass(positions), float))
-            # The difference of two cumulative masses carries their rounding.
-            rate = np.array([float(f"{m:.9g}") for m in mass])
-        bad = ~(rate > 0.0)
-        if bad.any():
-            if not getattr(self, "_warned_zero_rate", False):
-                self._log.warning(
-                    "Rate-map mu is zero or undefined at %d site(s); flooring "
-                    "to %g so they are scored as mutationally uninformative "
-                    "(prior-dominated) rather than crashing.",
-                    int(bad.sum()), _ZERO_RATE_FLOOR,
-                )
-                self._warned_zero_rate = True
-            rate = np.where(bad, _ZERO_RATE_FLOOR, rate)
+        rate, n_floored = site_rates(positions, self.mu if mu is None else mu)
+        if n_floored and not getattr(self, "_warned_zero_rate", False):
+            self._log.warning(
+                "Rate-map mu is zero or undefined at %d site(s); flooring "
+                "to %g so they are scored as mutationally uninformative "
+                "(prior-dominated) rather than crashing.",
+                n_floored, _ZERO_RATE_FLOOR,
+            )
+            self._warned_zero_rate = True
         return rate
 
     def _focal_view(self, tree: "Tree") -> "Tree":
@@ -1488,11 +1475,6 @@ def _arg_infer_chunk_worker(
         for site, post in inference._infer_range(start, stop, show_progress=False)
     ]
     return results, inference._diagnostic_counts()
-
-
-# Floor for a rate-map mu that integrates to zero over a local tree's span:
-# branch lengths stay near zero and the posterior is prior-dominated.
-_ZERO_RATE_FLOOR: float = 1e-12
 
 
 @dataclasses.dataclass(frozen=True)

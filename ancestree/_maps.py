@@ -12,6 +12,36 @@ import os
 
 import numpy as np
 
+#: Floor for a rate-map mu that is zero or undefined at a site: branch lengths
+#: stay near zero and the posterior is prior-dominated.
+_ZERO_RATE_FLOOR: float = 1e-12
+
+
+def site_rates(positions: np.ndarray, mu) -> "tuple[np.ndarray, int]":
+    """The rate each site is scored at: ``mu``, or a rate-map ``mu`` at the
+    site's position, floored at :data:`_ZERO_RATE_FLOOR` where it is zero or
+    undefined.
+
+    :param positions: Site positions (bp).
+    :param mu: A scalar rate or a rate map.
+    :return: ``(rates, n_floored)``, the ``(n_sites,)`` positive rates and the
+        number of sites floored.
+    """
+    if isinstance(mu, float):
+        return np.full(len(positions), mu), 0
+    if hasattr(mu, "get_rate"):
+        end = float(getattr(mu, "sequence_length", np.inf))
+        rate = np.asarray(mu.get_rate(
+            np.clip(positions, 0.0, np.nextafter(end, 0.0))), dtype=float)
+    else:
+        mass = (np.asarray(mu.get_cumulative_mass(positions + 1.0), float)
+                - np.asarray(mu.get_cumulative_mass(positions), float))
+        # The difference of two cumulative masses carries their rounding.
+        rate = np.array([float(f"{m:.9g}") for m in mass])
+    bad = ~(rate > 0.0)
+    return np.where(bad, _ZERO_RATE_FLOOR, rate), int(bad.sum())
+
+
 class RateClasses:
     """Per-site rates grouped into the classes the kernel scores.
 
