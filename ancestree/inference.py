@@ -1567,15 +1567,14 @@ class ARGBasedInference(Inference):
         self._warn_single_ingroup(len(self._ingroup_nodes))
 
     def _focal_provenance(self) -> dict[str, object]:
-        """The focal node and how often it was cleanly available.
+        """The focal node and the ingroup size it was resolved over.
 
-        :return: Provenance entries. Empty when reading at the tree's own root.
+        :return: Provenance entries.
         """
         entry = self.focal.provenance()
         if self.focal.is_root:
             return entry
         entry["n_ingroup"] = len(self._ingroup_nodes)
-        entry.update(self._focal_totals_entry())
         return entry
 
     def _infer_marginalised(self):

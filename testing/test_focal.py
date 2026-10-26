@@ -1170,11 +1170,11 @@ class TestFocalProvenance:
         # A streaming writer emits its header first, so reading the counters
         # then would report zero non-monophyletic trees whatever the truth.
         inference = self._inference(focal="ingroup_mrca")
-        before = inference._focal_provenance()
+        before = inference.provenance()["parameters"]
         assert "n_trees_ingroup_non_monophyletic" not in before
 
         list(inference.infer())
-        after = inference._focal_provenance()
+        after = inference.provenance()["parameters"]
         assert after["n_trees_ingroup_non_monophyletic"] >= 0
         assert after["n_segments_without_ingroup_mrca"] == 0
 
