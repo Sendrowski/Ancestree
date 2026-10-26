@@ -539,7 +539,7 @@ def _add_fixed_tree_parser(
         "--focal-fraction", type=float, metavar="F",
         help=(
             "Move the readout point F of the way from the ingroup MRCA to the "
-            "ladder's deepest join, with F in [0, 1]. A site the ingroup has "
+            "panel root, with F in [0, 1]. A site the ingroup has "
             "fixed reads back its own allele at F=0."
         ),
     )
