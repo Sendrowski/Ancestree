@@ -17,6 +17,7 @@ from ancestree import HKY, STATE_INDEX, STATES
 from ancestree.inference import ARGBasedInference
 from ancestree.likelihood import Likelihood
 from ancestree.sites import BaseComposition
+from ancestree.sources import _site_from_tskit_variant
 from ancestree.trees import TskitLocalTree
 from ancestree import models as M
 
@@ -62,7 +63,8 @@ def test_native_matches_generic_per_tree(name, model):
         if not tree.num_sites or tree.num_roots != 1:
             continue
         vlist = [by_site[s.id] for s in tree.sites()]
-        sites = [inf._parse_variant(v, sample_nodes) for v in vlist]
+        sites = [_site_from_tskit_variant(v, sample_nodes, inf._node_to_sample,
+                                          inf.chrom) for v in vlist]
         tree_mu = inf.mu
         lt = TskitLocalTree.from_tskit_tree(tree, sample_map=inf.sample_map)
         lt.time_scale = tree_mu

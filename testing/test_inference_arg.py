@@ -24,6 +24,7 @@ from ancestree import (
     STATES,
     Site,
 )
+from ancestree.sources import _site_from_tskit_variant
 from ancestree.trees import TskitLocalTree
 import ancestree as anc
 from testing._helpers import canonical_alleles, ts_sites
@@ -248,7 +249,8 @@ def test_rate_map_is_read_at_each_site(small_ts):
     inf = ARGBasedInference(small_ts, JC69(), mu=rmap, progress=False)
     tree = next(t for t in small_ts.trees() if t.num_sites)
     variant = next(small_ts.variants(left=tree.interval.left))
-    site = inf._parse_variant(variant, small_ts.samples())
+    site = _site_from_tskit_variant(variant, small_ts.samples(),
+                                    inf._node_to_sample, inf.chrom)
     local = TskitLocalTree.from_tskit_tree(tree, sample_map=inf.sample_map)
     assert inf._scale_for(local, site) == rate[int(variant.site.position)]
 

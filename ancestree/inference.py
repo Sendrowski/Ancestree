@@ -1827,7 +1827,8 @@ class ARGBasedInference(Inference):
                         next(variants_iter) for _ in range(tree.num_sites)
                     ]
                     sites_in_tree = [
-                        self._parse_variant(v, sample_nodes)
+                        _site_from_tskit_variant(
+                            v, sample_nodes, self._node_to_sample, self.chrom)
                         for v in variants_in_tree
                     ]
                     focal = self._resolve_focal(tree)
@@ -2128,25 +2129,6 @@ class ARGBasedInference(Inference):
                 for site, post in self._infer_range(*chunk)]
         return rows, self._tally
 
-    def _parse_variant(
-        self,
-        variant: "tskit.Variant",
-        sample_nodes: np.ndarray,
-    ) -> Site:
-        """Convert a tskit ``Variant`` into a :class:`~ancestree.sites.Site`.
-
-        A missing genotype (``-1``) and the empty-string placeholder allele
-        both map to ``tip_alleles[s] = None``.
-
-        :param variant: A :class:`tskit.Variant` from ``ts.variants()``.
-        :param sample_nodes: The ``ts.samples()`` array.
-        :return: A :class:`~ancestree.sites.Site` whose ``local_tree_handle``
-            is the variant's genomic position.
-        """
-        return _site_from_tskit_variant(
-            variant, sample_nodes, self._node_to_sample, self.chrom,
-        )
-
     def _pack_tip_states(
         self,
         variants: list["tskit.Variant"],
@@ -2160,7 +2142,7 @@ class ARGBasedInference(Inference):
         outside the model alphabet, or a column with no sample-map binding.
 
         :param variants: The :class:`tskit.Variant` records for one local
-            tree, in the order of the sites built by :meth:`_parse_variant`.
+            tree, in the order of the sites built from them.
         :param state_index: ``{allele_letter: state_index}`` in model order.
         :param bound_mask: ``(n_samples,) bool``. False columns are missing.
         :return: ``(len(variants), n_samples) int8`` tip-state matrix.
