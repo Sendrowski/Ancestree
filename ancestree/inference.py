@@ -387,8 +387,8 @@ class Inference(ReprMixin, ABC):
 
         parameters = {
             **self._provenance_parameters(),
-            "ingroup_samples": list(self._baseline_ingroup_samples()),
-            "outgroup_samples": list(self._baseline_outgroup_samples()),
+            "ingroup_samples": list(self._resolved_ingroup),
+            "outgroup_samples": list(self._resolved_outgroups),
         }
         panel = self._panel_samples()
         if panel:
@@ -463,13 +463,13 @@ class Inference(ReprMixin, ABC):
 
         :param sites: The sites just scored.
         :param counts: Ingroup allele counts over
-            :meth:`Inference._baseline_ingroup_samples`, one per site in site
+            the resolved ingroup, one per site in site
             order, or ``None`` to count them here.
         :return: The tally, ``ingroup_monomorphic`` set.
         """
         if not self._focal_is_ingroup_mrca:
             return _Tally()
-        ingroup = self._baseline_ingroup_samples()
+        ingroup = self._resolved_ingroup
         if not ingroup:
             return _Tally()
         if counts is None:
@@ -520,8 +520,8 @@ class Inference(ReprMixin, ABC):
 
     def _panel_samples(self) -> tuple[str, ...]:
         """The resolved ingroup and outgroup sample ids."""
-        return (*self._baseline_ingroup_samples(),
-                *self._baseline_outgroup_samples())
+        return (*self._resolved_ingroup,
+                *self._resolved_outgroups)
 
     def _used_samples(self) -> "frozenset[str]":
         """The sample columns a restricted output keeps, the panel samples
@@ -533,8 +533,8 @@ class Inference(ReprMixin, ABC):
         if self._logged_panel:
             return
         self._logged_panel = True
-        for label, samples in (("ingroup", self._baseline_ingroup_samples()),
-                               ("outgroup", self._baseline_outgroup_samples())):
+        for label, samples in (("ingroup", self._resolved_ingroup),
+                               ("outgroup", self._resolved_outgroups)):
             if samples:
                 self._log.info("Using %d %s sample(s): %s", len(samples),
                                label, ", ".join(samples))
@@ -650,8 +650,8 @@ class Inference(ReprMixin, ABC):
     #: over the same sites and INFO-logs the MAP agreement as a consistency check.
     baseline_check: bool = False
 
-    #: The panel lists :meth:`_resolve_panel` fills in, empty in a mode that
-    #: names neither.
+    #: The resolved ingroup and outgroup ids, empty in a mode that names
+    #: neither.
     _resolved_ingroup: tuple[str, ...] = ()
     _resolved_outgroups: tuple[str, ...] = ()
 
@@ -659,10 +659,6 @@ class Inference(ReprMixin, ABC):
     #: bounded in memory under streaming inference over whole genomes. Beyond
     #: it the agreement is reported over the leading sample.
     _BASELINE_CHECK_MAX_SITES: int = 100_000
-
-    def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        """The resolved outgroup ids, or ``()`` for a mode without outgroups."""
-        return self._resolved_outgroups
 
     def _baseline_ingroup_samples(self) -> tuple[str, ...]:
         """The resolved ingroup ids, or ``()`` for a mode without an
@@ -768,7 +764,7 @@ class Inference(ReprMixin, ABC):
             and not self._quiet
             and self._log.isEnabledFor(logging.INFO)
         )
-        has_outgroups = want and bool(self._baseline_outgroup_samples())
+        has_outgroups = want and bool(self._resolved_outgroups)
         seen: list[tuple[Site, Posterior]] = []
         truncated = False
         n_yielded = 0
@@ -817,7 +813,7 @@ class Inference(ReprMixin, ABC):
         :param truncated: Whether ``real_pairs`` is a leading sample of a
             longer stream (noted in the log line).
         """
-        outgroups = self._baseline_outgroup_samples()
+        outgroups = self._resolved_outgroups
         if not outgroups:
             self._log.info(
                 "Baseline (MajorityOutgroupInference) skipped: no outgroups "
@@ -830,7 +826,7 @@ class Inference(ReprMixin, ABC):
         )
         msg = self._summarise_baseline_agreement(
             real_pairs, baseline.infer(),
-            ingroup_samples=self._baseline_ingroup_samples(),
+            ingroup_samples=self._resolved_ingroup,
         )
         if msg is not None:
             if truncated:
@@ -914,8 +910,8 @@ class Inference(ReprMixin, ABC):
         self._ensure_fitted()
         return Grade(
             self.infer(), truth, filter, focal=focal,
-            ingroup_samples=self._baseline_ingroup_samples(),
-            outgroup_samples=self._baseline_outgroup_samples(),
+            ingroup_samples=self._resolved_ingroup,
+            outgroup_samples=self._resolved_outgroups,
             panel_samples=self._panel_samples(),
             sample_map=sample_map,
         )
@@ -1009,7 +1005,7 @@ class Inference(ReprMixin, ABC):
             :class:`~ancestree.trees.RerootedTree` at the focal node.
         :raises ValueError: If none of the ingroup samples are tips of ``tree``.
         """
-        wanted = self._baseline_ingroup_samples()
+        wanted = self._resolved_ingroup
         nodes = tuple(
             int(n) for n in (tree.tip_for_sample(s) for s in wanted)
             if n is not None
@@ -2458,7 +2454,7 @@ class FixedTreeInference(Inference):
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
         return {"model": type(self.model),
-                "n_outgroups": len(self._baseline_outgroup_samples()),
+                "n_outgroups": len(self._resolved_outgroups),
                 "fitted": self.params_mle is not None}
 
     def __init__(
@@ -3548,7 +3544,7 @@ class FixedTreeInference(Inference):
         if not isinstance(weight, KingmanIngroupWeight):
             return None
         ingroup = list(weight.ingroup_samples)
-        if tuple(ingroup) != self._baseline_ingroup_samples():
+        if tuple(ingroup) != self._resolved_ingroup:
             return None
         return [site.count_alleles(ingroup) for site in batch]
 
@@ -3591,7 +3587,7 @@ class FixedTreeInference(Inference):
                                if self.ingroup_weight is not None else None),
             "prior": type(self.prior).__name__ if self.prior is not None else None,
             "branch_rates_fitted": self._params_mle is not None,
-            "n_outgroups": len(self._baseline_outgroup_samples()),
+            "n_outgroups": len(self._resolved_outgroups),
             "n_target_sites": (
                 int(self.base_composition.n_total)
                 if self.base_composition is not None else None),
@@ -3738,14 +3734,8 @@ class MajorityOutgroupInference(Inference):
         self.confidence = float(confidence)
         self.ingroup_weight = None
         self.prior = None
-
-    def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        """The named ingroup samples."""
-        return self.ingroup_samples
-
-    def _baseline_outgroup_samples(self) -> tuple[str, ...]:
-        """The named outgroup samples."""
-        return self.outgroup_samples
+        self._resolved_ingroup = self.ingroup_samples
+        self._resolved_outgroups = self.outgroup_samples
 
     def _panel_samples(self) -> tuple[str, ...]:
         """No restriction: the panel is every tip of the sites."""

@@ -62,7 +62,7 @@ def test_arg_explicit_sample_map_with_unlabelled_sample_raises():
 def test_ingroup_alone_makes_the_rest_outgroups():
     inf = anc.Inference.from_arg(tskit.load(QUICKSTART_TREES), mu=5e-8,
                                  ingroup_samples=ING)
-    assert inf._baseline_outgroup_samples() == ("i4", "i5", "o0", "o1")
+    assert inf._resolved_outgroups == ("i4", "i5", "o0", "o1")
 
 
 def test_the_other_haplotypes_of_an_outgroup_individual_are_dropped():
@@ -70,7 +70,7 @@ def test_the_other_haplotypes_of_an_outgroup_individual_are_dropped():
     into the derived ingroup."""
     inf = anc.Inference.from_arg(tskit.load(DEMO_TREES), mu=5e-8,
                                  outgroup_samples=["o1_h0", "o2"])
-    assert inf._baseline_ingroup_samples() == (
+    assert inf._resolved_ingroup == (
         "i0_h0", "i0_h1", "i1_h0", "i1_h1", "i2_h0", "i2_h1", "i3_h0",
         "i3_h1", "o3_h0", "o3_h1")
     assert "o1_h1" not in inf.sample_map

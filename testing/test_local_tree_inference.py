@@ -723,8 +723,8 @@ def test_baseline_check_compares_against_the_named_outgroups(caplog):
     sites, names = toy_sites(range(0, 2000, 20))
     inf = toy_inference(sites, names, n_ensemble=None, outgroup_samples=["h3"],
                         baseline_check=True)
-    assert inf._baseline_outgroup_samples() == ("h3",)
-    assert inf._baseline_ingroup_samples() == ("h0", "h1", "h2")
+    assert inf._resolved_outgroups == ("h3",)
+    assert inf._resolved_ingroup == ("h0", "h1", "h2")
     with caplog.at_level(logging.INFO, logger="ancestree"):
         out = list(inf.infer())
     assert len(out) == len(sites)

@@ -379,14 +379,6 @@ def test_baseline_agreement_refuses_misaligned_streams():
         real, aligned, ingroup_samples=None)
 
 
-def test_baseline_without_designated_samples_names_none():
-    """A mode without designated outgroups yields empty sample tuples, so the
-    consistency check is skipped."""
-    inf = MajorityOutgroupInference([], ["o1"], for_comparison_only=True)
-    assert Inference._baseline_outgroup_samples(inf) == ()
-    assert Inference._baseline_ingroup_samples(inf) == ()
-
-
 def test_the_majority_outgroup_rule_writes_its_named_samples(tmp_path):
     import cyvcf2
 

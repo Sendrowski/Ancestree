@@ -187,14 +187,14 @@ class TestOutgroupNamesAreValidated:
             anc.ARGBasedInference(
                 self._ts(), JC69(), mu=1e-8,
                 outgroup_samples=["O_TYPO"], progress=False,
-            )._baseline_ingroup_samples()
+            )._resolved_ingroup
 
     def test_a_real_outgroup_is_excluded_from_the_ingroup(self):
         inference = anc.ARGBasedInference(
             self._ts(), JC69(), mu=1e-8,
             outgroup_samples=["3"], progress=False,
         )
-        assert inference._baseline_ingroup_samples() == ("0", "1", "2")
+        assert inference._resolved_ingroup == ("0", "1", "2")
 
 
 class TestMultiRootDrawsPath:
