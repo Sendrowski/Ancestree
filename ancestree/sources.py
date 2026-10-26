@@ -495,7 +495,8 @@ class VcfZarrSource(SiteSource):
         return genotypes.tolist(), None if phased is None else phased.tolist()
 
     def contig_lengths(self) -> dict[str, int]:
-        """The length of each contig the store records one for.
+        """The length of each contig the store records one for, a
+        non-positive ``contig_length`` meaning none.
 
         :return: ``{contig: length}``, empty without ``contig_length``.
         """
@@ -503,7 +504,7 @@ class VcfZarrSource(SiteSource):
         if "contig_length" not in root:
             return {}
         return {SiteSource._decode(c): int(n) for c, n in
-                zip(root["contig_id"][:], root["contig_length"][:])}
+                zip(root["contig_id"][:], root["contig_length"][:]) if n > 0}
 
     def _open_root(self):
         """Open the VCZ root group."""

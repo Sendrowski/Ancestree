@@ -392,3 +392,19 @@ class TestVcfZarrSource:
         monkeypatch.setitem(sys.modules, "zarr", None)
         with pytest.raises(ImportError, match="VcfZarrSource requires zarr"):
             VcfZarrSource(diploid_store)
+
+
+def test_a_negative_contig_length_reads_as_no_length(tmp_path):
+    """bio2zarr records -1 for a contig its VCF header gives no length.
+
+    The -1 was passed through as the contig's length, and local-tree mode then
+    refused every site of that contig as outside its axis.
+    """
+    path = str(tmp_path / "s.vcz")
+    write_vcz(
+        path, positions=[100, 200], contigs_per_variant=[0, 1],
+        contig_ids=["1", "2"], alleles=[["A", "C"], ["G", "T"]],
+        sample_ids=["s1"], genotypes=np.zeros((2, 1, 1), dtype=np.int8),
+        contig_lengths=[5000, -1],
+    )
+    assert VcfZarrSource(path).contig_lengths() == {"1": 5000}
