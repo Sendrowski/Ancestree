@@ -595,6 +595,17 @@ class TestTreeOutput:
         for x in _positions(inputs[dataset]):
             assert any(left <= x < right for left, right in covered)
 
+    @pytest.mark.parametrize("n_ensemble", [None, N_ENSEMBLE])
+    def test_every_genealogy_is_in_generations(self, inputs, n_ensemble):
+        """An ensemble member, and a tree sequence built without genotypes,
+        carried ``time_units`` unknown, which ARG mode refuses to score."""
+        inference = _inference(inputs["regional"], n_ensemble=n_ensemble)
+        for _, members in inference.tree_sequences():
+            assert {m.time_units for m in members} == {"generations"}
+        builder = next(inference.segments())
+        builder.bake_genotypes = False
+        assert builder.to_tree_sequence().time_units == "generations"
+
     @pytest.mark.parametrize("chunk_size", [None, CHUNK])
     @pytest.mark.parametrize("dataset", ["regional", "gapped"])
     def test_pairwise_tmrcas_cover_the_trees(self, inputs, dataset,

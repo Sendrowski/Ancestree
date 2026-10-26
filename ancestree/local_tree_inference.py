@@ -886,7 +886,6 @@ class LocalTreeBuilder(ReprMixin):
                 "are left out of the tree sequence and score at the prior",
                 n_uncalled, pos0.shape[0])
         tables.sort()
-        tables.time_units = "generations"
         self._ts = tables.tree_sequence()
         return self._ts
 

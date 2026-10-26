@@ -112,6 +112,7 @@ def build_windowed_tree_sequence(
     )
 
     tables.sort()
+    tables.time_units = "generations"
     return tables.tree_sequence()
 
 
