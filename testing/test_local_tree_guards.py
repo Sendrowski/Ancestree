@@ -380,6 +380,25 @@ class TestLocalTreeBuilderGuards:
         with pytest.raises(ValueError, match="duplicated"):
             b.to_tree_sequence()
 
+    @pytest.mark.parametrize("path", [
+        dict(chunk_size=None, n_ensemble=None),
+        dict(chunk_size=None, n_ensemble=4),
+        dict(chunk_size=400, halo=100, n_ensemble=None),
+        dict(chunk_size=400, halo=100, n_ensemble=4),
+    ])
+    def test_a_duplicate_position_is_refused_on_every_path(self, path):
+        """Two records at one position raise one ``ValueError`` naming it.
+        The plug-in raised from inside the tree build, while the ensemble
+        scored both records against one tree without complaint."""
+        sites, names = toy_sites(range(20, 1000, 20), seed=2)
+        sites.insert(25, _site("1", sites[24].pos, "A", "G", {
+            n: "AG"[i % 2] for i, n in enumerate(names)}))
+        with pytest.raises(ValueError, match="two sites lie at 1:500"):
+            inf = (toy_inference if path["chunk_size"] is None
+                   else toy_chunked_inference)(
+                sites, names, sequence_length=1000, **path)
+            list(inf.infer())
+
     @pytest.mark.parametrize("pos", [-1, 1000, 1007])
     @pytest.mark.parametrize("path", [
         dict(chunk_size=None, n_ensemble=None),

@@ -980,7 +980,8 @@ class LocalTreeInference(Inference):
         warning that :meth:`Inference.from_arg() <ancestree.inference.Inference.from_arg>`
         scores its genealogy. When building from sites,
         they must be in sorted genomic order (ascending position within each
-        contig. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`). A VCF/VCZ path's haplotype
+        contig. See :class:`~ancestree.local_tree_inference.LocalTreeBuilder`),
+        one record per position. A VCF/VCZ path's haplotype
         panel is read from the file, so ``sample_names`` may be omitted.
     :param model: Substitution model for the kernel. Defaults to
         :class:`~ancestree.models.JC69`.
@@ -1099,7 +1100,8 @@ class LocalTreeInference(Inference):
         from the panel or named in both lists, if ``sample_names`` names a
         sample that ``outgroup_samples`` drops or that no site's
         ``tip_alleles`` holds, if every ingroup sample is uncalled at
-        every site, or if a site lies off the axis.
+        every site, if a site lies off the axis, or if two sites share a
+        position.
     """
 
     #: Where the contig lengths came from when the input declared them, named

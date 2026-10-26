@@ -1294,6 +1294,20 @@ def test_chunked_rejects_unsorted():
              chunk_size=1000).infer())
 
 
+@pytest.mark.parametrize("n_ensemble", [None, 4])
+def test_a_contig_resuming_after_another_is_refused(n_ensemble):
+    """Sites ordered A, B, A were scored with A built as two independent
+    contigs, the second half without the first's genealogy, and the run
+    reported no error."""
+    a, names = toy_sites(range(0, 2000, 20), chrom="A")
+    b, _ = toy_sites(range(0, 1000, 20), chrom="B")
+    sites = a[:50] + b + a[50:]
+    inf = toy_inference(sites, names, n_ensemble=n_ensemble,
+                        sequence_length=None)
+    with pytest.raises(ValueError, match="contig A resume after"):
+        list(inf.infer())
+
+
 def test_auto_halo_is_grounded_and_clamped():
     """The 'auto' halo resolves to a positive value clamped to [block, chunk/2]."""
     from ancestree import JC69

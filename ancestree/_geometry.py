@@ -939,8 +939,9 @@ class Segmentation(ReprMixin):
         sites are buffered.
 
         :return: Iterator of ``(sites, geometry)``.
-        :raises ValueError: If a site lies off its contig's axis or out of
-            order.
+        :raises ValueError: If a site lies off its contig's axis, out of
+            order or at another site's position, or if a contig's sites resume
+            after another contig's.
         """
         halo = self.halo
 
@@ -953,12 +954,19 @@ class Segmentation(ReprMixin):
             return seg, geometry
 
         cur = contig = None
+        done: set = set()
         buf: list = []
         core_lo = 0
         first = last = -1
         for s in self.sites:
             if contig is None or s.chrom != cur:
+                if s.chrom in done:
+                    raise ValueError(
+                        f"the sites of contig {s.chrom} resume after those "
+                        f"of contig {cur}; LocalTreeInference requires each "
+                        f"contig's sites to be contiguous")
                 if contig is not None:
+                    done.add(cur)
                     for lo, hi in contig.cores(core_lo):
                         yield unit(contig, buf, lo, hi, (first, last + 1))
                 cur, buf, core_lo, first = s.chrom, [], 0, s.pos
@@ -973,6 +981,12 @@ class Segmentation(ReprMixin):
                 raise ValueError(
                     "LocalTreeInference requires sorted sites; saw "
                     f"{s.chrom}:{s.pos} after {s.chrom}:{last}")
+            if buf and buf[-1].pos == s.pos:
+                raise ValueError(
+                    f"two sites lie at {s.chrom}:{s.pos}; LocalTreeInference "
+                    f"takes one record per position. Merge or drop the "
+                    f"duplicates: multi-allelic sites split across records "
+                    f"are the usual cause.")
             last = s.pos
             buf.append(s)
             cs = contig.chunk
