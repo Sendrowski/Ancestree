@@ -389,7 +389,7 @@ class EnsembleFocalScan:
             paths_to_condensed(path, ens.edge_lo, ens.edge_hi, ens.t_bar,
                                ens.needed, ens.blk_lo, ens.blk_hi, 0,
                                ens.pair_key, ens._stream_key(self.seed), start,
-                               draws)
+                               ens.block0, draws)
             sub = start // per_subset
             for fi, res in self._score_chunk(draws, fractions, out, arrays):
                 self._accumulate(res, acc[fi, sub], ref[fi, sub])

@@ -38,14 +38,14 @@ def test_odd_block_count_keeps_members_independent():
     path = np.empty((M, P, K), dtype=np.int8)
     _ensemble.ffbs_paths(counts, lam, np.log(lam), alpha, 1, K, r, pi,
                          np.ones((P, K)), np.ones(K), np.uint64(1), 0,
-                         np.arange(P, dtype=np.uint64), path)
+                         np.arange(P, dtype=np.uint64), 0, path)
     blk_lo = 2 * needed
     blk_hi = np.minimum(blk_lo + 2, K)
     # Zero-width bins take the draw out of it, so a window mean is exactly a
     # mean of bin values and the leak below is the only thing under test.
     _ensemble.paths_to_condensed(
         path, t_rep, t_rep, np.ones(P), needed, blk_lo, blk_hi, 0,
-        np.arange(P, dtype=np.uint64), 0, 0, out)
+        np.arange(P, dtype=np.uint64), 0, 0, 0, out)
 
     # A full window averages exactly two block draws, each drawn from t_rep,
     # so its value must be one of the pairwise means. A third contribution

@@ -792,11 +792,8 @@ class LocalTreeBuilder(ReprMixin):
                 missing = [self.sample_names[i]
                            for i in np.nonzero(~seen)[0]]
                 LocalTreeInference._raise_unobserved_samples(missing)
-        n_blocks = self.geometry.n_blocks
-        block_of_site = (self.sites.pos // self.block_size).astype(np.int64)
-        # The last block holds the bases past its nominal end up to the axis's.
-        np.minimum(block_of_site, n_blocks - 1, out=block_of_site)
-        return g, positions, block_of_site, n_blocks
+        return (g, positions, self.geometry.block_of(self.sites.pos),
+                self.geometry.n_blocks)
 
     def _hmm_inputs(self):
         """Per-block ``(step, block_mask, emit_scale)`` of

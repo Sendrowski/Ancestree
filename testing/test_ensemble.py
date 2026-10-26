@@ -423,7 +423,7 @@ class TestEnsembleKernelInvariants:
         pair_key = np.arange(self.P, dtype=np.uint64)
         ffbs_paths(counts, lam, log_lam, alpha_ck, stride, self.K,
                    r, pi, called, block_sites, np.uint64(seed0), 0, pair_key,
-                   path)
+                   0, path)
         return path
 
     def test_a_smaller_ensemble_is_a_prefix_of_a_larger_one(self):
@@ -436,6 +436,34 @@ class TestEnsembleKernelInvariants:
         for stride in (2, 3, 4):
             np.testing.assert_array_equal(
                 self._draw(4, 7, stride), reference)
+
+    def test_a_masked_flank_does_not_move_the_draws(self):
+        """Draws are keyed on the genome block, so a chain run from the first
+        callable block draws what a chain run across a masked flank before it
+        draws there. The stream was one per member and pair, advanced block
+        by block, so every draw moved with the blocks the chain ran over."""
+        from ancestree._ensemble import ffbs_paths, hmm_forward_ckpt
+
+        flank = 5
+        counts, lam, log_lam, r, pi, called, block_sites = self._hmm_inputs()
+
+        def draw(lo):
+            c, la, ll = counts.copy(), lam.copy(), log_lam.copy()
+            la[:flank] = 0.0  # a masked block emits uniformly
+            ll[:flank] = np.log(1e-300)
+            c[:, :flank] = 0
+            K = self.K - lo
+            alpha_ck = np.empty((self.P, K, self.T))
+            args = (c[:, lo:], la[lo:], ll[lo:], r[lo:], pi, called[:, lo:],
+                    block_sites[lo:])
+            hmm_forward_ckpt(*args, 1, alpha_ck)
+            path = np.empty((4, self.P, K), dtype=np.int8)
+            ffbs_paths(args[0], args[1], args[2], alpha_ck, 1, K, args[3], pi,
+                       args[5], args[6], np.uint64(7), 0,
+                       np.arange(self.P, dtype=np.uint64), lo, path)
+            return path
+
+        np.testing.assert_array_equal(draw(0)[:, :, flank:], draw(flank))
 
     def test_equal_exposure_weights_give_the_plain_linkage(self):
         from ancestree._ensemble import upgma_batch
@@ -510,10 +538,10 @@ class TestEnsembleKernelInvariants:
 #: Ensemble posteriors at the first four sites, ``n_ensemble=8``,
 #: ``ensemble_seed=0``, from the fixture built by :func:`_sites`.
 _GOLDEN_ENSEMBLE = {
-    405: (0.3252355128127405, 2.8077657597983204e-05, 0.6747083318720636, 2.8077657597983234e-05),
-    1061: (2.807765759798324e-05, 0.3252355128127406, 2.807765759798324e-05, 0.6747083318720635),
-    1976: (0.05781404724744941, 2.3268595089762586e-06, 0.9421812990335325, 2.3268595089762586e-06),
-    1984: (0.8377506778149545, 2.3103572207624882e-05, 2.3103572207624896e-05, 0.16220311504063042),
+    405: (0.000781099189738954, 6.076214262940053e-08, 0.9992187792859759, 6.076214262940059e-08),
+    1061: (6.076214262940048e-08, 0.0007810991897389537, 6.076214262940048e-08, 0.9992187792859757),
+    1976: (0.00020422880091446922, 3.478480595960677e-08, 0.9997957016294736, 3.478480595960685e-08),
+    1984: (0.7336977734520923, 4.3292571769334554e-05, 4.3292571769334615e-05, 0.2662156414043689),
 }
 
 
@@ -574,10 +602,10 @@ def _posteriors(sites, model):
 #: Pins the per-block called-fraction exposure in the ensemble's
 #: own forward pass.
 _GOLDEN_MISSING = {
-    36: (0.2331636236287989, 0.7661582614208274, 0.000339057475186814, 0.00033905747518681446),
-    40: (0.9998190718524591, 6.0309382513605935e-05, 6.030938251360598e-05, 6.030938251360598e-05),
-    47: (0.9995450474700519, 0.0004535034003882203, 7.245647799048966e-07, 7.245647799048966e-07),
-    109: (0.8260956528107809, 0.17299717228243067, 0.00045358745339428894, 0.000453587453394289),
+    36: (0.2366429988933221, 0.762589373808229, 0.0003838136492245072, 0.0003838136492245075),
+    40: (0.9995730504264333, 0.00014231652452222952, 0.00014231652452222952, 0.00014231652452222952),
+    47: (0.911218029991627, 0.08856844826886572, 0.00010676086975358197, 0.00010676086975358208),
+    109: (0.7525059603057115, 0.2464932582483725, 0.0005003907229580173, 0.0005003907229580176),
 }
 
 

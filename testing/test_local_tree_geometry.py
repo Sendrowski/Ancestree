@@ -466,12 +466,12 @@ class TestPinnedPosteriors:
                      1.0090924165e-08],
         },
         ("regional", None, N_ENSEMBLE, "past"): {
-            251657: [0.0134079008269, 5.16728831714e-06, 5.16728831714e-06,
-                     0.986581764596],
-            292122: [0.000203832334595, 0.453732730988, 0.000203832334595,
-                     0.545859604342],
-            329591: [0.999999905046, 3.16508227628e-08, 3.16523032763e-08,
-                     3.16508227628e-08],
+            251657: [0.209758097566, 4.82901081625e-05, 4.82901081625e-05,
+                     0.790145322217],
+            292122: [0.000211820900561, 0.45499567319, 0.000211820900561,
+                     0.544580685009],
+            329591: [0.999999936368, 1.97166470596e-08, 2.41990882324e-08,
+                     1.97166470596e-08],
         },
         ("gapped", CHUNK, None, "short"): {
             251657: [0.00016604069578, 5.91916857123e-08, 5.91916857123e-08,
@@ -482,12 +482,12 @@ class TestPinnedPosteriors:
                      1.32626236037e-06],
         },
         ("gapped", CHUNK, N_ENSEMBLE, None): {
-            251657: [0.0540224294849, 1.09646672176e-05, 1.09646672176e-05,
-                     0.945955641181],
-            311098: [0.000192476744173, 0.000192476744173, 0.602805640439,
-                     0.396809406073],
-            329591: [0.999866311268, 2.15055476417e-07, 0.000133258621051,
-                     2.15055476417e-07],
+            251657: [0.0829015582202, 2.11692205113e-05, 2.11692205113e-05,
+                     0.917056103339],
+            311098: [0.000197350364179, 0.000197350364179, 0.605784892428,
+                     0.393820406843],
+            329591: [0.999999853045, 4.00663153003e-08, 6.68226075125e-08,
+                     4.00663153003e-08],
         },
     }
 
@@ -639,6 +639,26 @@ class TestDataStretch:
             covered = _merged(iv for _, members in groups
                               for iv in members[k])
             _assert_same_intervals(covered, expected)
+
+
+class TestHmmBlocks:
+    """The HMM runs over the blocks of the data stretch alone."""
+
+    @pytest.mark.parametrize("chunk_size", [None, CHUNK])
+    @pytest.mark.parametrize("dataset", ["regional", "gapped"])
+    def test_no_block_outside_the_data_windows(self, inputs, dataset,
+                                               chunk_size):
+        """The HMM ran over every block of a segment's frame, so a regional
+        VCF on a whole-chromosome header ran it over the whole header."""
+        inference = _inference(inputs[dataset], chunk_size=chunk_size)
+        block, window, _ = _resolved(inference)
+        (left, right), = _data_stretch(inputs[dataset], window)
+        for builder in inference.segments():
+            geometry = builder.geometry
+            edges = geometry.origin + geometry.block_edges
+            assert edges[0] > left - block and edges[-1] < right + block
+            inputs_ = builder.prepared_hmm()[2]
+            assert inputs_.counts.shape[1] == geometry.n_blocks
 
 
 class TestDataPlacement:

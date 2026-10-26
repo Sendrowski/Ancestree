@@ -790,7 +790,7 @@ def _forward_step(counts_p, lam, log_lam, r, pi_p, esc, k, a_prev, a_cur,
 
 @njit(cache=True, parallel=True)
 def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
-                       w0, pair_key, key, member0, out):
+                       w0, pair_key, key, member0, block0, out):
     """Window-mean sampled TMRCAs for one block of windows, from the paths.
 
     Parallel over the windows in the block, each of which covers a contiguous
@@ -802,8 +802,9 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
     :meth:`PairwiseCoalescentHMM._coalescent_prior`). Consecutive blocks in
     the same state are one coalescence and share one draw, followed back only
     to the window's own first block. The stream is keyed on the segment, the
-    member's global index, the pair and the block, so the draws do not depend
-    on ``member_chunk`` or on the window blocking.
+    member's global index, the pair and the block's genome index, so the
+    draws do not depend on ``member_chunk``, on the window blocking or on the
+    blocks the HMM runs over.
 
     :param path: ``(M, P, K) int8`` sampled bin per member, pair and block.
     :param edge_lo: ``(T,)`` lower edge of each bin, in generations.
@@ -817,6 +818,8 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
     :param pair_key: ``(P,) uint64`` per-pair stream key, as ``ffbs_paths``.
     :param key: Segment stream key, from :meth:`SegmentEnsemble._stream_key`.
     :param member0: Global index of ``path``'s first member.
+    :param block0: Genome block index of block 0, which the draws are keyed
+        on.
     :param out: ``(M, n_w, P)`` float64 out for windows ``needed[w0:w0+n_w]``.
     """
     M, P, K = path.shape
@@ -835,7 +838,7 @@ def paths_to_condensed(path, edge_lo, edge_hi, t_bar, needed, blk_lo, blk_hi,
                     while j > lo and path[b, pp, j - 1] == i:
                         j -= 1
                     st = _mix64(mem ^ pair_key[pp] * _M1
-                                ^ np.uint64(j + 1) * _M2)
+                                ^ np.uint64(block0 + j + 1) * _M2)
                     st, u = _split(st)
                     a = edge_lo[i]
                     tb = t_bar[pp]
@@ -927,7 +930,7 @@ def _pair_stream_keys(sample_names, pairs) -> np.ndarray:
 
 @njit(cache=True, parallel=True)
 def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
-               block_sites, key, member0, pair_key, path):
+               block_sites, key, member0, pair_key, block0, path):
     """Joint forward-filtering backward-sampling draws of the TMRCA path.
 
     Writes the sampled time-bin index per member, pair and block into ``path``
@@ -949,6 +952,9 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
     :param pair_key: ``(P,) uint64`` per-pair stream key. Derived from the
         pair's sample names, not its column position, so a panel
         given in a different column order draws the same genealogies.
+    :param block0: Genome block index of block 0. Each block's draws are
+        keyed on its genome block index, so they do not depend on where the
+        chain starts or ends.
     :param path: ``(M, P, K) int8`` out, the sampled time-bin index per member,
         pair and block.
     """
@@ -963,9 +969,9 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
         nu = np.empty(T, np.float64)
         seg = np.empty((stride, T), np.float64)
         j = np.empty(M, np.int64)
-        st = np.empty(M, np.uint64)
+        st0 = np.empty(M, np.uint64)
         for b in range(M):
-            st[b] = _mix64(_member_key(key, member0 + b) ^ pair_key[p] * _M1)
+            st0[b] = _mix64(_member_key(key, member0 + b) ^ pair_key[p] * _M1)
         for c in range(n_ckpt - 1, -1, -1):
             lo = c * stride
             n_seg = _replay_segment(counts[p], lam, log_lam, r, pi[p],
@@ -973,13 +979,14 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
                                     stride, K, seg, e, nu, T)
             for k in range(lo + n_seg - 1, lo - 1, -1):
                 a_k = seg[k - lo]
+                kk = np.uint64(block0 + k + 1) * _M2
                 if k == K - 1:
                     tot = 0.0
                     for i in range(T):
                         tot += a_k[i]
                         cum[i] = tot
                     for b in range(M):
-                        st[b], u = _split(st[b])
+                        _, u = _split(_mix64(st0[b] + kk))
                         jj = _search(cum, T, u * tot)
                         j[b] = jj
                         path[b, p, k] = jj
@@ -995,9 +1002,9 @@ def ffbs_paths(counts, lam, log_lam, alpha_ck, stride, K, r, pi, called,
                     stay_num = a_k[jj] * r[k + 1, jj]
                     denom = stay_num + nu[jj] * tot_q
                     pstay = stay_num / denom if denom > 0.0 else 1.0
-                    st[b], u = _split(st[b])
+                    st, u = _split(_mix64(st0[b] + kk))
                     if u >= pstay and tot_q > 0.0:
-                        st[b], v = _split(st[b])
+                        st, v = _split(st)
                         jj = _search(cum, T, v * tot_q)
                     j[b] = jj
                     path[b, p, k] = jj
@@ -1129,6 +1136,8 @@ class SegmentEnsemble:
         self.n_sites = len(positions)
         # A window's blocks are contiguous, so the range is kept directly.
         self.blk_lo, self.blk_hi = geometry.window_blocks
+        #: Genome block index of the HMM's first block, which keys the draws.
+        self.block0 = int(geometry.origin) // geometry.block + geometry.first_block
 
         pairs = list(combinations(range(n_hap), 2))
         self.pair_key = _pair_stream_keys(
@@ -1239,7 +1248,7 @@ class SegmentEnsemble:
             paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
                                self.needed, self.blk_lo, self.blk_hi, w0,
                                self.pair_key, self._stream_key(seed), member0,
-                               blk)
+                               self.block0, blk)
             self._score_window_block(blk, fraction, n_coal, out, arrays, w0)
         return out
 
@@ -1333,7 +1342,7 @@ class SegmentEnsemble:
             paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
                                windows, self.blk_lo, self.blk_hi, 0,
                                self.pair_key, self._stream_key(seed), start,
-                               draws)
+                               self.block0, draws)
             yield draws
 
     def _draw_paths(self, chunk):
@@ -1346,7 +1355,7 @@ class SegmentEnsemble:
                    self.alpha_ck, self.ckpt_stride, self.n_blocks,
                    self.hmm_r, self.hmm_pi, self.hmm_called,
                    self.hmm_block_sites, self._stream_key(seed), start,
-                   self.pair_key, path)
+                   self.pair_key, self.block0, path)
 
     def _stream_key(self, seed: int) -> np.uint64:
         """The segment's stream key, a hash of the seed and ``segment``.

@@ -219,7 +219,7 @@ def test_chunked_sub_block_exposure_matches_the_whole_region():
                       if min(a1, origin + span) > max(a0, origin))
         assert frac.sum() * block_size == pytest.approx(covered), origin
         if origin % block_size == 0:
-            b0 = origin // block_size
+            b0 = origin // block_size + geometry.first_block
             np.testing.assert_allclose(
                 frac[:min(n_seg_blocks, len(whole) - b0)],
                 whole[b0:b0 + n_seg_blocks])

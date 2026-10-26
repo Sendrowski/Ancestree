@@ -224,9 +224,12 @@ class BuildGeometry(ReprMixin):
 
     The frame is the build's own axis ``[0, L_f + b_f)`` for a frame length
     ``L_f`` bp and a frame position base ``b_f``, placed at genome coordinate
-    ``origin``. Block ``k`` spans ``[k·B, (k+1)·B)`` for the block width ``B``,
-    and the block reaching ``L_f`` ends at the axis end. Everything is resolved
-    on construction.
+    ``origin``. Blocks of width ``B`` bp tile the axis from 0, and the block
+    reaching ``L_f`` ends at the axis end. The HMM runs over the blocks
+    overlapping the data stretch ``stretch``, so block ``k`` of the build
+    spans ``[(k_0 + k)·B, (k_0 + k + 1)·B)`` for the first such
+    block ``k_0`` of the axis, :attr:`first_block`. Everything is resolved on
+    construction.
 
     :param length: Frame length ``L_f`` in bp.
     :param block: Block width ``B`` in bp.
@@ -246,6 +249,11 @@ class BuildGeometry(ReprMixin):
         hold to get a tree, or ``None`` when there is no site, so no window
         gets one.
         The HMM reads the frame outside it as not callable.
+    :param stretch: ``(lo, hi)`` data stretch on the frame, from the left edge
+        of the contig's window holding the first site to the right edge of
+        the one holding the last, or ``None`` to take it from ``windows`` and
+        ``data``.
+        The HMM runs over the blocks overlapping it.
     :param origin: Genome coordinate of the frame's 0.
     :param contig: Contig the frame lies on.
     """
@@ -259,7 +267,7 @@ class BuildGeometry(ReprMixin):
     def __init__(self, length: float, *, block: int, window: int,
                  position_base: int = 0, windows=None, recombination_map=None,
                  accessibility=None, mutation_map=None, core=None, data=None,
-                 origin: int = 0,
+                 stretch=None, origin: int = 0,
                  contig: "str | None" = None) -> None:
         self.length = float(length)
         self.position_base = int(position_base)
@@ -278,12 +286,9 @@ class BuildGeometry(ReprMixin):
         self.core = (0.0, self.axis_length) if core is None else core
         #: :attr:`core` in genome coordinates.
         self.genome_core = (origin + self.core[0], origin + self.core[1])
-        #: Blocks the frame is cut into, at least one.
-        self.n_blocks = n = max(1, int(np.ceil(self.length / bs)))
-        edges = np.arange(n + 1, dtype=np.float64) * bs
-        #: ``(n_blocks + 1,)`` float64 block edges, the last at the axis end.
-        self.block_edges = np.where(edges >= self.length, self.axis_length,
-                                    edges)
+        n = max(1, int(np.ceil(self.length / bs)))
+        #: Last block of the axis, which holds the bases up to the axis end.
+        self._last_block = n - 1
         if windows is None:
             windows = _tile(0.0, self.length, self.window)
             windows[-1, 1] = self.axis_length
@@ -291,10 +296,33 @@ class BuildGeometry(ReprMixin):
         #: the last reaching the axis end.
         self.windows = iv = np.asarray(windows, dtype=np.float64).reshape(-1, 2)
         lo = np.clip(np.floor_divide(iv[:, 0], bs).astype(np.int64), 0, n - 1)
-        hi = np.ceil(iv[:, 1] / bs).astype(np.int64)
-        #: ``(lo, hi)`` int64 block range ``[lo, hi)`` each window covers.
-        self.window_blocks = (lo, np.maximum(lo + 1, np.minimum(hi, n)))
+        hi = np.maximum(lo + 1, np.minimum(
+            np.ceil(iv[:, 1] / bs).astype(np.int64), n))
         lo_, hi_ = (0.0, 0.0) if data is None else data
+        if stretch is None and data is not None:
+            held = (iv[:, 1] > lo_) & (iv[:, 0] <= hi_ - 1)
+            stretch = ((min(lo_, iv[held, 0].min()), max(hi_, iv[held, 1].max()))
+                       if held.any() else data)
+        k0, k1 = 0, n
+        if stretch is not None:
+            s0 = max(0.0, float(stretch[0]))
+            s1 = min(self.axis_length, float(stretch[1]))
+            if s1 > s0:
+                k0 = min(int(s0 // bs), n - 1)
+                k1 = min(int(np.ceil(s1 / bs)), n)
+        #: First block of the axis the HMM runs over.
+        self.first_block = k0
+        #: Blocks the HMM runs over, at least one.
+        self.n_blocks = k1 - k0
+        edges = np.arange(k0, k1 + 1, dtype=np.float64) * bs
+        #: ``(n_blocks + 1,)`` float64 edges of the HMM's blocks, the edge at
+        #: ``L_f`` moved to the axis end.
+        self.block_edges = np.where(edges >= self.length, self.axis_length,
+                                    edges)
+        lo = np.clip(lo - k0, 0, self.n_blocks - 1)
+        #: ``(lo, hi)`` int64 range ``[lo, hi)`` of the HMM's blocks each
+        #: window covers.
+        self.window_blocks = (lo, np.clip(hi - k0, lo + 1, self.n_blocks))
         #: Indices of the windows that get trees: those overlapping
         #: :attr:`core` and holding a position of :attr:`data`.
         self.tree_windows = np.flatnonzero(
@@ -309,6 +337,16 @@ class BuildGeometry(ReprMixin):
                         iv[self.tree_windows[-1], 1])
             if right > left:
                 self.tree_span = (float(left), float(right))
+
+    def block_of(self, positions) -> np.ndarray:
+        """The HMM block holding each position.
+
+        :param positions: Positions on the frame, within the HMM's blocks.
+        :return: ``(n,)`` int64 block indices into :attr:`block_edges`.
+        """
+        k = np.asarray(positions) // self.block
+        return (np.minimum(k.astype(np.int64), self._last_block)
+                - self.first_block)
 
     def kernel_mu(self, mu: float):
         """The rate the HMM and the kernel score the frame at.
@@ -630,6 +668,11 @@ class ContigGeometry(ReprMixin):
         b = np.searchsorted(iv[:, 0], core_hi, side="left")
         windows = np.column_stack((np.maximum(iv[a:b, 0] - origin, 0.0),
                                    np.minimum(iv[a:b, 1] - origin, float(axis))))
+        # The windows holding the first and the last site.
+        first = min(np.searchsorted(iv[:, 1], data[0], side="right"),
+                    len(iv) - 1)
+        last = max(np.searchsorted(iv[:, 0], data[1] - 1, side="right") - 1,
+                   first)
         return BuildGeometry(
             span, block=bs, window=self.window, position_base=axis - span,
             windows=windows,
@@ -640,6 +683,7 @@ class ContigGeometry(ReprMixin):
             mutation_map=self._slice_map(self.mutation_map, origin, axis),
             core=(core_lo - origin, core_hi - origin),
             data=(data[0] - origin, data[1] - origin),
+            stretch=(iv[first, 0] - origin, iv[last, 1] - origin),
             origin=origin, contig=self.contig)
 
     @staticmethod
