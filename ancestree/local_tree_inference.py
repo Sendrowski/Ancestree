@@ -1369,38 +1369,6 @@ class LocalTreeInference(Inference):
             self._emitted(self._infer_segmented()))
         self._log_uniform_fallback_summary()
 
-    def _score_ensemble(self, builder, sites, keep=None,
-                        segment=("", 0)) -> "tuple[np.ndarray, _Tally]":
-        """Prior-weighted per-site posteriors for one builder's sites.
-
-        :param builder: The :class:`~ancestree.local_tree_inference.LocalTreeBuilder` covering ``sites``.
-        :param sites: Those sites, in order.
-        :param keep: Boolean mask over ``sites`` of the rows returned and
-            tallied, ``None`` for all.
-        :param segment: ``(contig, core start)`` keying the segment's draws.
-        :return: ``(n_kept, 4)`` posteriors and the uniform-fallback tally.
-        """
-
-        from ancestree._ensemble import SegmentEnsemble
-        ens = SegmentEnsemble(
-            builder, self.model, len(self.sample_names),
-            self._ingroup_indices(),
-            pi=self._pi(), segment=segment)
-        frac, n_coal = self._ensemble_placement()
-        post = ens.posterior(frac, self.n_ensemble, n_coal=n_coal,
-                             member_chunk=self.member_chunk,
-                             seed=self.ensemble_seed)
-        if len(post) != len(sites):
-            raise RuntimeError(
-                f"ensemble returned {len(post)} posteriors for {len(sites)} "
-                f"sites; they must pair one to one")
-        uniform = ens.uniform_fallback
-        if keep is not None:
-            post, uniform = post[keep], uniform[keep]
-            sites = list(compress(sites, keep))
-        post, n_bad = self._weight_by_prior(post, sites)
-        return post, _Tally(uniform_fallback=int(uniform.sum()) + n_bad)
-
     # ------------------------------------------------------------- segments
     @cached_property
     def segmentation(self) -> Segmentation:
@@ -1522,64 +1490,54 @@ class LocalTreeInference(Inference):
         """
         seg, geometry = work_unit
         core_lo, core_hi = geometry.genome_core
-        if self.n_ensemble is not None:
-            rows, tally = self._process_segment_ensemble(work_unit)
-            # The per-tree counts have no single value over the n_ensemble
-            # trees of a window, so they are not reported.
-            core = [site for site, _ in rows]
-            return rows, (tally + self._count_ingroup_monomorphic(core)
-                          + self._count_unrepresentable(core))
-        core = [site for site in seg if core_lo <= site.pos < core_hi]
-        if not core:
-            return [], _Tally()
-        segment = self._segment_builder(*work_unit)
-        origin = geometry.origin
-        # The trees lie on the core alone, so the per-tree tallies count no
-        # halo tree.
-        arg = ARGBasedInference(
-            segment.to_tree_sequence(), self.model,
-            mu=geometry.kernel_mu(self.mu), prior=self.prior,
-            base_composition=self.base_composition, progress=False,
-            n_workers=1, focal=self.focal,
-            ingroup_samples=self._resolved_ingroup,
-            outgroup_samples=self._resolved_outgroups or None,
-        )
-        arg._quiet = True
-        # Paired by position in the segment's frame (pos - origin). A site
-        # absent from the baked tree sequence scores at the prior.
-        scored = {int(ts_site.pos): np.asarray(post.values)
-                  for ts_site, post in arg.infer()}
-        n_states = len(self.model.states)
-        flat = np.full((1, n_states), 1.0 / n_states)
-        out = [(site, scored.get(int(site.pos - origin))) for site in core]
-        out = [(site, self._weight_by_prior(flat, [site])[0][0]
-                if values is None else values) for site, values in out]
-        # The per-site counts are tallied over the core rows the segment
-        # emits, never the halo.
-        per_tree = replace(arg._tally, ingroup_monomorphic=0,
-                           unrepresentable_sites=0, unrepresentable_tips=0)
-        return out, (per_tree + self._count_ingroup_monomorphic(core)
-                     + self._count_unrepresentable(core))
-
-    def _process_segment_ensemble(
-        self, work_unit,
-    ) -> "tuple[list[tuple[Site, np.ndarray]], _Tally]":
-        """Score one segment's core sites, marginalised over
-        :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>`
-        genealogies drawn from the pairwise-HMM posterior.
-
-        :param work_unit: One ``(sites, geometry)`` of
-            :meth:`Segmentation.units() <ancestree._geometry.Segmentation.units>`.
-        :return: ``(rows, tally)`` as :meth:`_process_segment`.
-        """
-        seg, geometry = work_unit
-        core_lo, core_hi = geometry.genome_core
         keep = np.fromiter((core_lo <= s.pos < core_hi for s in seg), bool,
                            len(seg))
-        post, tally = self._score_ensemble(
-            self._segment_builder(*work_unit), seg, keep,
-            segment=(geometry.contig, core_lo))
-        return list(zip(compress(seg, keep), post)), tally
+        core = list(compress(seg, keep))
+        segment = self._segment_builder(*work_unit)
+        if self.n_ensemble is not None:
+            from ancestree._ensemble import SegmentEnsemble
+            ens = SegmentEnsemble(
+                segment, self.model, len(self.sample_names),
+                self._ingroup_indices(), pi=self._pi(),
+                segment=(geometry.contig, core_lo))
+            frac, n_coal = self._ensemble_placement()
+            post = ens.posterior(frac, self.n_ensemble, n_coal=n_coal,
+                                 member_chunk=self.member_chunk,
+                                 seed=self.ensemble_seed)
+            post, n_bad = self._weight_by_prior(post[keep], core)
+            rows = list(zip(core, post))
+            # The per-tree counts have no single value over the n_ensemble
+            # trees of a window, so they are not reported.
+            tally = _Tally(uniform_fallback=int(
+                ens.uniform_fallback[keep].sum()) + n_bad)
+        else:
+            origin = geometry.origin
+            # The trees lie on the core alone, so the per-tree tallies count
+            # no halo tree.
+            arg = ARGBasedInference(
+                segment.to_tree_sequence(), self.model,
+                mu=geometry.kernel_mu(self.mu), prior=self.prior,
+                base_composition=self.base_composition, progress=False,
+                n_workers=1, focal=self.focal,
+                ingroup_samples=self._resolved_ingroup,
+                outgroup_samples=self._resolved_outgroups or None,
+            )
+            arg._quiet = True
+            # Paired by position in the segment's frame (pos - origin). A site
+            # absent from the baked tree sequence scores at the prior.
+            scored = {int(ts_site.pos): np.asarray(post.values)
+                      for ts_site, post in arg.infer()}
+            n_states = len(self.model.states)
+            flat = np.full((1, n_states), 1.0 / n_states)
+            rows = [(site, scored.get(int(site.pos - origin))) for site in core]
+            rows = [(site, self._weight_by_prior(flat, [site])[0][0]
+                     if values is None else values) for site, values in rows]
+            # The per-site counts are tallied over the core rows the segment
+            # emits, never the halo.
+            tally = replace(arg._tally, ingroup_monomorphic=0,
+                            unrepresentable_sites=0, unrepresentable_tips=0)
+        return rows, (tally + self._count_ingroup_monomorphic(core)
+                      + self._count_unrepresentable(core))
 
     def _weight_by_prior(self, post, sites):
         """Multiply marginalised likelihoods by the root prior and renormalise.

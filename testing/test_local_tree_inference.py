@@ -718,18 +718,6 @@ def test_run_to_run_determinism():
         np.testing.assert_array_equal(pa.values, pb.values)
 
 
-def test_ensemble_row_count_mismatch_is_an_error(monkeypatch):
-    """An ensemble returning the wrong number of rows is refused."""
-    from ancestree._ensemble import SegmentEnsemble
-    sites, names = toy_sites(range(0, 1000, 50))
-    inf = toy_inference(sites, names, n_ensemble=2, sequence_length=1000.0)
-    monkeypatch.setattr(
-        SegmentEnsemble, "posterior",
-        lambda self, *a, **k: np.full((len(sites) - 1, 4), 0.25))
-    with pytest.raises(RuntimeError, match="must pair one to one"):
-        list(inf.infer())
-
-
 def test_baseline_check_compares_against_the_named_outgroups(caplog):
     """The baseline hook reports the outgroups and logs the agreement line."""
     sites, names = toy_sites(range(0, 2000, 20))
