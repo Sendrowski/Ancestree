@@ -5,15 +5,15 @@ two ways. The plug-in path takes the posterior mean
 
 .. math::
 
-    \\hat{t}_{pw} \;=\; \\sum_{k \\in w} \\frac{1}{|w|}
-        \\sum_{i} \\gamma_{ki}(p)\; t_i,
+    \\hat{t}_{pw} \\;=\\; \\sum_{k \\in w} \\frac{1}{|w|}
+        \\sum_{i} \\gamma_{ki}(p)\\; t_i,
 
 and the ensemble path draws :math:`B` joint paths by forward-filtering
 backward-sampling and reads each one off the same grid,
 
 .. math::
 
-    t^{(b)}_{pw} \;=\; \\sum_{k \\in w} \\frac{1}{|w|}\; t_{x^{(b)}_{pk}},
+    t^{(b)}_{pw} \\;=\\; \\sum_{k \\in w} \\frac{1}{|w|}\\; t_{x^{(b)}_{pk}},
     \\qquad x^{(b)}_{p\\cdot} \\sim p(x_{p\\cdot} \\mid y_{p\\cdot}).
 
 Here :math:`p` indexes the haplotype pairs, :math:`w` a window, :math:`k` the
