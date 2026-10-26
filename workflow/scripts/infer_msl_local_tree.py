@@ -122,9 +122,9 @@ with open(out_anc, "w", encoding="utf-8") as fout:
             sequence_length=float(end - start),
             window="30snp", progress=False,
             n_ensemble=LOCAL_TREE_ENSEMBLE_MEMBERS,
-            # Explicit, not the library default: this row is defined on the
-            # single-region path, whose window grid and per-region time-grid
-            # calibration differ from the segmented one.
+            # Explicit, not the library default: this row is defined with one
+            # segment per contig, whose time grid is calibrated over the whole
+            # region, where a chunked run calibrates one per segment.
             chunk_size=None,
         )
         nc = 0

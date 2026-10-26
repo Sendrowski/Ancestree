@@ -74,7 +74,7 @@ def _chunk_size(value: str):
         _parse_bp(value, name="--chunk-size")
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
-            f"{exc}. Pass 'none' to build the whole input as one region."
+            f"{exc}. Pass 'none' to build each contig as one segment."
         ) from exc
     return value
 
@@ -763,7 +763,7 @@ def _add_local_tree_parser(
               "bound memory and enable parallelism: contigs are independent and "
               "long contigs are sliced with a halo overlap. The input is "
               "streamed and must be position-sorted. Pass 'none' to build "
-              "the whole input as one region. Default: %(default)s."),
+              "each contig as one segment. Default: %(default)s."),
     )
     p.add_argument(
         "--halo", default=_lib_default(LocalTreeInference, "halo"),
@@ -776,8 +776,8 @@ def _add_local_tree_parser(
     p.add_argument(
         "--n-workers", type=int,
         default=_lib_default(LocalTreeInference, "n_workers"),
-        help=("Fork-pool workers. With --chunk-size, fans whole segments across "
-              "the pool (peak memory ~ n_workers x chunk-size). "
+        help=("Fork-pool workers, across which whole segments are fanned "
+              "(peak memory ~ n_workers x segment span). "
               "Default: %(default)s."),
     )
     p.add_argument(

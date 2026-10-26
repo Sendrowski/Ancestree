@@ -4705,8 +4705,8 @@ ENSEMBLE_SCALING_WORKERS = [1, 2, 4, 8]
 ENSEMBLE_SCALING_INDIVIDUALS = 50
 ENSEMBLE_SCALING_LENGTH = 2_000_000
 #: Small enough that the panel splits into several segments, which is what
-#: n_workers fans out. On the single-region path workers parallelise only the
-#: Felsenstein pass, not the tree construction that dominates this mode.
+#: n_workers fans out. With one segment per contig, this one-contig panel
+#: would give the pool a single segment.
 ENSEMBLE_SCALING_CHUNK = "250kb"
 
 

@@ -74,8 +74,8 @@ inferred (pre-annotation) local-tree sequence.
    haplotypes :math:`n`, and its TMRCA matrix grows with the region length.
    The subcommand therefore processes the genome in chunks internally:
    ``--chunk-size`` sets the chunk length (10 Mb by default, ``none``
-   builds the whole input as one region), ``--halo`` sets the overlap
-   discarded at chunk boundaries, and ``--n-workers`` fans whole chunks
+   builds each contig as one segment), ``--halo`` sets the overlap
+   discarded at chunk boundaries, and ``--n-workers`` fans whole segments
    across a process pool. A single invocation covers a whole chromosome.
 
 Flags

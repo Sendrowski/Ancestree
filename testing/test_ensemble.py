@@ -1,6 +1,7 @@
 """Ensemble sampling in local-tree mode.
 
-Covers the two paths that reach the sampler (single-region and segmented),
+Covers the two paths that reach the sampler (one segment per contig, and
+chunked),
 reproducibility, the non-uniform-map support, and that the plug-in estimate is
 recovered exactly at ``n_ensemble=1``.
 """

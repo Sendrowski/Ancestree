@@ -223,12 +223,11 @@ def _run_local_tree_config(
     Infers a dated local tree per window from genotypes (pairwise-coalescent
     HMM -> UPGMA), then polarises site-by-site. The numba toggle flips both
     the Felsenstein kernel (``_jit_kernel``) and the SMC-HMM kernel
-    (``_smc_kernel``). ``n_workers`` is forwarded to the internal
-    ARGBasedInference and parallelises the polarisation pass over the built
-    trees (the single-threaded HMM + UPGMA build is serial here). On an
-    in-memory panel this single-run path is faster than the chunked path,
-    whose per-segment overhead only pays off when memory forces chunking
-    (genome scale). Chunking additionally fans the HMM build across workers.
+    (``_smc_kernel``). ``n_workers`` fans whole segments across a fork pool,
+    so unchunked, with one segment per contig, this one-contig panel runs on
+    one worker. On an in-memory panel the unchunked run is faster than the
+    chunked one, whose per-segment overhead only pays off when memory forces
+    chunking (genome scale).
     """
     label = (f"LocalTree numba={'on ' if use_numba else 'off'} / {n_workers}w"
              f" / chunk={chunk_size or 'none'}")
@@ -245,8 +244,8 @@ def _run_local_tree_config(
         window="30snp", progress=False, n_workers=n_workers,
         # Explicit, not the library default: this row reports the cost of
         # the mode as the manuscript runs it, which marginalises over an
-        # ensemble rather than scoring one plug-in tree, on the single-region
-        # path rather than the segmented one.
+        # ensemble rather than scoring one plug-in tree, with one segment per
+        # contig unless chunk_size is set.
         n_ensemble=LOCAL_TREE_ENSEMBLE_MEMBERS,
         chunk_size=chunk_size,
     )
@@ -423,9 +422,9 @@ del _ts_stats
 # numba is a hard dependency, so the un-JIT'd path is not a configuration the
 # package can be run in and its column is gone from the table. The toggle still
 # exists for the parity tests, which compare the two kernels directly.
-#: Chunk span for the local-tree rows. On the single-region path n_workers
-#: reaches only the Felsenstein pass, not the tree build that dominates, so a
-#: worker scan there measures nothing. Chunked, whole segments fan across the
+#: Chunk span for the local-tree rows. With one segment per contig, n_workers
+#: has a single segment of this one-contig panel to fan out, so a worker scan
+#: there measures nothing. Chunked, whole segments fan across the
 #: pool. 1 Mb over the 10 Mb panel leaves ten segments, enough to fill 8w.
 LOCAL_TREE_CHUNK = "1mb"
 
