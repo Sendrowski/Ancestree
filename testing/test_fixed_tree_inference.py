@@ -1965,12 +1965,12 @@ class TestIngroupCountsAreTalliedOnce:
         assert shared_mono == own_mono
         assert np.abs(np.array(shared_post) - np.array(own_post)).max() == 0.0
 
-    def test_an_all_missing_ingroup_site_is_counted_as_monomorphic(self):
-        """The tally cannot be read off the weight's log-probability row.
+    def test_an_all_missing_ingroup_site_is_not_counted_as_monomorphic(self):
+        """A site with no called ingroup allele has no ingroup allele to
+        report, and was counted among the monomorphic sites.
 
-        ``KingmanIngroupWeight`` returns four finite entries both for a site
-        with no called ingroup allele, which the tally counts, and for a
-        four-allele ingroup, which it does not.
+        The tally cannot be read off the weight's log-probability row either:
+        ``KingmanIngroupWeight`` returns four finite entries for such a site.
         """
         inf = self._inference()
         _, n_mono = self._run(inf)
@@ -1980,7 +1980,7 @@ class TestIngroupCountsAreTalliedOnce:
         rows = anc.KingmanIngroupWeight(self.INGROUP).log_probs(all_missing)
         assert len(all_missing) == 40
         assert np.isfinite(rows).all()
-        assert n_mono == 80  # the 40 monomorphic plus the 40 all-missing
+        assert n_mono == 40  # the monomorphic sites alone
 
     def test_counts_are_shared_only_for_a_matching_kingman_weight(self):
         batch = _weighted_sites(4, self.INGROUP)

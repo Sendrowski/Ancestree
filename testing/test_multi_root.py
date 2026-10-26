@@ -361,7 +361,8 @@ def alternating_coalescence_ts():
     intervals only, so the odd ones carry no edge and tskit reports each
     sample as a root of its own. Every interval holds one site, since the
     walk skips a tree with no site and would never reach the uncoalesced
-    branch otherwise.
+    branch otherwise, and each coalesced interval also a site the ingroup has
+    fixed.
 
     :return: ``(tree sequence, number of uncoalesced local trees)``.
     """
@@ -380,6 +381,7 @@ def alternating_coalescence_ts():
         site = tables.sites.add_row(position=w + 0.5, ancestral_state="A")
         if w % 2 == 0:
             tables.mutations.add_row(site=site, node=0, derived_state="C")
+            tables.sites.add_row(position=w + 0.25, ancestral_state="A")
     tables.sort()
     return tables.tree_sequence(), n_windows // 2
 

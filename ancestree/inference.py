@@ -459,7 +459,7 @@ class Inference(ReprMixin, ABC):
             )
 
     def _count_ingroup_monomorphic(self, sites, counts=None) -> _Tally:
-        """Tally sites carrying at most one allele across the ingroup.
+        """Tally sites carrying exactly one allele across the ingroup.
 
         :param sites: The sites just scored.
         :param counts: Ingroup allele counts over
@@ -475,7 +475,7 @@ class Inference(ReprMixin, ABC):
         if counts is None:
             counts = (site.count_alleles(ingroup) for site in sites)
         return _Tally(ingroup_monomorphic=sum(
-            1 for tally in counts if sum(1 for c in tally.values() if c) <= 1))
+            1 for tally in counts if sum(1 for c in tally.values() if c) == 1))
 
     def _count_unrepresentable(self, sites) -> _Tally:
         """Tally sites and tips whose alleles lie outside the alphabet.
