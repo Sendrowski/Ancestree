@@ -98,9 +98,10 @@ for v in ts.variants():
                       alleles=tuple(v.alleles), tip_alleles=tip_alleles))
 
 sequence_length = float(ts.sequence_length)
-# Mean density the "<N>snp" specs are resolved against: the region under
-# analysis divided by the sites handed to the inference.
-bp_per_snp = sequence_length / max(1, len(sites))
+# Mean density the "<N>snp" specs are resolved against: the extent from the
+# first to the last site divided by the sites handed to the inference.
+bp_per_snp = ((sites[-1].pos - sites[0].pos + 1) / len(sites) if sites
+              else float("nan"))
 
 t0 = time.perf_counter()
 inf = LocalTreeInference(
