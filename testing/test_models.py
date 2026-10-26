@@ -288,9 +288,8 @@ PI = np.array([0.1, 0.2, 0.3, 0.4])
 
 class _NearDefectiveModel(JC69):
     """JC69 whose ``Q`` is a valid generator (rows sum to zero) but
-    non-diagonalisable (a Jordan block for eigenvalue -3), so
-    ``_expm_via_eig`` gives an ill-conditioned eigenvector matrix and returns
-    ``None``, forcing the :func:`scipy.linalg.expm` fallback."""
+    non-diagonalisable (a Jordan block for eigenvalue -3), so ``real_eig``
+    returns ``None``, forcing the :func:`scipy.linalg.expm` fallback."""
 
     def Q(self, *, pi=None):  # noqa: D102 (see class docstring)
         return np.array(
@@ -335,13 +334,11 @@ class TestFittedModelPickling:
 
 class TestScipyExpmFallback:
     """``_transition_probs_full`` on a near-defective ``Q`` (where
-    ``_expm_via_eig`` returns ``None``) must fall back to
+    ``real_eig`` returns ``None``) must fall back to
     :func:`scipy.linalg.expm`, giving a row-stochastic result."""
 
     def test_eig_path_returns_none_for_this_q(self):
-        m = _NearDefectiveModel()
-        Q = m.Q()
-        assert m._expm_via_eig(Q, np.array([0.5, 1.0])) is None
+        assert _NearDefectiveModel().real_eig() is None
 
     def test_array_t_fallback_matches_scipy_and_rows_sum_to_one(self):
         m = _NearDefectiveModel()

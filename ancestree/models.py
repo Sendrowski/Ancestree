@@ -15,7 +15,6 @@ rate, so one unit of branch length is one expected substitution per site.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import cast
 
 import numpy as np
 import scipy.linalg
@@ -28,8 +27,6 @@ from ancestree._repr import ReprMixin
 
 if TYPE_CHECKING:
     from ancestree.sites import BaseComposition, Site  # noqa: F401  (cross-refs + annotations)
-
-_CACHE_MISS = object()  # sentinel distinguishing "absent" from a cached None
 
 #: Box the ML fit searches for kappa, and the range an empirical estimate is
 #: clamped into. A pinned kappa is not constrained by it.
@@ -228,10 +225,6 @@ class SubstitutionModel(ReprMixin):
             name, value, hit, bound, bounds_arg,
         )
 
-    # Above this eigenvector condition number the reconstruction is not
-    # trusted and scipy's scaling-and-squaring is used.
-    _EIG_COND_LIMIT: float = 1e8
-
     def _transition_probs_full(
         self,
         t: float | np.ndarray,
@@ -240,68 +233,53 @@ class SubstitutionModel(ReprMixin):
     ) -> np.ndarray:
         """Exact ``P(t) = exp(Q·t)``. Scalar or array ``t``.
 
-        Delegates to :meth:`_expm_via_eig`, falling back to per-element
-        :func:`scipy.linalg.expm` when that declines the reconstruction.
+        ``P(t) = I + V diag(e^{λt} - 1) V⁻¹`` from :meth:`real_eig`, or
+        :func:`scipy.linalg.expm` per element where that yields ``None``.
         """
-        Q = self.Q(pi=pi)
         t_arr = np.asarray(t, dtype=float)
-        P = self._expm_via_eig(Q, t_arr)
-        if P is not None:
-            return P
-        if t_arr.ndim == 0:
-            return scipy.linalg.expm(Q * float(t_arr))
-        out = np.empty(t_arr.shape + (self.n_states, self.n_states), dtype=float)
-        flat_out = out.reshape(-1, self.n_states, self.n_states)
-        for k, tk in enumerate(t_arr.ravel()):
-            flat_out[k] = scipy.linalg.expm(Q * float(tk))
-        return out
-
-    def _eig_of(self, Q: np.ndarray) -> "tuple | None":
-        """Cached ``(λ, V, V⁻¹)`` with ``Q = V diag(λ) V⁻¹``.
-
-        Keyed by ``Q``'s bytes, the ``None`` verdict cached too.
-
-        :param Q: Rate matrix of shape ``(S, S)``.
-        :return: ``(λ, V, Vinv)``, or ``None`` if ``Q`` is not usably
-            diagonalisable.
-        """
-        key = Q.tobytes()
-        cached = self._eig_cache.get(key, _CACHE_MISS)
-        if cached is not _CACHE_MISS:
-            return cast("tuple | None", cached)
-        lam, V = np.linalg.eig(Q)
-        # Q's rows sum to zero, so its largest eigenvalue is exactly 0 and any
-        # positive real part is roundoff. exp(lam t) is then 1 at that mode for
-        # every t, keeping P(t) stochastic at large t.
-        lam = lam - lam.real.max()
-        cond = np.linalg.cond(V)
-        if not np.isfinite(cond) or cond > self._EIG_COND_LIMIT:
-            self._eig_cache[key] = None
-            return None
-        Vinv = np.linalg.inv(V)
-        if len(self._eig_cache) > 256:  # bound growth on a fit_kappa/rates run
-            self._eig_cache.clear()
-        self._eig_cache[key] = (lam, V, Vinv)
-        return lam, V, Vinv
+        S = self.n_states
+        eig = self.real_eig(pi=pi)
+        if eig is None:
+            Q = self.Q(pi=pi)
+            out = np.empty(t_arr.shape + (S, S), dtype=float)
+            flat_out = out.reshape(-1, S, S)
+            for k, tk in enumerate(t_arr.ravel()):
+                flat_out[k] = scipy.linalg.expm(Q * float(tk))
+            return out
+        lam, V, Vinv = eig
+        expm1_lt = np.expm1(np.outer(t_arr.ravel(), lam))
+        P = np.eye(S) + (V[None, :, :] * expm1_lt[:, None, :]) @ Vinv
+        # exp(Q·t) is non-negative. Clip reconstruction rounding so rows stay
+        # valid probability vectors.
+        return np.maximum(P, 0.0).reshape(t_arr.shape + (S, S))
 
     def real_eig(
         self,
         *,
         pi: "Sequence[float] | np.ndarray | None" = None,
     ) -> "tuple[np.ndarray, np.ndarray, np.ndarray] | None":
-        """Real ``(λ, V, V⁻¹)`` for ``exp(Q·t)``, for callers that exponentiate
-        branch lengths themselves.
+        """Real ``(λ, V, V⁻¹)`` for ``exp(Q·t)``, cached per rate matrix.
 
         For a reversible ``Q`` the symmetrised form
         ``diag(sqrt(pi)) Q diag(1/sqrt(pi))`` is decomposed with
         :func:`numpy.linalg.eigh`, which is real and orthonormal on the
         degenerate eigenspaces of JC69, K2 and F81. A non-reversible ``Q``
-        yields ``None``, and the caller falls back to :meth:`transition_probs`.
+        yields ``None``.
 
         :param pi: Equilibrium frequencies, for models that take them.
         :return: ``(λ, V, Vinv)`` as ``float64``, or ``None``.
         """
         Q = self.Q(pi=np.asarray(pi, dtype=float) if pi is not None else None)
+        key = Q.tobytes()
+        if key not in self._eig_cache:
+            if len(self._eig_cache) > 256:  # bound growth on a fit_kappa/rates run
+                self._eig_cache.clear()
+            self._eig_cache[key] = self._symmetrised_eig(Q)
+        return self._eig_cache[key]
+
+    @staticmethod
+    def _symmetrised_eig(Q: np.ndarray) -> "tuple | None":
+        """:meth:`real_eig` of the rate matrix ``Q``, uncached."""
         # The stationary distribution is Q's left null vector, taken from an
         # SVD, which is stable when eigenvalues repeat.
         _, sv, vt = np.linalg.svd(Q.T)
@@ -324,8 +302,9 @@ class SubstitutionModel(ReprMixin):
         d = np.sqrt(p_st)
         B = (d[:, None] * Q) / d[None, :]
         lam, U = np.linalg.eigh(0.5 * (B + B.T))
-        # Q's rows sum to zero, so its largest eigenvalue is exactly 0 and a
-        # positive real part is roundoff, as in _eig_of.
+        # Q's rows sum to zero, so its largest eigenvalue is exactly 0 and any
+        # positive value is roundoff. exp(lam t) is then 1 at that mode for
+        # every t, keeping P(t) stochastic at large t.
         lam = lam - lam.max()
         V = U / d[:, None]
         Vinv = U.T * d[None, :]
@@ -334,37 +313,6 @@ class SubstitutionModel(ReprMixin):
         return (np.ascontiguousarray(lam, dtype=np.float64),
                 np.ascontiguousarray(V, dtype=np.float64),
                 np.ascontiguousarray(Vinv, dtype=np.float64))
-
-    def _expm_via_eig(
-        self,
-        Q: np.ndarray,
-        t_arr: np.ndarray,
-    ) -> "np.ndarray | None":
-        """Vectorised ``exp(Q·t)`` over a branch-length array via the
-        eigendecomposition of ``Q``.
-
-        Computes ``P(t) = I + V diag(e^{λt} - 1) V⁻¹`` with ``expm1``, for
-        eigenvalues ``λ`` and eigenvectors ``V`` of ``Q`` from :meth:`_eig_of`.
-
-        :param Q: Rate matrix of shape ``(S, S)``.
-        :param t_arr: Branch length(s), any shape (scalar ``ndim == 0`` allowed).
-        :return: ``exp(Q·t)`` of shape ``t_arr.shape + (S, S)``, or ``None``
-            when ``Q``'s eigenvector matrix is too ill-conditioned for the
-            reconstruction to be trusted.
-        """
-        S = self.n_states
-        eig = self._eig_of(Q)
-        if eig is None:
-            return None
-        lam, V, Vinv = eig
-        flat = t_arr.ravel()
-        expm1_lt = np.expm1(np.outer(flat, lam))  # (N, S), complex iff λ is
-        # P[n] = I + V diag(expm1_lt[n]) Vinv, batched over branches.
-        P = np.eye(S) + (V[None, :, :] * expm1_lt[:, None, :]) @ Vinv
-        # exp(Q·t) is non-negative. Clip reconstruction rounding so rows stay
-        # valid probability vectors.
-        P = np.maximum(P.real, 0.0).reshape(t_arr.shape + (S, S))
-        return P
 
 
 class _KappaMixin:
