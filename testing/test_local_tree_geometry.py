@@ -661,3 +661,33 @@ class TestDataPlacement:
         np.testing.assert_array_equal(a.block_midpoints - self.SHIFT,
                                       b.block_midpoints)
         np.testing.assert_allclose(a.tmrca, b.tmrca, rtol=1e-12)
+
+
+class TestDeclaredLength:
+    """A site past a contig's declared end is refused, naming where the
+    length came from."""
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def short_header(cls, tmp_path_factory):
+        """The regional panel under a header shorter than its last site."""
+        rows = [("1", *r) for r in _simulated_rows()]
+        return _write_vcf(tmp_path_factory.mktemp("short") / "short.vcf",
+                          rows, [("1", 20_000)])
+
+    @pytest.mark.parametrize("chunk_size", [None, CHUNK])
+    def test_a_short_header_is_named(self, short_header, chunk_size):
+        """A header length shorter than the last site was reported as a
+        sequence_length that does not contain every site, though none was
+        passed."""
+        with pytest.raises(ValueError, match=r"the VCF header gives contig 1 "
+                           r"length 20,000, but a site lies at 25\d,\d{3}; fix "
+                           r"the header or pass sequence_length"):
+            _posteriors(_inference(short_header, chunk_size=chunk_size))
+
+    @pytest.mark.parametrize("chunk_size", [None, CHUNK])
+    def test_a_passed_length_keeps_its_message(self, short_header,
+                                               chunk_size):
+        with pytest.raises(ValueError, match="Pass a sequence_length"):
+            _posteriors(_inference(short_header, chunk_size=chunk_size,
+                                   sequence_length=20_000))

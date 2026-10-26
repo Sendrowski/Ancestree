@@ -1112,6 +1112,11 @@ class LocalTreeInference(Inference):
         every site, or if a site lies off the axis.
     """
 
+    #: Where the contig lengths came from when the input declared them, named
+    #: when a site lies past one, or ``None`` when ``sequence_length`` was
+    #: passed.
+    _length_source: "str | None" = None
+
     @staticmethod
     def _raise_unobserved_samples(missing: "list[str]") -> None:
         """Raise the standard 'sample observed at zero sites' error."""
@@ -1262,6 +1267,7 @@ class LocalTreeInference(Inference):
                 "directly.")
             if sequence_length is None:
                 sequence_length = source._ts.sequence_length
+                self._length_source = "the tree sequence"
         # BED and bedGraph files are 0-based, read onto the sites' coordinates.
         base = self._position_base = getattr(source, "position_base", 0)
         self._map_paths: dict[str, str] = {}
@@ -1279,6 +1285,11 @@ class LocalTreeInference(Inference):
         self._set_input_paths(source)
         if sequence_length is None:
             sequence_length = Inference._contig_lengths(self) or None
+            if sequence_length is not None:
+                self._length_source = (
+                    "the tree sequence" if self._input_trees is not None
+                    else "the VCF header" if self._input_vcf_path is not None
+                    else "the VCF Zarr store")
         self._declared_length = sequence_length
 
         if self.n_ensemble is not None and self.focal.depth is not None:
@@ -1379,7 +1390,8 @@ class LocalTreeInference(Inference):
                 f"sequence_length gives no length for contig "
                 f"{getattr(first, 'chrom', None)!r}")
         self.builder = LocalTreeBuilder(
-            source, mu=mu, rec_rate=rec_rate, sample_names=self.sample_names,
+            self._on_declared_axis(source, sequence_length + base),
+            mu=mu, rec_rate=rec_rate, sample_names=self.sample_names,
             sequence_length=sequence_length, window=window,
             block_size=block_size, n_time_bins=n_time_bins,
             time_grid=time_grid, position_base=base, **maps,
@@ -1401,6 +1413,39 @@ class LocalTreeInference(Inference):
             ingroup_samples=self._resolved_ingroup,
             outgroup_samples=self._resolved_outgroups or None,
         )
+
+    def _refuse_off_axis(self, site: Site, axis_end: float) -> None:
+        """Refuse a site past the end of a contig whose length the input
+        declares.
+
+        :param site: A site off its contig's axis.
+        :param axis_end: End of that axis.
+        :raises ValueError: If the length came from the input and the site lies
+            at or past ``axis_end``.
+        """
+        if self._length_source is not None and site.pos >= axis_end:
+            raise ValueError(
+                f"{self._length_source} gives contig {site.chrom} length "
+                f"{int(self._declared_on(site.chrom)):,}, but a site lies at "
+                f"{int(site.pos):,}; fix the header or pass sequence_length")
+
+    def _on_declared_axis(self, sites, axis_end: float):
+        """``sites``, refusing one past a declared contig end.
+
+        :param sites: The sites of one contig.
+        :param axis_end: End of the contig's axis.
+        :return: The sites, unchanged, or ``sites`` itself when the length
+            was passed.
+        """
+        if self._length_source is None or isinstance(sites, SiteTable):
+            return sites
+
+        def checked():
+            for site in sites:
+                if site.pos >= axis_end:
+                    self._refuse_off_axis(site, axis_end)
+                yield site
+        return checked()
 
     def _kernel_mu(self, site: Site, x: float):
         """The rate :meth:`infer` scores ``site`` at: :attr:`mu`, or the
@@ -1754,6 +1799,7 @@ class LocalTreeInference(Inference):
                 last = s.pos
                 contig = self._contig(cur)
             if not 0 <= s.pos < contig.axis_end:
+                self._refuse_off_axis(s, contig.axis_end)
                 _check_on_axis(np.array([s.pos]), contig.axis_end)
             if s.pos < last:
                 raise ValueError(
