@@ -285,13 +285,6 @@ class Inference(ReprMixin, ABC):
             )
         return "; ".join(parts)
 
-    @property
-    def _focal_anchored_at_ingroup_mrca(self) -> bool:
-        """Whether the focal node is anchored at the ingroup MRCA, whatever the
-        placement measured from it.
-        """
-        return self.focal.anchor == "ingroup_mrca"
-
     @abstractmethod
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` for every variant.
@@ -643,11 +636,6 @@ class Inference(ReprMixin, ABC):
     #: bounded in memory under streaming inference over whole genomes. Beyond
     #: it the agreement is reported over the leading sample.
     _BASELINE_CHECK_MAX_SITES: int = 100_000
-
-    def _baseline_ingroup_samples(self) -> tuple[str, ...]:
-        """The resolved ingroup ids, or ``()`` for a mode without an
-        ingroup."""
-        return self._resolved_ingroup
 
     def _check_time_units(self, ts,
                           mu_matches_time_units: bool = False) -> None:

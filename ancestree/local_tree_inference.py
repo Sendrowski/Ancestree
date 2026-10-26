@@ -1552,7 +1552,7 @@ class LocalTreeInference(Inference):
             anchor or ``-1`` when ``fraction`` places the readout.
         """
         spec = self.focal
-        if not self._focal_anchored_at_ingroup_mrca:
+        if self.focal.anchor != "ingroup_mrca":
             return 1.0, -1
         if spec.coalescences is not None:
             return 0.0, int(spec.coalescences)
@@ -1738,7 +1738,7 @@ class LocalTreeInference(Inference):
 
         :return: Indices into ``sample_names``, or ``None`` for the whole panel.
         """
-        wanted = self._baseline_ingroup_samples()
+        wanted = self._resolved_ingroup
         if len(wanted) == len(self.sample_names):
             return None
         pos = {name: i for i, name in enumerate(self.sample_names)}
