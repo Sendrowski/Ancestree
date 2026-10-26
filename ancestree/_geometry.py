@@ -238,8 +238,9 @@ class BuildGeometry(ReprMixin):
     :param core: ``(lo, hi)`` stretch of the frame the build reports trees and
         blocks for, or ``None`` for the whole axis.
     :param data: ``(lo, hi)`` extent of the contig's sites on the frame, from
-        the first site to one past the last, which a window must overlap to
-        get a tree, or ``None`` when there is no site, so no window gets one.
+        the first site to one past the last, a position of which a window must
+        hold to get a tree, or ``None`` when there is no site, so no window
+        gets one.
         The HMM reads the frame outside it as not callable.
     :param origin: Genome coordinate of the frame's 0.
     :param contig: Contig the frame lies on.
@@ -304,11 +305,11 @@ class BuildGeometry(ReprMixin):
         #: ``(lo, hi)`` int64 block range ``[lo, hi)`` each window covers.
         self.window_blocks = (lo, np.maximum(lo + 1, np.minimum(hi, n)))
         lo_, hi_ = (0.0, 0.0) if data is None else data
-        #: Indices of the windows that get trees: those overlapping both
-        #: :attr:`core` and :attr:`data`.
+        #: Indices of the windows that get trees: those overlapping
+        #: :attr:`core` and holding a position of :attr:`data`.
         self.tree_windows = np.flatnonzero(
             (iv[:, 1] > self.core[0]) & (iv[:, 0] < self.core[1])
-            & (iv[:, 1] > lo_) & (iv[:, 0] < hi_))
+            & (iv[:, 1] > lo_) & (iv[:, 0] <= hi_ - 1))
         #: ``(lo, hi)`` stretch of the frame carrying trees, the tree windows
         #: within :attr:`core` and the axis, or ``None`` when empty.
         self.tree_span = None

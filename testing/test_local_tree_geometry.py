@@ -13,7 +13,8 @@ import msprime
 import numpy as np
 import pytest
 
-from ancestree import JC69, LocalTreeInference
+from ancestree import JC69, LocalTreeBuilder, LocalTreeInference
+from ancestree.sites import Site
 from ancestree.trees import TskitLocalTree
 from testing._helpers import write_vcz
 
@@ -583,6 +584,25 @@ class TestTreeOutput:
 class TestDataStretch:
     """Trees cover each contig's data stretch, the windows from the first
     site's to the last site's, interior gaps tiled, and nothing outside it."""
+
+    def test_no_tree_past_the_window_of_the_last_site(self):
+        """Windows of 1000/333 bp put an edge at 300.3, between the last site
+        at 300 and one past it. The window from that edge holds no site, but
+        it overlapped ``[first, last + 1)`` and got a tree."""
+        rng = np.random.default_rng(1)
+        names = ["a", "b", "c", "d"]
+        sites = [Site(chrom="1", pos=int(pos), alleles=("A", "C"),
+                      tip_alleles={n: "AC"[int(rng.random() < 0.4)]
+                                   for n in names})
+                 for pos in range(5, 301, 5)]
+        builder = LocalTreeBuilder(sites, mu=MU, rec_rate=REC,
+                                   sample_names=names, sequence_length=1000,
+                                   window=3, block_size=1)
+        (left, right), = _covered(builder.to_tree_sequence())
+        step = 1000 / 333
+        assert left == pytest.approx(step)
+        assert right == pytest.approx(100 * step)
+        assert right > 300
 
     @pytest.mark.parametrize("chunk_size", [None, CHUNK])
     @pytest.mark.parametrize("dataset", ["regional", "gapped"])
