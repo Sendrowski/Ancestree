@@ -1053,8 +1053,8 @@ class OutgroupLadderTree(Tree):
 
         :param newick_str: Newick string with branch lengths on every edge
             above the ingroup MRCA and into each outgroup. Edges within the
-            ingroup clade, which collapses to ``I``, and edges into pruned
-            leaves need none.
+            ingroup clade, which collapses to ``I``, edges into pruned
+            leaves and edges above the MRCA of the kept leaves need none.
         :param ingroup_samples: Ids of the ingroup haplotypes, matching leaf
             names in the Newick.
         :param outgroup_samples: Ids of the outgroup haplotypes, in any order.
@@ -1114,11 +1114,13 @@ class OutgroupLadderTree(Tree):
         # lengths sum into the surviving edges).
         keep = set(ingroup_list) | set(outgroup_list)
         ingroup_set = set(ingroup_list)
-        # Node.length reads an absent length as 0, so the raw token is checked.
+        # Node.length reads an absent length as 0, so the raw token is checked
+        # on every edge that enters a ladder branch: one above a kept leaf,
+        # not inside the ingroup clade, and below the MRCA of the kept leaves.
         for node in nw_root.walk():
             kept = {n.unquoted_name for n in node.walk()
                     if n.is_leaf and n.unquoted_name in keep}
-            if (node is not nw_root and node._length is None and kept
+            if (node._length is None and kept and kept != keep
                     and not kept < ingroup_set):
                 label = (repr(node.unquoted_name) if node.is_leaf else
                          "the ancestor of " + ", ".join(sorted(kept)))

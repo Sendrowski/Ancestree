@@ -170,6 +170,13 @@ class TestFromNewickErrors:
             "(((a,b):.1,(c:.2,x):.05):.3,(d:.4,y):.1);", ["a", "b"], ["c", "d"])
         np.testing.assert_allclose(tree.param_vector, [0.1, 0.25, 0.8])
 
+    def test_an_edge_above_the_kept_leaves_needs_no_length(self):
+        """Regression: pruning ``x`` folds the unlengthed edge above the kept
+        leaves into the root, yet it was rejected as a missing ladder length."""
+        tree = OutgroupLadderTree.from_newick(
+            "((((a:.1,b:.1):.2,c:.3):.4,d:.7),x:1);", ["a", "b"], ["c", "d"])
+        np.testing.assert_allclose(tree.param_vector, [0.2, 0.3, 1.1])
+
     def test_more_than_one_tree(self):
         with pytest.raises(ValueError, match="exactly one tree"):
             OutgroupLadderTree.from_newick("(a:1,b:1):0;(c:1,d:1):0;", ["a"], ["b"])
