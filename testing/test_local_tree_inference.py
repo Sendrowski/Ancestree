@@ -36,6 +36,7 @@ from testing._helpers import (
     MU,
     REC,
     canonical_alleles,
+    segment_builders,
     toy_builder,
     toy_chunked_inference,
     toy_inference,
@@ -230,9 +231,9 @@ def test_pairwise_tmrca_matrix_tracks_truth():
     inf = LocalTreeInference(
         sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         sequence_length=ts.sequence_length, block_size=block, progress=False,
-        chunk_size=None,  # reads the builder's genotype matrix directly
+        chunk_size=None,
     )
-    g, pos, bos, nbk = inf.builder._genotype_matrix()
+    g, pos, bos, nbk = next(segment_builders(inf))._genotype_matrix()
     hmm = PairwiseCoalescentHMM(len(names), mu=1.25e-8, rec_rate=1e-8,
                                block_size=block)
     inferred_mean = hmm.block_tmrcas(g, bos, nbk).mean(axis=1)
@@ -307,7 +308,6 @@ def test_a_tree_sequence_is_read_for_its_genotypes(caplog):
                                  chunk_size=None, n_ensemble=None,
                                  progress=False)
     assert any("from_arg" in r.getMessage() for r in caplog.records)
-    assert lti.builder is not None
     assert set(lti.sample_names) == set(names)
     assert sum(1 for _ in lti.infer()) == len(sites)
 
@@ -352,16 +352,12 @@ def test_builder_topology_only_when_not_baking():
     assert topo.num_samples == 6
 
 
-def test_builder_accepts_a_site_table_and_tallies_its_alleles():
-    """A ``SiteTable`` is held as given, its unrepresentable alleles tallied."""
+def test_builder_holds_a_site_table_as_given():
+    """A ``SiteTable`` is held as given."""
     sites, names = toy_sites(range(0, 1000, 50))
-    sites[3] = Site(chrom="1", pos=sites[3].pos, alleles=("A", "AT"),
-                    tip_alleles=dict(sites[3].tip_alleles))
     table = SiteTable.from_sites(sites, names)
     b = toy_builder(table, names, 1000.0)
     assert b.sites is table
-    assert b._n_unrepresentable_sites == 1
-    assert b._n_unrepresentable_tips == 0
     assert len(b.sites) == len(sites)
 
 
@@ -700,7 +696,8 @@ def test_tree_sequences_yields_the_plug_in_tree_once_without_an_ensemble():
     assert interval == (0.0, 1000.0)
     members = list(members)
     assert len(members) == 1
-    assert members[0] is inf.point_tree_sequence()
+    members[0].tables.assert_equals(inf.point_tree_sequence().tables,
+                                    ignore_provenance=True)
     assert members[0].num_sites == len(sites)
 
 
@@ -728,7 +725,7 @@ def test_provenance_of_an_unchunked_ensemble_run():
 
 def test_provenance_of_an_unchunked_plug_in_run():
     """The plug-in record reads model, prior and the resolved widths without
-    running the HMM, and picks up the point ARG's focal tallies after a run."""
+    running the HMM."""
     sites, names = toy_sites(range(0, 1000, 20))
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0)
     params = inf._provenance_parameters()
@@ -738,9 +735,8 @@ def test_provenance_of_an_unchunked_plug_in_run():
     assert params["window_bp"] == 200
     assert params["block_size"] == 50
     assert "n_ensemble" not in params
-    assert inf._arg is None, "reading the provenance built the plug-in ARG"
+    assert params["chunk_size"] is None and params["halo"] is None
     list(inf.infer())
-    assert inf._arg is not None
     assert inf._provenance_parameters()["focal"] == "ingroup_mrca"
 
 
@@ -1511,12 +1507,7 @@ def test_a_chunked_run_reads_the_last_base_like_an_unchunked_one(tmp_path):
             vcf, JC69(), mu=MU, rec_rate=REC, sequence_length=length,
             window=200, block_size=bs, progress=False, accessibility=str(bed),
             mutation_map=str(graph), **kw)
-        if kw["chunk_size"] is None:
-            builder = inf.builder
-        else:
-            inf._resolve_segmentation_params()
-            builder = inf._segment_builder(*list(inf._stream_segments())[-1])
-        return builder._hmm_inputs()[2][-1]
+        return list(segment_builders(inf))[-1]._hmm_inputs()[2][-1]
 
     # The last block spans POS 1950-2000, 51 bases: POS 1950-1970 and 2000
     # are accessible, and the mean rate is (50 + 4) / 51 mu.
@@ -2925,22 +2916,17 @@ def test_a_relabelled_run_refuses_a_source_spanning_several_contigs():
         list(inf.infer())
 
 
-def test_the_cached_plug_in_arg_is_drained_when_its_counts_are_folded_in():
-    """The plug-in ARG is cached across passes and silenced, and a silenced
-    walk never runs the summary that zeroes its counters. Folding its running
-    total into the parent without draining it made every later pass re-add
-    everything the earlier ones had seen, so the second provenance record
-    reported twice the diagnostics of the first."""
+def test_a_second_plug_in_pass_reports_the_same_diagnostics():
+    """Every pass reports its own tallies, not the running total of the
+    passes before it."""
     sites, names = toy_sites(range(0, 1000, 20))
     inf = toy_inference(sites, names, n_ensemble=None, sequence_length=1000.0,
                         ingroup_samples=names[:2], outgroup_samples=names[2:])
-    list(inf.infer())
-    assert inf._arg is not None, "the plug-in ARG was not built"
-    # What a walk that fell back to the uniform posterior leaves behind.
-    inf._arg._n_uniform_fallback = 5
-    list(inf.infer())
-    assert inf._arg._diagnostic_counts() == (0,) * len(inf._COUNTERS), (
-        "the plug-in ARG kept its tally, so the next pass folds it in again")
+    records = []
+    for _ in range(2):
+        list(inf.infer())
+        records.append(inf.provenance()["parameters"])
+    assert records[0] == records[1]
 
 
 def test_an_integer_mu_is_stored_as_a_float():

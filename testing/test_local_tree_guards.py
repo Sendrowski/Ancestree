@@ -64,7 +64,7 @@ def test_a_non_positive_width_is_rejected_by_the_shared_parser(spec):
 @pytest.mark.parametrize("spec", ["8snps", "1gb"])
 def test_a_malformed_window_lists_the_snp_form(spec):
     """``window`` and ``block_size`` take ``"<N>snp"``, so the error lists it."""
-    from ancestree.local_tree_inference import _width_bp
+    from ancestree._geometry import _width_bp
 
     with pytest.raises(ValueError, match=r"window must be.*'<N>snp'"):
         _width_bp(spec, 60, 1e5, name="window")
@@ -81,17 +81,21 @@ def test_parse_bp_accepts_a_bp_suffix():
 @pytest.mark.parametrize("spec", ["xsnp", "0snp", "-3snp"])
 def test_width_bp_rejects_a_malformed_snp_spec(spec):
     """A non-numeric or non-positive ``"<N>snp"`` width is refused."""
+    from ancestree._geometry import _width_bp
+
     with pytest.raises(ValueError, match="window must be"):
-        lti._width_bp(spec, 100, 10_000.0, name="window")
+        _width_bp(spec, 100, 10_000.0, name="window")
     with pytest.raises(ValueError, match="block_size must be"):
-        lti._width_bp(spec, 100, 10_000.0, name="block_size")
+        _width_bp(spec, 100, 10_000.0, name="block_size")
 
 
 def test_width_bp_snp_form_scales_with_density():
     """A ``"<N>snp"`` width is N sites' worth of span at the mean density."""
-    assert lti._width_bp("4snp", 100, 10_000.0, name="block_size") == 400
-    assert lti._width_bp("1snp", 0, 0.0, name="block_size") == 1
-    assert lti._width_bp("300bp", 100, 10_000.0, name="block_size") == 300
+    from ancestree._geometry import _width_bp
+
+    assert _width_bp("4snp", 100, 10_000.0, name="block_size") == 400
+    assert _width_bp("1snp", 0, 0.0, name="block_size") == 1
+    assert _width_bp("300bp", 100, 10_000.0, name="block_size") == 300
 
 
 def test_builder_resolves_a_snp_block_spec():
@@ -203,16 +207,18 @@ def test_inference_genotype_path_defaults_rec_rate_with_warning(caplog):
     assert "no rec_rate given" in caplog.text
 
 
-def test_inference_unchunked_requires_sequence_length():
-    """The non-chunked genotype build path needs an explicit
-    ``sequence_length`` (the chunked path derives it per segment)."""
-    with pytest.raises(
-        ValueError, match=r"building requires sequence_length",
-    ):
-        LocalTreeInference(
-            [], JC69(), mu=1.25e-8, rec_rate=1e-8,
-            sample_names=["a", "b"], sequence_length=None, chunk_size=None,
-        )
+def test_unchunked_contig_without_a_length_ends_at_its_last_site():
+    """With no length given, an unchunked contig ends at its last site, as a
+    chunked one does."""
+    sites, names = toy_sites(range(0, 1000, 50))
+    inferences = [LocalTreeInference(
+        sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
+        window=200, block_size=50, progress=False, chunk_size=None,
+        n_ensemble=None, **kw) for kw in ({}, {"sequence_length": 951})]
+    rows = [[post.values for _, post in inference.infer()]
+            for inference in inferences]
+    np.testing.assert_array_equal(rows[0], rows[1])
+    assert inferences[0].point_tree_sequence().sequence_length == 951
 
 
 def test_inference_rejects_non_positive_rates_and_counts():

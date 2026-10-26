@@ -246,14 +246,6 @@ def test_chunked_small_config_runs_and_recovers():
 
 
 # ------------------------------------------------------ segment workers
-def test_point_arg_is_unavailable_on_the_chunked_path():
-    """The chunked path has no single genome-wide plug-in ARG."""
-    sites, names = toy_sites(range(0, 1000, 50))
-    inf = toy_chunked_inference(sites, names)
-    with pytest.raises(NotImplementedError, match="per-segment"):
-        inf._point_arg()
-
-
 def test_segment_worker_requires_the_module_global(monkeypatch):
     """The fork entrypoint refuses to run without the inherited instance."""
     monkeypatch.setattr(lti, "_LOCAL_TREE_FOR_FORK", None)

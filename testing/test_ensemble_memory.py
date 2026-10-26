@@ -95,11 +95,9 @@ def _one_run(window, n_ensemble, n_sites, q):
                              # scoring budget -- would move with it and swamp
                              # the thing under test.
                              block_size=500, progress=False,
-                             # Reads the builder's window grid directly, which
-                             # the segmented path resolves per segment.
                              chunk_size=None)
     scored = sum(1 for _ in inf.infer())
-    n_windows = len(inf.builder.geometry.windows)
+    n_windows = len(inf._contig(sites[0].chrom).windows)
     # The child reports its OWN peak: RUSAGE_CHILDREN in the parent is a
     # high-water mark across every child ever spawned, so a delta there reads
     # zero for any run that stays below an earlier one -- and the assertion

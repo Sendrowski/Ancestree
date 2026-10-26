@@ -141,10 +141,7 @@ def _inference(path, *, chunk_size=None, halo=HALO, n_ensemble=None,
 
 def _resolved(inference):
     """``(block, window, halo)`` in bp as the run resolved them, the halo
-    ``None`` unchunked."""
-    if inference.builder is not None:
-        return (inference.builder.block_size, inference.builder.window_bp,
-                None)
+    ``0`` unchunked."""
     inference._resolve_segmentation_params()
     return inference.block_size, inference._wbp, inference._halo_value
 

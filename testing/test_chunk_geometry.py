@@ -373,8 +373,7 @@ def test_every_member_tiles_the_data_stretch(chunk_size, n_ensemble):
     inf = toy_chunked_inference(head + tail, names, n_ensemble=n_ensemble,
                                 chunk_size=chunk_size, sequence_length=5000)
     groups = [(iv, list(members)) for iv, members in inf.tree_sequences()]
-    windows = (inf.builder.geometry.windows if inf.builder is not None
-               else inf._contig(head[0].chrom).windows)
+    windows = inf._contig(head[0].chrom).windows
     end = float(windows[np.searchsorted(windows[:, 1], 4400, side="right"), 1])
     assert 4400 < end < 5000
     expected = ([(float(a), float(a + 1000)) for a in range(0, 5000, 1000)
@@ -545,12 +544,8 @@ def test_snp_sized_widths_follow_the_sites_not_the_axis_length(chunk_size):
             sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
             window="8snp", n_ensemble=None, progress=False,
             sequence_length=length, chunk_size=chunk_size)
-        if chunk_size is None:
-            widths.append((inference.builder.block_size,
-                           inference.builder.window_bp))
-        else:
-            inference._resolve_segmentation_params()
-            widths.append((inference.block_size, inference._wbp))
+        inference._resolve_segmentation_params()
+        widths.append((inference.block_size, inference._wbp))
     assert widths[0] == widths[1]
 
 

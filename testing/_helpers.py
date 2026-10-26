@@ -422,6 +422,20 @@ def toy_chunked_inference(sites, names, **kw):
                               sample_names=names, **kw)
 
 
+def segment_builders(inference):
+    """The builder of every segment of ``inference`` that carries a tree.
+
+    :param inference: A :class:`~ancestree.local_tree_inference.LocalTreeInference`.
+    :return: Iterator of
+        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`, in genome
+        order.
+    """
+    inference._resolve_segmentation_params()
+    for sites, geometry in inference._stream_segments():
+        if geometry.tree_span is not None:
+            yield inference._segment_builder(sites, geometry)
+
+
 def write_vcf(path, rows, samples=("s1",), extra_header=()):
     """Write a small VCF with one ``GT`` column per sample.
 

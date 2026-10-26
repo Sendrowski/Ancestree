@@ -47,7 +47,7 @@ from tqdm import tqdm
 
 from ancestree._geometry import (
     _ACCESS_FRAC_FLOOR, _EMIT_SCALE_FLOOR, BuildGeometry, ContigGeometry,
-    _check_on_axis, _filled, _parse_bp, _width_bp,
+    _check_on_axis, _filled, _parse_bp,
 )
 from ancestree._smc_kernel import pair_posterior_mean_tmrca
 from ancestree._upgma import (
@@ -673,16 +673,9 @@ class LocalTreeBuilder(ReprMixin):
             raise ValueError(f"mu must be positive, got {mu}")
         if rec_rate <= 0:
             raise ValueError(f"rec_rate must be positive, got {rec_rate}")
-        self._n_unrepresentable_sites = 0
-        self._n_unrepresentable_tips = 0
-        if isinstance(sites, SiteTable):
-            self.sites = sites
-            for _ in self._tally_unrepresentable(sites):
-                pass
-        else:
-            # Columnar: from_sites consumes the input one site at a time.
-            self.sites = SiteTable.from_sites(
-                self._tally_unrepresentable(sites), sample_names)
+        # Columnar: from_sites consumes the input one site at a time.
+        self.sites = (sites if isinstance(sites, SiteTable)
+                      else SiteTable.from_sites(sites, sample_names))
         _chroms = self.sites.chroms
         if len(_chroms) > 1:
             raise ValueError(
@@ -690,8 +683,7 @@ class LocalTreeBuilder(ReprMixin):
                 f"but the sites span {len(_chroms)} contigs "
                 f"({sorted(_chroms)}). Local trees are per-contig: pass one "
                 f"contig at a time, or drive multi-contig data through "
-                f"LocalTreeInference(chunk_size=...), which severs contigs "
-                f"automatically."
+                f"LocalTreeInference, which builds each contig on its own."
             )
         self.mu = float(mu)
         self.rec_rate = float(rec_rate)
@@ -738,22 +730,6 @@ class LocalTreeBuilder(ReprMixin):
         """Length of the tree sequence's axis, which holds every base of the
         region: :attr:`sequence_length` plus :attr:`position_base`."""
         return self.geometry.axis_length
-
-    def _tally_unrepresentable(self, sites: "Iterable[Site]") -> "Iterator[Site]":
-        """Pass sites through, tallying alleles outside the alphabet.
-
-        A site counts once when its allele list carries such an allele or one
-        of its tips is observed at one. The tips are counted individually.
-
-        :param sites: Iterable of :class:`~ancestree.sites.Site`.
-        :return: The same sites, in order.
-        """
-        for site in sites:
-            n_tips = site.n_unrepresentable_tips()
-            self._n_unrepresentable_tips += n_tips
-            if n_tips or site.has_unrepresentable_allele:
-                self._n_unrepresentable_sites += 1
-            yield site
 
     def _genotype_matrix(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
         """Build the ``(n_sites, n_hap)`` allele-index matrix + block ids.
@@ -1025,10 +1001,10 @@ class LocalTreeInference(Inference):
         contig its own. For 1-based input (VCF / VCZ) the axis is
         ``[0, L + 1)``, so a site at ``POS == L`` lies on it. A single length
         applies to every contig. Defaults to a tree-sequence source's own
-        length, or to the contig lengths of a VCF header or VCZ store. Under
-        ``chunk_size`` the length is what lays one window grid over a contig
-        and not one per segment, and a contig with none ends at its last
-        site.
+        length, or to the contig lengths of a VCF header or VCZ store. A
+        contig with no length ends at its last site. Under ``chunk_size`` the
+        length is what lays one window grid over a contig and not one per
+        segment.
     :param window: Local-tree window spec (the primary resolution parameter). See
         :class:`~ancestree.local_tree_inference.LocalTreeBuilder`.
     :param block_size: HMM emission block width: int / bp string / ``"<N>snp"``;
@@ -1042,23 +1018,18 @@ class LocalTreeInference(Inference):
         ``None`` (default) applies the π of ``base_composition``, uniform
         when none is supplied.
     :param base_composition: Optional base composition for the prior.
-    :param progress: Show a tqdm bar, over segments on the chunked path and
-        over trees on a single-region build.
-    :param n_workers: Fork-pool workers. On the single-region path this
-        parallelises only the Felsenstein pass, not the tree construction that dominates
-        this mode's runtime. With ``chunk_size`` set it instead fans
-        whole segments across the pool, so peak memory scales with
-        ``n_workers``. Requires the ``fork`` start method (falls back to
-        single-threaded with a warning).
+    :param progress: Show a tqdm bar over segments.
+    :param n_workers: Fork-pool workers, across which whole segments are
+        fanned, so peak memory scales with ``n_workers``. Requires the
+        ``fork`` start method (falls back to single-threaded with a warning).
     :param chunk_size: Segment span (bp int or ``"5mb"``-style string), raised
         to the resolved block width when narrower, which shifts the posteriors
-        as any change of segmentation does, or
-        ``None`` to build the whole input as one region. Chunked, one
-        contiguous segment is processed at a time, so peak memory tracks the
-        segment span and ``n_workers`` fans whole segments out. Contigs are
-        independent segments, and a contig longer than ``chunk_size`` is
-        sliced into cores of that size. A chunked and an unchunked pass agree
-        closely, not exactly. Requires sites in sorted genomic order.
+        as any change of segmentation does, or ``None`` to build each contig
+        as one segment. One contiguous segment is processed at a time, so
+        peak memory tracks the segment span. Contigs are independent
+        segments, and a contig longer than ``chunk_size`` is sliced into
+        cores of that size. A chunked and an unchunked pass agree closely,
+        not exactly. Requires sites in sorted genomic order.
     :param halo: Overlap (bp int / string, or ``"auto"``) added on the
         contig-interior side of each chunk slice and then discarded, so the
         HMM decorrelates from the cut before any emitted site. ``"auto"`` uses
@@ -1092,8 +1063,8 @@ class LocalTreeInference(Inference):
         read into one entry per contig, its 0-based BED and bedGraph intervals
         placed on the 1-based positions of a VCF or VCF-Zarr source. A list of
         sites carries no coordinate base and is read as 0-based. See
-        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. On the
-        chunked path each map is sliced per segment.
+        :class:`~ancestree.local_tree_inference.LocalTreeBuilder`. Each map is
+        sliced per segment.
     :param outgroup_samples: Sample ids treated as outgroups, used by the
         ``baseline_check`` comparison. Defaults to the panel samples outside
         ``ingroup_samples``. With both lists named, samples in neither are
@@ -1222,18 +1193,14 @@ class LocalTreeInference(Inference):
                 "per generation. That is a human / great-ape figure, so pass "
                 "mu= for your species.", DEFAULT_MU,
             )
-        self.builder: LocalTreeBuilder | None = None
-        self._arg: ARGBasedInference | None = None
         # The rate infer() scores each contig at, filled on first use.
         self._kernel_mus: dict = {}
         self.chrom = chrom
-        self._segmented = False
         self._announced = False
-        # The cached genome-wide TS on the chunked path, with its contig.
+        # The cached genome-wide TS, with its contig.
         self._stitched: "tuple[tskit.TreeSequence, str] | None" = None
-        # Retained for the segmented path / provenance. Constructed here rather
-        # than defaulted in the signature: models carry mutable state that would
-        # otherwise be shared across inferences.
+        # Constructed here rather than defaulted in the signature: models carry
+        # mutable state that would otherwise be shared across inferences.
         model = model if model is not None else JC69()
         self.model = model
         if isinstance(mu, (int, float)):
@@ -1339,17 +1306,12 @@ class LocalTreeInference(Inference):
         # Every width is parsed before the source is touched, so a malformed
         # spec is reported without a streaming pre-pass. A "<N>snp" spec
         # resolves against the real density later.
-        if chunk_size is not None:
-            self._chunk_size = _parse_bp(chunk_size, name="chunk_size")
-            ContigGeometry.resolve_widths(window, block_size, 1, 1.0)
-            if not (isinstance(halo, str) and halo.strip().lower() == "auto"):
-                _parse_bp(halo, name="halo")
-        elif sequence_length is None:
-            raise ValueError(
-                "building requires sequence_length (--sequence-length), or "
-                "chunk_size (--chunk-size) for the chunked path, which "
-                "derives it per segment"
-            )
+        ContigGeometry.resolve_widths(window, block_size, 1, 1.0)
+        self._chunk_size = (None if chunk_size is None
+                            else _parse_bp(chunk_size, name="chunk_size"))
+        auto_halo = isinstance(halo, str) and halo.strip().lower() == "auto"
+        if chunk_size is not None and not auto_halo:
+            _parse_bp(halo, name="halo")
 
         self.sample_names = list(
             self._resolve_panel(sample_names, explicit=explicit_panel))
@@ -1382,51 +1344,12 @@ class LocalTreeInference(Inference):
             self._refuse_empty_ingroup(len(self.sample_names))
         self._warn_single_ingroup(len(self._resolved_ingroup))
 
-        if chunk_size is not None:
-            # Chunked / segmented build path: defer all work to infer(), which
-            # processes one contiguous segment at a time (bounded memory) and
-            # severs contigs / slices large contigs with a halo overlap.
-            self._segmented = True
-            self._source: "Iterable[Site] | SiteSource" = source
-            # The last site of each contig, read by a pre-pass.
-            self._last_sites: dict[str, int] = {}
-            self._halo = ("auto" if isinstance(halo, str)
-                          and halo.strip().lower() == "auto" else halo)
-            return
-
-        self._log_start()
-        first = next(iter(source), None)
-        maps = self._maps_on(str(first.chrom)) if first is not None else {}
-        sequence_length = self._declared_on(
-            None if first is None else first.chrom)
-        if sequence_length is None:
-            raise ValueError(
-                f"sequence_length gives no length for contig "
-                f"{getattr(first, 'chrom', None)!r}")
-        self.builder = LocalTreeBuilder(
-            self._on_declared_axis(source, sequence_length + base),
-            mu=mu, rec_rate=rec_rate, sample_names=self.sample_names,
-            sequence_length=sequence_length, window=window,
-            block_size=block_size, n_time_bins=n_time_bins,
-            time_grid=time_grid, position_base=base, **maps,
-        )
-        # The builder resolved a tracked (None) block_size from the SNP density.
-        self.block_size = self.builder.block_size
-        pos = self.builder.sites.pos
-        _n = len(pos)
-        _span = (float(pos[-1] - pos[0] + 1) if _n
-                 else self.builder.sequence_length)
-        self._warn_resolution(requested_bp=_width_bp(window, _n, _span,
-                                                     name="window"),
-                              n_sites=_n, span_bp=_span)
-        self._arg_model = model
-        self._arg_kwargs = dict(
-            mu=mu, prior=prior,
-            base_composition=base_composition, progress=progress,
-            n_workers=n_workers, focal=focal,
-            ingroup_samples=self._resolved_ingroup,
-            outgroup_samples=self._resolved_outgroups or None,
-        )
+        # All work is deferred to infer(), which builds one contiguous segment
+        # at a time.
+        self._source: "Iterable[Site] | SiteSource" = source
+        # The last site of each contig, read by a pre-pass.
+        self._last_sites: dict[str, int] = {}
+        self._halo = "auto" if auto_halo else halo
 
     def _refuse_off_axis(self, site: Site, axis_end: float) -> None:
         """Refuse a site past the end of a contig whose length the input
@@ -1443,24 +1366,6 @@ class LocalTreeInference(Inference):
                 f"{int(self._declared_on(site.chrom)):,}, but a site lies at "
                 f"{int(site.pos):,}; fix the header or pass sequence_length")
 
-    def _on_declared_axis(self, sites, axis_end: float):
-        """``sites``, refusing one past a declared contig end.
-
-        :param sites: The sites of one contig.
-        :param axis_end: End of the contig's axis.
-        :return: The sites, unchanged, or ``sites`` itself when the length
-            was passed.
-        """
-        if self._length_source is None or isinstance(sites, SiteTable):
-            return sites
-
-        def checked():
-            for site in sites:
-                if site.pos >= axis_end:
-                    self._refuse_off_axis(site, axis_end)
-                yield site
-        return checked()
-
     def _kernel_mu(self, site: Site, x: float):
         """The rate :meth:`infer` scores ``site`` at: :attr:`mu`, or the
         :attr:`mutation_map` of its contig with every stretch it leaves
@@ -1472,36 +1377,13 @@ class LocalTreeInference(Inference):
         """
         contig = str(site.chrom)
         if contig not in self._kernel_mus:
-            if self.builder is not None:
-                mu = self.builder.geometry.kernel_mu(self.mu)
-            else:
-                geometry = self._contig(contig)
-                mu = _filled(geometry.mutation_map, self.mu,
-                             float(geometry.axis_end))
-            self._kernel_mus[contig] = mu
+            geometry = self._contig(contig)
+            self._kernel_mus[contig] = _filled(
+                geometry.mutation_map, self.mu, float(geometry.axis_end))
         mu = self._kernel_mus[contig]
         if isinstance(mu, float) or x < float(mu.sequence_length):
             return mu
         return self.mu
-
-    def _point_arg(self) -> "ARGBasedInference":
-        """The plug-in (point-estimate) genealogy wrapped for kernel scoring.
-
-        Built on first use, since building it runs the HMM and bakes the
-        genotypes into a tree sequence.
-        """
-        if self._arg is None:
-            if self._segmented:
-                raise NotImplementedError(
-                    "the plug-in ARG is per-segment on the chunked path "
-                    "(chunk_size set); there is no single genome-wide one to "
-                    "build. Use point_tree_sequence() for the stitched trees.")
-            self._arg = ARGBasedInference(
-                self.builder.to_tree_sequence(), self._arg_model,
-                **{**self._arg_kwargs,
-                   "mu": self.builder.geometry.kernel_mu(self.builder.mu)})
-            self._arg._quiet = True  # parent does the user-facing logging
-        return self._arg
 
     def _log_start(self) -> None:
         """Announce the run once, before any tree building begins."""
@@ -1516,57 +1398,13 @@ class LocalTreeInference(Inference):
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(Site, Posterior)`` for every site, in genomic order."""
         self._log_start()
-        yield from self._with_baseline_check(self._emitted(self._infer_impl()))
-        if self._arg is not None:
-            self._add_counts(self._arg._diagnostic_counts())
-            self._arg._reset_counts()
+        yield from self._with_baseline_check(
+            self._emitted(self._infer_segmented()))
         self._log_uniform_fallback_summary()
-
-    def _infer_impl(self) -> Iterator[tuple[Site, Posterior]]:
-        """Per-site posterior stream (segmented or single-pass build)."""
-        if self._segmented:
-            yield from self._infer_segmented()
-        elif self._ensemble_mode():
-            yield from self._infer_ensemble()
-        else:
-            yield from self._plug_in_stream()
-
-    def _add_builder_unrepresentable(self) -> None:
-        """Add the builder's tally of alleles outside the alphabet.
-
-        The builder counts over the source records, whose unrepresentable tips
-        the columnar encoding stores as no-calls.
-        """
-        self._n_unrepresentable_sites += self.builder._n_unrepresentable_sites
-        self._n_unrepresentable_tips += self.builder._n_unrepresentable_tips
-
-    def _plug_in_stream(self) -> Iterator[tuple[Site, Posterior]]:
-        """Plug-in posteriors, one per site in the source's own order.
-
-        A site with no called genotype anywhere is absent from the baked tree
-        sequence and is reported at the flat posterior, as on the ensemble
-        path, so the stream pairs one to one with the source sites.
-        """
-        sites = self.builder.sites
-        self._add_builder_unrepresentable()
-        scored = {int(ts_site.pos): post
-                  for ts_site, post in self._point_arg().infer()}
-        if len(scored) == len(sites):
-            yield from ((s, scored[int(s.pos)]) for s in sites)
-            return
-        n_states = len(self.model.states)
-        flat = np.full(n_states, 1.0 / n_states)
-        for site in sites:
-            post = scored.get(int(site.pos))
-            yield site, (post if post is not None
-                         else Posterior(tuple(self.model.states), flat))
 
     def _score_ensemble(self, builder, sites, keep=None,
                         segment=("", 0)) -> np.ndarray:
         """Prior-weighted per-site posteriors for one builder's sites.
-
-        The whole of ensemble scoring, shared by the single-region and
-        segmented paths, which differ only in the builder and sites they pass.
 
         :param builder: The :class:`~ancestree.local_tree_inference.LocalTreeBuilder` covering ``sites``.
         :param sites: Those sites, in order.
@@ -1596,23 +1434,7 @@ class LocalTreeInference(Inference):
         self._n_uniform_fallback += int(uniform.sum())
         return self._weight_by_prior(post, sites)
 
-    def _region_segment(self) -> tuple[str, int]:
-        """The unsegmented region's stream key, that of a run chunked into
-        one segment: its contig, at core start ``0``."""
-        sites = self.builder.sites
-        return (sites[0].chrom if sites else "", 0)
-
-    def _infer_ensemble(self) -> Iterator[tuple[Site, Posterior]]:
-        """Single-region ensemble path: one builder, no segmentation."""
-        sites = self.builder.sites
-        post = self._score_ensemble(self.builder, sites,
-                                    segment=self._region_segment())
-        self._count_ingroup_monomorphic(sites)
-        self._add_builder_unrepresentable()
-        for row, site in enumerate(sites):
-            yield site, Posterior(tuple(STATES), post[row])
-
-    # ----------------------------------------------------- chunked build path
+    # ------------------------------------------------------------- segments
     def _warn_resolution(self, *, requested_bp, n_sites, span_bp) -> None:
         """Warn when the window floored to ``block_size``, or blocks are
         SNP-starved.
@@ -1665,7 +1487,8 @@ class LocalTreeInference(Inference):
         from collections import Counter
         w = self.window
         need_window = isinstance(w, str) and w.strip().lower().endswith("snp")
-        need_halo = isinstance(self._halo, str) and self._halo == "auto"
+        chunked = self._chunk_size is not None
+        need_halo = chunked and self._halo == "auto"
         # A default (unset) or "<N>snp" block_size is sized from the SNP
         # density, which needs a site count even for a window given in bp.
         need_density = self.block_size is None or isinstance(self.block_size, str)
@@ -1701,8 +1524,8 @@ class LocalTreeInference(Inference):
 
         requested, self.block_size, self._wbp = ContigGeometry.resolve_widths(
             w, self.block_size, n_sites, span)
-        chunk = getattr(self, "_chunk_size", None)
-        if chunk is not None and chunk < self.block_size:
+        chunk = self._chunk_size
+        if chunked and chunk < self.block_size:
             self._log.warning(
                 "The chunk size of %d bp is narrower than the resolved block "
                 "width of %d bp, raising it to the block width, below which a "
@@ -1712,6 +1535,9 @@ class LocalTreeInference(Inference):
             self._chunk_size = self.block_size
         self._warn_resolution(requested_bp=requested, n_sites=n_sites,
                               span_bp=span)
+        if not chunked:
+            self._halo_value = 0
+            return
 
         # At least one block, so a segment's truncated final block is never
         # emitted beside the next segment's, and at least the widest window,
@@ -1776,7 +1602,7 @@ class LocalTreeInference(Inference):
             cache[chrom] = ContigGeometry(
                 length, position_base=self._position_base,
                 block=self.block_size, window=self._wbp,
-                chunk=self._chunk_size, halo=self._halo_value,
+                chunk=self._chunk_size or 0, halo=self._halo_value,
                 contig=chrom, **self._maps_on(chrom))
         return cache[chrom]
 
@@ -1792,7 +1618,6 @@ class LocalTreeInference(Inference):
         :meth:`ContigGeometry.segment() <ancestree._geometry.ContigGeometry.segment>`,
         whose trees cover the core's part of the contig's data stretch.
         """
-        cs = self._chunk_size
         halo = self._halo_value
 
         def unit(contig, buf, core_lo, core_hi, data):
@@ -1822,11 +1647,12 @@ class LocalTreeInference(Inference):
                 _check_on_axis(np.array([s.pos]), contig.axis_end)
             if s.pos < last:
                 raise ValueError(
-                    "chunked LocalTreeInference requires sorted sites; saw "
+                    "LocalTreeInference requires sorted sites; saw "
                     f"{s.chrom}:{s.pos} after {s.chrom}:{last}"
                 )
             last = s.pos
             buf.append(s)
+            cs = contig.chunk
             while s.pos >= core_lo + cs + halo:  # right halo fully buffered
                 yield unit(contig, buf, core_lo, core_lo + cs,
                            (first, np.inf))
@@ -1889,7 +1715,8 @@ class LocalTreeInference(Inference):
         """
         origin = geometry.origin
         builder = LocalTreeBuilder(
-            [replace(s, pos=int(s.pos - origin)) for s in sites],
+            [replace(s, pos=int(s.pos - origin)) for s in sites] if origin
+            else sites,
             mu=self.mu, rec_rate=self.rec_rate,
             sample_names=self.sample_names, n_time_bins=self.n_time_bins,
             time_grid=self.time_grid, validate_coverage=False,
@@ -1909,8 +1736,7 @@ class LocalTreeInference(Inference):
         """
         if seen is not None and chrom != seen:
             raise NotImplementedError(
-                f"LocalTreeInference: {what} on the chunked path supports a "
-                f"single contig; the source spans {seen!r} and {chrom!r}. "
+                f"LocalTreeInference: {what} supports a single contig; the source spans {seen!r} and {chrom!r}. "
                 f"Positions from different contigs would collide on one axis. "
                 f"Use VCF / VCZ output for multi-contig data."
             )
@@ -2052,14 +1878,13 @@ class LocalTreeInference(Inference):
         return self._ensemble_fraction(), -1
 
     def _stitch_segment_tree_sequence(self) -> "tuple[tskit.TreeSequence, str]":
-        """Assemble a genome-wide tree sequence from the chunked segments.
+        """Assemble a genome-wide tree sequence from the segments.
 
         Streams one segment at a time (so the HMM's peak memory still tracks a
         single segment span), builds each segment's local-tree sequence over
         its core's part of the data stretch and appends it, on the genome
         axis, to one table collection. The result tiles the data stretch with
-        the per-window local trees, the same pseudo-ARG the non-chunked path
-        produces, but reconstructed without ever holding the whole-genome HMM
+        the per-window local trees without ever holding the whole-genome HMM
         TMRCA matrix. A core outside the data stretch is not built.
 
         Single contig only: a :class:`tskit.TreeSequence` has one coordinate
@@ -2130,7 +1955,7 @@ class LocalTreeInference(Inference):
         return out.tree_sequence()
 
     def _infer_segmented(self) -> Iterator[tuple[Site, Posterior]]:
-        """Posteriors for a chunked run, one segment at a time."""
+        """Posteriors, one segment at a time."""
         # Resolve window + halo once (workers inherit them via fork).
         self._resolve_segmentation_params()
         states = self.model.states
@@ -2160,7 +1985,7 @@ class LocalTreeInference(Inference):
                 return
             self._log.warning(
                 "LocalTreeInference(n_workers=%s): the 'fork' start method is "
-                "unavailable on this platform; running the chunked path "
+                "unavailable on this platform; running the segments "
                 "single-threaded.", self.n_workers,
             )
         for wu in self._segments_with_bar():
@@ -2219,8 +2044,8 @@ class LocalTreeInference(Inference):
 
         Model, prior and mu, the contig, the tree-building parameters (rate,
         window, block size, time bins), and in ensemble mode the member count,
-        seed and chunk. On the chunked path the contig is known once
-        :meth:`point_tree_sequence` has run.
+        seed and chunk. The contig is known once :meth:`point_tree_sequence`
+        has run.
         """
         params: dict[str, object] = {
             "model": self._model_name(self.model),
@@ -2233,25 +2058,18 @@ class LocalTreeInference(Inference):
             "n_time_bins": int(self.n_time_bins),
             **self.focal.provenance(),
         }
-        if self._segmented:
-            self._resolve_segmentation_params()
-            params.update({
-                # The configured spec (None is density-adaptive).
-                "block_size": self.block_size,
-                "halo": self._halo,
-                "chunk_size": int(self._chunk_size),
-                # The window the HMM uses, a whole number of blocks.
-                "window_bp": int(self._wbp),
-            })
-            contig = None if self._stitched is None else self._stitched[1]
-        else:
-            params.update({"block_size": int(self.builder.block_size),
-                           "window_bp": int(self.builder.window_bp)})
-            contig = next(iter(self.builder.sites.chroms), None)
+        self._resolve_segmentation_params()
+        chunked = self._chunk_size is not None
+        params.update({
+            "block_size": int(self.block_size),
+            "halo": self._halo if chunked else None,
+            "chunk_size": int(self._chunk_size) if chunked else None,
+            # The window the HMM uses, a whole number of blocks.
+            "window_bp": int(self._wbp),
+        })
+        contig = None if self._stitched is None else self._stitched[1]
         # The contig of every emitted site, where the run lays them on one.
         params["chrom"] = self.chrom if self.chrom is not None else contig
-        if self._arg is not None:
-            params.update(self._arg._focal_provenance())
         params.update(self._ensemble_provenance())
         params.update(self._map_provenance())
         return params
@@ -2339,8 +2157,8 @@ class LocalTreeInference(Inference):
         coordinates and an iterator over the genealogies covering it. In
         ensemble mode ``members`` yields the :paramref:`n_ensemble <ancestree.local_tree_inference.LocalTreeInference.n_ensemble>` draws
         :meth:`infer` marginalises over, otherwise the single plug-in tree
-        sequence. An unchunked run yields one group spanning the region; a
-        chunked run yields one per core reaching into the data stretch. The
+        sequence. A run yields one group per core reaching into the data
+        stretch, one per contig unchunked. The
         genealogies cover each contig's data stretch, the whole windows from
         the one holding its first site to the one holding its last, and leave
         the rest without trees, the tskit representation of unsequenced
@@ -2364,15 +2182,6 @@ class LocalTreeInference(Inference):
 
         :return: Iterator of ``(interval, iterator of tskit.TreeSequence)``.
         """
-        if not self._segmented:
-            span = float(self.builder.axis_length)
-            # The unsegmented plug-in tree is the cached one infer() scored.
-            members = (self._ensemble_members(
-                           self.builder, segment=self._region_segment())
-                       if self._ensemble_mode()
-                       else iter([self.point_tree_sequence()]))
-            yield (0.0, span), members
-            return
         self._resolve_segmentation_params()
         seen_chrom = None
         for sites, geometry in self._stream_segments():
@@ -2413,36 +2222,32 @@ class LocalTreeInference(Inference):
     def point_tree_sequence(self):
         """The single plug-in (point-estimate) local-tree sequence.
 
-        On the chunked path the genome-wide tree sequence is stitched (and
-        cached) from the per-segment builds by
-        ``_stitch_segment_tree_sequence()``, single contig only. The HMM is
+        The genome-wide tree sequence is stitched (and cached) from the
+        per-segment builds, single contig only. The HMM is
         re-run per segment to assemble the topology, so this is independent of
         (and does not cache) the kernel pass in :meth:`infer`.
 
         :return: The local-tree sequence (a pseudo-ARG, see :meth:`to_arg`),
             of length ``sequence_length + 1`` for 1-based input (VCF / VCZ).
-        :raises NotImplementedError: On the chunked path with a multi-contig
-            source (no single coordinate axis to represent it on).
+        :raises NotImplementedError: With a multi-contig source (no single
+            coordinate axis to represent it on).
         """
-        if self._segmented:
-            if self._stitched is None:
-                self._stitched = self._stitch_segment_tree_sequence()
-            return self._stitched[0]
-        return self._point_arg().ts
+        if self._stitched is None:
+            self._stitched = self._stitch_segment_tree_sequence()
+        return self._stitched[0]
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:
         """Inferred per-block pairwise TMRCAs (the raw HMM output, for debugging).
 
-        Delegates to :meth:`LocalTreeBuilder.pairwise_tmrcas`. The chunked path
-        runs the HMM per segment and glues the per-block records in genome
-        order, so the record covers the blocks of the data stretch either
-        way.
+        Runs :meth:`LocalTreeBuilder.pairwise_tmrcas` per segment and glues
+        the per-block records in genome order, so the record covers the blocks
+        of the data stretch.
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
-        :raises NotImplementedError: When a chunked source spans more than one
-            contig (the blocks of
-            different contigs would collide on one coordinate axis).
-        :raises ValueError: If a chunked source yields no segments.
+        :raises NotImplementedError: When the source spans more than one
+            contig (the blocks of different contigs would collide on one
+            coordinate axis).
+        :raises ValueError: If the source yields no segments.
         """
         if getattr(self, "_tmrcas_cache", None) is not None:
             return self._tmrcas_cache
@@ -2466,17 +2271,14 @@ class LocalTreeInference(Inference):
     def iter_pairwise_tmrcas(self) -> "Iterator[PairwiseTmrcas]":
         """Per-block pairwise TMRCAs, one record per stretch of the genome.
 
-        A single region yields one record; a chunked build yields one per
-        segment, trimmed to the blocks whose calls it emits so the halo is not
+        One record per segment,
+        trimmed to the blocks whose calls it emits so the halo is not
         reported twice. :meth:`pairwise_tmrcas` concatenates the stream, which
         is the whole matrix and therefore the thing chunking exists to avoid
         holding: iterate instead where memory is the constraint.
 
         :return: Iterator of :class:`~ancestree.local_tree_inference.PairwiseTmrcas`, in genome order.
         """
-        if not self._segmented:
-            yield self.builder.pairwise_tmrcas()
-            return
         self._resolve_segmentation_params()
         seen_chrom = None
         for sites, geometry in self._stream_segments():
@@ -2543,8 +2345,7 @@ class LocalTreeInference(Inference):
             given, fmt, output, restrict_samples)
         if template is None or self.chrom is None:
             return template, samples
-        sites = self._source if self._segmented else self.builder.sites
-        first = next(iter(sites), None)
+        first = next(iter(self._source), None)
         if first is not None and str(first.chrom) != self.chrom:
             raise ValueError(
                 f"chrom={self.chrom!r} renames the sites of contig "
@@ -2560,16 +2361,13 @@ class LocalTreeInference(Inference):
         :meth:`LocalTreeInference.to_arg() <ancestree.local_tree_inference.LocalTreeInference.to_arg>`
         annotates.
 
-        The plug-in genealogy is resolved as ARG mode resolves it. On the
-        chunked path it is the stitch from
+        The stitch from
         :meth:`LocalTreeInference.point_tree_sequence() <ancestree.local_tree_inference.LocalTreeInference.point_tree_sequence>`,
         which holds only the panel.
 
         :param restrict_samples: Whether to hold only the samples the
             inference used.
         :return: The tree sequence to annotate.
-        :raises NotImplementedError: On the chunked path with a multi-contig source.
+        :raises NotImplementedError: With a multi-contig source.
         """
-        if not self._segmented:
-            return self._point_arg()._source_tree_sequence(restrict_samples)
         return self.point_tree_sequence()

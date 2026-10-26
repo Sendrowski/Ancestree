@@ -556,7 +556,7 @@ class ContigGeometry(ReprMixin):
         positions.
     :param block: Block width in bp.
     :param window: Window width in bp, a whole number of blocks.
-    :param chunk: Core width in bp.
+    :param chunk: Core width in bp, ``0`` for one core over the contig.
     :param halo: Overlap added on each side of a core, in bp.
     :param recombination_map: :class:`msprime.RateMap` on the contig axis.
     :param accessibility: Callable intervals on the contig axis.
@@ -579,7 +579,7 @@ class ContigGeometry(ReprMixin):
         #: End of the contig's axis, ``L`` plus the position base.
         self.axis_end = int(length) + self.position_base
         self.block, self.window = int(block), int(window)
-        self.chunk, self.halo = int(chunk), int(halo)
+        self.chunk, self.halo = int(chunk) or self.axis_end, int(halo)
         self.recombination_map = recombination_map
         self.accessibility = accessibility
         self.mutation_map = mutation_map
