@@ -468,15 +468,26 @@ class TestStagedFiles:
     """A failed rename or swap leaves neither a partial file nor a lost store."""
 
     def test_a_failed_rename_removes_the_staged_file(self, tmp_path):
-        staged = tmp_path / ".partial-x"
-        staged.write_text("partial", encoding="utf-8")
         output = tmp_path / "out"
         output.mkdir()
         (output / "keep").write_text("keep", encoding="utf-8")
         with pytest.raises(OSError):
-            Writer._finish_staged(str(staged), str(output))
-        assert not staged.exists()
+            with Writer._staged(str(output)) as staged:
+                with open(staged, "w", encoding="utf-8") as fh:
+                    fh.write("partial")
+        assert staged_files(tmp_path) == []
         assert (output / "keep").read_text(encoding="utf-8") == "keep"
+
+    def test_a_failed_block_keeps_the_destination(self, tmp_path):
+        output = tmp_path / "out.vcf"
+        output.write_text("keep", encoding="utf-8")
+        with pytest.raises(RuntimeError):
+            with Writer._staged(str(output)) as staged:
+                with open(staged, "w", encoding="utf-8") as fh:
+                    fh.write("partial")
+                raise RuntimeError("mid-write")
+        assert staged_files(tmp_path) == []
+        assert output.read_text(encoding="utf-8") == "keep"
 
     def test_a_failed_swap_restores_the_original_store(self, tmp_path):
         dst = tmp_path / "store.vcz"

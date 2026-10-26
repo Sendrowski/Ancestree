@@ -33,7 +33,7 @@ import os
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -215,31 +215,46 @@ class Writer(ReprMixin, ABC):
     #: unannotated marker.
     AA_UNKNOWN = "."
 
+    def __init__(
+        self, output: "str | os.PathLike", min_confidence: float | None,
+        samples: "Iterable[str] | None" = None,
+        contig_lengths: "Mapping[str, int] | None" = None,
+    ) -> None:
+        """Record the destination, the reporting threshold, the samples and
+        the contig lengths.
+
+        :param output: Destination path.
+        :param min_confidence: Calls below this are written as missing.
+        :param samples: Sample columns to write, or ``None`` for all of them.
+        :param contig_lengths: Length of each contig, or ``None``.
+        """
+        self._output = str(output)
+        self._contig_lengths = dict(contig_lengths or {})
+        self._min_confidence: float | None = (
+            float(min_confidence) if min_confidence is not None else None
+        )
+        self._sample_order = None if samples is None else tuple(samples)
+        self._samples: "frozenset[str] | None" = (
+            None if samples is None else frozenset(self._sample_order))
+
     @staticmethod
-    def _staged_path(output: str) -> str:
-        """A sibling path to build ``output`` at before renaming it into place.
+    @contextlib.contextmanager
+    def _staged(output: str) -> "Iterator[str]":
+        """A sibling path to build ``output`` at, renamed onto it once the
+        block completes.
 
         The marker is a prefix, so the extension chain (``.vcf.gz`` and the
         like) is preserved. The leading dot keeps a partial build out of an
-        unqualified glob.
+        unqualified glob. The staged file is removed if the block or the
+        rename raises, so the destination is left as it was.
 
         :param output: Final path.
-        :return: Sibling path in the same directory.
+        :return: The staged path, in the same directory.
         """
         d, name = os.path.split(output)
-        return os.path.join(d, f".partial-{os.getpid()}-{name}")
-
-    @staticmethod
-    def _finish_staged(staged: str, output: str) -> None:
-        """Rename a completed staged file onto ``output``.
-
-        The staged file is removed if the rename fails, so a destination that
-        cannot be replaced leaves nothing behind.
-
-        :param staged: Path returned by :meth:`Writer._staged_path`.
-        :param output: Final path.
-        """
+        staged = os.path.join(d, f".partial-{os.getpid()}-{name}")
         try:
+            yield staged
             os.replace(staged, output)
         except BaseException:
             if os.path.exists(staged):
@@ -439,28 +454,6 @@ class Writer(ReprMixin, ABC):
             raise ImportError(
                 f"{type(self).__name__} requires {module}. Install with {install}."
             ) from e
-
-    def _init_output(
-        self, output: "str | os.PathLike", min_confidence: float | None,
-        samples: "Iterable[str] | None" = None,
-        contig_lengths: "Mapping[str, int] | None" = None,
-    ) -> None:
-        """Record the destination, the reporting threshold, the samples and
-        the contig lengths.
-
-        :param output: Destination path.
-        :param min_confidence: Calls below this are written as missing.
-        :param samples: Sample columns to write, or ``None`` for all of them.
-        :param contig_lengths: Length of each contig, or ``None``.
-        """
-        self._output = str(output)
-        self._contig_lengths = dict(contig_lengths or {})
-        self._min_confidence: float | None = (
-            float(min_confidence) if min_confidence is not None else None
-        )
-        self._sample_order = None if samples is None else tuple(samples)
-        self._samples: "frozenset[str] | None" = (
-            None if samples is None else frozenset(self._sample_order))
 
     def _refuse_template_overwrite(self) -> None:
         """Refuse an output that resolves to the template.
@@ -669,7 +662,7 @@ class VCFWriter(Writer):
             "cyvcf2",
             "`pip install cyvcf2` or `conda install -c bioconda cyvcf2`")
         self._input = None if input_vcf is None else str(input_vcf)
-        self._init_output(output_vcf, min_confidence, samples, contig_lengths)
+        super().__init__(output_vcf, min_confidence, samples, contig_lengths)
 
     def write(
         self,
@@ -850,44 +843,37 @@ class VCFWriter(Writer):
         # the destination once complete.
         in_vcf = cyvcf2.VCF(self._input, samples=kept)
         info_fields = self._add_headers(in_vcf, info, provenance, store_posterior)
-        staged = self._staged_path(self._output)
-        writer = cyvcf2.Writer(staged, in_vcf, mode=self._mode())
-        # A run storing no posterior declares no AA_post. The template's
-        # declaration stays on in_vcf, which parses the records carrying it.
-        if not store_posterior:
-            with contextlib.suppress(KeyError):
-                writer.remove_header("AA_post", order=[_BCF_HL_INFO])
-        try:
-            n_annotated = 0
-            # Pass 2 walks the template in the same order pass 1 built the
-            # arrays, so the row is the record index. Re-locating by key would
-            # discard pass 1's choice among rows sharing a position.
-            for row, variant in enumerate(in_vcf):
-                if row < n and annotated[row]:
-                    self._annotate(variant, str(aa[row]), float(prob[row]),
-                                   None if post is None else post[row],
-                                   info_fields)
-                    n_annotated += 1
-                else:
-                    for field_id in ("AA", "AA_prob", "AA_post"):
-                        if variant.INFO.get(field_id) is not None:
-                            del variant.INFO[field_id]
-                writer.write_record(variant)
-        except BaseException:
-            writer.close()
-            in_vcf.close()
-            if os.path.exists(staged):
-                os.unlink(staged)
-            raise
-        writer.close()
-        in_vcf.close()
-        if n_posteriors and n_annotated == 0:
-            # Refused before the staged file reaches the destination.
-            if os.path.exists(staged):
-                os.unlink(staged)
-            self._refuse_no_matches(
-                n_posteriors, f"the template {self._input}")
-        self._finish_staged(staged, self._output)
+        with self._staged(self._output) as staged:
+            writer = cyvcf2.Writer(staged, in_vcf, mode=self._mode())
+            try:
+                # A run storing no posterior declares no AA_post. The
+                # template's declaration stays on in_vcf, which parses the
+                # records carrying it.
+                if not store_posterior:
+                    with contextlib.suppress(KeyError):
+                        writer.remove_header("AA_post", order=[_BCF_HL_INFO])
+                n_annotated = 0
+                # Pass 2 walks the template in the same order pass 1 built
+                # the arrays, so the row is the record index. Re-locating by
+                # key would discard pass 1's choice among rows sharing a
+                # position.
+                for row, variant in enumerate(in_vcf):
+                    if row < n and annotated[row]:
+                        self._annotate(variant, str(aa[row]), float(prob[row]),
+                                       None if post is None else post[row],
+                                       info_fields)
+                        n_annotated += 1
+                    else:
+                        for field_id in ("AA", "AA_prob", "AA_post"):
+                            if variant.INFO.get(field_id) is not None:
+                                del variant.INFO[field_id]
+                    writer.write_record(variant)
+            finally:
+                writer.close()
+                in_vcf.close()
+            if n_posteriors and n_annotated == 0:
+                self._refuse_no_matches(
+                    n_posteriors, f"the template {self._input}")
         self._log.info("Wrote %s annotated sites to %s",
                        f"{n_annotated:,}", self._output)
         return n_annotated
@@ -1006,24 +992,20 @@ class VCFWriter(Writer):
                            "INFO", *(("FORMAT", *(c for c, _ in columns))
                                      if columns else ()))),
             ]
-            staged = self._staged_path(self._output)
-            writer = cyvcf2.Writer.from_string(staged, "\n".join(header) + "\n",
-                                               mode=self._mode())
-            try:
-                info_fields = self._add_headers(writer, info, provenance,
-                                                store_posterior)
-                body.seek(0)
-                for line, (allele, max_prob, post) in zip(body, calls):
-                    variant = writer.variant_from_string(line.rstrip("\n"))
-                    self._annotate(variant, allele, max_prob, post, info_fields)
-                    writer.write_record(variant)
-            except BaseException:
-                writer.close()
-                if os.path.exists(staged):
-                    os.unlink(staged)
-                raise
-            writer.close()
-        self._finish_staged(staged, self._output)
+            with self._staged(self._output) as staged:
+                writer = cyvcf2.Writer.from_string(
+                    staged, "\n".join(header) + "\n", mode=self._mode())
+                try:
+                    info_fields = self._add_headers(writer, info, provenance,
+                                                    store_posterior)
+                    body.seek(0)
+                    for line, (allele, max_prob, post) in zip(body, calls):
+                        variant = writer.variant_from_string(line.rstrip("\n"))
+                        self._annotate(variant, allele, max_prob, post,
+                                       info_fields)
+                        writer.write_record(variant)
+                finally:
+                    writer.close()
         self._log.info("Wrote %s annotated sites to %s",
                        f"{len(calls):,}", self._output)
         return len(calls)
@@ -1192,7 +1174,7 @@ class TskitWriter(Writer):
             self._ts = tskit.load(str(input_ts))
         else:
             self._ts = input_ts
-        self._init_output(output_path, min_confidence)
+        super().__init__(output_path, min_confidence)
 
     def write(
         self,
@@ -1310,7 +1292,6 @@ class TskitWriter(Writer):
         self._repolarise(tables, repolarised)
 
         new_ts = tables.tree_sequence()
-        staged = self._staged_path(self._output)
         if n_annotated == 0 and n_offered:
             # An unannotated tree sequence still carries every site's original
             # ancestral_state, so it reads as a successful annotation to
@@ -1319,13 +1300,8 @@ class TskitWriter(Writer):
                 n_offered, "the tree sequence's sites",
                 "Check that the positions of the posteriors and of the tree "
                 "sequence agree.")
-        try:
+        with self._staged(self._output) as staged:
             new_ts.dump(staged)
-        except BaseException:
-            if os.path.exists(staged):
-                os.unlink(staged)
-            raise
-        self._finish_staged(staged, self._output)
         self._log.info("Wrote %s annotated sites to %s",
                        f"{n_annotated:,}", self._output)
         return n_annotated
@@ -1406,7 +1382,7 @@ class ZarrWriter(Writer):
         self._require_backend(
             "zarr", "`pip install zarr` or `conda install -c conda-forge zarr`")
         self._input = None if input_zarr is None else str(input_zarr)
-        self._init_output(output_zarr, min_confidence, samples, contig_lengths)
+        super().__init__(output_zarr, min_confidence, samples, contig_lengths)
         if not _replaceable_store(self._output):
             raise ValueError(
                 f"ZarrWriter: {self._output} exists and is not a Zarr store, "
