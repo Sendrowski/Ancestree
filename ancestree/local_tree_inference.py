@@ -1242,8 +1242,8 @@ class LocalTreeInference(Inference):
         self._kernel_mus: dict = {}
         self.chrom = chrom
         self._announced = False
-        # The cached genome-wide TS, with its contig.
-        self._stitched: "tuple[tskit.TreeSequence, str] | None" = None
+        # The cached genome-wide TS.
+        self._stitched: "tskit.TreeSequence | None" = None
         # Constructed here rather than defaulted in the signature: models carry
         # mutable state that would otherwise be shared across inferences.
         model = model if model is not None else JC69()
@@ -1707,7 +1707,7 @@ class LocalTreeInference(Inference):
             return 0.0, int(spec.coalescences)
         return self._ensemble_fraction(), -1
 
-    def _stitch_segment_tree_sequence(self) -> "tuple[tskit.TreeSequence, str]":
+    def _stitch_segment_tree_sequence(self) -> "tskit.TreeSequence":
         """Assemble a genome-wide tree sequence from the segments.
 
         Streams one segment at a time (so the HMM's peak memory still tracks a
@@ -1721,8 +1721,7 @@ class LocalTreeInference(Inference):
         axis, so a multi-contig source cannot be represented as one tree
         sequence (use VCF / VCZ output instead).
 
-        :return: The stitched genome-wide pseudo-ARG tree sequence, and the
-            contig it spans.
+        :return: The stitched genome-wide pseudo-ARG tree sequence.
         :raises NotImplementedError: If the source spans more than one contig.
         :raises ValueError: If the source yields no segments.
         """
@@ -1733,8 +1732,7 @@ class LocalTreeInference(Inference):
             parts.append((builder.to_tree_sequence(), builder.geometry.origin))
         if chrom is None:
             raise ValueError("no segments to build a tree sequence from")
-        return (self._stitch(parts, self.segmentation.contig(chrom).axis_end),
-                chrom)
+        return self._stitch(parts, self.segmentation.contig(chrom).axis_end)
 
     def _stitch(self, parts, length: float) -> "tskit.TreeSequence":
         """Tree sequences built in segment frames, placed on one genome axis.
@@ -1868,10 +1866,9 @@ class LocalTreeInference(Inference):
     def _provenance_parameters(self) -> dict[str, object]:
         """Local-tree run parameters.
 
-        Model, prior and mu, the contig, the tree-building parameters (rate,
-        window, block size, time bins), and in ensemble mode the member count,
-        seed and chunk. The contig is known once :meth:`point_tree_sequence`
-        has run.
+        Model, prior and mu, the contig (a list for several), the ingroup
+        size, the tree-building parameters (rate, window, block size, time
+        bins), and in ensemble mode the member count, seed and chunk.
         """
         params: dict[str, object] = {
             "model": self._model_name(self.model),
@@ -1886,16 +1883,22 @@ class LocalTreeInference(Inference):
         }
         segmentation = self.segmentation
         chunked = segmentation.chunk is not None
+        contigs = segmentation.contigs
+        # The width of the windows tiling each contig, L / n.
+        widths = {c: float(segmentation.contig(c).length)
+                  / len(segmentation.contig(c).windows) for c in contigs}
         params.update({
             "block_size": int(segmentation.block),
-            "halo": self._halo if chunked else None,
+            "halo": int(segmentation.halo) if chunked else None,
             "chunk_size": int(segmentation.chunk) if chunked else None,
-            # The window the HMM uses, a whole number of blocks.
-            "window_bp": int(segmentation.window),
+            "window_bp": (next(iter(widths.values()))
+                          if len(set(widths.values())) == 1
+                          else widths or None),
         })
-        contig = None if self._stitched is None else self._stitched[1]
-        # The contig of every emitted site, where the run lays them on one.
-        params["chrom"] = self.chrom if self.chrom is not None else contig
+        params["chrom"] = (self.chrom if self.chrom is not None
+                           else contigs[0] if len(contigs) == 1
+                           else contigs or None)
+        params["n_ingroup"] = len(self._resolved_ingroup)
         params.update(self._ensemble_provenance())
         params.update(self._map_provenance())
         return params
@@ -2054,7 +2057,7 @@ class LocalTreeInference(Inference):
         """
         if self._stitched is None:
             self._stitched = self._stitch_segment_tree_sequence()
-        return self._stitched[0]
+        return self._stitched
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:
         """Inferred per-block pairwise TMRCAs (the raw HMM output, for debugging).

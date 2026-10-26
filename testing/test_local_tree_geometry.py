@@ -324,6 +324,23 @@ class TestResolvedWidths:
         inference = _inference(inputs[store], chunk_size=CHUNK)
         assert _resolved(inference) == (3690, 7380, 7409)
 
+    def test_provenance_records_the_applied_widths(self, inputs):
+        """The record holds the halo the run applied and the width of the
+        windows tiling each contig. It held the halo as passed, before the
+        floor raised it, and the nominal window, which no contig is tiled
+        at."""
+        inference = _inference(
+            inputs["multi_vcf"], chunk_size=CHUNK, halo=100,
+            sequence_length={"1": HEADER, "2": HEADER_2 + 3_000})
+        params = inference._provenance_parameters()
+        assert params["halo"] == _resolved(inference)[2] > 100
+        assert params["window_bp"] == {
+            c: inference.segmentation.contig(c).length
+            / len(inference.segmentation.contig(c).windows) for c in "12"}
+        assert params["window_bp"]["1"] != params["window_bp"]["2"]
+        single = _inference(inputs["regional"])._provenance_parameters()
+        assert single["window_bp"] == HEADER / round(HEADER / 2556)
+
 
     def test_a_contig_missing_from_the_header_sets_the_halo_floor(
             self, inputs, tmp_path):

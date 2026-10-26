@@ -811,8 +811,9 @@ class Segmentation(ReprMixin):
         self.mu = float(mu)
         self._maps = maps
         self._contigs: dict = {}
-        #: Last site of each contig read so far.
+        #: Last site of each contig read so far, in input order.
         self.last_sites: dict[str, int] = {}
+        self._read_all = False
         need_halo = chunk is not None and halo == "auto"
         per_contig = declared is None or isinstance(declared, Mapping)
         n_sites = span = 0
@@ -840,6 +841,7 @@ class Segmentation(ReprMixin):
                         pairdiff += 1.0 - same / (N * (N - 1))
             if cur is not None:
                 span += last - p0 + 1
+            self._read_all = True
         requested, block, self.window = ContigGeometry.resolve_widths(
             window, block_size, n_sites, span)
         #: Block width in bp.
@@ -922,15 +924,28 @@ class Segmentation(ReprMixin):
             length = self.declared_on(chrom)
             if not length:
                 if chrom not in self.last_sites:
-                    for s in self.sites:
-                        if s.pos > self.last_sites.get(str(s.chrom), -1):
-                            self.last_sites[str(s.chrom)] = s.pos
+                    self._read_last_sites()
                 length = self.last_sites[chrom] + 1
             self._contigs[chrom] = ContigGeometry(
                 length, position_base=self.position_base, block=self.block,
                 window=self.window, chunk=self.chunk or 0, halo=self.halo,
                 contig=chrom, **self._maps(chrom))
         return self._contigs[chrom]
+
+    @property
+    def contigs(self) -> list[str]:
+        """The contigs holding sites, in input order, reading the sites once
+        if resolving did not."""
+        if not self._read_all:
+            self._read_last_sites()
+        return list(self.last_sites)
+
+    def _read_last_sites(self) -> None:
+        """Read every contig's last site into :attr:`last_sites`."""
+        for s in self.sites:
+            if s.pos > self.last_sites.get(str(s.chrom), -1):
+                self.last_sites[str(s.chrom)] = s.pos
+        self._read_all = True
 
     def _refuse_off_axis(self, site, axis_end: float) -> None:
         """Refuse a site past the end of a contig whose length the input

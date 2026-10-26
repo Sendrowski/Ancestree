@@ -768,6 +768,22 @@ def test_provenance_of_an_unchunked_plug_in_run():
     assert inf._provenance_parameters()["focal"] == "ingroup_mrca"
 
 
+@pytest.mark.parametrize("chunk_size", [None, 1000])
+def test_provenance_records_the_contigs_and_the_ingroup(chunk_size):
+    """Since an unchunked run became one segment per contig, its record
+    carried no contig and no ingroup size, and a chunked one carried the
+    contig only once a tree sequence had been stitched."""
+    first, names = toy_sites(range(0, 2000, 20), chrom="chr1")
+    second, _ = toy_sites(range(0, 2000, 20), chrom="chr2")
+    kwargs = dict(chunk_size=chunk_size, n_ensemble=None,
+                  ingroup_samples=names[:3], outgroup_samples=names[3:])
+    one = toy_inference(first, names, **kwargs)
+    params = one.provenance()["parameters"]
+    assert params["chrom"] == "chr1" and params["n_ingroup"] == 3
+    both = toy_inference(first + second, names, **kwargs)
+    assert both.provenance()["parameters"]["chrom"] == ["chr1", "chr2"]
+
+
 # --------------------------------------------------------- HMM correctness
 def _bruteforce_pmean(counts, t_rep, lam, log_lam, r, pi,
                       step=None, mask=None, escale=None):
