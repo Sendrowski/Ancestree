@@ -446,6 +446,23 @@ def test_uncalled_site_is_left_out_of_the_trees_and_scored_flat(caplog):
     assert max(p.max_prob for p in peaked) > 0.25
 
 
+@pytest.mark.parametrize("n_ensemble", [None, 4])
+def test_uncalled_site_scores_at_the_composition_prior(n_ensemble):
+    """A site with no called tip carries no likelihood, so its posterior is
+    the root prior. The plug-in gave it the flat posterior whatever the base
+    composition, while the ensemble applied the prior."""
+    sites, names = toy_sites(range(0, 2000, 20))
+    blank = Site(chrom="1", pos=1010, alleles=("A", "C"),
+                 tip_alleles={n: None for n in names})
+    sites = sorted(sites + [blank], key=lambda s: s.pos)
+    composition = anc.BaseComposition({"A": 7, "C": 1, "G": 1, "T": 1})
+    inf = toy_inference(sites, names, n_ensemble=n_ensemble,
+                        base_composition=composition)
+    by_pos = {s.pos: p for s, p in inf.infer()}
+    np.testing.assert_allclose(by_pos[1010].values, [0.7, 0.1, 0.1, 0.1],
+                               rtol=1e-12)
+
+
 # --------------------------------------------------------- end to end
 def test_polarisation_accuracy_and_outgroup_gain():
     """Genotype-only polarisation is well above chance. Outgroups help."""

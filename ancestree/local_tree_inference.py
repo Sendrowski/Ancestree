@@ -883,7 +883,7 @@ class LocalTreeBuilder(ReprMixin):
         if n_uncalled:
             self._log.warning(
                 "%d of %d sites carry no called genotype in the panel; they "
-                "are emitted without a mutation and score at the prior",
+                "are left out of the tree sequence and score at the prior",
                 n_uncalled, pos0.shape[0])
         tables.sort()
         tables.time_units = "generations"
@@ -1568,12 +1568,14 @@ class LocalTreeInference(Inference):
         )
         arg._quiet = True
         # Paired by position in the segment's frame (pos - origin). A site
-        # absent from the baked tree sequence takes the flat posterior.
+        # absent from the baked tree sequence scores at the prior.
         scored = {int(ts_site.pos): np.asarray(post.values)
                   for ts_site, post in arg.infer()}
         n_states = len(self.model.states)
-        flat = np.full(n_states, 1.0 / n_states)
-        out = [(site, scored.get(int(site.pos - origin), flat)) for site in core]
+        flat = np.full((1, n_states), 1.0 / n_states)
+        out = [(site, scored.get(int(site.pos - origin))) for site in core]
+        out = [(site, self._weight_by_prior(flat, [site])[0][0]
+                if values is None else values) for site, values in out]
         # The per-site counts are tallied over the core rows the segment
         # emits, never the halo.
         per_tree = replace(arg._tally, ingroup_monomorphic=0,
