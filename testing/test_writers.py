@@ -457,6 +457,22 @@ class TestTskitWriterMetadata:
         assert {bytes(s.metadata) for s in new.sites()} == {b"\x01\x02raw"}
         assert new.site(0).ancestral_state == pairs[0][1].map_allele
 
+    @pytest.mark.parametrize("schema", [
+        {"codec": "struct", "type": "object",
+         "properties": {"q": {"type": "number", "binaryFormat": "d"}},
+         "required": ["q"], "additionalProperties": False},
+        {"codec": "json", "type": "object",
+         "properties": {"q": {"type": "number"}}, "required": ["q"],
+         "additionalProperties": False},
+    ], ids=["struct", "closed-json"])
+    def test_a_schema_without_room_for_the_block_refuses_up_front(
+            self, hap_ts, tmp_path, schema):
+        """Refused at construction, before any posterior is drawn. The
+        schema used to fail at the first ``add_row``, after inference."""
+        ts = _with_site_metadata(hap_ts, {"q": 1.0}, schema)
+        with pytest.raises(ValueError, match="cannot take an 'ancestree' key"):
+            TskitWriter(ts, tmp_path / "o.trees")
+
     def test_an_open_schema_takes_the_block(self, hap_ts, tmp_path):
         schema = {"codec": "json", "type": "object",
                   "properties": {"q": {"type": "number"}}, "required": ["q"]}

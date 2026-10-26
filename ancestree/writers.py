@@ -1013,6 +1013,8 @@ class TskitWriter(Writer):
         ``site.metadata['ancestree']``) is still written with the full
         sub-threshold distribution. ``None`` (default) disables the check.
     :raises ImportError: If ``tskit`` is not installed.
+    :raises ValueError: If the sites metadata schema cannot take the
+        ``ancestree`` block.
     """
 
     @staticmethod
@@ -1149,6 +1151,32 @@ class TskitWriter(Writer):
         else:
             self._ts = input_ts
         super().__init__(output_path, min_confidence)
+        self._refuse_closed_site_schema()
+
+    def _refuse_closed_site_schema(self) -> None:
+        """Refuse a sites metadata schema that cannot take the ``ancestree``
+        block, tested on the first site.
+
+        :raises ValueError: If the schema rejects the block.
+        """
+        schema = self._ts.table_metadata_schemas.site
+        if schema.schema is None or self._ts.num_sites == 0:
+            return
+        meta = self._metadata_dict(self._ts.site(0).metadata)
+        block = {"map_allele": "A", "max_prob": 1.0,
+                 "posterior": dict.fromkeys(STATES, 0.25), "inference": {}}
+        reason = "its site metadata is not an object"
+        if meta is not None:
+            try:
+                schema.validate_and_encode_row({**meta, METADATA_KEY: block})
+                return
+            except Exception as e:  # each codec raises its own error type
+                reason = str(e)
+        raise ValueError(
+            f"TskitWriter: the sites metadata schema of the input tree "
+            f"sequence cannot take an {METADATA_KEY!r} key ({reason}). Write "
+            f"from a tree sequence whose sites table has a permissive JSON "
+            f"schema or none.")
 
     def write(
         self,
