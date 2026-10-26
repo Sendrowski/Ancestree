@@ -30,6 +30,7 @@ and not by an assumed outgroup-ladder topology.
 """
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -698,6 +699,11 @@ class LocalTreeBuilder(ReprMixin):
         if len(self.sample_names) < 2:
             raise ValueError(f"need >= 2 samples, got {len(self.sample_names)}")
         if geometry is None:
+            if sequence_length is None:
+                raise ValueError(
+                    "LocalTreeBuilder needs sequence_length, the region "
+                    "length in bp, when no geometry is passed")
+            sequence_length = math.ceil(sequence_length)
             pos = self.sites.pos
             extent = (float(pos[-1] - pos[0] + 1) if len(pos)
                       else float(sequence_length))
@@ -1294,7 +1300,12 @@ class LocalTreeInference(Inference):
                     "the tree sequence" if self._input_trees is not None
                     else "the VCF header" if self._input_vcf_path is not None
                     else "the VCF Zarr store")
-        self._declared_length = sequence_length
+        # A partial base is a whole one, on both paths.
+        self._declared_length = (
+            {c: math.ceil(v) for c, v in sequence_length.items()}
+            if isinstance(sequence_length, Mapping)
+            else None if sequence_length is None
+            else math.ceil(sequence_length))
 
         if self.n_ensemble is not None and self.focal.depth is not None:
             raise NotImplementedError(
@@ -1805,6 +1816,8 @@ class LocalTreeInference(Inference):
                 cur, buf, core_lo, first = s.chrom, [], 0, s.pos
                 last = s.pos
                 contig = self._contig(cur)
+                contig.check_callable(self.mu, (
+                    first, self._last_sites.get(str(cur), np.inf - 1) + 1))
             if not 0 <= s.pos < contig.axis_end:
                 self._refuse_off_axis(s, contig.axis_end)
                 _check_on_axis(np.array([s.pos]), contig.axis_end)

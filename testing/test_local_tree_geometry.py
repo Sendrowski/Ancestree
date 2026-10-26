@@ -732,3 +732,39 @@ class TestSegments:
             n_snapped += bool(np.any(
                 (expected < geometry.genome_core[0] - inference._halo_value)))
         assert n_snapped
+
+
+class TestInputChecks:
+    """Malformed lengths and an input without a callable block."""
+
+    def test_a_builder_needs_a_length(self):
+        """Without a length or a geometry the builder failed on float(None)
+        with a TypeError naming neither."""
+        sites = [Site(chrom="1", pos=10, alleles=("A", "C"),
+                      tip_alleles={"a": "A", "b": "C"})]
+        with pytest.raises(ValueError, match="needs sequence_length"):
+            LocalTreeBuilder(sites, mu=MU, rec_rate=REC,
+                             sample_names=["a", "b"])
+
+    @pytest.mark.parametrize("n_ensemble", [None, N_ENSEMBLE])
+    def test_a_partial_base_is_a_whole_one(self, inputs, n_ensemble):
+        """A non-integer length was truncated on the chunked path and kept on
+        the unchunked one, so the two laid different axes and blocks."""
+        kwargs = dict(sequence_length=HEADER - 0.5, n_ensemble=n_ensemble)
+        plain = _inference(inputs["regional"], **kwargs)
+        chunked = _inference(inputs["regional"], chunk_size=10 * HEADER,
+                             **kwargs)
+        _assert_same_posteriors(_posteriors(plain), _posteriors(chunked))
+        whole = _inference(inputs["regional"], n_ensemble=n_ensemble)
+        _assert_same_posteriors(_posteriors(plain), _posteriors(whole))
+        assert (plain.point_tree_sequence().sequence_length
+                == chunked.point_tree_sequence().sequence_length == HEADER + 1)
+
+    @pytest.mark.parametrize("chunk_size", [None, CHUNK])
+    def test_a_fully_masked_input_is_refused(self, inputs, chunk_size):
+        """Chunked, a mask covering none of the data returned prior-only
+        posteriors, where the unchunked build refuses."""
+        with pytest.raises(ValueError, match="no block over this region is "
+                                             "callable"):
+            _posteriors(_inference(inputs["regional"], chunk_size=chunk_size,
+                                   accessibility=[(1, 1000)]))

@@ -424,7 +424,8 @@ class BuildGeometry(ReprMixin):
 
         :param rec_rate: Reference recombination rate per bp per generation.
         :param mu: Reference mutation rate per bp per generation.
-        :param log: Logger the zero-rate warning goes to, once per frame.
+        :param log: Logger the zero-rate warning goes to, once per frame, or
+            ``None`` for none.
         :param validate: Whether to refuse a frame with no callable block.
         :return: ``(step, block_mask, emit_scale)``, each an array over blocks
             or ``None`` for its neutral default.
@@ -493,7 +494,7 @@ class BuildGeometry(ReprMixin):
                 if block_mask is None:
                     block_mask = np.ones(n_blocks, dtype=bool)
                 block_mask = block_mask & ~uninformative
-                if not self._warned_zero_rate:
+                if log is not None and not self._warned_zero_rate:
                     log.warning(
                         "mutation-map rate is zero over %d block(s); they "
                         "carry no information about coalescent time, so "
@@ -603,6 +604,30 @@ class ContigGeometry(ReprMixin):
             out.append((start, hi if hi < int(self.length) else self.axis_end))
             start = hi
         return out
+
+    def check_callable(self, mu: float, data) -> None:
+        """Refuse a contig its mask and mutation map leave without a callable
+        block, as an unchunked build of it refuses.
+
+        :param mu: Reference mutation rate per bp per generation.
+        :param data: ``(lo, hi)`` genome extent of the contig's sites, to
+            infinity while the last is unread.
+        :raises ValueError: If no block of the contig is callable.
+        """
+        if self.accessibility is None and self.mutation_map is None:
+            return
+        # The blocks overlapping the data stretch, in a frame of their own.
+        origin = (int(data[0]) // self.block) * self.block
+        end = min(float(data[1]), float(self.axis_end))
+        span = int(np.ceil((end - origin) / self.block)) * self.block
+        axis = min(span, self.axis_end - origin)
+        BuildGeometry(
+            axis, block=self.block, window=self.window,
+            accessibility=self._slice_intervals(self.accessibility, origin,
+                                                axis),
+            mutation_map=self._slice_map(self.mutation_map, origin, axis),
+            data=(data[0] - origin, end - origin),
+        ).hmm_inputs(1.0, mu, log=None)
 
     def origin(self, core_lo: int) -> int:
         """Genome coordinate of the frame origin of the core from ``core_lo``.
