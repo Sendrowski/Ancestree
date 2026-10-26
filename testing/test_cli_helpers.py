@@ -1,5 +1,5 @@
 """Unit tests for the pure ``ancestree.cli`` helpers (model / prior factories,
-logging setup, the empirical composition tally, the ``--debug`` probe and the
+logging setup, the empirical composition tally and the
 entry points around :func:`ancestree.cli.main`). These exercise the
 argument-plumbing branches without running any inference, so they stay fast.
 """
@@ -17,7 +17,6 @@ from ancestree.cli import (
     _build_ingroup_weight,
     _build_prior,
     _configure_logging,
-    _debug_requested,
     _empirical_composition,
     _warn_model_defaults,
     main,
@@ -342,32 +341,25 @@ def test_cli_clean_error_on_missing_file(tmp_path, capsys):
     assert "Traceback" not in err
 
 
-class TestDebugRequested:
-    """``--debug`` is read back through the parser, abbreviation included."""
-
-    def test_a_parsable_command_line_reads_the_flag(self):
-        argv = ["arg", "--trees", "x.trees", "--out", "y.vcf"]
-        assert _debug_requested(argv) is False
-        assert _debug_requested(["--debug", *argv]) is True
-
-    def test_an_unparsable_command_line_falls_back_to_the_prefix(self):
-        assert _debug_requested(["--deb"]) is True
-        assert _debug_requested([]) is False
-        assert _debug_requested(["fixed-tree", "--debug"]) is True
-
-    def test_sys_argv_is_read_when_no_vector_is_given(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["ancestree", "--debug", "arg",
-                                          "--trees", "x.trees", "--out", "y.vcf"])
-        assert _debug_requested(None) is True
-
-
-def test_main_reraises_operational_errors_under_debug(tmp_path, capsys):
-    """With ``--debug`` the exception propagates uncaught."""
+@pytest.mark.parametrize("flag", ["--debug", "--deb"])
+def test_main_reraises_operational_errors_under_debug(tmp_path, capsys, flag):
+    """With ``--debug``, abbreviated or not, the exception propagates
+    uncaught."""
     argv = ["local-tree", "--vcf", str(tmp_path / "no_such.vcf"),
             "--sequence-length", "1000", "--out", str(tmp_path / "out.vcf")]
     with pytest.raises(OSError, match="no_such.vcf"):
-        main(["--debug", *argv])
+        main([flag, *argv])
     assert "ancestree: error:" not in capsys.readouterr().err
+
+
+def test_main_reads_debug_from_sys_argv(tmp_path, monkeypatch):
+    """Without a vector, ``--debug`` is read from :data:`sys.argv`."""
+    monkeypatch.setattr(sys, "argv", [
+        "ancestree", "--debug", "local-tree", "--vcf",
+        str(tmp_path / "no_such.vcf"), "--sequence-length", "1000",
+        "--out", str(tmp_path / "out.vcf")])
+    with pytest.raises(OSError, match="no_such.vcf"):
+        main()
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning:runpy")

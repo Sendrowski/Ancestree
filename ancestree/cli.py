@@ -1198,6 +1198,36 @@ def _supplied_dests(argv: "Sequence[str]") -> frozenset:
     return frozenset(out)
 
 
+def _parse(argv: "Sequence[str] | None") -> argparse.Namespace:
+    """Parse ``argv``, recording which long options it gave.
+
+    :param argv: Argument vector, or ``None`` for :data:`sys.argv`.
+    :return: The parsed arguments.
+    :raises SystemExit: On a usage error.
+    """
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    args._supplied = _supplied_dests(
+        sys.argv[1:] if argv is None else argv)
+    if getattr(args, "verbose", 0) and getattr(args, "quiet", False):
+        parser.error(
+            "argument -q/--quiet: not allowed with argument -v/--verbose")
+    return args
+
+
+def _dispatch(args: argparse.Namespace) -> int:
+    """Configure logging and progress bars, then run the subcommand.
+
+    :param args: Arguments from :func:`_parse`.
+    :return: Process exit code (0 on success).
+    """
+    _configure_logging(getattr(args, "verbose", 0),
+                       getattr(args, "quiet", False))
+    if getattr(args, "no_progress", False):
+        Settings.disable_pbar = True
+    return int(args.handler(args) or 0)
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Parse ``argv`` and dispatch the matching subcommand handler.
 
@@ -1207,50 +1237,24 @@ def run(argv: Sequence[str] | None = None) -> int:
     :param argv: Optional argument vector (defaults to ``sys.argv[1:]``).
     :return: Process exit code (0 on success).
     """
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    args._supplied = _supplied_dests(
-        sys.argv[1:] if argv is None else argv)
-    verbosity = getattr(args, "verbose", 0)
-    quiet = getattr(args, "quiet", False)
-    if verbosity and quiet:
-        parser.error(
-            "argument -q/--quiet: not allowed with argument -v/--verbose")
-    _configure_logging(verbosity, quiet)
-    if getattr(args, "no_progress", False):
-        Settings.disable_pbar = True
-    return int(args.handler(args) or 0)
-
-
-def _debug_requested(argv: "Sequence[str] | None") -> bool:
-    """Whether ``--debug`` was asked for on this command line.
-
-    An argparse abbreviation such as ``--deb`` counts.
-
-    :param argv: Argument vector, or ``None`` for :data:`sys.argv`.
-    :return: Whether the flag was given.
-    """
-    tokens = list(sys.argv[1:] if argv is None else argv)
-    try:
-        known, _rest = build_parser().parse_known_args(tokens)
-    except SystemExit:
-        return any(t.startswith("--deb") for t in tokens)
-    return bool(getattr(known, "debug", False))
+    return _dispatch(_parse(argv))
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Console-script entry point. Calls :func:`run` and exits.
+    """Console-script entry point. Parses ``argv``, runs the subcommand and
+    exits.
 
     Registered in ``pyproject.toml`` as ``ancestree = "ancestree.cli:main"``.
 
     :param argv: Optional argument vector (defaults to ``sys.argv[1:]``).
     """
+    args = _parse(argv)
     try:
-        code = run(argv)
+        code = _dispatch(args)
     except Exception as e:
         # Operational errors report one line. --debug re-raises so an
         # unexpected one carries its traceback.
-        if _debug_requested(argv):
+        if args.debug:
             raise
         print(f"ancestree: error: {e}", file=sys.stderr)
         sys.exit(2)
