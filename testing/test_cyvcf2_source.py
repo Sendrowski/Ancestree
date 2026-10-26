@@ -239,13 +239,15 @@ class TestSubPloidyGenotypeCalls:
     observed allele, which would double-count one observation as two tips.
     """
 
-    def test_haps_from_genotype_pads_missing_haps_with_none(self):
-        H = CyVCF2Source._haps_from_genotype
-        alleles = ["A", "T", "C"]
-        assert H([0, True], 2, alleles) == ["A", None]
-        assert H([0, 1, True], 2, alleles) == ["A", "T"]
-        assert H([0, 2, 1, False], 2, alleles) == ["A", "C"]
-        assert H(None, 2, alleles) == [None, None]
+    def test_a_short_call_pads_missing_haps_with_none(self, tmp_path):
+        path = write_vcf(tmp_path / "short.vcf", [
+            ("1", 5, "A", "T,C", ".", ["0", "0|1", "0|2|1"])],
+            samples=("s1", "s2", "s3"))
+        site = next(iter(CyVCF2Source(path, ploidy=2)))
+        assert dict(site.tip_alleles) == {
+            "s1_h0": "A", "s1_h1": None, "s2_h0": "A", "s2_h1": "T",
+            "s3_h0": "A", "s3_h1": "C"}
+        assert site.padded == {"s1_h1"}
 
 
 _MIXED_PLOIDY_VCF = """##fileformat=VCFv4.2
@@ -314,51 +316,41 @@ class TestPloidyResolution:
             "s2_h0": "A", "s2_h1": "T", "s2_h2": "T"}
 
 
-# ------------------------------------------ CyVCF2Source._haps_from_genotype
-class TestHapsFromGenotype:
-    """Decoding a ``genotypes`` row: indices in, alleles out.
+# ------------------------------------------------------- per-call decoding
+class TestCallDecoding:
+    """Decoding one call: indices in, alleles out.
 
-    The row is per-haplotype allele indices followed by a phase flag, so the
-    cases are a missing index, a short row and a long one. Non-canonical
+    The cases are a missing index, a short call and a long one. Non-canonical
     alleles never reach here: a record carrying one is skipped upstream.
     """
 
-    H = staticmethod(CyVCF2Source._haps_from_genotype)
-    ALLELES = ["A", "G"]
+    @staticmethod
+    def _tips(tmp_path, gt, ploidy=2):
+        path = write_vcf(tmp_path / "call.vcf",
+                         [("1", 5, "A", "G", ".", ["0|1", gt])],
+                         samples=("ref", "s"))
+        site = next(iter(CyVCF2Source(path, ploidy=ploidy)))
+        return [site.tip_alleles[f"s_h{h}"] for h in range(ploidy)]
 
-    def test_missing_row_is_none(self):
-        assert self.H(None, 2, self.ALLELES) == [None, None]
+    def test_negative_indices_are_none(self, tmp_path):
+        assert self._tips(tmp_path, "./.") == [None, None]
 
-    def test_negative_indices_are_none(self):
-        assert self.H([-1, -1, False], 2, self.ALLELES) == [None, None]
+    def test_phased_diploid(self, tmp_path):
+        assert self._tips(tmp_path, "0|1") == ["A", "G"]
 
-    def test_phased_diploid(self):
-        assert self.H([0, 1, True], 2, self.ALLELES) == ["A", "G"]
-
-    def test_short_row_padded_with_none(self):
+    def test_short_call_padded_with_none(self, tmp_path):
         # One haplotype at ploidy 2: the absent one is marginalised (None),
         # not fabricated by replicating the observed allele.
-        assert self.H([0, True], 2, self.ALLELES) == ["A", None]
+        assert self._tips(tmp_path, "0") == ["A", None]
 
-    def test_long_row_truncated(self):
-        assert self.H([0, 1, 1, False], 2, self.ALLELES) == ["A", "G"]
+    def test_long_call_truncated(self, tmp_path):
+        assert self._tips(tmp_path, "0|1|1") == ["A", "G"]
 
-    def test_index_past_the_allele_list_is_none(self):
-        assert self.H([0, 5, False], 2, self.ALLELES) == ["A", None]
+    def test_index_past_the_allele_list_is_none(self, tmp_path):
+        assert self._tips(tmp_path, "0|5") == ["A", None]
 
-    def test_arbitrary_ploidy(self):
-        assert self.H([0, 1, 1, True], 3, self.ALLELES) == ["A", "G", "G"]
-
-    def test_an_absent_allele_keeps_its_slot(self):
-        """An allele the record does not carry must not shift the indices.
-
-        Empty alleles were dropped from the list before decoding, so every
-        allele after the gap moved down one index and each genotype pointing
-        past the gap resolved to the neighbouring base. The tip then carried
-        a real but wrong allele, with nothing to flag it.
-        """
-        assert self.H([0, 2, True], 2, ["A", None, "G"]) == ["A", "G"]
-        assert self.H([1, 0, True], 2, ["A", None, "G"]) == [None, "A"]
+    def test_arbitrary_ploidy(self, tmp_path):
+        assert self._tips(tmp_path, "0|1|1", ploidy=3) == ["A", "G", "G"]
 
 
 class TestPloidyTruncationKeepsTheLeadingCalls:
@@ -368,16 +360,12 @@ class TestPloidyTruncationKeepsTheLeadingCalls:
     draw, so an unphased ``0/1/1`` read at ploidy 2 is always heterozygous.
     """
 
-    @staticmethod
-    def _decode(order):
-        return CyVCF2Source._haps_from_genotype(
-            [0, 1, 1, False], 2, ["A", "T"], order=order)
-
-    def test_the_kept_alleles_do_not_depend_on_the_draw(self):
-        assert sorted(self._decode(None)) == sorted(self._decode([1, 0]))
-
-    def test_the_leading_calls_are_the_ones_kept(self):
-        assert sorted(self._decode(None)) == ["A", "T"]
+    @pytest.mark.parametrize("seed", range(8))
+    def test_the_leading_calls_are_the_ones_kept(self, tmp_path, seed):
+        path = write_vcf(tmp_path / "tri.vcf",
+                         [("1", 5, "A", "T", ".", ["0/1/1"])])
+        site = next(iter(CyVCF2Source(path, ploidy=2, phase_seed=seed)))
+        assert sorted(site.tip_alleles.values()) == ["A", "T"]
 
     def test_a_truncated_record_is_reported(self, tmp_path, caplog):
         import logging
@@ -437,3 +425,15 @@ class TestCyVCF2Source:
         monkeypatch.setitem(sys.modules, "cyvcf2", None)
         with pytest.raises(ImportError, match="VCF support in ancestree requires the optional cyvcf2"):
             CyVCF2Source(path)
+
+
+def test_a_filtered_haploid_call_keeps_its_phase_flag(tmp_path):
+    """Haploid calls of a sample-filtered record keep the phase flag
+    ``genotypes`` reports. In cyvcf2 0.34 ``genotype.array()`` reports the
+    last one unphased, so decoding from the array marks it unphased."""
+    path = write_vcf(tmp_path / "hemi.vcf", [
+        ("1", 5, "A", "G", ".", ["1|0", "1|0", "0|0", "0", "0"]),
+        ("1", 9, "A", "G", ".", ["1|0", "1|0", ".", "0", "0"])],
+        samples=("d1", "d2", "d3", "h2", "m1"))
+    sites = list(CyVCF2Source(path, sample_filter=["h2", "m1", "d3"]))
+    assert [set(s.unphased) for s in sites] == [set(), set()]

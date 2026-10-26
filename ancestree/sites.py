@@ -22,6 +22,12 @@ import numpy as np
 from ancestree import MISSING_ALLELES, STATE_INDEX, STATES, TRANSITION_PAIRS
 from ancestree._repr import ReprMixin
 
+#: The empty ``Site.unphased`` or ``Site.padded`` set.
+_NONE: "frozenset[str]" = frozenset()
+#: The allele index of a slot past a call's own ploidy, as ``call_genotype``
+#: and htslib fill it.
+_FILL = -2
+
 
 @dataclass(frozen=True, slots=True)
 class Site:
@@ -1187,6 +1193,19 @@ class SiteTable:
         return set(self._chrom_names)
 
 
+def _interned(names: "set[str]", seen: "dict") -> "frozenset[str]":
+    """``names`` as a frozenset shared with every equal one in ``seen``.
+
+    :param names: The individuals or tips of one site's set.
+    :param seen: The distinct sets built so far.
+    :return: The shared frozenset.
+    """
+    if not names:
+        return _NONE
+    key = frozenset(names)
+    return seen.setdefault(key, key)
+
+
 def _chain_one(first, rest):
     """Yield ``first``, then every item of ``rest``."""
     yield first
@@ -1208,6 +1227,9 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     #: ``1`` for VCF and VCF-Zarr sources and the filters wrapping them,
     #: ``0`` for tree sequences and for a list of sites.
     position_base: int = 0
+    #: Whether the genotypes are taken as phased, ``None`` to read each
+    #: call's flag.
+    _phased: "bool | None" = None
     #: The format of the input the source reads: ``"vcf"``, ``"vcz"`` or
     #: ``"trees"``, ``None`` for sites held in memory and the filters
     #: wrapping a source.
@@ -1450,6 +1472,75 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         return self._phase_permutation(
             self._phase_seed, pos, sample, width) + list(
                 range(width, self._ploidy))
+
+    def _sites_from_records(self, records, names: "Sequence[str]",
+                            calls) -> Iterator[Site]:
+        """Decode VCF-style records into sites.
+
+        A record whose alleles are not a SNP is skipped. Each call is read up
+        to the source's ploidy, its slots past the call's own ploidy padded
+        and an unphased one drawn into a haplotype order. A haploid source
+        keeps the sample name, any other names haplotype ``k`` ``<name>_h<k>``.
+
+        :param records: ``(chrom, pos, alleles, payload)`` per record in file
+            order, ``alleles`` REF first with ``None`` or ``""`` in the slot of
+            an allele the record does not carry.
+        :param names: The samples, in row order.
+        :param calls: Maps a payload to ``(genotypes, phased)``: per sample the
+            allele indices, ``-1`` where missing, the row ending or filled
+            with :data:`_FILL` past the call's ploidy, and the call's phase
+            flag. ``phased`` is ``None`` for a source recording no phase, read
+            as unphased.
+        :return: Generator of sites.
+        """
+        ploidy = self._ploidy
+        read_phase = ploidy > 1 and self._phased is not True
+        prev = None
+        warned_split = False
+        seen_unphased: dict = {}
+        seen_padded: dict = {}
+        for chrom, pos, raw, payload in records:
+            # Tested before the allele filter, so a record skipped for
+            # carrying a non-ACGT allele still marks the position it shared
+            # with the record that follows it.
+            if (chrom, pos) == prev and not warned_split:
+                self._warn_split_multiallelic(chrom, pos)
+                warned_split = True
+            prev = (chrom, pos)
+            decoded = self._snp_alleles(raw)
+            if decoded is None:
+                continue
+            alleles, site_alleles = decoded
+            n_alleles = len(alleles)
+            genotypes, flags = calls(payload)
+            if flags is None or self._phased is False:
+                flags = [False] * len(names)
+            tip_alleles: dict[str, str | None] = {}
+            unphased: set[str] = set()
+            padded: set[str] = set()
+            for name, row, phased in zip(names, genotypes, flags):
+                width = len(row) - row.count(_FILL)
+                order = None
+                if read_phase and not phased:
+                    unphased.add(name)
+                    order = self._phase_order(
+                        name, pos, (a for a in row if a >= 0), width)
+                if width > ploidy:
+                    self._warn_ploidy_truncated(chrom, pos, width, ploidy)
+                for h in range(ploidy):
+                    src = order[h] if order is not None else h
+                    j = row[src] if src < len(row) else _FILL
+                    key = name if ploidy == 1 else f"{name}_h{h}"
+                    tip_alleles[key] = (alleles[j] if 0 <= j < n_alleles
+                                        else None)
+                    if j == _FILL:
+                        padded.add(key)
+            yield Site(
+                chrom=chrom, pos=pos, alleles=site_alleles,
+                tip_alleles=tip_alleles,
+                unphased=_interned(unphased, seen_unphased),
+                padded=_interned(padded, seen_padded),
+            )
 
     def _note_unphased_once(self) -> None:
         """Report, once, that haplotype assignment is being drawn."""

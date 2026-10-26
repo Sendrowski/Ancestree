@@ -32,26 +32,6 @@ from ancestree._cyvcf2 import import_cyvcf2
 if TYPE_CHECKING:
     import tskit
 
-#: The empty ``Site.unphased`` or ``Site.padded`` set.
-_NONE: "frozenset[str]" = frozenset()
-
-#: The ``call_genotype`` fill of a slot past a call's own ploidy.
-_FILL = -2
-
-
-def _interned(names: "set[str]", seen: "dict") -> "frozenset[str]":
-    """``names`` as a frozenset shared with every equal one in ``seen``.
-
-    :param names: The individuals or tips of one site's set.
-    :param seen: The distinct sets built so far.
-    :return: The shared frozenset.
-    """
-    if not names:
-        return _NONE
-    key = frozenset(names)
-    return seen.setdefault(key, key)
-
-
 def _site_from_tskit_variant(
     variant: "tskit.Variant",
     sample_nodes: np.ndarray,
@@ -337,99 +317,25 @@ class CyVCF2Source(SiteSource):
     def __iter__(self) -> Iterator[Site]:
         """Open the VCF and stream one :class:`~ancestree.sites.Site` per SNP record."""
         vcf = self._open_vcf()
-        prev_key = None
-        warned_split = False
-        seen_unphased: dict = {}
-        seen_padded: dict = {}
+        records = ((str(v.CHROM), int(v.POS), [v.REF, *(v.ALT or [])], v)
+                   for v in vcf if self._chrom_filter is None
+                   or v.CHROM == self._chrom_filter)
         try:
-            for variant in vcf:
-                if self._chrom_filter is not None and variant.CHROM != self._chrom_filter:
-                    continue
-                key = (variant.CHROM, variant.POS)
-                if key == prev_key and not warned_split:
-                    self._warn_split_multiallelic(variant.CHROM, variant.POS)
-                    warned_split = True
-                prev_key = key
-                decoded = self._snp_alleles(
-                    [variant.REF, *(variant.ALT or [])])
-                if decoded is None:
-                    continue
-                all_alleles, site_alleles = decoded
-
-                genotypes = variant.genotypes  # indices + a phase flag
-                tip_alleles: dict[str, str | None] = {}
-                unphased: set[str] = set()
-                padded: set[str] = set()
-                for row, sample in zip(self._genotype_rows, self._vcf_samples):
-                    call = genotypes[row]
-                    order = None
-                    if self._ploidy > 1 and call is not None:
-                        phased = self._phased if self._phased is not None \
-                            else bool(call[-1])
-                        if not phased:
-                            unphased.add(sample)
-                            order = self._phase_order(
-                                sample, int(variant.POS),
-                                (int(a) for a in call[:-1] if int(a) >= 0),
-                                len(call) - 1)
-                    if call is not None and len(call) - 1 > self._ploidy:
-                        self._warn_ploidy_truncated(
-                            str(variant.CHROM), int(variant.POS),
-                            len(call) - 1, self._ploidy)
-                    haps = self._haps_from_genotype(
-                        call, self._ploidy, all_alleles, order=order)
-                    if self._ploidy == 1:
-                        tip_alleles[sample] = haps[0]
-                    else:
-                        for h, allele in enumerate(haps):
-                            tip_alleles[f"{sample}_h{h}"] = allele
-                        if call is not None and len(call) - 1 < self._ploidy:
-                            padded.update(f"{sample}_h{h}" for h in
-                                          range(len(call) - 1, self._ploidy))
-
-                yield Site(
-                    chrom=str(variant.CHROM),
-                    pos=int(variant.POS),
-                    alleles=site_alleles,
-                    tip_alleles=tip_alleles,
-                    unphased=_interned(unphased, seen_unphased),
-                    padded=_interned(padded, seen_padded),
-                )
+            yield from self._sites_from_records(
+                records, self._vcf_samples, self._calls)
         finally:
             vcf.close()
 
-    @staticmethod
-    def _haps_from_genotype(
-        genotype, ploidy: int, alleles: "Sequence[str | None]",
-        *, order: "Sequence[int] | None" = None,
-    ) -> list[str | None]:
-        """Decode one ``genotypes`` row into a length-``ploidy`` allele list.
+    def _calls(self, variant) -> "tuple[list[list[int]], list[bool]]":
+        """One record's allele indices and phase flags, in panel order.
 
-        The row is per-haplotype allele indices followed by a phase flag. A
-        negative or out-of-range index is missing, so its tip is
-        marginalised, as is an index resolving to an absent allele. A row
-        with fewer haplotypes than ``ploidy`` (a hemizygous record in a
-        diploid-detected file) pads with ``None``, and a longer one is
-        truncated.
-
-        :param genotype: One row of ``cyvcf2.Variant.genotypes``.
-        :param ploidy: Haplotypes to return.
-        :param alleles: The record's alleles, REF first, upper-cased, with
-            ``None`` in the slot of an allele the record does not carry.
-        :param order: Source position of each haplotype, a permutation of
-            ``range(ploidy)``. ``None`` keeps the written order.
-        :return: Length-``ploidy`` list of alleles, ``None`` where missing.
+        :param variant: The ``cyvcf2.Variant``.
+        :return: ``(genotypes, phased)`` as
+            :meth:`SiteSource._sites_from_records` takes them.
         """
-        if genotype is None:
-            return [None] * ploidy
-        idx = list(genotype[:-1])[:ploidy]
-        n_alleles = len(alleles)
-        out: list[str | None] = []
-        for h in range(ploidy):
-            src = int(order[h]) if order is not None else h
-            j = int(idx[src]) if src < len(idx) else -1
-            out.append(alleles[j] if 0 <= j < n_alleles else None)
-        return out
+        calls = variant.genotypes  # indices + a phase flag
+        rows = [calls[r] for r in self._genotype_rows]
+        return [row[:-1] for row in rows], [row[-1] for row in rows]
 
 
 class VcfZarrSource(SiteSource):
@@ -540,21 +446,24 @@ class VcfZarrSource(SiteSource):
 
     def __iter__(self) -> Iterator[Site]:
         """Stream :class:`~ancestree.sites.Site` records, chunking the underlying zarr reads."""
+        yield from self._sites_from_records(
+            self._records(), self._kept_sample_names, self._calls)
+
+    def _records(self):
+        """The store's records on ``chrom_filter``, read a chunk at a time.
+
+        :return: Generator of ``(chrom, pos, alleles, payload)`` as
+            :meth:`SiteSource._sites_from_records` takes them.
+        """
         root = self._open_root()
         pos_arr = root[ZARR_POSITION_FIELD]
         alleles_arr = root[ZARR_ALLELE_FIELD]
         contig_arr = root[ZARR_CONTIG_FIELD]
         gt_arr = root["call_genotype"]
-        # Consulted only where the caller has not fixed the phase. A store
-        # written without the array carries unphased genotypes.
+        # Consulted only where the caller has not fixed the phase.
         phased_arr = (root.get("call_genotype_phased", None)
                       if self._phased is None else None)
-
         sample_idx = self._sample_indices
-        prev_pos_key = None
-        warned_split = False
-        seen_unphased: dict = {}
-        seen_padded: dict = {}
         for start in range(0, self._n_variants, self._chunk_size):
             end = min(start + self._chunk_size, self._n_variants)
             pos_batch = pos_arr[start:end]
@@ -565,59 +474,25 @@ class VcfZarrSource(SiteSource):
             phased_batch = (
                 np.asarray(phased_arr[start:end])[:, sample_idx]
                 if phased_arr is not None else None)
-
             for i in range(end - start):
-                decoded = self._snp_alleles(
-                    self._decode(x) for x in alleles_batch[i])
                 chrom = self._contig_ids[int(contig_batch[i])]
-                if self._chrom_filter is not None and chrom != self._chrom_filter:
-                    continue
-                # Tested before the allele filter, so a record skipped for
-                # carrying a non-ACGT allele still marks the position it
-                # shared with the record that follows it.
-                pos_key = (chrom, int(pos_batch[i]))
-                if pos_key == prev_pos_key and not warned_split:
-                    self._warn_split_multiallelic(*pos_key)
-                    warned_split = True
-                prev_pos_key = pos_key
-                if decoded is None:
-                    continue
-                raw_alleles, site_alleles = decoded
+                if self._chrom_filter is None or chrom == self._chrom_filter:
+                    yield (chrom, int(pos_batch[i]),
+                           [self._decode(x) for x in alleles_batch[i]],
+                           (gt_batch[i], None if phased_batch is None
+                            else phased_batch[i]))
 
-                tip_alleles: dict[str, str | None] = {}
-                gt_row = gt_batch[i]  # (n_kept_samples, ploidy)
-                ph_row = None
-                if self._ploidy > 1 and self._phased is not True:
-                    ph_row = (phased_batch[i] if phased_batch is not None
-                              else np.zeros(gt_row.shape[0], dtype=bool))
-                unphased: set[str] = set()
-                padded: set[str] = set()
-                for s_idx, name in enumerate(self._kept_sample_names):
-                    order: Sequence[int] = range(self._ploidy)
-                    if ph_row is not None and not bool(ph_row[s_idx]):
-                        unphased.add(name)
-                        order = self._phase_order(
-                            name, int(pos_batch[i]),
-                            (int(a) for a in gt_row[s_idx] if int(a) >= 0),
-                            int(np.count_nonzero(gt_row[s_idx] != _FILL)),
-                        ) or order
-                    for h, src in enumerate(order):
-                        allele_idx = int(gt_row[s_idx, src])
-                        key = name if self._ploidy == 1 else f"{name}_h{h}"
-                        tip_alleles[key] = (
-                            raw_alleles[allele_idx]
-                            if 0 <= allele_idx < len(raw_alleles) else None)
-                        if allele_idx == _FILL:
-                            padded.add(key)
+    @staticmethod
+    def _calls(payload) -> "tuple[list[list[int]], list[bool] | None]":
+        """One record's allele indices and phase flags, in panel order.
 
-                yield Site(
-                    chrom=str(chrom),
-                    pos=int(pos_batch[i]),
-                    alleles=site_alleles,
-                    tip_alleles=tip_alleles,
-                    unphased=_interned(unphased, seen_unphased),
-                    padded=_interned(padded, seen_padded),
-                )
+        :param payload: The record's ``call_genotype`` and
+            ``call_genotype_phased`` rows, the second ``None`` where unread.
+        :return: ``(genotypes, phased)`` as
+            :meth:`SiteSource._sites_from_records` takes them.
+        """
+        genotypes, phased = payload
+        return genotypes.tolist(), None if phased is None else phased.tolist()
 
     def contig_lengths(self) -> dict[str, int]:
         """The length of each contig the store records one for.
