@@ -934,9 +934,10 @@ class LocalTreeBuilder(ReprMixin):
         :meth:`PairwiseTmrcas.write` dumps it to file.
 
         All ``n(n-1)/2`` pairs, in :func:`itertools.combinations` order, over
-        the blocks whose midpoint lies in
+        the blocks overlapping
         :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`,
-        at genome coordinates.
+        at genome coordinates. A block straddling the edge of a chunked core
+        is reported by the core holding its midpoint.
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
         """
@@ -947,12 +948,15 @@ class LocalTreeBuilder(ReprMixin):
                       for a, b in combinations(range(len(names)), 2))
         geometry = self.geometry
         edges = geometry.block_edges
-        mids = geometry.origin + 0.5 * (edges[:-1] + edges[1:])
-        span = geometry.tree_span
+        lo, hi = edges[:-1], edges[1:]
+        mids = 0.5 * (lo + hi)
+        span, core = geometry.tree_span, geometry.core
         keep = (np.zeros(n_blocks, dtype=bool) if span is None else
-                (mids >= geometry.origin + span[0])
-                & (mids < geometry.origin + span[1]))
-        return PairwiseTmrcas(tuple(names), pairs, mids[keep],
+                (hi > span[0]) & (lo < span[1])
+                & ((mids >= core[0]) | (span[0] > core[0]))
+                & ((mids < core[1]) | (span[1] < core[1])))
+        return PairwiseTmrcas(tuple(names), pairs,
+                              geometry.origin + mids[keep],
                               pair_block_t[:, keep])
 
     def write(self, path: "str | os.PathLike") -> None:

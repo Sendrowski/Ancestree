@@ -570,6 +570,24 @@ class TestTreeOutput:
         for x in _positions(inputs[dataset]):
             assert any(left <= x < right for left, right in covered)
 
+    @pytest.mark.parametrize("chunk_size", [None, CHUNK])
+    @pytest.mark.parametrize("dataset", ["regional", "gapped"])
+    def test_pairwise_tmrcas_cover_the_trees(self, inputs, dataset,
+                                             chunk_size):
+        """Every block a tree overlaps is reported. A block was reported only
+        when its midpoint lay under a tree, so the first block of the data
+        stretch, straddling the left edge of the first window, was left
+        out."""
+        inference = _inference(inputs[dataset], chunk_size=chunk_size)
+        block = _resolved(inference)[0]
+        (left, right), = _merged(_covered(inference.point_tree_sequence()))
+        first, last = int(left // block), int(np.ceil(right / block))
+        expected = [min((k + 0.5) * block, 0.5 * (k * block + HEADER + 1))
+                    for k in range(first, last)]
+        np.testing.assert_allclose(
+            inference.pairwise_tmrcas().block_midpoints, expected,
+            rtol=0, atol=1e-9)
+
     @pytest.mark.parametrize("dataset", ["regional", "gapped"])
     def test_pairwise_tmrcas_on_the_block_grid(self, inputs, dataset):
         """Chunked, each block is reported once, on the unchunked grid."""
