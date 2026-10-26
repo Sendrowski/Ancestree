@@ -26,7 +26,7 @@ from ancestree import (
 )
 from ancestree.trees import TskitLocalTree
 import ancestree as anc
-from testing._helpers import canonical_alleles
+from testing._helpers import canonical_alleles, ts_sites
 
 
 def test_returns_one_posterior_per_site(small_ts):
@@ -372,7 +372,7 @@ def test_the_branch_fit_uses_the_supplied_root_prior():
     import msprime
 
     from ancestree import FixedTreeInference
-    from ancestree.sites import BaseComposition, Site
+    from ancestree.sites import BaseComposition
     from ancestree.priors import StationaryPrior
 
     ts = msprime.sim_ancestry(
@@ -380,15 +380,7 @@ def test_the_branch_fit_uses_the_supplied_root_prior():
         population_size=1e4, random_seed=4)
     ts = msprime.sim_mutations(ts, rate=2e-7, random_seed=4)
     names = [f"tsk_{i}" for i in range(ts.num_samples)]
-    sites = []
-    for v in ts.variants():
-        alleles = v.alleles
-        if len(alleles) != 2 or any(a not in "ACGT" for a in alleles if a):
-            continue
-        sites.append(Site(
-            chrom="1", pos=int(v.site.position), alleles=tuple(alleles),
-            tip_alleles={names[i]: alleles[g]
-                         for i, g in enumerate(v.genotypes)}))
+    sites = ts_sites(ts, names)
 
     def divergences(prior):
         inference = FixedTreeInference(
@@ -414,22 +406,14 @@ def test_infer_site_agrees_with_infer_on_an_empirical_composition():
     import msprime
 
     from ancestree import FixedTreeInference
-    from ancestree.sites import BaseComposition, Site
+    from ancestree.sites import BaseComposition
 
     ts = msprime.sim_ancestry(
         6, ploidy=1, sequence_length=60_000, recombination_rate=1e-8,
         population_size=1e4, random_seed=4)
     ts = msprime.sim_mutations(ts, rate=2e-7, random_seed=4)
     names = [f"tsk_{i}" for i in range(ts.num_samples)]
-    sites = []
-    for v in ts.variants():
-        alleles = v.alleles
-        if len(alleles) != 2 or any(a not in "ACGT" for a in alleles if a):
-            continue
-        sites.append(Site(
-            chrom="1", pos=int(v.site.position), alleles=tuple(alleles),
-            tip_alleles={names[i]: alleles[g]
-                         for i, g in enumerate(v.genotypes)}))
+    sites = ts_sites(ts, names)
 
     inference = FixedTreeInference(
         sites, JC69(), BaseComposition.from_polymorphic_sites(sites),

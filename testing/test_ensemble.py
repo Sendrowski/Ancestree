@@ -20,6 +20,7 @@ import ancestree._ensemble as ensemble_module
 from ancestree import JC69, LocalTreeBuilder, LocalTreeInference
 from ancestree._ensemble import SegmentEnsemble, _pair_stream_keys
 from ancestree.sites import Site
+from testing._helpers import ts_sites
 
 
 #: Panels committed rather than simulated at import. msprime reproduces a seed
@@ -43,15 +44,7 @@ def _sites(seed=7, n=8, L=60_000):
         f"the committed panel for seed {seed} is {ts.num_samples} haplotypes "
         f"over {ts.sequence_length:g} bp, not {n} over {L:g}")
     names = [f"s{i}" for i in range(n)]
-    out = []
-    for v in ts.variants():
-        al = v.alleles
-        if len(al) != 2 or any(a not in "ACGT" for a in al if a):
-            continue
-        out.append(Site(chrom="1", pos=int(v.site.position), alleles=tuple(al),
-                        tip_alleles={names[i]: al[g]
-                                     for i, g in enumerate(v.genotypes)}))
-    return out, names, float(ts.sequence_length)
+    return ts_sites(ts, names), names, float(ts.sequence_length)
 
 
 def _run(sites, names, L, **kw):

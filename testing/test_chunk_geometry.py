@@ -12,7 +12,7 @@ import pytest
 from ancestree import JC69, LocalTreeInference
 from ancestree._geometry import ContigGeometry
 from ancestree.sites import Site
-from testing._helpers import toy_chunked_inference, toy_sites, write_vcz
+from testing._helpers import toy_chunked_inference, toy_sites, ts_sites, write_vcz
 
 #: Not a multiple of BLOCK_BP, so the window must be snapped up to one.
 WINDOW_BP = 2500
@@ -27,18 +27,8 @@ def _sites(sequence_length=SEQUENCE_LENGTH, seed=7, drop=None, rate=1.25e-8):
         population_size=1e4, random_seed=seed)
     ts = msprime.sim_mutations(ts, rate=rate, random_seed=seed)
     names = [f"i{i}_h{h}" for i in range(5) for h in (0, 1)]
-    out = []
-    for variant in ts.variants():
-        alleles = variant.alleles
-        if len(alleles) != 2 or any(a not in "ACGT" for a in alleles if a):
-            continue
-        pos = int(variant.site.position)
-        if drop is not None and drop[0] <= pos < drop[1]:
-            continue
-        out.append(Site(
-            chrom="1", pos=pos, alleles=tuple(alleles),
-            tip_alleles={names[k]: alleles[variant.genotypes[k]]
-                         for k in range(len(names))}))
+    out = [s for s in ts_sites(ts, names)
+           if drop is None or not drop[0] <= s.pos < drop[1]]
     return out, names
 
 

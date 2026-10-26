@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from ancestree._ensemble import MAX_SCRATCH_BYTES, _window_block
-from testing._helpers import canonical_alleles
+from testing._helpers import ts_sites
 
 #: Generous beside the ~256 MB scratch bound, but far below the multi-GB the
 #: unbounded scratch would reach.
@@ -29,18 +29,12 @@ PEAK_RSS_LIMIT_MB = 1200
 def _sites(seed=3, n=8, L=40_000):
     """A panel dense enough to tile many windows."""
     import msprime
-    from ancestree.sites import Site
     ts = msprime.sim_ancestry(samples=n, ploidy=1, sequence_length=L,
                               recombination_rate=1e-8, population_size=1e4,
                               random_seed=seed)
     ts = msprime.sim_mutations(ts, rate=2.5e-6, random_seed=seed)
     names = [f"s{i}" for i in range(n)]
-    out = [Site(chrom="1", pos=int(v.site.position), alleles=canonical_alleles(v.alleles),
-                tip_alleles={names[i]: v.alleles[g]
-                             for i, g in enumerate(v.genotypes)})
-           for v in ts.variants()
-           if len(v.alleles) == 2 and all(a in "ACGT" for a in v.alleles if a)]
-    return out, names, float(ts.sequence_length)
+    return ts_sites(ts, names), names, float(ts.sequence_length)
 
 
 def _run_posteriors(sites, names, L):
@@ -65,7 +59,6 @@ def _one_run(window, n_ensemble, n_sites, q):
 
     import msprime
     from ancestree import JC69, LocalTreeInference
-    from ancestree.sites import Site
 
     L = n_sites * 40
     ts = msprime.sim_ancestry(samples=8, ploidy=1, sequence_length=L,
@@ -73,11 +66,7 @@ def _one_run(window, n_ensemble, n_sites, q):
                               random_seed=3)
     ts = msprime.sim_mutations(ts, rate=2.5e-6, random_seed=3)
     names = [f"s{i}" for i in range(8)]
-    sites = [Site(chrom="1", pos=int(v.site.position), alleles=canonical_alleles(v.alleles),
-                  tip_alleles={names[i]: v.alleles[g]
-                               for i, g in enumerate(v.genotypes)})
-             for v in ts.variants()
-             if len(v.alleles) == 2 and all(a in "ACGT" for a in v.alleles if a)]
+    sites = ts_sites(ts, names)
     inf = LocalTreeInference(sites, JC69(), mu=2.5e-8, rec_rate=1e-8,
                              sample_names=names, sequence_length=float(L),
                              window=window, n_ensemble=n_ensemble,

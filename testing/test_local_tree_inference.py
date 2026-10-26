@@ -40,6 +40,7 @@ from testing._helpers import (
     toy_chunked_inference,
     toy_inference,
     toy_sites,
+    ts_sites,
     write_panel_vcf,
     write_vcf,
 )
@@ -1121,15 +1122,7 @@ def _stitch_inputs(seed=12, samples=8, length=60_000):
     """A simulated single-contig ARG → (Site list, haplotype names)."""
     ts = _sim(samples=samples, length=length, seed=seed)
     names = [f"n{i}" for i in range(int(ts.num_samples))]
-    nm = {int(s): names[i] for i, s in enumerate(ts.samples())}
-    sites = []
-    for v in ts.variants():
-        ta = {nm[int(s)]: v.alleles[g] for s, g in zip(ts.samples(), v.genotypes)}
-        if len(set(ta.values())) < 2:
-            continue
-        sites.append(Site(chrom="1", pos=int(v.site.position),
-                          alleles=canonical_alleles(v.alleles), tip_alleles=ta))
-    return sites, names
+    return ts_sites(ts, names), names
 
 
 def test_chunked_point_tree_sequence_is_valid():
@@ -2593,12 +2586,7 @@ class TestAnExplicitHaloIsFlooredAtTheBlockWidth:
         )
         ts = msprime.sim_mutations(ts, rate=self.MU, random_seed=11)
         names = [str(i) for i in range(ts.num_samples)]
-        return names, [
-            Site(chrom="1", pos=int(v.site.position), alleles=canonical_alleles(v.alleles),
-                 tip_alleles={names[i]: v.alleles[g]
-                              for i, g in enumerate(v.genotypes)})
-            for v in ts.variants()
-        ]
+        return names, ts_sites(ts, names)
 
     def _midpoints(self, sites, halo):
         """Block midpoints and the resolved block width for one halo."""
@@ -2649,13 +2637,7 @@ class TestInferSiteAgreesWithInferInLocalTreeMode:
                 random_seed=4),
             rate=self.MU, random_seed=4)
         names = [str(i) for i in range(ts.num_samples)]
-        sites = [
-            Site(chrom="1", pos=int(v.site.position), alleles=canonical_alleles(v.alleles),
-                 tip_alleles={names[i]: v.alleles[g]
-                              for i, g in enumerate(v.genotypes)})
-            for v in ts.variants()
-        ]
-        return names, sites
+        return names, ts_sites(ts, names)
 
     def _inference(self, panel):
         names, sites = panel

@@ -42,6 +42,17 @@ def canonical_alleles(alleles) -> tuple[str, ...]:
     return tuple(sorted({a for a in alleles if a}))
 
 
+def ts_sites(ts, names) -> list[Site]:
+    """The biallelic A/C/G/T sites of a haploid ``ts`` on contig ``1``.
+
+    :param names: Sample names in ``ts.samples()`` order.
+    """
+    return [Site(chrom="1", pos=int(v.site.position), alleles=canonical_alleles(v.alleles),
+                 tip_alleles={name: v.alleles[g] for name, g in zip(names, v.genotypes)})
+            for v in ts.variants()
+            if len(v.alleles) == 2 and all(a in "ACGT" for a in v.alleles if a)]
+
+
 def no_counts() -> BaseComposition:
     """Zero-count placeholder :class:`~ancestree.sites.BaseComposition` for paths that do not depend on the counts.
 
