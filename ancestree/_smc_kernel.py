@@ -217,62 +217,6 @@ _pair_posterior_mean_jit = njit(cache=True, fastmath=True, nogil=True)(
 )
 
 
-def pair_posterior_mean_tmrca(
-    counts: np.ndarray,
-    t_rep: np.ndarray,
-    lam: np.ndarray,
-    log_lam: np.ndarray,
-    r: np.ndarray,
-    pi: np.ndarray,
-    step: np.ndarray | None = None,
-    mask: np.ndarray | None = None,
-    escale: np.ndarray | None = None,
-) -> np.ndarray:
-    """Posterior-mean TMRCA per block for one haplotype pair, coercing the
-    arrays to the kernel's dtypes and filling neutral defaults.
-
-    :param counts: ``(n_blocks,)`` number of pairwise differences per block.
-    :param t_rep: ``(T,)`` representative bin times (generations).
-    :param lam: ``(T,)`` Poisson mean ``2·μ·t_i·block`` per bin.
-    :param log_lam: ``(T,)`` ``log(lam)``.
-    :param r: ``(T,)`` P(no recombination over one nominal block | bin).
-    :param pi: ``(T,)`` prior over bins.
-    :param step: optional ``(n_blocks-1,)`` genetic distance of each
-        inter-block step in nominal-block units. ``None`` is all ones
-        (adjacent uniform blocks).
-    :param mask: optional ``(n_blocks,)`` bool of callable blocks. ``None``
-        is all callable. Non-callable blocks emit uniformly.
-    :param escale: optional ``(n_blocks,)`` per-block exposure scale of the
-        Poisson mean (observable base-pair fraction times local mutation rate
-        over the reference). ``None`` is all ones.
-    :return: ``(n_blocks,)`` posterior-mean TMRCA (generations).
-    """
-    counts = np.ascontiguousarray(counts, dtype=np.int64)
-    t_rep = np.ascontiguousarray(t_rep, dtype=np.float64)
-    lam = np.ascontiguousarray(lam, dtype=np.float64)
-    log_lam = np.ascontiguousarray(log_lam, dtype=np.float64)
-    r = np.ascontiguousarray(r, dtype=np.float64)
-    pi = np.ascontiguousarray(pi, dtype=np.float64)
-    n = counts.shape[0]
-    if n == 0:
-        return np.empty(0, dtype=np.float64)
-    if step is None:
-        step = np.ones(n - 1, dtype=np.float64)
-    else:
-        step = np.ascontiguousarray(step, dtype=np.float64)
-    if mask is None:
-        mask = np.ones(n, dtype=np.bool_)
-    else:
-        mask = np.ascontiguousarray(mask, dtype=np.bool_)
-    if escale is None:
-        escale = np.ones(n, dtype=np.float64)
-    else:
-        escale = np.ascontiguousarray(escale, dtype=np.float64)
-    return _pair_posterior_mean_jit(
-        counts, t_rep, lam, log_lam, r, pi, step, mask, escale
-    )
-
-
 def pair_posterior_mean_tmrcas(
     counts: np.ndarray,
     t_rep: np.ndarray,
@@ -295,8 +239,10 @@ def pair_posterior_mean_tmrcas(
     :param log_lam: ``(T,)`` ``log(lam)``.
     :param r: ``(T,)`` P(no recombination over one nominal block | bin).
     :param pi: ``(P, T)`` prior over bins of each pair.
-    :param step: As :func:`pair_posterior_mean_tmrca`.
-    :param mask: As :func:`pair_posterior_mean_tmrca`.
+    :param step: Optional ``(n_blocks-1,)`` genetic distance of each
+        inter-block step in nominal-block units. ``None`` is all ones.
+    :param mask: Optional ``(n_blocks,)`` bool of callable blocks. ``None`` is
+        all callable. Non-callable blocks emit uniformly.
     :param called: Optional ``(P, n_blocks)`` number of each block's sites at
         which the pair is called. ``None`` is fully called.
     :param block_sites: ``(n_blocks,)`` site count each ``called`` entry is
@@ -311,14 +257,25 @@ def pair_posterior_mean_tmrcas(
     import numba
 
     out = np.empty(np.shape(counts), dtype=np.float64)
+    n = out.shape[1]
+    if n == 0:
+        return out
+    t_rep, lam, log_lam, r = (np.ascontiguousarray(a, dtype=np.float64)
+                              for a in (t_rep, lam, log_lam, r))
+    step = (np.ones(n - 1, dtype=np.float64) if step is None
+            else np.ascontiguousarray(step, dtype=np.float64))
+    mask = (np.ones(n, dtype=np.bool_) if mask is None
+            else np.ascontiguousarray(mask, dtype=np.bool_))
 
     def one(p):
         escale = None if called is None else called[p] / block_sites
         if emit_scale is not None:
             escale = emit_scale if escale is None else emit_scale * escale
-        out[p] = pair_posterior_mean_tmrca(
-            counts[p], t_rep, lam, log_lam, r, pi[p], step=step, mask=mask,
-            escale=escale)
+        out[p] = _pair_posterior_mean_jit(
+            np.ascontiguousarray(counts[p], dtype=np.int64), t_rep, lam,
+            log_lam, r, np.ascontiguousarray(pi[p], dtype=np.float64), step,
+            mask, np.ones(n, dtype=np.float64) if escale is None
+            else np.ascontiguousarray(escale, dtype=np.float64))
 
     # The compiled kernel releases the GIL, so the pairs run in parallel on
     # numba's thread budget.

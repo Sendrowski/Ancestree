@@ -859,7 +859,8 @@ def test_hmm_matches_bruteforce_forward_backward():
     for _ in range(5):
         counts = rng.poisson(rng.uniform(0.05, 0.6), size=200).astype(np.int64)
         ref = _bruteforce_pmean(counts, t_rep, lam, log_lam, r, pi)
-        got = smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi)
+        got = smc.pair_posterior_mean_tmrcas(
+            counts[None], t_rep, lam, log_lam, r, pi[None])[0]
         np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
@@ -885,8 +886,9 @@ def test_hmm_matches_bruteforce_with_step_mask_and_exposure():
     escale = rng.uniform(0.3, 3.0, size=n)
     ref = _bruteforce_pmean(counts, t_rep, lam, log_lam, r, pi,
                             step=step, mask=mask, escale=escale)
-    got = smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi,
-                                        step=step, mask=mask, escale=escale)
+    got = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None], step=step, mask=mask,
+        emit_scale=escale)[0]
     np.testing.assert_allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
@@ -910,7 +912,8 @@ def test_hmm_recovers_constant_tmrca(true_t):
     lam_true = 2 * mu * block * true_t  # expected diffs/block at true_t
     rng = np.random.default_rng(0)
     counts = rng.poisson(lam_true, size=4000).astype(np.int64)  # iid, no recomb
-    pm = smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi)
+    pm = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None])[0]
     got = float(np.median(pm))
     assert 0.5 * true_t < got < 2.0 * true_t, got
     # Strictly closer to the truth than the uninformative fallback.
@@ -935,7 +938,8 @@ def test_hmm_separates_two_generating_tmrcas():
     for true_t in (5.0e3, 2.0e4, 6.0e4):
         counts = rng.poisson(2 * mu * block * true_t, size=4000).astype(np.int64)
         got.append(float(np.median(
-            smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi))))
+            smc.pair_posterior_mean_tmrcas(
+                counts[None], t_rep, lam, log_lam, r, pi[None])[0])))
     assert got[0] < got[1] < got[2], got
 
 
@@ -1312,11 +1316,11 @@ def test_kernel_default_step_mask_is_identity():
     """Explicit step=ones / mask=all-true == the bare 6-arg kernel, bit-exact."""
     t_rep, lam, log_lam, r, pi = _kernel_grid()
     counts = np.random.default_rng(3).poisson(0.3, size=120).astype(np.int64)
-    base = smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi)
-    got = smc.pair_posterior_mean_tmrca(
-        counts, t_rep, lam, log_lam, r, pi,
-        step=np.ones(len(counts) - 1), mask=np.ones(len(counts), dtype=bool),
-    )
+    base = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None])[0]
+    got = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None],
+        step=np.ones(len(counts) - 1), mask=np.ones(len(counts), dtype=bool))[0]
     np.testing.assert_array_equal(base, got)
 
 
@@ -1329,15 +1333,17 @@ def test_kernel_masked_block_emits_uniformly():
     c1 = np.full(n, 3, dtype=np.int64)
     c2 = c1.copy(); c2[30] = 99  # differ only at the masked block
     mask = np.ones(n, dtype=bool); mask[30] = False
-    p1 = smc.pair_posterior_mean_tmrca(c1, t_rep, lam, log_lam, r, pi, mask=mask)
-    p2 = smc.pair_posterior_mean_tmrca(c2, t_rep, lam, log_lam, r, pi, mask=mask)
+    p1, p2 = smc.pair_posterior_mean_tmrcas(
+        np.stack([c1, c2]), t_rep, lam, log_lam, r, np.stack([pi, pi]),
+        mask=mask)
     np.testing.assert_allclose(p1, p2)  # the masked count is irrelevant
 
     counts = np.full(n, 4, dtype=np.int64); counts[20:40] = 0
-    accessible = smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi)
+    accessible = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None])[0]
     m2 = np.ones(n, dtype=bool); m2[20:40] = False
-    masked = smc.pair_posterior_mean_tmrca(
-        counts, t_rep, lam, log_lam, r, pi, mask=m2)
+    masked = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None], mask=m2)[0]
     # the masked gap keeps the deep flanking signal. The accessible zeros dip.
     assert masked[20:40].mean() > accessible[20:40].mean()
 
@@ -1349,12 +1355,14 @@ def test_kernel_large_step_approximates_segment_reset():
     t_rep, lam, log_lam, r, pi = _kernel_grid(block=1, T=32)
     counts = np.zeros(nb, dtype=np.int64); counts[:k] = 1  # deep then recent
     seg = np.concatenate([
-        smc.pair_posterior_mean_tmrca(counts[:k], t_rep, lam, log_lam, r, pi),
-        smc.pair_posterior_mean_tmrca(counts[k:], t_rep, lam, log_lam, r, pi),
+        smc.pair_posterior_mean_tmrcas(
+            counts[:k][None], t_rep, lam, log_lam, r, pi[None])[0],
+        smc.pair_posterior_mean_tmrcas(
+            counts[k:][None], t_rep, lam, log_lam, r, pi[None])[0],
     ])
     step = np.ones(nb - 1); step[k - 1] = 1e12  # ~unlinked boundary
-    big = smc.pair_posterior_mean_tmrca(
-        counts, t_rep, lam, log_lam, r, pi, step=step)
+    big = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None], step=step)[0]
     np.testing.assert_allclose(big, seg, rtol=1e-3, atol=1.0)
 
 
@@ -1703,16 +1711,17 @@ def test_kernel_emit_scale_default_is_identity():
     shifts the inferred TMRCA shallower (excess diffs read as mutation)."""
     t_rep, lam, log_lam, r, pi = _kernel_grid()
     counts = np.random.default_rng(5).poisson(0.4, size=100).astype(np.int64)
-    base = smc.pair_posterior_mean_tmrca(counts, t_rep, lam, log_lam, r, pi)
-    ident = smc.pair_posterior_mean_tmrca(
-        counts, t_rep, lam, log_lam, r, pi,
-        escale=np.ones(len(counts)))
+    base = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None])[0]
+    ident = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None],
+        emit_scale=np.ones(len(counts)))[0]
     np.testing.assert_array_equal(base, ident)
     # double the local rate everywhere → same counts explained by 2× mutation,
     # so the posterior-mean TMRCA roughly halves.
-    hot = smc.pair_posterior_mean_tmrca(
-        counts, t_rep, lam, log_lam, r, pi,
-        escale=np.full(len(counts), 2.0))
+    hot = smc.pair_posterior_mean_tmrcas(
+        counts[None], t_rep, lam, log_lam, r, pi[None],
+        emit_scale=np.full(len(counts), 2.0))[0]
     assert hot.mean() < base.mean()
 
 

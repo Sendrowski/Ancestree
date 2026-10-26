@@ -19,15 +19,15 @@ _SCRIPT = """
 import sys
 sys.path.insert(0, sys.argv[1])
 import numpy as np
-from ancestree._smc_kernel import pair_posterior_mean_tmrca
+from ancestree._smc_kernel import pair_posterior_mean_tmrcas
 rng = np.random.default_rng(1)
 T, n = 32, 400
 t_rep = np.geomspace(100, 1e6, T)
 lam = 2 * 5e-8 * 100 * t_rep
-out = pair_posterior_mean_tmrca(
-    rng.poisson(1.5, n), t_rep, lam, np.log(lam), np.exp(-2e-6 * t_rep),
-    rng.dirichlet(np.ones(T)), step=rng.uniform(0.5, 2, n - 1),
-    escale=rng.uniform(0.2, 1, n))
+out = pair_posterior_mean_tmrcas(
+    rng.poisson(1.5, n)[None], t_rep, lam, np.log(lam), np.exp(-2e-6 * t_rep),
+    rng.dirichlet(np.ones(T))[None], step=rng.uniform(0.5, 2, n - 1),
+    emit_scale=rng.uniform(0.2, 1, n))[0]
 sys.stdout.write(out.tobytes().hex())
 """
 

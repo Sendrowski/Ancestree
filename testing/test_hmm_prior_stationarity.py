@@ -17,7 +17,7 @@ is the same at every position, so these tests pin the invariance directly.
 import numpy as np
 import pytest
 
-from ancestree._smc_kernel import pair_posterior_mean_tmrca
+from ancestree._smc_kernel import pair_posterior_mean_tmrcas
 
 T = 32
 LO, HI = 300.0, 3.0e6
@@ -49,9 +49,9 @@ def test_no_data_leaves_the_posterior_at_the_prior_mean(t_bar):
     """
     t_rep, pi, r, lam = _grid(t_bar)
     n = 400
-    pm = pair_posterior_mean_tmrca(
-        np.zeros(n, np.int64), t_rep, lam, np.log(lam), r, pi,
-        mask=np.zeros(n, bool))
+    pm = pair_posterior_mean_tmrcas(
+        np.zeros(n, np.int64)[None], t_rep, lam, np.log(lam), r, pi[None],
+        mask=np.zeros(n, bool))[0]
     prior_mean = float(pi @ t_rep)
     assert np.allclose(pm, prior_mean, rtol=1e-10), (
         f"posterior mean TMRCA drifted from {pm[0]:.1f} to {pm[-1]:.1f} "
@@ -88,7 +88,7 @@ def test_a_wider_step_is_still_stationary():
     t_rep, pi, r, lam = _grid(2e4)
     n = 200
     step = np.full(n - 1, 7.5)
-    pm = pair_posterior_mean_tmrca(
-        np.zeros(n, np.int64), t_rep, lam, np.log(lam), r, pi,
-        step=step, mask=np.zeros(n, bool))
+    pm = pair_posterior_mean_tmrcas(
+        np.zeros(n, np.int64)[None], t_rep, lam, np.log(lam), r, pi[None],
+        step=step, mask=np.zeros(n, bool))[0]
     assert np.allclose(pm, float(pi @ t_rep), rtol=1e-10)
