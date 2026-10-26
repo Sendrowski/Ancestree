@@ -187,8 +187,8 @@ meta = {
     "model": "HKY",
     "kappa_initial": float(kappa_hat),
     "kappa_fitted": (
-        inference._model_params_mle.get("kappa")
-        if inference._model_params_mle else None
+        inference.model_params_mle.get("kappa")
+        if inference.model_params_mle else None
     ),
     "params_mle": {k: float(v) for k, v in params.items()},
     "wall_fit_s": t_fit,

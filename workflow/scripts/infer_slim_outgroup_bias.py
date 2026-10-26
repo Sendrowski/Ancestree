@@ -2,10 +2,10 @@
 parameters from a joint fit over ALL chunks.
 
 Reads the recap+mutate stage's VCF + meta and a joint-fit JSON (produced
-by :mod:`workflow.scripts.fit_slim_outgroup_bias`). Re-constructs
-``FixedTreeInference`` with ``fixed_params=`` set to the joint MLE so
-``.fit()`` is a no-op (all params held), then runs the per-site posterior
-pass on a single chunk's polymorphic-site stream.
+by :mod:`workflow.scripts.fit_slim_outgroup_bias`). Constructs
+``FixedTreeInference`` with ``fit_required=False``, sets the joint MLE
+through ``tree.set_params``, then runs the per-site posterior pass on a
+single chunk's polymorphic-site stream.
 
 Per-chunk MLEs on ~5 k polymorphic sites were over-fitting per-chunk
 sampling noise (e.g. K_1 sliding to the 1e-9 lower bound on some chunks
@@ -106,8 +106,6 @@ model = JC69()
 # ingroup/outgroup lists feed both scripts), so the joint params dict
 # maps 1-to-1 onto tree.param_names. ``kappa`` (HKY) would be absent
 # under JC69 and is not consumed below.
-import numpy as np
-
 inference = FixedTreeInference(
     in_vcf,
     ingroup_samples=ingroup_names,
@@ -121,10 +119,6 @@ inference = FixedTreeInference(
 )
 joint_vec = [float(joint_params_mle[name]) for name in inference.tree.param_names]
 inference.tree.set_params(joint_vec)
-# Manually populate the MLE accessors so .infer() and downstream callers
-# see the joint MLE rather than `None`.
-inference._params_mle = np.asarray(joint_vec, dtype=float)
-inference._log_likelihood_mle = float(fit_payload.get("log_likelihood_mle", 0.0))
 
 # .fit() is a no-op here (fit_required=False). Per-site infer below uses
 # the joint MLE rates loaded above.
