@@ -926,7 +926,8 @@ class LocalTreeBuilder(ReprMixin):
         the blocks overlapping
         :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`,
         at genome coordinates. A block straddling the edge of a chunked core
-        is reported by the core holding its midpoint.
+        is reported by the core holding its midpoint clipped to the data
+        stretch.
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
         """
@@ -940,10 +941,11 @@ class LocalTreeBuilder(ReprMixin):
         lo, hi = edges[:-1], edges[1:]
         mids = 0.5 * (lo + hi)
         span, core = geometry.tree_span, geometry.core
+        s0, s1 = geometry.stretch
+        owner = np.clip(mids, s0, np.nextafter(s1, -np.inf))
         keep = (np.zeros(n_blocks, dtype=bool) if span is None else
                 (hi > span[0]) & (lo < span[1])
-                & ((mids >= core[0]) | (span[0] > core[0]))
-                & ((mids < core[1]) | (span[1] < core[1])))
+                & (owner >= core[0]) & (owner < core[1]))
         return PairwiseTmrcas(tuple(names), pairs,
                               geometry.origin + mids[keep],
                               pair_block_t[:, keep])

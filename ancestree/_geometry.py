@@ -291,12 +291,16 @@ class BuildGeometry(ReprMixin):
             stretch = ((min(lo_, iv[held, 0].min()), max(hi_, iv[held, 1].max()))
                        if held.any() else data)
         k0, k1 = 0, n
+        #: ``(lo, hi)`` data stretch within the axis, the whole axis without
+        #: one.
+        self.stretch = (0.0, self.axis_length)
         if stretch is not None:
             s0 = max(0.0, float(stretch[0]))
             s1 = min(self.axis_length, float(stretch[1]))
             if s1 > s0:
                 k0 = min(int(s0 // bs), n - 1)
                 k1 = min(int(np.ceil(s1 / bs)), n)
+                self.stretch = (s0, s1)
         #: First block of the axis the HMM runs over.
         self.first_block = k0
         #: Blocks the HMM runs over, at least one.

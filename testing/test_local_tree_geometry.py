@@ -612,6 +612,18 @@ class TestTreeOutput:
         assert np.all(np.diff(chunked.block_midpoints) > 0)
         assert chunked.tmrca.shape == plain.tmrca.shape
 
+    def test_a_block_past_the_data_stretch_is_reported_once(self, inputs):
+        """The block straddling the right end of the data stretch reaches
+        past it into the next core. Owned by the core holding its raw
+        midpoint, it fell to a core with no tree and was reported by
+        neither, so the chunked record held one block fewer than the
+        unchunked one."""
+        kwargs = dict(window="30snp", halo=WIDE_HALO)
+        plain = _inference(inputs["gapped"], **kwargs).pairwise_tmrcas()
+        chunked = _inference(inputs["gapped"], chunk_size=4_000,
+                             **kwargs).pairwise_tmrcas()
+        assert np.array_equal(plain.block_midpoints, chunked.block_midpoints)
+
 
 class TestDataStretch:
     """Trees cover each contig's data stretch, the windows from the first
