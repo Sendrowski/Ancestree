@@ -126,12 +126,15 @@ pairs = [all_pairs[k] for k in pair_idx]
 rf_max = 2.0 * (n_keep - 2)  # max RF for two rooted binary trees on n_keep leaves
 
 
-def _metrics_vs_truth(inf_ts) -> dict:
-    """Span-weighted genealogy-recovery metrics of ``inf_ts`` vs. the true
-    ``ts`` (RF, KC, TMRCA rank rho, log-bias, regression slope)."""
-    rf_acc = kc_acc = span_acc = 0.0
-    t_true_all: list[float] = []
-    t_inf_all: list[float] = []
+def _accumulate(inf_ts, acc=None) -> dict:
+    """Add the span-weighted comparison of ``inf_ts`` against the true ``ts``
+    to ``acc``, so a genealogy given in pieces is measured as one.
+
+    :param inf_ts: An inferred tree sequence, or one piece of it.
+    :param acc: The sums of the pieces before it, ``None`` for the first.
+    :return: The updated sums, for :func:`_metrics`.
+    """
+    acc = acc or {"rf": 0.0, "kc": 0.0, "span": 0.0, "t_true": [], "t_inf": []}
 
     # NB: tskit's ``trees()`` reuses one mutable Tree per iteration, so the
     # stream must be processed in place (never ``list(...)``-materialised).
@@ -151,18 +154,24 @@ def _metrics_vs_truth(inf_ts) -> dict:
         true_tree = truth_ts.at(mid, sample_lists=True)
         if true_tree.num_roots != 1:
             continue
-        rf_acc += span * (inf_tree.rf_distance(true_tree) / rf_max)
-        kc_acc += span * inf_tree.kc_distance(true_tree, 1.0)
-        span_acc += span
+        acc["rf"] += span * (inf_tree.rf_distance(true_tree) / rf_max)
+        acc["kc"] += span * inf_tree.kc_distance(true_tree, 1.0)
+        acc["span"] += span
         for i, j in pairs:
             tt = true_tree.tmrca(i, j)
             ti_ = inf_tree.tmrca(i, j)
             if tt > 0 and ti_ > 0:
-                t_true_all.append(tt)
-                t_inf_all.append(ti_)
+                acc["t_true"].append(tt)
+                acc["t_inf"].append(ti_)
+    return acc
 
-    t_true_arr = np.asarray(t_true_all)
-    t_inf_arr = np.asarray(t_inf_all)
+
+def _metrics(acc) -> dict:
+    """Genealogy-recovery metrics (RF, KC, TMRCA rank rho, log-bias,
+    regression slope) from the sums of :func:`_accumulate`."""
+    span_acc = acc["span"]
+    t_true_arr = np.asarray(acc["t_true"])
+    t_inf_arr = np.asarray(acc["t_inf"])
     # Spearman rho via rank-Pearson (no scipy dependency).
     rt = np.argsort(np.argsort(t_true_arr))
     ri = np.argsort(np.argsort(t_inf_arr))
@@ -171,13 +180,18 @@ def _metrics_vs_truth(inf_ts) -> dict:
     slope = float(np.polyfit(t_true_arr, t_inf_arr, 1)[0])
     return {
         "any_tree_compared": bool(span_acc > 0),
-        "rf_norm": rf_acc / span_acc if span_acc else float("nan"),
-        "kc_lambda1": kc_acc / span_acc if span_acc else float("nan"),
+        "rf_norm": acc["rf"] / span_acc if span_acc else float("nan"),
+        "kc_lambda1": acc["kc"] / span_acc if span_acc else float("nan"),
         "tmrca_spearman": spearman,
         "tmrca_log_bias": log_bias,
         "tmrca_slope": slope,
         "n_tmrca_points": int(t_true_arr.size),
     }
+
+
+def _metrics_vs_truth(inf_ts) -> dict:
+    """Genealogy-recovery metrics of ``inf_ts`` against the true ``ts``."""
+    return _metrics(_accumulate(inf_ts))
 
 
 def _brier_of_posteriors(stream) -> float:
@@ -243,8 +257,9 @@ def _ensemble_recovery(inf, window_snps: int) -> dict:
     estimator. Ensemble mode does not score it: it marginalises over
     genealogies drawn from the pairwise-HMM posterior, so a figure describing
     only the point tree describes a tree the default mode never uses. Each
-    member is measured against the truth and the metrics are averaged, with
-    the spread kept so the member-to-member variability is visible.
+    member is measured against the truth over every core it is drawn on, and
+    the metrics are averaged over members, with the spread kept so the
+    member-to-member variability is visible.
 
     :param inf: The ensemble inference whose members are measured. The
         caller's instance is reused: a second, argument-identical build would
@@ -253,9 +268,11 @@ def _ensemble_recovery(inf, window_snps: int) -> dict:
     :return: ``ens_<metric>`` means plus ``ens_<metric>_sd`` and the member
         count, prefixed so they sit beside the point-tree columns.
     """
-    per_member: list[dict] = []
+    pooled: dict[int, dict] = {}
     for _interval, members in inf.tree_sequences():
-        per_member.extend(_metrics_vs_truth(member) for member in members)
+        for m, member in enumerate(members):
+            pooled[m] = _accumulate(member, pooled.get(m))
+    per_member = [_metrics(pooled[m]) for m in sorted(pooled)]
     if not per_member:
         return {"ens_members": 0}
     keys = [k for k, v in per_member[0].items() if isinstance(v, (int, float))]
