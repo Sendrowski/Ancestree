@@ -57,8 +57,12 @@ def _condensed_index(n, i, j):
 
 
 @njit(cache=True)
-def _nn_chain_average(D, n, Z):
-    """Nearest-neighbour chain for average linkage; ``D`` is scratch."""
+def _nn_chain(D, Wt, n, Z):
+    """Nearest-neighbour chain for average linkage, with pair distances
+    weighted by exposure ``Wt``, or plain when ``Wt`` is empty. ``D`` and
+    ``Wt`` are scratch.
+    """
+    weighted = Wt.size > 0
     size = np.ones(n, np.float64)
     chain = np.empty(n, np.int64)
     chain_len = 0
@@ -102,63 +106,14 @@ def _nn_chain_average(D, n, Z):
         for i in range(n):
             if size[i] == 0 or i == y:
                 continue
-            dxi = D[_condensed_index(n, min(i, x), max(i, x))]
-            dyi = D[_condensed_index(n, min(i, y), max(i, y))]
-            D[_condensed_index(n, min(i, y), max(i, y))] = (
-                _fma(nx, dxi, ny * dyi) / (nx + ny))
-
-
-@njit(cache=True)
-def _nn_chain_weighted(D, Wt, n, Z):
-    """Nearest-neighbour chain for average linkage with pair distances weighted
-    by exposure ``Wt``. ``D`` and ``Wt`` are scratch.
-    """
-    size = np.ones(n, np.float64)
-    chain = np.empty(n, np.int64)
-    chain_len = 0
-    for k in range(n - 1):
-        if chain_len == 0:
-            chain_len = 1
-            for i in range(n):
-                if size[i] > 0:
-                    chain[0] = i
-                    break
-        while True:
-            x = chain[chain_len - 1]
-            if chain_len > 1:
-                y = chain[chain_len - 2]
-                current_min = D[_condensed_index(n, min(x, y), max(x, y))]
-            else:
-                y = -1
-                current_min = np.inf
-            for i in range(n):
-                if size[i] == 0 or x == i:
-                    continue
-                dist = D[_condensed_index(n, min(x, i), max(x, i))]
-                if dist < current_min:
-                    current_min = dist
-                    y = i
-            if chain_len > 1 and y == chain[chain_len - 2]:
-                break
-            chain[chain_len] = y
-            chain_len += 1
-        chain_len -= 2
-        if x > y:
-            x, y = y, x
-        Z[k, 0] = x
-        Z[k, 1] = y
-        Z[k, 2] = current_min
-        Z[k, 3] = size[x] + size[y]
-        size[y] = size[x] + size[y]
-        size[x] = 0.0
-        for i in range(n):
-            if size[i] == 0 or i == y:
-                continue
             ix = _condensed_index(n, min(i, x), max(i, x))
             iy = _condensed_index(n, min(i, y), max(i, y))
-            wx, wy = Wt[ix], Wt[iy]
-            D[iy] = (wx * D[ix] + wy * D[iy]) / (wx + wy)
-            Wt[iy] = wx + wy
+            if weighted:
+                wx, wy = Wt[ix], Wt[iy]
+                D[iy] = (wx * D[ix] + wy * D[iy]) / (wx + wy)
+                Wt[iy] = wx + wy
+            else:
+                D[iy] = _fma(nx, D[ix], ny * D[iy]) / (nx + ny)
 
 
 @njit(cache=True)
@@ -239,13 +194,10 @@ def upgma_batch(condensed, n, Zout, weights):
         for i in range(npair):
             D[i] = condensed[w, i]
         Z = np.empty((n - 1, 4), np.float64)
-        if n_w == 0:
-            _nn_chain_average(D, n, Z)
-        else:
-            Wt = np.empty(npair, np.float64)
-            for i in range(npair):
-                Wt[i] = weights[w % n_w, i]
-            _nn_chain_weighted(D, Wt, n, Z)
+        Wt = np.empty(npair if n_w else 0, np.float64)
+        for i in range(Wt.size):
+            Wt[i] = weights[w % n_w, i]
+        _nn_chain(D, Wt, n, Z)
         order = np.empty(n - 1, np.int64)
         ufp = np.empty(2 * n - 1, np.int64)
         ufs = np.empty(2 * n - 1, np.int64)
