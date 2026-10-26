@@ -53,7 +53,7 @@ from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
 from ancestree.settings import Settings, _ForkPool
 from ancestree.sites import (BaseComposition, Site, SiteSource,
-                             SiteTable, _PanelSites, _path_format)
+                             SiteTable, _PanelSites)
 from ancestree._repr import ReprMixin
 
 #: Deepest time grid the sampled-path storage can address. Bin indices are
@@ -998,7 +998,7 @@ class LocalTreeInference(Inference):
         :class:`~ancestree.sites.SiteSource`. A haplotype uncalled at every
         site is left out of the panel.
     :param sample_filter: Restrict a VCF / VCZ read to these sample names,
-        each of which must be in ``ingroup_samples`` or ``outgroup_samples``.
+        each in ``ingroup_samples`` or ``outgroup_samples`` when both are given.
     :param chrom_filter: Restrict a VCF / VCZ read to this contig.
     :param ploidy: Haplotypes read per VCF sample. ``None`` (default) detects
         it from the first record.
