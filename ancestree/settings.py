@@ -33,17 +33,6 @@ class Settings:
     parallelize: bool | None = None
 
     @classmethod
-    def _use_parallel(cls, requested: bool) -> bool:
-        """Resolve a caller's parallelization request against the global switch.
-
-        :param requested: Whether the caller asked for parallel execution.
-        :return: ``True`` when the work should actually run in parallel.
-        """
-        if cls.parallelize is None:
-            return bool(requested)
-        return bool(cls.parallelize)
-
-    @classmethod
     def _resolve_n_workers(
         cls, requested: int | None, *, force_serial: bool = False,
     ) -> int:
@@ -84,41 +73,6 @@ class Settings:
         ceiling = int(getattr(numba.config, "NUMBA_NUM_THREADS", inherited))
         share = max(1, min(ceiling, inherited // n_workers))
         numba.set_num_threads(share)
-
-    @staticmethod
-    def _fork_is_safe() -> bool:
-        """Whether forking a worker pool is safe with the active numba layer.
-
-        :return: ``False`` only for the GNU OpenMP layer on Linux, where a
-            forked child deadlocks.
-        """
-        try:
-            import numba
-            layer = numba.threading_layer()
-        except Exception:  # noqa: BLE001  no kernel has run yet, or no numba
-            return True
-        return str(layer) != "omp" or not sys.platform.startswith("linux")
-
-    @classmethod
-    def _fork_pool_ok(cls, log: logging.Logger, what: str, n: int) -> bool:
-        """Whether a fork pool may be opened, warning the caller when it may not.
-
-        :param log: Logger the warning is emitted on.
-        :param what: Plural noun for the units the pool would spread, reading
-            as "to use up to 8 parallel workers on the <what>".
-        :param n: Upper bound on the workers that could run concurrently.
-        :return: ``True`` when forking is safe, ``False`` once the caller has
-            been warned to fall back to serial execution.
-        """
-        if cls._fork_is_safe():
-            return True
-        log.warning(
-            "Ignoring the parallelization request: numba resolved the OpenMP "
-            "threading layer, which is not fork-safe, and a forked worker "
-            "would hang rather than fail. Unset NUMBA_THREADING_LAYER or set "
-            "it to 'forksafe' to use up to %d parallel workers on the %s.",
-            n, what)
-        return False
 
 
 def _init_fork_worker(fn: Callable, n_workers: int) -> None:
@@ -167,7 +121,21 @@ class _ForkPool:
                           and self._can_fork(log, what, n_workers) else 1)
 
     @staticmethod
-    def _can_fork(log: logging.Logger, what: str, n_workers: int) -> bool:
+    def _fork_is_safe() -> bool:
+        """Whether forking a worker pool is safe with the active numba layer.
+
+        :return: ``False`` only for the GNU OpenMP layer on Linux, where a
+            forked child deadlocks.
+        """
+        try:
+            import numba
+            layer = numba.threading_layer()
+        except Exception:  # noqa: BLE001  no kernel has run yet, or no numba
+            return True
+        return str(layer) != "omp" or not sys.platform.startswith("linux")
+
+    @classmethod
+    def _can_fork(cls, log: logging.Logger, what: str, n_workers: int) -> bool:
         """Whether a fork pool may be opened, warning when it may not.
 
         :param log: Logger the warning is emitted on.
@@ -177,7 +145,13 @@ class _ForkPool:
         """
         import multiprocessing as mp
 
-        if not Settings._fork_pool_ok(log, what, n_workers):
+        if not cls._fork_is_safe():
+            log.warning(
+                "Ignoring the parallelization request: numba resolved the "
+                "OpenMP threading layer, which is not fork-safe, and a forked "
+                "worker would hang rather than fail. Unset "
+                "NUMBA_THREADING_LAYER or set it to 'forksafe' to use up to %d "
+                "parallel workers on the %s.", n_workers, what)
             return False
         if "fork" in mp.get_all_start_methods():
             return True

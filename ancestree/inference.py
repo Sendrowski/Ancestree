@@ -3163,11 +3163,10 @@ class FixedTreeInference(Inference):
             len(self.tree.param_names),
         )
         starts = self._generate_starts()
-        results = (
-            self._run_parallel(starts)
-            if Settings._use_parallel(self.parallelize) and len(starts) > 1
-            else [self._run_one(x0) for x0 in starts]
-        )
+        n_workers = Settings._resolve_n_workers(
+            (self.n_workers or os.cpu_count() or 1) if self.parallelize else 1)
+        results = list(_ForkPool(min(n_workers, len(starts)), self._log,
+                                 "starts").map(self._run_one, starts))
         converged = [(i, r) for i, r in enumerate(results) if r.success]
         if not converged:
             msgs = "; ".join(f"start {i}: {r.message!r}" for i, r in enumerate(results))
@@ -3277,17 +3276,6 @@ class FixedTreeInference(Inference):
             method="L-BFGS-B",
             bounds=bounds,
         )
-
-    def _run_parallel(self, starts: list[np.ndarray]) -> list:
-        """The starts, fitted across a fork pool.
-
-        :param starts: The initial free-parameter vectors.
-        :return: One optimiser result per start, in start order.
-        """
-        n_workers = Settings._resolve_n_workers(
-            self.n_workers or min(len(starts), os.cpu_count() or 1))
-        return list(_ForkPool(n_workers, self._log, "starts").map(
-            self._run_one, starts))
 
     def _generate_starts(self) -> list[np.ndarray]:
         """Initial points for the L-BFGS-B vector of free parameters.

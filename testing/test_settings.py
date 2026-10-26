@@ -11,6 +11,7 @@ import ancestree as anc
 from ancestree import Settings
 from ancestree.inference import FixedTreeInference
 from ancestree.models import JC69
+from ancestree.settings import _ForkPool
 from ancestree.sites import Site
 from ancestree.trees import OutgroupLadderTree
 
@@ -46,26 +47,6 @@ class TestDefaults:
         assert Settings.parallelize is None
 
 
-class TestUseParallel:
-    @pytest.mark.parametrize("requested", [True, False])
-    def test_none_defers_to_the_caller(self, requested):
-        """``None`` leaves the caller's own argument in charge."""
-        Settings.parallelize = None
-        assert Settings._use_parallel(requested) is requested
-
-    @pytest.mark.parametrize("requested", [True, False])
-    def test_false_overrides_an_explicit_request(self, requested):
-        """``False`` disables everywhere, even where parallelism was asked for."""
-        Settings.parallelize = False
-        assert Settings._use_parallel(requested) is False
-
-    @pytest.mark.parametrize("requested", [True, False])
-    def test_true_enables_even_unrequested(self, requested):
-        """``True`` enables everywhere, including where it was not asked for."""
-        Settings.parallelize = True
-        assert Settings._use_parallel(requested) is True
-
-
 class TestResolveNWorkers:
     @pytest.mark.parametrize("requested", [None, 1, 4])
     def test_false_forces_a_single_worker(self, requested):
@@ -96,28 +77,41 @@ class TestResolveNWorkers:
 
 
 class TestKillSwitchReachesTheFit:
+    @staticmethod
+    def _pool_sizes(monkeypatch):
+        """Record the worker count of every pool the fit maps its starts on."""
+        sizes = []
+        original = _ForkPool.map
+
+        def spy(self, fn, items):
+            sizes.append(self.n_workers)
+            return original(self, fn, items)
+
+        monkeypatch.setattr(_ForkPool, "map", spy)
+        return sizes
+
     def test_forces_serial_multistart(self, monkeypatch):
         """``parallelize=False`` keeps ``fit()`` off the worker-pool path."""
         inf = _fittable(parallelize=True)
-        monkeypatch.setattr(
-            type(inf), "_run_parallel",
-            lambda self, starts: pytest.fail("pool used despite the kill switch"),
-        )
+        sizes = self._pool_sizes(monkeypatch)
         Settings.parallelize = False
         inf.fit()
+        assert sizes == [1]
 
     def test_pool_used_when_switch_defers(self, monkeypatch):
         """Without the switch, an explicit request still reaches the pool."""
         inf = _fittable(parallelize=True)
-        used = []
-        monkeypatch.setattr(
-            type(inf), "_run_parallel",
-            lambda self, starts: used.append(len(starts)) or [
-                type(inf)._run_one(inf, x0) for x0 in starts
-            ],
-        )
+        sizes = self._pool_sizes(monkeypatch)
         inf.fit()
-        assert used == [2]
+        assert sizes == [2]
+
+    def test_the_switch_parallelises_an_unrequested_fit(self, monkeypatch):
+        """``True`` enables the pool where the caller did not ask for it."""
+        inf = _fittable()
+        sizes = self._pool_sizes(monkeypatch)
+        Settings.parallelize = True
+        inf.fit()
+        assert sizes == [min(2, os.cpu_count() or 1)]
 
 
 SAMPLES = 8

@@ -28,7 +28,7 @@ import pytest
 
 from ancestree import ARGBasedInference, JC69
 from ancestree.inference import _Tally
-from ancestree.settings import Settings
+from ancestree.settings import _ForkPool
 
 
 FORK_AVAILABLE = "fork" in mp.get_all_start_methods()
@@ -332,7 +332,7 @@ def test_infer_range_over_an_empty_window_yields_nothing(small_ts):
 def test_fork_unsafe_threading_layer_falls_back_to_serial(small_ts, monkeypatch, caplog):
     """When the numba threading layer is not fork-safe the request for
     workers is ignored, with a warning, and the serial walk runs."""
-    monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+    monkeypatch.setattr(_ForkPool, "_fork_is_safe", staticmethod(lambda: False))
     inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False, n_workers=2)
     with caplog.at_level(logging.WARNING, logger="ancestree"):
         results = list(inf.infer())

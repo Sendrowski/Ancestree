@@ -640,9 +640,8 @@ class AdaptiveIngroupWeight(IngroupWeight):
         fittable = list(bins)
         bin_seeds = {j: int(self.seed) * 10_000 + int(j) for j in fittable}
 
-        n_workers = (
-            min(len(fittable), Settings._resolve_n_workers(os.cpu_count() or 1))
-            if Settings._use_parallel(self.parallelize) else 1)
+        n_workers = min(len(fittable), Settings._resolve_n_workers(
+            (os.cpu_count() or 1) if self.parallelize else 1))
         pool = _ForkPool(n_workers, self._log, "spectrum bins")
         results = pool.map(
             lambda j: _fit_pi_bin(bins[j], self.n_runs, bin_seeds[j]), fittable)

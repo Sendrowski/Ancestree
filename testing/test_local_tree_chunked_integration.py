@@ -25,7 +25,7 @@ import pytest
 
 from ancestree import (JC69, LocalTreeBuilder, LocalTreeInference, STATES,
                        Site)
-from ancestree.settings import Settings
+from ancestree.settings import _ForkPool
 from testing._helpers import canonical_alleles, toy_chunked_inference, toy_sites
 
 
@@ -248,7 +248,7 @@ def test_chunked_workers_fall_back_to_serial_on_an_unsafe_fork(monkeypatch, capl
     sites, names = toy_sites(range(0, 3000, 20))
     kw = dict(chunk_size=1000, halo=400, n_ensemble=None)
     serial = list(toy_chunked_inference(sites, names, n_workers=1, **kw).infer())
-    monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+    monkeypatch.setattr(_ForkPool, "_fork_is_safe", staticmethod(lambda: False))
     with caplog.at_level(logging.WARNING, logger="ancestree"):
         par = list(toy_chunked_inference(sites, names, n_workers=2, **kw).infer())
     assert any("not fork-safe" in r.getMessage() for r in caplog.records)

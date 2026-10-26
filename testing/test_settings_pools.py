@@ -58,13 +58,13 @@ class TestCapWorkerThreads:
         assert numba.get_num_threads() == before
 
 
-class TestForkPoolOk:
+class TestCanFork:
     """The fork-safety gate, and the warning it owes the caller."""
 
     def test_it_returns_a_bool_and_warns_only_when_refusing(self, caplog):
         log = logging.getLogger("ancestree.test_settings_pools")
         with caplog.at_level(logging.WARNING, logger=log.name):
-            ok = Settings._fork_pool_ok(log, "trees", 4)
+            ok = _ForkPool._can_fork(log, "trees", 4)
         assert isinstance(ok, bool)
         warned = [r for r in caplog.records
                   if "Ignoring the parallelization request" in r.getMessage()]
@@ -77,11 +77,11 @@ class TestForkPoolOk:
         The refusal is unreachable where the threading layer is fork-safe,
         so the gate is forced rather than skipped.
         """
-        monkeypatch.setattr(Settings, "_fork_is_safe",
+        monkeypatch.setattr(_ForkPool, "_fork_is_safe",
                             classmethod(lambda cls: False))
         log = logging.getLogger("ancestree.test_settings_pools")
         with caplog.at_level(logging.WARNING, logger=log.name):
-            assert Settings._fork_pool_ok(log, "local trees", 8) is False
+            assert _ForkPool._can_fork(log, "local trees", 8) is False
         assert any("local trees" in r.getMessage() for r in caplog.records)
 
 

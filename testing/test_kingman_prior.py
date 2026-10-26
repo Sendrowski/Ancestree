@@ -17,7 +17,7 @@ from ancestree import (
     StationaryPrior,
 )
 from ancestree.priors import IngroupWeight, _fit_pi_bin
-from ancestree.settings import Settings, _ForkPool
+from ancestree.settings import _ForkPool
 
 from testing._helpers import no_counts as _no_counts, panel_site, panel_ts, simulate_tree_sites
 
@@ -699,7 +699,7 @@ class TestAdaptiveFitFallbacks:
         serial.fit(sites, self._log_L(len(sites)))
 
         monkeypatch.setattr("ancestree.priors.os.cpu_count", lambda: 4)
-        monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+        monkeypatch.setattr(_ForkPool, "_fork_is_safe", staticmethod(lambda: False))
 
         def _no_pool(*args, **kwargs):
             raise AssertionError("a process pool was started despite the fallback")
@@ -724,7 +724,7 @@ class TestAdaptiveFitFallbacks:
         serial.fit(sites, self._log_L(len(sites)))
 
         monkeypatch.setattr("ancestree.priors.os.cpu_count", lambda: 4)
-        monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: True))
+        monkeypatch.setattr(_ForkPool, "_fork_is_safe", staticmethod(lambda: True))
         workers = []
         original_map = _ForkPool.map
 

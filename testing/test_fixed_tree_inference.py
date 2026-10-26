@@ -21,7 +21,7 @@ from ancestree import (
     TskitLocalTree,
 )
 from ancestree.priors import KingmanIngroupWeight
-from ancestree.settings import Settings
+from ancestree.settings import Settings, _ForkPool
 from ancestree.sites import SiteSource
 from testing._helpers import no_counts as _no_counts, simulate_tree_sites
 
@@ -2223,26 +2223,23 @@ def test_objective_is_zero_without_configs():
     assert inf._neg_log_likelihood(np.array(inf._x0)[inf._free_indices]) == 0.0
 
 
-class TestRunParallelFallbacks:
-    """Every serial fallback of the multi-start dispatcher returns one
-    optimiser result per start."""
+class TestMultiStartFallbacks:
+    """Every serial fallback of a parallel multi-start fit still fits."""
 
     @pytest.fixture
     def inf(self):
-        return _fixed_tree(_ladder_sites(6), n_starts=2)
+        return _fixed_tree(_ladder_sites(6), n_starts=2, parallelize=True)
 
     def _check(self, inf):
-        starts = inf._generate_starts()
-        results = inf._run_parallel(starts)
-        assert len(results) == len(starts)
-        assert all(np.isfinite(r.fun) for r in results)
+        inf.fit()
+        assert np.isfinite(inf.log_likelihood_mle)
 
     def test_single_worker(self, inf, monkeypatch):
         monkeypatch.setattr(Settings, "parallelize", False)
         self._check(inf)
 
     def test_fork_unsafe_layer(self, inf, monkeypatch, caplog):
-        monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: False))
+        monkeypatch.setattr(_ForkPool, "_fork_is_safe", staticmethod(lambda: False))
         inf.n_workers = 2
         with caplog.at_level(logging.WARNING, logger="ancestree"):
             self._check(inf)

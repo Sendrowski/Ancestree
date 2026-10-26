@@ -6,7 +6,7 @@ import sys as _sys
 import numba as _numba
 
 # A fork-safe threading layer, set before any kernel is imported since the layer
-# is fixed when threads first launch. See Settings._fork_is_safe for the hazard.
+# is fixed when threads first launch. See _ForkPool._fork_is_safe for the hazard.
 if "NUMBA_THREADING_LAYER" not in _os.environ:
     _numba.config.THREADING_LAYER = "forksafe"
 
