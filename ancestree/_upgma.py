@@ -19,6 +19,7 @@ strictly-increasing-time requirement.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import cached_property
 
 import numpy as np
 
@@ -188,12 +189,10 @@ class WindowedUpgmaTreeSequence:
         self.sample_names = sample_names
         self.window_weights = window_weights
 
-    def build(self):
-        """Build the sites-free per-window UPGMA :class:`tskit.TreeSequence`.
-
-        :return: A :class:`tskit.TreeSequence` with ``n_samples`` sample nodes,
-            one local tree per window, branch lengths in generations.
-        """
+    @cached_property
+    def linkages(self) -> np.ndarray:
+        """``(n_windows, n_samples - 1, 4)`` SciPy-format average linkage of
+        each window."""
         from ancestree._ensemble import upgma_batch
 
         n_pairs = self.n_samples * (self.n_samples - 1) // 2
@@ -204,7 +203,31 @@ class WindowedUpgmaTreeSequence:
                    else np.ascontiguousarray(weights, dtype=np.float64))
         linkages = np.empty((len(condensed), self.n_samples - 1, 4))
         upgma_batch(condensed, self.n_samples, linkages, weights)
+        return linkages
+
+    def build(self):
+        """Build the sites-free per-window UPGMA :class:`tskit.TreeSequence`.
+
+        :return: A :class:`tskit.TreeSequence` with ``n_samples`` sample nodes,
+            one local tree per window, branch lengths in generations. The
+            internal nodes of window ``w`` are ``n_samples + w·(n_samples - 1)``
+            onwards.
+        """
         return build_windowed_tree_sequence(
             self.n_samples, self.sequence_length, self.window_intervals,
-            list(linkages), sample_names=self.sample_names,
+            list(self.linkages), sample_names=self.sample_names,
         )
+
+    def window_tree(self, w: int):
+        """The tree of window ``w`` alone, as the only tree of a tree sequence
+        of its own.
+
+        Its node ``n_samples + i`` is node ``n_samples + w·(n_samples - 1) + i``
+        of :meth:`build`, and its arrays span one window's nodes, not every
+        window's, so a per-site pass over it costs ``O(n_samples)``.
+
+        :param w: Index of the window.
+        :return: The :class:`tskit.Tree`.
+        """
+        return build_windowed_tree_sequence(
+            self.n_samples, 1.0, [(0.0, 1.0)], [self.linkages[w]]).first()

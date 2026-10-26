@@ -246,7 +246,7 @@ def _pair_posterior_mean_impl(counts, t_rep, lam, log_lam, r, pi, step, mask,
     return pmean
 
 
-_pair_posterior_mean_jit = njit(cache=True, fastmath=True)(
+_pair_posterior_mean_jit = njit(cache=True, fastmath=True, nogil=True)(
     _pair_posterior_mean_impl
 )
 
@@ -309,3 +309,57 @@ def pair_posterior_mean_tmrca(
     return _pair_posterior_mean_jit(
         counts, t_rep, lam, log_lam, r, pi, step, mask, escale
     )
+
+
+def pair_posterior_mean_tmrcas(
+    counts: np.ndarray,
+    t_rep: np.ndarray,
+    lam: np.ndarray,
+    log_lam: np.ndarray,
+    r: np.ndarray,
+    pi: np.ndarray,
+    step: np.ndarray | None = None,
+    mask: np.ndarray | None = None,
+    called: np.ndarray | None = None,
+    block_sites: np.ndarray | None = None,
+    emit_scale: np.ndarray | None = None,
+) -> np.ndarray:
+    """Posterior-mean TMRCA per block for every haplotype pair, the pairs run
+    in parallel.
+
+    :param counts: ``(P, n_blocks)`` pairwise differences per pair and block.
+    :param t_rep: ``(T,)`` representative bin times (generations).
+    :param lam: ``(T,)`` Poisson mean ``2·μ·t_i·block`` per bin.
+    :param log_lam: ``(T,)`` ``log(lam)``.
+    :param r: ``(T,)`` P(no recombination over one nominal block | bin).
+    :param pi: ``(P, T)`` prior over bins of each pair.
+    :param step: As :func:`pair_posterior_mean_tmrca`.
+    :param mask: As :func:`pair_posterior_mean_tmrca`.
+    :param called: Optional ``(P, n_blocks)`` number of each block's sites at
+        which the pair is called. ``None`` is fully called.
+    :param block_sites: ``(n_blocks,)`` site count each ``called`` entry is
+        out of. Required with ``called``.
+    :param emit_scale: Optional ``(n_blocks,)`` exposure scale of each block,
+        multiplying the called fraction ``called / block_sites``. ``None`` is
+        all ones.
+    :return: ``(P, n_blocks)`` posterior-mean TMRCA (generations).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    import numba
+
+    out = np.empty(np.shape(counts), dtype=np.float64)
+
+    def one(p):
+        escale = None if called is None else called[p] / block_sites
+        if emit_scale is not None:
+            escale = emit_scale if escale is None else emit_scale * escale
+        out[p] = pair_posterior_mean_tmrca(
+            counts[p], t_rep, lam, log_lam, r, pi[p], step=step, mask=mask,
+            escale=escale)
+
+    # The compiled kernel releases the GIL, so the pairs run in parallel on
+    # numba's thread budget.
+    with ThreadPoolExecutor(max(1, numba.get_num_threads())) as pool:
+        list(pool.map(one, range(out.shape[0])))
+    return out

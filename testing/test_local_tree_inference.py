@@ -331,6 +331,39 @@ def test_reprs_name_the_configuration():
     assert repr(b) == "LocalTreeBuilder(window_bp=200, n_time_bins=8)"
 
 
+def test_genotypes_are_baked_on_each_window_alone(monkeypatch):
+    """Each site's mutations are placed on the tree of its window alone, whose
+    node arrays span one window's nodes, and land where a placement on the
+    whole tree sequence puts them.
+
+    Placed on the whole tree sequence, every site paid for the node arrays of
+    every window, which made baking quadratic in the region length: a 5 Mb
+    human panel spent most of a plug-in run in ``map_mutations``.
+    """
+    sites, names = toy_sites(range(0, 2000, 10))
+    builder = toy_builder(sites, names, 2000.0)
+    sizes = []
+    place = tskit.Tree.map_mutations
+
+    def spy(tree, genotypes, alleles, **kw):
+        sizes.append(tree.tree_sequence.num_nodes)
+        return place(tree, genotypes, alleles, **kw)
+
+    monkeypatch.setattr(tskit.Tree, "map_mutations", spy)
+    ts = builder.to_tree_sequence()
+    monkeypatch.undo()
+    n = len(names)
+    assert sizes and set(sizes) == {2 * n - 1}
+    g, pos, _, _ = builder._genotype_matrix()
+    row_of = {float(p): i for i, p in enumerate(pos)}
+    for site in ts.sites():
+        expected_anc, expected = ts.at(site.position).map_mutations(
+            g[row_of[site.position]], list(STATES))
+        assert site.ancestral_state == expected_anc
+        assert sorted((m.node, m.derived_state) for m in site.mutations) == \
+            sorted((m.node, m.derived_state) for m in expected)
+
+
 def test_builder_topology_only_when_not_baking():
     """bake_genotypes=False yields a sites-free topology tree sequence."""
     ts = _sim(samples=6, length=60_000, seed=12)
@@ -2089,13 +2122,13 @@ def test_hmm_recombination_uses_total_pair_branch_length(monkeypatch):
 
     captured = {}
 
-    def _spy(counts_k, t_rep, lam, log_lam, r, pi, **kw):
+    def _spy(counts, t_rep, lam, log_lam, r, pi, **kw):
         captured["t_rep"] = np.asarray(t_rep).copy()
         captured["r"] = np.asarray(r).copy()
-        # Return a benign per-block TMRCA (shape matches the counts slice).
-        return np.zeros_like(counts_k, dtype=np.float64)
+        # Return a benign per-block TMRCA (shape matches the counts).
+        return np.zeros_like(counts, dtype=np.float64)
 
-    monkeypatch.setattr(lti, "pair_posterior_mean_tmrca", _spy)
+    monkeypatch.setattr(lti, "pair_posterior_mean_tmrcas", _spy)
 
     rec_rate, block_size = 1e-8, 2000
     hmm = PairwiseCoalescentHMM(
@@ -2156,12 +2189,12 @@ def test_hmm_recombination_scaling_matches_smc_ground_truth(monkeypatch):
     import ancestree.local_tree_inference as lti
     captured = {}
 
-    def _spy(counts_k, t_rep, lam, log_lam, r, pi, **kw):
+    def _spy(counts, t_rep, lam, log_lam, r, pi, **kw):
         captured["t_rep"] = np.asarray(t_rep).copy()
         captured["r"] = np.asarray(r).copy()
-        return np.zeros_like(counts_k, dtype=np.float64)
+        return np.zeros_like(counts, dtype=np.float64)
 
-    monkeypatch.setattr(lti, "pair_posterior_mean_tmrca", _spy)
+    monkeypatch.setattr(lti, "pair_posterior_mean_tmrcas", _spy)
     block_size = 2000
     hmm = PairwiseCoalescentHMM(
         n_haplotypes=2, mu=1e-8, rec_rate=rho, block_size=block_size,

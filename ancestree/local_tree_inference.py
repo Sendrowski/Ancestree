@@ -49,7 +49,7 @@ from ancestree._geometry import (
     _ACCESS_FRAC_FLOOR, _EMIT_SCALE_FLOOR, BuildGeometry, ContigGeometry,
     _check_on_axis, _filled, _parse_bp,
 )
-from ancestree._smc_kernel import pair_posterior_mean_tmrca
+from ancestree._smc_kernel import pair_posterior_mean_tmrcas
 from ancestree._upgma import (
     WindowedUpgmaTreeSequence,
 )
@@ -440,17 +440,11 @@ class PairwiseCoalescentHMM(ReprMixin):
             counts, emit_scale=emit_scale, block_mask=block_mask,
             called=called, block_sites=block_sites)
 
-        out = np.zeros((counts.shape[0], n_blocks), dtype=np.float64)
-        for p in range(counts.shape[0]):
-            pi = self._coalescent_prior(edges, t_bar_all[p])
-            esc = None if called is None else called[p] / block_sites
-            if emit_scale is not None:
-                esc = emit_scale if esc is None else emit_scale * esc
-            out[p] = pair_posterior_mean_tmrca(
-                counts[p], t_rep, lam, log_lam, r, pi,
-                step=step, mask=block_mask, escale=esc,
-            )
-        return out
+        prior = np.stack([self._coalescent_prior(edges, t)
+                          for t in t_bar_all])
+        return pair_posterior_mean_tmrcas(
+            counts, t_rep, lam, log_lam, r, prior, step=step, mask=block_mask,
+            called=called, block_sites=block_sites, emit_scale=emit_scale)
 
 
 @dataclass(frozen=True)
@@ -785,12 +779,13 @@ class LocalTreeBuilder(ReprMixin):
         # Exact UPGMA over the full pairwise-TMRCA matrix (combinations order).
         condensed = [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in zip(lo, hi)]
         from ancestree._ensemble import window_exposure
-        topo = WindowedUpgmaTreeSequence(
+        upgma = WindowedUpgmaTreeSequence(
             len(self.sample_names), self.axis_length,
             intervals, condensed, sample_names=self.sample_names,
             window_weights=window_exposure(
                 self._pair_called, self._pair_block_sites, lo, hi),
-        ).build()
+        )
+        topo = upgma.build()
         span = geometry.tree_span
         if span is not None and intervals and span != (intervals[0][0],
                                                        intervals[-1][1]):
@@ -801,45 +796,44 @@ class LocalTreeBuilder(ReprMixin):
             return self._ts
 
         # Bake the genotypes in as sites, each with a minimal map_mutations
-        # placement, so ts.variants() reproduces them.
+        # placement on its window's own tree, so ts.variants() reproduces them.
         tables = topo.dump_tables()
         alleles = list(STATES)
+        n = len(self.sample_names)
         order = np.argsort(pos0, kind="stable")
-        n_sites = pos0.shape[0]
         # Only the sites under a tree are baked.
-        si = n_sites if span is None else int(np.searchsorted(
-            pos0[order], span[0], side="left"))
-        if span is not None:
-            n_sites = int(np.searchsorted(pos0[order], span[1], side="left"))
+        lo_site, hi_site = (0, 0) if span is None else np.searchsorted(
+            pos0[order], span, side="left")
+        window_of = np.searchsorted([iv[0] for iv in intervals],
+                                    pos0[order], side="right") - 1
         n_uncalled = 0
-        for tree in topo.trees():
-            right = tree.interval.right
-            while si < n_sites:
-                idx = order[si]
-                p = pos0[idx]
-                if p >= right:
-                    break
-                row = g[idx].astype(np.int8)
-                if not (row >= 0).any():
-                    # map_mutations rejects an all-missing column, and emitting
-                    # the site without a mutation would read as every tip
-                    # carrying the ancestral allele. It is left out; callers
-                    # pair by position, not by order.
-                    n_uncalled += 1
-                    si += 1
-                    continue
-                anc, muts = tree.map_mutations(row, alleles)
-                site_id = tables.sites.add_row(position=float(p),
-                                               ancestral_state=anc)
-                mut_ids: list[int] = []
-                for mut in muts:
-                    parent = (mut_ids[mut.parent]
-                              if mut.parent != tskit.NULL else tskit.NULL)
-                    mut_ids.append(tables.mutations.add_row(
-                        site=site_id, node=mut.node,
-                        derived_state=mut.derived_state, parent=parent,
-                    ))
-                si += 1
+        w_tree = tree = None
+        for si in range(lo_site, hi_site):
+            idx = order[si]
+            row = g[idx].astype(np.int8)
+            if not (row >= 0).any():
+                # map_mutations rejects an all-missing column, and emitting
+                # the site without a mutation would read as every tip
+                # carrying the ancestral allele. It is left out; callers
+                # pair by position, not by order.
+                n_uncalled += 1
+                continue
+            w = int(window_of[si])
+            if w != w_tree:
+                tree, w_tree = upgma.window_tree(w), w
+            shift = w * (n - 1)
+            anc, muts = tree.map_mutations(row, alleles)
+            site_id = tables.sites.add_row(position=float(pos0[idx]),
+                                           ancestral_state=anc)
+            mut_ids: list[int] = []
+            for mut in muts:
+                parent = (mut_ids[mut.parent]
+                          if mut.parent != tskit.NULL else tskit.NULL)
+                mut_ids.append(tables.mutations.add_row(
+                    site=site_id,
+                    node=mut.node if mut.node < n else mut.node + shift,
+                    derived_state=mut.derived_state, parent=parent,
+                ))
         if n_uncalled:
             self._log.warning(
                 "%d of %d sites carry no called genotype in the panel; they "
