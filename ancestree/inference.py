@@ -1394,7 +1394,8 @@ class ARGBasedInference(Inference):
     :class:`~ancestree.models.JC69` and the default
     :class:`~ancestree.priors.StationaryPrior` on a short-branch tree,
     :attr:`Posterior.map_allele <ancestree.posterior.Posterior.map_allele>`
-    reproduces the :meth:`tskit.Tree.map_mutations` parsimony pick.
+    reproduces the :meth:`tskit.Tree.map_mutations` parsimony pick where
+    parsimony is unambiguous.
 
     .. code-block:: python
 
@@ -1727,13 +1728,14 @@ class ARGBasedInference(Inference):
         Given an iterable of tree sequences, the posterior is marginalised over
         them (see ``_infer_marginalised()``), with every draw walked
         concurrently and each site finished once they have all passed it.
-        Sites are emitted in tskit's natural variant order. In a multi-root local segment (partial coalescence, common in
-        ``tsinfer`` ARGs) the kernel runs on each root's subtree and the
-        per-root posteriors are averaged under a uniform prior over the roots,
-        which broadens the distribution. Filter by local-tree ``num_roots``
-        upstream to exclude such segments. With ``n_workers > 1`` the trees
-        are chunked by site count across a fork pool and the stream is
-        identical to the single-worker walk.
+        Sites are emitted in tskit's natural variant order. In a multi-root
+        local segment (partial coalescence, common in ``tsinfer`` ARGs) the
+        posterior is read on the root holding the focal node, or, with none,
+        averaged under a uniform prior over the roots subtending a
+        coalescence. Filter by local-tree ``num_roots`` upstream to exclude
+        such segments. With ``n_workers > 1`` the trees are chunked by site
+        count across a fork pool and the stream is identical to the
+        single-worker walk.
 
         :return: Iterator of ``(Site, Posterior)`` pairs.
         """
@@ -2386,7 +2388,7 @@ class FixedTreeInference(Inference):
         monomorphic weights are derived. Required when
         ``base_composition.counts`` is all-zero and a fit runs.
     :param sample_filter: Restrict a VCF / VCZ read to these sample names,
-        each of which must be in ``ingroup_samples`` or ``outgroup_samples``.
+        each of which must be in one of the sample lists where both are given.
         ``None`` reads every sample and ignores those in neither list.
     :param chrom_filter: Restrict a VCF / VCZ read to this contig.
     :param ploidy: Sample ploidy for the VCF reader. ``None`` infers it.
@@ -2645,8 +2647,8 @@ class FixedTreeInference(Inference):
                 "FixedTreeInference: no outgroups supplied (outgroup_samples=[]). "
                 "Using the ingroup alone: no branch-rate fit and no Felsenstein "
                 "evaluation. Per-site posteriors are the normalised ingroup "
-                "weight times the root prior; under the default KingmanIngroupWeight, "
-                "mono-allelic ingroup sites fall back to uniform but "
+                "weight times the root prior. Mono-allelic ingroup sites take "
+                "the observed allele, and under the default KingmanIngroupWeight "
                 "polyallelic sites cannot place mass on unobserved alleles. "
                 "Supply outgroup_samples for a proper fit, or pass a smoother "
                 "IngroupWeight explicitly."
@@ -3136,18 +3138,18 @@ class FixedTreeInference(Inference):
         .. math::
 
             \log L(\boldsymbol K) = \sum_c w_c \log\!\Big[
-                \sum_s \pi_{c,s}\,
-                P(\text{config}_c \mid \text{root}=s; \boldsymbol K) \Big],
+                \sum_s \pi_s\, W_c(s)\,
+                P(\text{outgroups}_c \mid I=s; \boldsymbol K) \Big],
 
-        where ``w_c`` is the config's multiplicity (hypergeometric mass
+        where ``K`` are the branch rates, ``s`` the state at the ingroup MRCA
+        ``I``, ``w_c`` the config's multiplicity (hypergeometric mass
         accumulated from the polymorphic sites plus the per-base
         monomorphic counts of
-        :paramref:`base_composition <ancestree.inference.FixedTreeInference.base_composition>`)
-        and ``π_{c,s}`` the
-        per-config root prior: the configured prior
-        (:class:`~ancestree.priors.KingmanIngroupWeight` by default, or
-        the stationary vector when none is set), overridden by a delta at
-        the observed allele on monomorphic-sub-AFS configs.
+        :paramref:`base_composition <ancestree.inference.FixedTreeInference.base_composition>`),
+        ``π_s`` the stationary root prior, and ``W_c(s)`` the ingroup
+        weight's likelihood of the config's ingroup alleles
+        (:class:`~ancestree.priors.KingmanIngroupWeight` by default, ``1``
+        without one).
 
         :return: Mapping from :attr:`OutgroupLadderTree.param_names <ancestree.trees.OutgroupLadderTree.param_names>` entry to the
             MLE rate. Empty dict where nothing is fitted.
@@ -3411,9 +3413,10 @@ class FixedTreeInference(Inference):
     def infer(self) -> Iterator[tuple[Site, Posterior]]:
         """Yield ``(site, Posterior)`` for each polymorphic site.
 
-        Posteriors use whatever branch rates the tree carries at call time
-        and the configured root prior
-        (:class:`~ancestree.priors.KingmanIngroupWeight` by default).
+        Posteriors use whatever branch rates the tree carries at call time,
+        the ingroup weight's likelihood
+        (:class:`~ancestree.priors.KingmanIngroupWeight` by default) and the
+        stationary root prior.
         Run :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`
         first. Otherwise the tree's branch rates are
         :paramref:`initial_rates <ancestree.inference.FixedTreeInference.initial_rates>`

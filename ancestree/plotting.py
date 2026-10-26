@@ -336,11 +336,10 @@ class FocalSweep:
     :param site: The :class:`~ancestree.sites.Site` to score.
     :param model: Substitution model.
     :param base_composition: Base composition supplying the stationary prior
-        and any composition the model needs. ``None`` gives a uniform
-        stationary prior, whichever model is in use. Pass the
-        composition an inference ran with to reproduce its posteriors, since
-        :class:`~ancestree.inference.FixedTreeInference` derives one from the
-        data when none is given.
+        and any composition the model needs. ``None`` gives a uniform π to
+        both. Pass the composition an inference ran with to reproduce its
+        posteriors, since :class:`~ancestree.inference.FixedTreeInference`
+        derives one from the data when none is given.
     :param fractions: Positions to evaluate. ``None`` uses eleven evenly
         spaced ones.
     """

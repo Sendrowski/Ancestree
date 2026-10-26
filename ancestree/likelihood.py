@@ -223,9 +223,9 @@ class Likelihood(ReprMixin):
             :class:`~ancestree.priors.StationaryPrior` over this instance's
             model and base composition.
         :param node_seeds: Partial likelihoods to inject at internal nodes, as
-            ``{node_id: length-n_states array}``. For a ladder tree this is
+            ``{node_id: (1, n_states) array}``. For a ladder tree this is
             ``{tree.ingroup_mrca: exp(weight.log_probs([site]))}`` for an
-            :class:`~ancestree.priors.StationaryPrior`.
+            :class:`~ancestree.priors.IngroupWeight` ``weight``.
         :return: A :class:`~ancestree.posterior.Posterior` summing to 1.
         """
         from ancestree.posterior import Posterior

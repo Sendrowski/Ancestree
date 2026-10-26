@@ -15,7 +15,7 @@ Backends:
   outgroup-ladder topology, with :math:`2n_\mathrm{out} - 1` branch rates
   fitted by maximum likelihood in fixed-tree mode.
   :meth:`OutgroupLadderTree.at_focal` moves the readout anywhere along the
-  backbone from the ingroup MRCA to the deepest join, and
+  backbone from the ingroup MRCA to the panel root, and
   :meth:`OutgroupLadderTree.as_deep_rooted` is its far end.
 """
 from __future__ import annotations
@@ -225,7 +225,7 @@ class Tree(ReprMixin, ABC):
         return None
 
     def as_deep_rooted(self) -> "Tree | None":
-        """A view of this tree read at its deepest join.
+        """A view of this tree read at its panel root.
 
         Returns ``None``. Subclasses override this where a deep rooting is
         defined.
@@ -1551,10 +1551,13 @@ class OutgroupLadderTree(Tree):
         return self._I
 
     def as_deep_rooted(self) -> "Tree":
-        """This ladder read at the deepest join.
+        r"""This ladder read at the panel root.
 
-        The deep end of :meth:`OutgroupLadderTree.at_focal`'s backbone, and the
-        reading a site the ingroup has fixed needs.
+        The readout lies :math:`\max((d_n - h)/2, J)` above the ingroup MRCA,
+        for :math:`d_n` the deepest outgroup's divergence, :math:`h` the
+        :attr:`OutgroupLadderTree.ingroup_depth <ancestree.trees.OutgroupLadderTree.ingroup_depth>`
+        and :math:`J` the distance to the deepest join, all in substitutions
+        per site.
 
         :return: A re-rooted view of this tree.
         """
