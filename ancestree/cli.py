@@ -349,9 +349,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     output_parent.add_argument(
         "--min-confidence", type=_probability, default=None, metavar="P",
-        help="Blank the ancestral-allele call at any site whose MAP posterior "
-             "is below P, writing AA=. instead. The posterior itself is still "
-             "written where it is requested. Default: report every site.",
+        help="Leave a site unassigned when its MAP posterior probability is "
+             "below P. The posterior itself is still written where it is "
+             "requested. Default: assign every site.",
     )
     output_parent.add_argument(
         "--restrict-samples", action="store_true",
@@ -573,7 +573,7 @@ def _add_fixed_tree_parser(
         help=(
             "Comma-separated ingroup sample ids "
             "(must match VCF sample columns and Newick leaves). Defaults to "
-            "every sample not named in --outgroups."
+            "every sample whose individual is not named in --outgroups."
         ),
     )
     p.add_argument(
@@ -1204,7 +1204,8 @@ def _supplied_dests(argv: "Sequence[str]") -> frozenset:
 def run(argv: Sequence[str] | None = None) -> int:
     """Parse ``argv`` and dispatch the matching subcommand handler.
 
-    Returns the exit code without raising ``SystemExit``.
+    Usage errors raise ``SystemExit``, and an error during the run propagates
+    as its own exception.
 
     :param argv: Optional argument vector (defaults to ``sys.argv[1:]``).
     :return: Process exit code (0 on success).

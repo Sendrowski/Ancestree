@@ -356,8 +356,7 @@ class Reader(ReprMixin):
         :attr:`Annotation.aa <ancestree.readers.Annotation.aa>` at ``None``.
 
         :param limit: Stop after this many sites. ``None`` (default) reads all
-            of them. The read is lazy either way, so a limit bounds the work on
-            a genome-scale output.
+            of them.
         :return: Iterator of per-site assignments.
         """
         if self.format == "vcz":
