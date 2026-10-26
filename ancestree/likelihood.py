@@ -346,12 +346,6 @@ class Likelihood(ReprMixin):
                 n_active, root_dense, path_child=None,
             )
 
-        # CSR children and the traversal that consumes them, from one walk of
-        # the parent array.
-        c_offsets, children_flat, postorder_internal = postorder_csr_from_parents(
-            parent_dense, root_dense, n_active,
-        )
-
         # Tip partials: (n_active, B, S). Initialise to all-ones so
         # internal nodes and samples-not-in-this-tree marginalise out.
         partials = np.ones((n_active, B, S), dtype=np.float64)
@@ -370,15 +364,9 @@ class Likelihood(ReprMixin):
                 partials[d_idx, b_idx, :] = 0.0
                 partials[d_idx, b_idx, states] = 1.0
 
-        root_partial, scale_log = felsenstein_postorder_dense(
-            B, S, root_dense,
-            postorder_internal, c_offsets, children_flat,
-            P_per_node, partials,
-        )
         # Reset the written slice so the scratch buffer is all -1 again.
         id_map[nodes] = -1
-        with np.errstate(divide="ignore"):
-            return np.log(root_partial) + scale_log[:, None]
+        return self._score_dense(parent_dense, root_dense, P_per_node, partials)
 
     def _log_likelihoods_jit(
         self,
@@ -405,9 +393,6 @@ class Likelihood(ReprMixin):
         for dense, orig in enumerate(nodes_orig):
             for k in tree.children(orig):
                 parent_dense[id_map[k]] = dense
-        c_offsets, c_flat, postorder_internal = postorder_csr_from_parents(
-            parent_dense, root_dense, n_nodes,
-        )
 
         # Per-edge transition matrices: P_per_node[d] = P on the edge
         # entering node d. Root's row is unused. One batched
@@ -443,9 +428,25 @@ class Likelihood(ReprMixin):
         for node, matrix in self._clean_seeds(node_seeds, B, S).items():
             partials[id_map[node], :, :] = matrix
 
+        return self._score_dense(parent_dense, root_dense, P_per_node, partials)
+
+    @staticmethod
+    def _score_dense(parent_dense, root_dense: int, P_per_node,
+                     partials) -> np.ndarray:
+        """Run the pruning kernel over a densely packed tree.
+
+        :param parent_dense: ``(n,)`` dense parent ids, ``-1`` at the root.
+        :param root_dense: Dense id of the root.
+        :param P_per_node: ``(n, S, S)`` matrix on the edge into each node.
+        :param partials: ``(n, B, S)`` initial partials, overwritten.
+        :return: ``(B, S)`` of ``log P(observed tips | root = s)``.
+        """
+        n, B, S = partials.shape
+        c_offsets, c_flat, postorder_internal = postorder_csr_from_parents(
+            parent_dense, root_dense, n,
+        )
         root_partial, scale_log = felsenstein_postorder_dense(
-            B, S, root_dense,
-            postorder_internal, c_offsets, c_flat,
+            B, S, root_dense, postorder_internal, c_offsets, c_flat,
             P_per_node, partials,
         )
         with np.errstate(divide="ignore"):
