@@ -1103,7 +1103,6 @@ class SegmentEnsemble:
     def __init__(self, builder, model, n_hap: int, ingroup,
                  pi=None, segment: tuple[str, int] = ("", 0)) -> None:
         from itertools import combinations
-        from ancestree.local_tree_inference import PairwiseCoalescentHMM
         self.model, self.n_hap = model, n_hap
         self.segment = (str(segment[0]), int(segment[1]))
         self.is_ingroup = np.zeros(n_hap, dtype=np.bool_)
@@ -1123,54 +1122,42 @@ class SegmentEnsemble:
         self.builder = builder  # kept for iter_tree_sequences()'s window geometry
         geometry = builder.geometry
 
-        genotypes, positions, block_of_site, n_blocks = builder._genotype_matrix()
+        genotypes, positions, inputs = builder.prepared_hmm()
+        n_blocks = len(inputs.block_sites)
         self.positions = positions.astype(np.int64)
         self.tip_states = genotypes
         self.n_sites = len(positions)
         # A window's blocks are contiguous, so the range is kept directly.
         self.blk_lo, self.blk_hi = geometry.window_blocks
 
-        hmm = PairwiseCoalescentHMM(
-            n_hap, mu=builder.mu, rec_rate=builder.rec_rate,
-            block_size=builder.block_size, n_time_bins=builder.n_time_bins,
-            time_grid=builder.time_grid)
         pairs = list(combinations(range(n_hap), 2))
         self.pair_key = _pair_stream_keys(
             builder.sample_names, pairs)
-        # int16 per-block counts, widened to int32 only where the busiest
-        # block holds more sites than int16 can count.
-        max_per_block = int(np.bincount(block_of_site, minlength=n_blocks).max()) \
-            if block_of_site.size else 0
-        count_dtype = np.int16 if max_per_block <= np.iinfo(np.int16).max \
-            else np.int32
         # ``called / block_sites`` is the fraction of each block over which the
         # pair is called. A difference is only observable where both
         # haplotypes carry a call, so this is the exposure the Poisson count
         # was generated from.
-        counts, called, block_sites = hmm._pair_block_counts(
-            genotypes, block_of_site, n_blocks, dtype=count_dtype)
-        step, block_mask, emit_scale = builder._hmm_inputs()
-        edges, t_rep, _, _, _, t_bar = hmm.calibrate(
-            counts, emit_scale=emit_scale, block_mask=block_mask,
-            called=called, block_sites=block_sites)
-        base_lam = 2.0 * hmm.mu * hmm.block_size * t_rep
-        lam = np.repeat(base_lam[None, :], n_blocks, axis=0)
+        counts, called, block_sites = (inputs.counts, inputs.called,
+                                       inputs.block_sites)
+        step, block_mask, emit_scale = (inputs.step, inputs.block_mask,
+                                        inputs.emit_scale)
+        edges, t_rep, t_bar = inputs.edges, inputs.t_rep, inputs.t_bar
+        lam = np.repeat(inputs.lam[None, :], n_blocks, axis=0)
         if emit_scale is not None:
             lam *= emit_scale[:, None]
         if block_mask is not None:
             lam[~block_mask] = 0.0
         log_lam = np.log(np.clip(lam, 1e-300, None))
-        base_r = 2.0 * hmm.rec_rate * hmm.block_size * t_rep
+        base_r = 2.0 * builder.rec_rate * builder.block_size * t_rep
         r = np.exp(-np.repeat(base_r[None, :], n_blocks, axis=0)
                    * (1.0 if step is None else
                       np.concatenate(([1.0], np.asarray(step, float)))[:, None]))
-        prior = np.stack([hmm._coalescent_prior(edges, t_bar[p])
-                          for p in range(len(pairs))])
+        prior = inputs.prior
         # Checkpoint the forward matrix so only every stride-th block is
         # retained; the backward walk replays each segment as it arrives.
-        self.ckpt_stride = _ckpt_stride(n_blocks, len(pairs), hmm.n_time_bins)
+        self.ckpt_stride = _ckpt_stride(n_blocks, len(pairs), len(t_rep))
         n_ckpt = int(np.ceil(n_blocks / self.ckpt_stride))
-        self.alpha_ck = np.empty((len(pairs), n_ckpt, hmm.n_time_bins),
+        self.alpha_ck = np.empty((len(pairs), n_ckpt, len(t_rep)),
                                  dtype=np.float64)
         # Fully called pairs read ``block_sites / block_sites``, an exposure of
         # exactly 1, from a zero-stride view.

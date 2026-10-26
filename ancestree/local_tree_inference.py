@@ -85,6 +85,44 @@ def _segment_worker(spec):
 MAX_TIME_BINS: int = int(np.iinfo(np.int8).max)
 
 
+@dataclass(frozen=True)
+class HmmInputs:
+    """The prepared inputs of the pairwise-coalescent HMM over one region.
+
+    Rows are haplotype pairs in :func:`itertools.combinations` order and
+    columns blocks.
+    """
+
+    #: ``(P, K)`` pairwise differences per pair and block.
+    counts: np.ndarray
+    #: ``(P, K)`` number of the block's sites at which the pair is called, or
+    #: ``None`` when no call is missing.
+    called: "np.ndarray | None"
+    #: ``(K,)`` site count each ``called`` entry is out of.
+    block_sites: np.ndarray
+    #: ``(T + 1,)`` time-bin edges in generations.
+    edges: np.ndarray
+    #: ``(T,)`` representative time of each bin in generations.
+    t_rep: np.ndarray
+    #: ``(T,)`` Poisson mean ``2·μ·t_i·B`` of a full block per bin.
+    lam: np.ndarray
+    #: ``(T,)`` ``log(lam)``.
+    log_lam: np.ndarray
+    #: ``(T,)`` probability of no recombination over one nominal block per bin.
+    r: np.ndarray
+    #: ``(P,)`` per-pair prior mean TMRCA in generations.
+    t_bar: np.ndarray
+    #: ``(P, T)`` per-pair coalescent prior over the bins.
+    prior: np.ndarray
+    #: ``(K - 1,)`` genetic distance of each inter-block step in nominal-block
+    #: units, or ``None`` for all ones.
+    step: "np.ndarray | None"
+    #: ``(K,)`` bool of callable blocks, or ``None`` for all.
+    block_mask: "np.ndarray | None"
+    #: ``(K,)`` Poisson exposure scale of each block, or ``None`` for all ones.
+    emit_scale: "np.ndarray | None"
+
+
 class PairwiseCoalescentHMM(ReprMixin):
     """Discretized PSMC′-style estimator of local pairwise TMRCAs.
 
@@ -400,13 +438,16 @@ class PairwiseCoalescentHMM(ReprMixin):
                                         minlength=n_blocks).astype(dtype)
         return counts, called, block_sites
 
-    def block_tmrcas(
+    def prepare(
         self, genotypes: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
         step: "np.ndarray | None" = None,
         block_mask: "np.ndarray | None" = None,
         emit_scale: "np.ndarray | None" = None,
-    ) -> np.ndarray:
-        """Posterior-mean TMRCA per (pair, block).
+    ) -> HmmInputs:
+        """The block counts, calibration and per-pair prior the HMM runs on.
+
+        Counts are held in ``int16``, or ``int32`` where the busiest block
+        holds more sites than ``int16`` can count.
 
         :param genotypes: ``(n_sites, n_haplotypes)`` int8 allele indices
             (0..3), ``-1`` for missing.
@@ -424,22 +465,50 @@ class PairwiseCoalescentHMM(ReprMixin):
             local mutation rate over the reference ``μ``. ``None`` is all ones
             (fully accessible at the reference rate). The calibration uses the
             same scaling.
+        :return: The :class:`HmmInputs`.
+        """
+        busiest = (int(np.bincount(block_of_site, minlength=n_blocks).max())
+                   if block_of_site.size else 0)
+        dtype = np.int16 if busiest <= np.iinfo(np.int16).max else np.int32
+        counts, called, block_sites = self._pair_block_counts(
+            genotypes, block_of_site, n_blocks, dtype=dtype)
+        edges, t_rep, lam, log_lam, r, t_bar = self.calibrate(
+            counts, emit_scale=emit_scale, block_mask=block_mask,
+            called=called, block_sites=block_sites)
+        prior = np.stack([self._coalescent_prior(edges, t) for t in t_bar])
+        return HmmInputs(counts, called, block_sites, edges, t_rep, lam,
+                         log_lam, r, t_bar, prior, step, block_mask,
+                         emit_scale)
+
+    @staticmethod
+    def posterior_means(inputs: HmmInputs) -> np.ndarray:
+        """Posterior-mean TMRCA per (pair, block) by forward-backward.
+
+        :param inputs: The :class:`HmmInputs` of :meth:`prepare`.
         :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA (generations),
             one row per haplotype pair in :func:`itertools.combinations` order.
         """
-        counts, called, block_sites = self._pair_block_counts(
-            genotypes, block_of_site, n_blocks, dtype=np.int64)
-        self.called, self.block_sites = called, block_sites
-
-        edges, t_rep, lam, log_lam, r, t_bar_all = self.calibrate(
-            counts, emit_scale=emit_scale, block_mask=block_mask,
-            called=called, block_sites=block_sites)
-
-        prior = np.stack([self._coalescent_prior(edges, t)
-                          for t in t_bar_all])
         return pair_posterior_mean_tmrcas(
-            counts, t_rep, lam, log_lam, r, prior, step=step, mask=block_mask,
-            called=called, block_sites=block_sites, emit_scale=emit_scale)
+            inputs.counts, inputs.t_rep, inputs.lam, inputs.log_lam, inputs.r,
+            inputs.prior, step=inputs.step, mask=inputs.block_mask,
+            called=inputs.called, block_sites=inputs.block_sites,
+            emit_scale=inputs.emit_scale)
+
+    def block_tmrcas(
+        self, genotypes: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
+        step: "np.ndarray | None" = None,
+        block_mask: "np.ndarray | None" = None,
+        emit_scale: "np.ndarray | None" = None,
+    ) -> np.ndarray:
+        """Posterior-mean TMRCA per (pair, block): :meth:`posterior_means` of
+        :meth:`prepare`, whose parameters it takes.
+
+        :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA (generations),
+            one row per haplotype pair in :func:`itertools.combinations` order.
+        """
+        return self.posterior_means(self.prepare(
+            genotypes, block_of_site, n_blocks, step=step,
+            block_mask=block_mask, emit_scale=emit_scale))
 
 
 @dataclass(frozen=True)
@@ -735,6 +804,27 @@ class LocalTreeBuilder(ReprMixin):
         return self.geometry.hmm_inputs(self.rec_rate, self.mu, log=self._log,
                                         validate=self._validate_coverage)
 
+    def prepared_hmm(self) -> "tuple[np.ndarray, np.ndarray, HmmInputs]":
+        """The genotypes and the HMM inputs prepared from them.
+
+        :return: ``(genotypes, positions, inputs)``: the ``(n_sites, n_hap)``
+            allele-index matrix, each site's position on the axis, and the
+            :class:`HmmInputs` of
+            :meth:`PairwiseCoalescentHMM.prepare() <ancestree.local_tree_inference.PairwiseCoalescentHMM.prepare>`.
+        """
+        g, positions, block_of_site, n_blocks = self._genotype_matrix()
+        return g, positions, self._prepare(g, block_of_site, n_blocks)
+
+    def _prepare(self, g, block_of_site, n_blocks) -> HmmInputs:
+        """The :class:`HmmInputs` of genotypes ``g`` on this build's blocks."""
+        step, block_mask, emit_scale = self._hmm_inputs()
+        return PairwiseCoalescentHMM(
+            len(self.sample_names), mu=self.mu, rec_rate=self.rec_rate,
+            block_size=self.block_size, n_time_bins=self.n_time_bins,
+            time_grid=self.time_grid,
+        ).prepare(g, block_of_site, n_blocks, step=step,
+                  block_mask=block_mask, emit_scale=emit_scale)
+
     def to_tree_sequence(self):
         """Build (and cache) the self-describing local-tree sequence.
 
@@ -858,17 +948,10 @@ class LocalTreeBuilder(ReprMixin):
                 "Running pairwise-coalescent HMM (%s pairs × %s blocks)",
                 f"{n_all:,}", f"{n_blocks:,}",
             )
-        hmm = PairwiseCoalescentHMM(
-            n_hap, mu=self.mu, rec_rate=self.rec_rate,
-            block_size=self.block_size, n_time_bins=self.n_time_bins,
-            time_grid=self.time_grid,
-        )
-        step, block_mask, emit_scale = self._hmm_inputs()
-        self._pair_block_t = hmm.block_tmrcas(
-            g, block_of_site, n_blocks, step=step, block_mask=block_mask,
-            emit_scale=emit_scale,
-        )
-        self._pair_called, self._pair_block_sites = hmm.called, hmm.block_sites
+        inputs = self._prepare(g, block_of_site, n_blocks)
+        self._pair_block_t = PairwiseCoalescentHMM.posterior_means(inputs)
+        self._pair_called, self._pair_block_sites = (inputs.called,
+                                                     inputs.block_sites)
         return self._pair_block_t
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:
