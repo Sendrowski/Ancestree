@@ -412,20 +412,59 @@ class TestTskitWriter:
         }
 
 
+def _with_site_metadata(ts, metadata, schema=None):
+    """``ts`` with every site carrying ``metadata`` under ``schema``."""
+    tables = ts.dump_tables()
+    if schema is not None:
+        tables.sites.metadata_schema = tskit.MetadataSchema(schema)
+    rows = [(s.position, s.ancestral_state) for s in ts.sites()]
+    tables.sites.clear()
+    for position, state in rows:
+        tables.sites.add_row(position=position, ancestral_state=state,
+                             metadata=metadata)
+    return tables.tree_sequence()
+
+
 class TestTskitWriterMetadata:
-    """Site metadata of any shape is coerced to a dict the block can merge into."""
+    """Site metadata of any shape is merged with the block or left intact."""
 
     def test_a_dict_is_copied(self):
         meta = {"k": 1}
-        out = TskitWriter._coerce_metadata_to_dict(meta)
+        out = TskitWriter._metadata_dict(meta)
         assert out == meta and out is not meta
 
-    def test_json_bytes_are_parsed(self):
-        assert TskitWriter._coerce_metadata_to_dict(b'{"k": 1}') == {"k": 1}
+    @pytest.mark.parametrize("raw, parsed", [(b'{"k": 1}', {"k": 1}), (b"", {})])
+    def test_json_object_bytes_are_parsed(self, raw, parsed):
+        assert TskitWriter._metadata_dict(raw) == parsed
 
-    @pytest.mark.parametrize("raw", [b"", b"not json", b"[1, 2]", "text", None])
-    def test_anything_else_collapses_to_an_empty_dict(self, raw):
-        assert TskitWriter._coerce_metadata_to_dict(raw) == {}
+    @pytest.mark.parametrize("raw", [b"not json", b"[1, 2]", "text", None])
+    def test_anything_else_is_not_a_dict(self, raw):
+        assert TskitWriter._metadata_dict(raw) is None
+
+    def test_non_json_metadata_is_kept_and_unannotated(
+            self, hap_ts, tmp_path, caplog):
+        """Raw bytes survive the write, with one warning. Coercing them to
+        ``{}`` under a JSON schema erased every site's metadata."""
+        ts = _with_site_metadata(hap_ts, b"\x01\x02raw")
+        pairs = _fake_posteriors(list(TskitSource(ts)))[:1]
+        out = tmp_path / "raw.trees"
+        with caplog.at_level("WARNING"):
+            assert TskitWriter(ts, out).write(pairs) == 1
+        assert sum("not a JSON object" in r.message
+                   for r in caplog.records) == 1
+        new = tskit.load(str(out))
+        assert new.table_metadata_schemas.site.schema is None
+        assert {bytes(s.metadata) for s in new.sites()} == {b"\x01\x02raw"}
+        assert new.site(0).ancestral_state == pairs[0][1].map_allele
+
+    def test_an_open_schema_takes_the_block(self, hap_ts, tmp_path):
+        schema = {"codec": "json", "type": "object",
+                  "properties": {"q": {"type": "number"}}, "required": ["q"]}
+        ts = _with_site_metadata(hap_ts, {"q": 1.0}, schema)
+        pairs = _fake_posteriors(list(TskitSource(ts)))
+        TskitWriter(ts, tmp_path / "o.trees").write(pairs)
+        meta = tskit.load(str(tmp_path / "o.trees")).site(0).metadata
+        assert meta["q"] == 1.0 and "ancestree" in meta
 
 
 # -------------------------------------------------- min_confidence threshold

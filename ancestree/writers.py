@@ -995,7 +995,8 @@ class TskitWriter(Writer):
     re-derived against the new state, so every sample decodes to the same
     allele as in the input. The full posterior, MAP allele and MAP probability
     are stored under an ``"ancestree"`` key in ``site.metadata`` (JSON codec,
-    set on the sites table if it has no schema).
+    set on the sites table if it has no schema). Site metadata that is not a
+    JSON object is left unchanged, without the block.
 
     Sites without a matching posterior keep their original
     ``ancestral_state``, with any ``ancestree`` metadata block removed.
@@ -1113,11 +1114,13 @@ class TskitWriter(Writer):
         tables.compute_mutation_parents()
 
     @staticmethod
-    def _coerce_metadata_to_dict(meta: object) -> dict:
-        """Coerce arbitrary tskit ``site.metadata`` to a plain ``dict``.
+    def _metadata_dict(meta: object) -> "dict | None":
+        """Site metadata as a ``dict`` the ``ancestree`` block can merge into.
 
-        Dicts are shallow-copied, valid JSON bytes parsed, anything else
-        collapses to ``{}``.
+        Dicts are shallow-copied, empty bytes and JSON-object bytes parsed.
+
+        :param meta: A site's ``metadata``.
+        :return: The ``dict``, or ``None`` for anything else.
         """
         if isinstance(meta, dict):
             return dict(meta)
@@ -1127,9 +1130,9 @@ class TskitWriter(Writer):
             try:
                 decoded = json.loads(bytes(meta))
             except (TypeError, ValueError):
-                return {}
-            return decoded if isinstance(decoded, dict) else {}
-        return {}
+                return None
+            return decoded if isinstance(decoded, dict) else None
+        return None
 
     def __init__(
         self,
@@ -1223,20 +1226,34 @@ class TskitWriter(Writer):
             )
 
         # Metadata must be dict-shaped for the ancestree block to merge in.
+        raw = False
         if sites_table.metadata_schema.schema is None:
-            sites_table.metadata_schema = tskit.MetadataSchema.permissive_json()
+            n_raw = sum(self._metadata_dict(m) is None for m in tskit.unpack_bytes(
+                sites_table.metadata, sites_table.metadata_offset))
+            raw = n_raw > 0
+            if raw:
+                self._log.warning(
+                    "%s of %s sites carry metadata that is not a JSON object, "
+                    "so the site metadata is left unchanged and holds no "
+                    "ancestree block.", f"{n_raw:,}",
+                    f"{sites_table.num_rows:,}")
+            else:
+                sites_table.metadata_schema = (
+                    tskit.MetadataSchema.permissive_json())
 
-        new_rows: list[tuple[float, str, dict]] = []
+        new_rows: list[tuple[float, str, object]] = []
         repolarised: dict[int, str] = {}
         n_annotated = 0
         for site_obj in self._ts.sites():
             scored = (
                 index_by_fpos.get(float(site_obj.position))
                 or index_by_ipos.get(Site.tskit_pos(site_obj.position)))
-            base_meta = self._coerce_metadata_to_dict(site_obj.metadata)
+            base_meta = (site_obj.metadata if raw
+                         else self._metadata_dict(site_obj.metadata) or {})
             if scored is None:
                 # An unscored site carries no ancestree block.
-                base_meta.pop("ancestree", None)
+                if not raw:
+                    base_meta.pop("ancestree", None)
                 new_rows.append((site_obj.position, site_obj.ancestral_state, base_meta))
                 continue
 
@@ -1251,7 +1268,8 @@ class TskitWriter(Writer):
                 extra["posterior"] = site_posterior.to_dict()
             if info_dict is not None:
                 extra["inference"] = info_dict
-            base_meta["ancestree"] = extra
+            if not raw:
+                base_meta["ancestree"] = extra
             if state_to_write != site_obj.ancestral_state:
                 repolarised[site_obj.id] = state_to_write
             new_rows.append((site_obj.position, state_to_write, base_meta))
