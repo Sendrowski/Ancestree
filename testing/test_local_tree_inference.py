@@ -36,7 +36,6 @@ from testing._helpers import (
     MU,
     REC,
     canonical_alleles,
-    segment_builders,
     toy_builder,
     toy_chunked_inference,
     toy_inference,
@@ -227,7 +226,7 @@ def test_pairwise_tmrca_matrix_tracks_truth():
         sequence_length=ts.sequence_length, block_size=block, progress=False,
         chunk_size=None,
     )
-    g, pos, bos, nbk = next(segment_builders(inf))._genotype_matrix()
+    g, pos, bos, nbk = next(inf.segments())._genotype_matrix()
     hmm = PairwiseCoalescentHMM(len(names), mu=1.25e-8, rec_rate=1e-8,
                                block_size=block)
     inferred_mean = hmm.block_tmrcas(g, bos, nbk).mean(axis=1)
@@ -1256,9 +1255,9 @@ def test_auto_halo_is_grounded_and_clamped():
         a, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         window=300, block_size=50, chunk_size=2000, halo="auto",
     )
-    inf._resolve_segmentation_params()
-    assert inf.block_size <= inf._halo_value <= inf._chunk_size // 2
-    assert inf._wbp >= inf.block_size
+    segmentation = inf.segmentation
+    assert segmentation.block <= segmentation.halo <= segmentation.chunk // 2
+    assert segmentation.window >= segmentation.block
 
 
 # ----------------------------------------- finite-Δ kernel: step & mask
@@ -1471,7 +1470,7 @@ def test_a_chunked_run_reads_the_last_base_like_an_unchunked_one(tmp_path):
             vcf, JC69(), mu=MU, rec_rate=REC, sequence_length=length,
             window=200, block_size=bs, progress=False, accessibility=str(bed),
             mutation_map=str(graph), **kw)
-        return list(segment_builders(inf))[-1]._hmm_inputs()[2][-1]
+        return list(inf.segments())[-1]._hmm_inputs()[2][-1]
 
     # The last block spans POS 1950-2000, 51 bases: POS 1950-1970 and 2000
     # are accessible, and the mean rate is (50 + 4) / 51 mu.
@@ -1639,9 +1638,8 @@ def test_chunked_recombination_map_slices_per_segment():
         a, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         window=400, block_size=50, progress=False, recombination_map=rm,
         sequence_length=6000, chunk_size=1500)
-    inference._resolve_segmentation_params()
     n_segments = 0
-    for _seg, geometry in inference._stream_segments():
+    for _seg, geometry in inference.segmentation.units():
         origin, span = geometry.origin, geometry.length
         n_segments += 1
         sliced = geometry.recombination_map
@@ -1804,9 +1802,8 @@ def test_chunked_mutation_map_slices_per_segment():
         a, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         window=400, block_size=50, progress=False, mutation_map=mm,
         sequence_length=6000, chunk_size=1500)
-    inference._resolve_segmentation_params()
     n_segments = 0
-    for _seg, geometry in inference._stream_segments():
+    for _seg, geometry in inference.segmentation.units():
         origin, span = geometry.origin, geometry.length
         n_segments += 1
         sliced = geometry.mutation_map
@@ -2518,7 +2515,7 @@ class TestStreamingAlongTheGenome:
 class TestAnExplicitHaloIsFlooredAtTheBlockWidth:
     """A halo narrower than the block must not fork the block grid.
 
-    ``_resolve_segmentation_params`` floored the halo at ``block_size`` only on
+    The halo was floored at ``block_size`` only on
     the ``"auto"`` branch, so an explicit narrower value left a segment's
     truncated final block with its midpoint inside the core. That block was
     emitted, and the next segment emitted the full-width block covering the
@@ -2554,7 +2551,8 @@ class TestAnExplicitHaloIsFlooredAtTheBlockWidth:
             sequence_length=self.LENGTH, chunk_size=50_000, halo=halo,
             n_ensemble=None, progress=False,
         )
-        return np.asarray(inf.pairwise_tmrcas().block_midpoints), inf.block_size
+        return (np.asarray(inf.pairwise_tmrcas().block_midpoints),
+                inf.segmentation.block)
 
     def test_a_narrow_halo_gives_the_same_grid_as_auto(self, sites):
         narrow, block = self._midpoints(sites, 500)

@@ -142,8 +142,8 @@ def _inference(path, *, chunk_size=None, halo=HALO, n_ensemble=None,
 def _resolved(inference):
     """``(block, window, halo)`` in bp as the run resolved them, the halo
     ``0`` unchunked."""
-    inference._resolve_segmentation_params()
-    return inference.block_size, inference._wbp, inference._halo_value
+    segmentation = inference.segmentation
+    return segmentation.block, segmentation.window, segmentation.halo
 
 
 def _posteriors(inference):
@@ -718,16 +718,15 @@ class TestSegments:
         block holding the origin was partly emptied of its sites while it
         emitted at full exposure."""
         inference = _inference(inputs[dataset], chunk_size=CHUNK)
-        inference._resolve_segmentation_params()
         positions = np.asarray(_positions(inputs[dataset]))
         n_snapped = 0
-        for sites, geometry in inference._stream_segments():
+        for sites, geometry in inference.segmentation.units():
             lo = geometry.origin
-            hi = geometry.genome_core[1] + inference._halo_value
+            hi = geometry.genome_core[1] + inference.segmentation.halo
             expected = positions[(positions >= lo) & (positions < hi)]
             assert [s.pos for s in sites] == expected.tolist(), lo
             n_snapped += bool(np.any(
-                (expected < geometry.genome_core[0] - inference._halo_value)))
+                (expected < geometry.genome_core[0] - inference.segmentation.halo)))
         assert n_snapped
 
 

@@ -97,7 +97,7 @@ def _one_run(window, n_ensemble, n_sites, q):
                              block_size=500, progress=False,
                              chunk_size=None)
     scored = sum(1 for _ in inf.infer())
-    n_windows = len(inf._contig(sites[0].chrom).windows)
+    n_windows = len(inf.segmentation.contig(sites[0].chrom).windows)
     # The child reports its OWN peak: RUSAGE_CHILDREN in the parent is a
     # high-water mark across every child ever spawned, so a delta there reads
     # zero for any run that stays below an earlier one -- and the assertion

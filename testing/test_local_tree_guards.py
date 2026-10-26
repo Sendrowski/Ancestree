@@ -291,8 +291,8 @@ class TestAChunkNarrowerThanTheBlockIsFlooredAtTheBlockWidth:
             n_ensemble=None, progress=False,
         )
         with caplog.at_level(logging.WARNING, logger="ancestree.LocalTreeInference"):
-            inf._resolve_segmentation_params()
-        assert inf._chunk_size == inf.block_size == 1000
+            segmentation = inf.segmentation
+        assert segmentation.chunk == segmentation.block == 1000
         assert any("narrower than the resolved block width" in r.message
                    and "chunk size" in r.message for r in caplog.records)
 
@@ -304,8 +304,7 @@ class TestAChunkNarrowerThanTheBlockIsFlooredAtTheBlockWidth:
             sequence_length=100_000, block_size=1000, chunk_size=4000, halo=500,
             n_ensemble=None, progress=False,
         )
-        inf._resolve_segmentation_params()
-        assert inf._chunk_size == 4000
+        assert inf.segmentation.chunk == 4000
 
 
 def test_chunked_window_floored_to_the_block_warns(caplog):
@@ -314,8 +313,8 @@ def test_chunked_window_floored_to_the_block_warns(caplog):
     inf = toy_chunked_inference(sites, names, window=100, block_size=500,
                                 chunk_size=5000, halo="auto")
     with caplog.at_level(logging.WARNING, logger="ancestree"):
-        inf._resolve_segmentation_params()
-    assert inf._wbp == 500
+        segmentation = inf.segmentation
+    assert segmentation.window == 500
     assert any("floored to block_size=500" in r.getMessage()
                for r in caplog.records)
 
@@ -326,8 +325,8 @@ def test_window_floor_warns_with_explicit_widths(caplog):
     inf = toy_chunked_inference(sites, names, window=100, block_size=500,
                                 chunk_size=5000, halo=1000)
     with caplog.at_level(logging.WARNING, logger="ancestree"):
-        inf._resolve_segmentation_params()
-    assert inf._wbp == 500
+        segmentation = inf.segmentation
+    assert segmentation.window == 500
     assert any("floored to block_size=500" in r.getMessage()
                for r in caplog.records)
 
@@ -452,14 +451,13 @@ class TestTheSegmentBuilderCarriesTheMapAtItsOwnCoordinates:
             sample_names=["a", "b"], window=200, block_size=50,
             sequence_length=span, chunk_size=1500, progress=False,
             recombination_map=rates)
-        inference._resolve_segmentation_params()
 
         n_segments = 0
-        for work_unit in inference._stream_segments():
-            origin, seg_span = work_unit[1].origin, work_unit[1].length
+        for builder in inference.segments():
+            origin = builder.geometry.origin
+            seg_span = builder.geometry.length
             # The builder is what scores the segment, so assert on ITS map,
             # not on the slice the geometry returns.
-            builder = inference._segment_builder(*work_unit)
             assert builder.geometry.recombination_map is not None
             n_segments += 1
             for local in (1.0, min(seg_span, span - origin) - 1.0):

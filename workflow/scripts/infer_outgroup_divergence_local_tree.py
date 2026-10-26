@@ -185,7 +185,7 @@ inference_meta = {
     "mu": mu,
     "rec_rate": rec_rate,
     "window": inference.window,
-    "block_size": inference.block_size,
+    "block_size": inference.segmentation.block,
     "n_ensemble": LOCAL_TREE_ENSEMBLE_MEMBERS,
     "mode": "local_tree",
 }

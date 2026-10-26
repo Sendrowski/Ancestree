@@ -202,20 +202,18 @@ def test_chunked_sub_block_exposure_matches_the_whole_region():
         sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         sequence_length=float(length), window=2000, block_size=block_size,
         accessibility=access, chunk_size=10_000, halo=1000, progress=False)
-    inference._resolve_segmentation_params()
     whole = LocalTreeBuilder(
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         sequence_length=float(length), block_size=block_size,
         accessibility=access).geometry.accessible_fraction()
 
     n_segments = n_compared = 0
-    for work_unit in inference._stream_segments():
-        geometry = work_unit[1]
+    for builder in inference.segments():
+        geometry = builder.geometry
         origin, span = geometry.origin, geometry.length
         n_segments += 1
         n_seg_blocks = geometry.n_blocks
-        frac = inference._segment_builder(*work_unit).geometry \
-            .accessible_fraction()
+        frac = geometry.accessible_fraction()
         covered = sum(min(a1, origin + span) - max(a0, origin)
                       for a0, a1 in access
                       if min(a1, origin + span) > max(a0, origin))
@@ -257,8 +255,7 @@ def test_segment_worker_processes_the_inherited_instance(monkeypatch):
     """The fork entrypoint delegates to the parent's ``_process_segment``."""
     sites, names = toy_sites(range(0, 1500, 20))
     inf = toy_chunked_inference(sites, names, n_ensemble=None)
-    inf._resolve_segmentation_params()
-    work_units = list(inf._stream_segments())
+    work_units = list(inf.segmentation.units())
     assert work_units
     monkeypatch.setattr(lti, "_LOCAL_TREE_FOR_FORK", inf)
     rows, counts = lti._segment_worker(work_units[0])

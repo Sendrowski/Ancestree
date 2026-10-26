@@ -230,19 +230,18 @@ def main() -> None:
         mu=MU, rec_rate=REC_RATE, sample_names=names,
         window=WINDOW, chunk_size=SEGMENT, progress=False,
     )
-    inference._resolve_segmentation_params()
 
     from ancestree._ensemble import SegmentEnsemble
     acc = Accumulator()
     acc.n_pairs = len(node_pairs)
-    for si, (sites, geometry) in enumerate(inference._stream_segments()):
+    for si, builder in enumerate(inference.segments()):
         # The builder shifts its sites to a local zero at ``origin``, so its
         # windows are segment-local while the tree sequence is read in
         # absolute coordinates. The core bounds the part this segment owns;
         # the halo either side is shared with its neighbour.
+        geometry = builder.geometry
         origin = geometry.origin
         core_lo, core_hi = geometry.genome_core
-        builder = inference._segment_builder(sites, geometry)
         builder.time_grid = _deepen_floor(builder, FLOOR_SCALE)
         ens = SegmentEnsemble(builder, model, n_hap, None)
         intervals = geometry.windows

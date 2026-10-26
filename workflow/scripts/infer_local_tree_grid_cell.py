@@ -116,9 +116,8 @@ runtime = time.perf_counter() - t0
 
 # Widths the instance ran at: the block spec resolved to bp, and the window
 # window as a whole number of those blocks.
-inf._resolve_segmentation_params()
-window_bp_used = int(inf._wbp)
-block_bp_used = int(inf.block_size)
+window_bp_used = int(inf.segmentation.window)
+block_bp_used = int(inf.segmentation.block)
 
 n = len(records)
 mean_map = sum(r[0] for r in records) / n if n else float("nan")

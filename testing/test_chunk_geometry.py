@@ -69,9 +69,8 @@ def test_an_unaligned_window_is_snapped_on_the_chunked_path():
         sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
         sequence_length=float(SEQUENCE_LENGTH), window=WINDOW_BP,
         block_size=BLOCK_BP, chunk_size="100kb", progress=False)
-    inference._resolve_segmentation_params()
-    assert inference._wbp % inference.block_size == 0
-    assert inference._wbp == 3000
+    assert inference.segmentation.window % inference.segmentation.block == 0
+    assert inference.segmentation.window == 3000
 
 
 def test_one_segment_reproduces_the_unchunked_run_exactly():
@@ -135,10 +134,9 @@ def test_no_window_overlapping_a_core_is_cut_at_its_segment_edge(
         sequence_length=float(SEQUENCE_LENGTH), window=20_000,
         block_size=BLOCK_BP, n_ensemble=None, progress=False,
         chunk_size=chunk_size, halo=halo)
-    inference._resolve_segmentation_params()
     cut = [(left, right, g.origin, g.origin + g.length)
-           for _seg, g in inference._stream_segments()
-           for left, right in inference._contig(g.contig).windows
+           for _seg, g in inference.segmentation.units()
+           for left, right in inference.segmentation.contig(g.contig).windows
            if right > g.genome_core[0] and left < g.genome_core[1]
            and (left < g.origin or right > g.origin + g.length)]
     assert not cut, f"{len(cut)} windows cut, e.g. {cut[:2]}"
@@ -305,13 +303,11 @@ def test_auto_halo_without_diversity_is_ten_windows_clamped():
              for p in range(0, 2000, 20)]
     inf = toy_chunked_inference(sites, names, window=200, block_size=50,
                                 chunk_size=10_000, halo="auto")
-    inf._resolve_segmentation_params()
-    assert inf._halo_value == min(10 * 200, max(50, 10_000 // 2))
+    assert inf.segmentation.halo == min(10 * 200, max(50, 10_000 // 2))
     diverse, _ = toy_sites(range(0, 2000, 20))
     inf2 = toy_chunked_inference(diverse, names, window=200, block_size=50,
                                  chunk_size=10_000, halo="auto")
-    inf2._resolve_segmentation_params()
-    assert inf2._halo_value != inf._halo_value
+    assert inf2.segmentation.halo != inf.segmentation.halo
 
 
 def test_slice_map_outside_the_map_is_none():
@@ -373,7 +369,7 @@ def test_every_member_tiles_the_data_stretch(chunk_size, n_ensemble):
     inf = toy_chunked_inference(head + tail, names, n_ensemble=n_ensemble,
                                 chunk_size=chunk_size, sequence_length=5000)
     groups = [(iv, list(members)) for iv, members in inf.tree_sequences()]
-    windows = inf._contig(head[0].chrom).windows
+    windows = inf.segmentation.contig(head[0].chrom).windows
     end = float(windows[np.searchsorted(windows[:, 1], 4400, side="right"), 1])
     assert 4400 < end < 5000
     expected = ([(float(a), float(a + 1000)) for a in range(0, 5000, 1000)
@@ -544,8 +540,8 @@ def test_snp_sized_widths_follow_the_sites_not_the_axis_length(chunk_size):
             sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
             window="8snp", n_ensemble=None, progress=False,
             sequence_length=length, chunk_size=chunk_size)
-        inference._resolve_segmentation_params()
-        widths.append((inference.block_size, inference._wbp))
+        widths.append((inference.segmentation.block,
+                       inference.segmentation.window))
     assert widths[0] == widths[1]
 
 
@@ -562,7 +558,6 @@ def test_a_core_holding_only_halo_sites_runs_no_segment():
         window=WINDOW_BP, block_size=BLOCK_BP, n_ensemble=None,
         progress=False, sequence_length=float(last + 20_000),
         chunk_size=last + 1, halo=5_000)
-    inference._resolve_segmentation_params()
     units = list(inference._segments_with_bar())
     assert len(units) == 1
     assert len(list(inference.infer())) == len(sites)

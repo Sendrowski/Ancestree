@@ -197,10 +197,12 @@ class WindowedUpgmaTreeSequence:
 
         n_pairs = self.n_samples * (self.n_samples - 1) // 2
         condensed = np.ascontiguousarray(
-            self.window_condensed_tmrcas, dtype=np.float64).reshape(-1, n_pairs)
+            self.window_condensed_tmrcas,
+            dtype=np.float64).reshape(-1, n_pairs)
         weights = self.window_weights
-        weights = (np.empty((0, n_pairs)) if weights is None or not len(weights)
-                   else np.ascontiguousarray(weights, dtype=np.float64))
+        if weights is None or not len(weights):
+            weights = np.empty((0, n_pairs))
+        weights = np.ascontiguousarray(weights, dtype=np.float64)
         linkages = np.empty((len(condensed), self.n_samples - 1, 4))
         upgma_batch(condensed, self.n_samples, linkages, weights)
         return linkages

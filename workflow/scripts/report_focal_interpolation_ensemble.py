@@ -201,12 +201,11 @@ class EnsembleFocalScan:
             window=self.window, chunk_size="2mb",
             progress=False,
         )
-        inference._resolve_segmentation_params()
-        segments = list(inference._stream_segments())
+        segments = list(inference.segments())
         if len(segments) != 1:
             raise ValueError(
                 f"the ensemble path assumes one segment; got {len(segments)}")
-        builder = inference._segment_builder(*segments[0])
+        builder, = segments
         geometry = builder.geometry
         if (geometry.recombination_map is not None
                 or geometry.accessibility is not None

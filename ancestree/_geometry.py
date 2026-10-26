@@ -11,10 +11,11 @@ Trees cover a contig's data stretch: the whole windows from the one holding
 its first site to the one holding its last. A stretch without sites inside it
 is tiled, and everything outside it is left without trees.
 
-:class:`ContigGeometry` lays the window grid, the chunked cores and their
-segments over one contig. :class:`BuildGeometry` is what one build reads, the
-whole region or one segment shifted to a local 0: its blocks, windows, map
-slices and the windows that get trees.
+:class:`Segmentation` resolves the widths, chunk and halo of a run once and
+holds a :class:`ContigGeometry` per contig, which lays the window grid, the
+cores and their segments over the contig. :class:`BuildGeometry` is what one
+build reads, one segment shifted to a local 0: its blocks, windows, map slices
+and the windows that get trees.
 """
 from __future__ import annotations
 
@@ -28,6 +29,11 @@ from ancestree._repr import ReprMixin
 #: finer than the window gives the pairwise HMM several emission units per
 #: output tree.
 _DEFAULT_BLOCK_SNPS = 4
+
+#: Below this many SNPs per block (panel-wide average), a large fraction of
+#: blocks carry no informative sites and the per-block pairwise-TMRCA estimates
+#: become noise-dominated. The resolution warning fires.
+_MIN_SNPS_PER_BLOCK = 2.0
 
 #: Smallest emission scale a block may carry. Zero would make the emission
 #: monotone in the coalescent rate, sending any block with a difference to
@@ -251,8 +257,9 @@ class BuildGeometry(ReprMixin):
                 "block": self.block, "window": self.window}
 
     def __init__(self, length: float, *, block: int, window: int,
-                 position_base: int = 0, windows=None, recombination_map=None, accessibility=None,
-                 mutation_map=None, core=None, data=None, origin: int = 0,
+                 position_base: int = 0, windows=None, recombination_map=None,
+                 accessibility=None, mutation_map=None, core=None, data=None,
+                 origin: int = 0,
                  contig: "str | None" = None) -> None:
         self.length = float(length)
         self.position_base = int(position_base)
@@ -724,3 +731,256 @@ class ContigGeometry(ReprMixin):
         else:
             n_blocks = max(1, -(-requested // block))
         return requested, block, n_blocks * block
+
+
+class Segmentation(ReprMixin):
+    """The block, window, chunk and halo of a local-tree run, resolved once,
+    and the :class:`ContigGeometry` of each contig.
+
+    Resolving reads the sites once when a width is sized from the SNP
+    density, the sites per bp between each contig's first and last site (a
+    default or ``"<N>snp"`` block, a ``"<N>snp"`` window), when a contig
+    declares no length and so ends at its last site, or when the halo is
+    ``"auto"``. An ``"auto"`` halo is ``5·L_c``, capped at half the chunk, for
+    the bp ``L_c ≈ 1 / (r·E[t])`` over which the HMM's TMRCA decorrelates, with
+    ``r`` the recombination rate per bp per generation and ``E[t] = π / (2μ)``
+    the mean pairwise TMRCA in generations for the ingroup's per-bp pairwise
+    diversity ``π`` and mutation rate ``μ``. Either halo is raised to the
+    widest window of every contig with sites and to the block width.
+
+    :param sites: The sites, re-iterable, in sorted order within each contig.
+    :param window: The window spec.
+    :param block_size: The block spec, or ``None`` for the default.
+    :param chunk: Core width in bp, or ``None`` for one core per contig.
+    :param halo: Overlap in bp or ``"auto"``, read only with ``chunk``.
+    :param declared: The declared lengths: a ``{contig: L}`` mapping, one ``L``
+        for every contig, or ``None``.
+    :param length_source: Where ``declared`` came from, named when a site lies
+        past a length, or ``None`` when it was passed.
+    :param position_base: Coordinate of a contig's first base in the sites.
+    :param maps: Callable giving the ``{parameter: map}`` of a contig.
+    :param mu: Reference mutation rate per bp per generation.
+    :param rec_rate: Recombination rate per bp per generation.
+    :param ingroup: Ingroup sample names, whose diversity sizes an ``"auto"``
+        halo.
+    :param log: Logger the resolution warnings go to.
+    """
+
+    @property
+    def _repr_params(self) -> dict[str, object]:
+        """Fields shown by :meth:`__repr__`."""
+        return {"block": self.block, "window": self.window,
+                "chunk": self.chunk, "halo": self.halo}
+
+    def __init__(self, sites, *, window, block_size, chunk, halo, declared,
+                 length_source, position_base: int, maps, mu: float,
+                 rec_rate: float, ingroup, log) -> None:
+        from collections import Counter
+        from collections.abc import Mapping
+
+        self.sites = sites
+        self.declared = declared
+        self.length_source = length_source
+        self.position_base = int(position_base)
+        self.mu = float(mu)
+        self._maps = maps
+        self._contigs: dict = {}
+        #: Last site of each contig read so far.
+        self.last_sites: dict[str, int] = {}
+        need_halo = chunk is not None and halo == "auto"
+        per_contig = declared is None or isinstance(declared, Mapping)
+        n_sites = span = 0
+        pairdiff = 0.0
+        if (per_contig or need_halo or block_size is None
+                or _snp_count(window, name="window") is not None
+                or isinstance(block_size, str)):
+            cur = None
+            p0 = last = 0
+            for s in sites:
+                n_sites += 1
+                if s.chrom != cur:
+                    if cur is not None:
+                        span += last - p0 + 1
+                    cur, p0 = s.chrom, s.pos
+                last = s.pos
+                if last > self.last_sites.get(str(cur), -1):
+                    self.last_sites[str(cur)] = last
+                if need_halo:
+                    vals = [a for a in map(s.tip_alleles.get, ingroup)
+                            if a is not None]
+                    N = len(vals)
+                    if N >= 2:
+                        same = sum(c * (c - 1) for c in Counter(vals).values())
+                        pairdiff += 1.0 - same / (N * (N - 1))
+            if cur is not None:
+                span += last - p0 + 1
+        requested, block, self.window = ContigGeometry.resolve_widths(
+            window, block_size, n_sites, span)
+        #: Block width in bp.
+        self.block = block
+        if chunk is not None and chunk < block:
+            log.warning(
+                "The chunk size of %d bp is narrower than the resolved block "
+                "width of %d bp, raising it to the block width, below which a "
+                "segment holds no whole emission block and the run splits into "
+                "one HMM pass per block", chunk, block)
+            chunk = block
+        #: Core width in bp, ``None`` for one core per contig.
+        self.chunk = chunk
+        if requested < block:
+            log.warning(
+                "Window %r resolved to ~%d bp but was floored to "
+                "block_size=%d bp: a window cannot be finer than one block, so "
+                "the effective window is %d bp. Lower block_size for finer "
+                "local trees.", window, int(requested), block, block)
+        if span > 0 and n_sites > 0 and block * n_sites / span \
+                < _MIN_SNPS_PER_BLOCK:
+            log.warning(
+                "A block size of %d bp averages only %.1f SNPs per block (< "
+                "%.0f): many blocks carry no informative sites, so the "
+                "per-block pairwise-TMRCA estimates are noise-dominated. "
+                "Consider a larger block_size.",
+                block, block * n_sites / span, _MIN_SNPS_PER_BLOCK)
+        #: Halo in bp, ``0`` unchunked.
+        self.halo = 0
+        if chunk is None:
+            return
+        # At least one block, so a segment's truncated final block is never
+        # emitted beside the next segment's, and at least the widest window,
+        # so every window overlapping a core lies inside its segment.
+        ends = ([self.declared_on(c) or last + 1
+                 for c, last in self.last_sites.items()]
+                if per_contig else [declared])
+        floor = max(block, int(np.ceil(max(
+            (float(np.ptp(ContigGeometry(
+                end, position_base=self.position_base, block=block,
+                window=self.window).windows[-1])) for end in ends if end),
+            default=0.0))))
+        if not need_halo:
+            self.halo = _parse_bp(halo, name="halo")
+            if self.halo < floor:
+                log.warning(
+                    "The halo of %d bp is narrower than the widest window or "
+                    "block of %d bp, raising it to that width so no window is "
+                    "cut at a segment edge", self.halo, floor)
+                self.halo = floor
+            return
+        pi = pairdiff / max(1, span)
+        e_t = pi / (2.0 * self.mu) if pi > 0 else 0.0
+        auto = (int(np.ceil(5.0 / (rec_rate * e_t)))
+                if e_t > 0 and rec_rate > 0 else 10 * self.window)
+        self.halo = max(floor, min(auto, chunk // 2))
+
+    def declared_on(self, chrom) -> "float | None":
+        """The declared length of a contig.
+
+        :param chrom: The contig.
+        :return: Its entry in a ``{contig: length}`` declaration, the single
+            length declared for every contig, or ``None`` when none is.
+        """
+        from collections.abc import Mapping
+
+        end = self.declared
+        return end.get(str(chrom)) if isinstance(end, Mapping) else end
+
+    def contig(self, chrom) -> "ContigGeometry":
+        """The geometry of a contig, laid once.
+
+        :param chrom: The contig.
+        :return: Its :class:`ContigGeometry`, at the resolved widths, chunk and
+            halo, with its maps, ending at its declared length or else at its
+            last site.
+        """
+        chrom = str(chrom)
+        if chrom not in self._contigs:
+            length = self.declared_on(chrom)
+            if not length:
+                if chrom not in self.last_sites:
+                    for s in self.sites:
+                        if s.pos > self.last_sites.get(str(s.chrom), -1):
+                            self.last_sites[str(s.chrom)] = s.pos
+                length = self.last_sites[chrom] + 1
+            self._contigs[chrom] = ContigGeometry(
+                length, position_base=self.position_base, block=self.block,
+                window=self.window, chunk=self.chunk or 0, halo=self.halo,
+                contig=chrom, **self._maps(chrom))
+        return self._contigs[chrom]
+
+    def _refuse_off_axis(self, site, axis_end: float) -> None:
+        """Refuse a site past the end of a contig whose length the input
+        declares.
+
+        :param site: A site off its contig's axis.
+        :param axis_end: End of that axis.
+        :raises ValueError: If the length came from the input and the site lies
+            at or past ``axis_end``.
+        """
+        if self.length_source is not None and site.pos >= axis_end:
+            raise ValueError(
+                f"{self.length_source} gives contig {site.chrom} length "
+                f"{int(self.declared_on(site.chrom)):,}, but a site lies at "
+                f"{int(site.pos):,}; fix the header or pass sequence_length")
+
+    def units(self):
+        """Stream the sites once, yielding ``(sites, geometry)`` per core.
+
+        Sites are streamed in sorted order through a sliding buffer holding
+        the sites within about ``chunk + 2·halo`` bp, so neither the full
+        input nor a whole contig is materialised. Each contig is cut into the
+        cores of :meth:`ContigGeometry.cores`, so a core may hold no site.
+        ``sites`` are those of the core's segment and ``geometry`` its
+        :meth:`ContigGeometry.segment`, whose trees cover the core's part of
+        the contig's data stretch.
+
+        :return: Iterator of ``(sites, geometry)``.
+        :raises ValueError: If a site lies off its contig's axis or out of
+            order.
+        """
+        halo = self.halo
+
+        def unit(contig, buf, core_lo, core_hi, data):
+            """One work unit: the core plus its halo, from the segment's
+            origin on the block grid."""
+            geometry = contig.segment(core_lo, core_hi, data)
+            seg = [s for s in buf
+                   if geometry.origin <= s.pos < core_hi + halo]
+            return seg, geometry
+
+        cur = contig = None
+        buf: list = []
+        core_lo = 0
+        first = last = -1
+        for s in self.sites:
+            if contig is None or s.chrom != cur:
+                if contig is not None:
+                    for lo, hi in contig.cores(core_lo):
+                        yield unit(contig, buf, lo, hi, (first, last + 1))
+                cur, buf, core_lo, first = s.chrom, [], 0, s.pos
+                last = s.pos
+                contig = self.contig(cur)
+                contig.check_callable(self.mu, (
+                    first, self.last_sites.get(str(cur), np.inf - 1) + 1))
+            if not 0 <= s.pos < contig.axis_end:
+                self._refuse_off_axis(s, contig.axis_end)
+                _check_on_axis(np.array([s.pos]), contig.axis_end)
+            if s.pos < last:
+                raise ValueError(
+                    "LocalTreeInference requires sorted sites; saw "
+                    f"{s.chrom}:{s.pos} after {s.chrom}:{last}")
+            last = s.pos
+            buf.append(s)
+            cs = contig.chunk
+            while s.pos >= core_lo + cs + halo:  # right halo fully buffered
+                yield unit(contig, buf, core_lo, core_lo + cs,
+                           (first, np.inf))
+                core_lo += cs
+                # Drop sites before the next segment's origin.
+                cut = contig.origin(core_lo)
+                k = 0
+                while k < len(buf) and buf[k].pos < cut:
+                    k += 1
+                if k:
+                    del buf[:k]
+        if contig is not None:
+            for lo, hi in contig.cores(core_lo):
+                yield unit(contig, buf, lo, hi, (first, last + 1))
