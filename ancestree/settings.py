@@ -1,7 +1,16 @@
 """Package-wide switches that override the equivalent per-call arguments."""
+import itertools
 import logging
 import os
+import signal
 import sys
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator
+
+#: The function a :class:`_ForkPool` worker maps, set by its initializer from
+#: arguments inherited through fork, so neither it nor the object it is bound
+#: to is pickled.
+_FORK_TASK: "Callable | None" = None
 
 
 class Settings:
@@ -117,3 +126,114 @@ class Settings:
             "it to 'forksafe' to use up to %d parallel workers on the %s.",
             n, what)
         return False
+
+
+def _init_fork_worker(fn: Callable, n_workers: int) -> None:
+    """Initializer of a :class:`_ForkPool` worker.
+
+    :param fn: The function the worker maps.
+    :param n_workers: Sibling worker processes sharing the machine.
+    """
+    global _FORK_TASK
+    _FORK_TASK = fn
+    Settings._cap_worker_threads(n_workers)
+
+
+def _run_fork_task(item):
+    """Worker entrypoint of :class:`_ForkPool`: the inherited function on one
+    item.
+
+    :param item: The item, pickled to the worker.
+    :return: The function's result, pickled back to the parent.
+    :raises RuntimeError: If no worker initializer set the function.
+    """
+    if _FORK_TASK is None:
+        raise RuntimeError(
+            "no fork-pool task was set; the worker was not started by "
+            "_ForkPool.")
+    return _FORK_TASK(item)
+
+
+class _ForkPool:
+    """Ordered map over items in forked worker processes.
+
+    At most ``n_workers + 2`` items are in flight. The map runs in-process
+    with one worker, or where forking is unsafe or unavailable, with a warning.
+    """
+
+    def __init__(self, n_workers: int, log: logging.Logger, what: str) -> None:
+        """
+        :param n_workers: Resolved worker count.
+        :param log: Logger the fallback warnings are emitted on.
+        :param what: Plural noun for the items, as in "the tree chunks".
+        """
+        #: Plural noun for the items.
+        self.what = what
+        #: Worker processes the map uses, ``1`` for an in-process map.
+        self.n_workers = (n_workers if n_workers > 1
+                          and self._can_fork(log, what, n_workers) else 1)
+
+    @staticmethod
+    def _can_fork(log: logging.Logger, what: str, n_workers: int) -> bool:
+        """Whether a fork pool may be opened, warning when it may not.
+
+        :param log: Logger the warning is emitted on.
+        :param what: Plural noun for the items.
+        :param n_workers: Workers the pool would open.
+        :return: ``True`` when forking is safe and available.
+        """
+        import multiprocessing as mp
+
+        if not Settings._fork_pool_ok(log, what, n_workers):
+            return False
+        if "fork" in mp.get_all_start_methods():
+            return True
+        log.warning(
+            "The 'fork' start method is unavailable on this platform, so the "
+            "%s run in-process. Spawned workers would pickle the inference.",
+            what)
+        return False
+
+    def map(self, fn: Callable, items: Iterable) -> Iterator:
+        """``fn`` over ``items``, results in item order.
+
+        :param fn: The function, inherited by the workers.
+        :param items: The items, each pickled to a worker.
+        :return: Iterator of the results.
+        :raises RuntimeError: If a worker process dies.
+        """
+        if self.n_workers <= 1:
+            yield from map(fn, items)
+            return
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+
+        n = self.n_workers
+        with ProcessPoolExecutor(
+                n, mp_context=mp.get_context("fork"),
+                initializer=_init_fork_worker, initargs=(fn, n)) as pool:
+            pending = iter(items)
+            in_flight = deque(pool.submit(_run_fork_task, item)
+                              for item in itertools.islice(pending, n + 2))
+            workers = list(pool._processes.values())
+            try:
+                while in_flight:
+                    result = in_flight.popleft().result()
+                    for item in itertools.islice(pending, 1):
+                        in_flight.append(pool.submit(_run_fork_task, item))
+                    yield result
+            except BrokenProcessPool as e:
+                pool.shutdown()
+                died = ", ".join(
+                    f"signal {-c}, {signal.strsignal(-c)}" if c < 0
+                    else f"exit code {c}" for c in (
+                        p.exitcode for p in workers
+                        if p.exitcode != -signal.SIGTERM))
+                raise RuntimeError(
+                    f"A worker process on the {self.what} died ({died}), "
+                    "possibly killed for running out of memory.") from e
+            except BaseException:
+                for p in workers:
+                    p.terminate()
+                raise

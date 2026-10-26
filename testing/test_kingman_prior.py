@@ -17,7 +17,7 @@ from ancestree import (
     StationaryPrior,
 )
 from ancestree.priors import IngroupWeight, _fit_pi_bin
-from ancestree.settings import Settings
+from ancestree.settings import Settings, _ForkPool
 
 from testing._helpers import no_counts as _no_counts, panel_site, panel_ts, simulate_tree_sites
 
@@ -704,7 +704,7 @@ class TestAdaptiveFitFallbacks:
         def _no_pool(*args, **kwargs):
             raise AssertionError("a process pool was started despite the fallback")
 
-        monkeypatch.setattr("ancestree.priors.ProcessPoolExecutor", _no_pool)
+        monkeypatch.setattr("multiprocessing.get_context", _no_pool)
         parallel = AdaptiveIngroupWeight(self.ingroup, n_runs=2, seed=3,
                                          parallelize=True)
         with caplog.at_level(logging.WARNING, logger="ancestree"):
@@ -713,6 +713,32 @@ class TestAdaptiveFitFallbacks:
                    for r in caplog.records)
         assert parallel.fitted
         assert parallel.pi == serial.pi
+
+    @pytest.mark.skipif(
+        "fork" not in __import__("multiprocessing").get_all_start_methods(),
+        reason="needs the fork start method")
+    def test_the_parallel_fit_runs_on_a_fork_pool_and_equals_the_serial_fit(
+            self, monkeypatch):
+        sites = _sites_with_minor_counts(self.ingroup, [1, 1, 2, 2, 3, 3, 1, 2])
+        serial = AdaptiveIngroupWeight(self.ingroup, n_runs=2, seed=3)
+        serial.fit(sites, self._log_L(len(sites)))
+
+        monkeypatch.setattr("ancestree.priors.os.cpu_count", lambda: 4)
+        monkeypatch.setattr(Settings, "_fork_is_safe", staticmethod(lambda: True))
+        workers = []
+        original_map = _ForkPool.map
+
+        def _spy(pool, fn, items):
+            workers.append(pool.n_workers)
+            return original_map(pool, fn, items)
+
+        monkeypatch.setattr(_ForkPool, "map", _spy)
+        parallel = AdaptiveIngroupWeight(self.ingroup, n_runs=2, seed=3,
+                                         parallelize=True)
+        parallel.fit(sites, self._log_L(len(sites)))
+        assert workers and workers[0] > 1
+        assert parallel.pi == serial.pi
+        assert parallel.n_sites_per_bin == serial.n_sites_per_bin
 
     def test_a_subsample_of_two_has_no_bin_to_fit_or_warn_about(self, caplog):
         prior = AdaptiveIngroupWeight(self.ingroup[:2], subsample_size=2)

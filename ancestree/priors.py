@@ -27,7 +27,6 @@ import os
 from abc import ABC
 from collections import Counter, defaultdict
 from collections.abc import Sequence
-from concurrent.futures import ProcessPoolExecutor
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -37,7 +36,7 @@ from scipy.special import logsumexp
 from scipy.stats import hypergeom
 
 from ancestree import STATE_INDEX
-from ancestree.settings import Settings
+from ancestree.settings import Settings, _ForkPool
 from ancestree.sites import BaseComposition, Site
 from ancestree._repr import ReprMixin
 
@@ -664,35 +663,15 @@ class AdaptiveIngroupWeight(IngroupWeight):
         fittable = list(bins)
         bin_seeds = {j: int(self.seed) * 10_000 + int(j) for j in fittable}
 
-        n_workers = min(
-            len(fittable), Settings._resolve_n_workers(os.cpu_count() or 1),
-        )
-        parallel = (
-            n_workers > 1
-            and Settings._use_parallel(self.parallelize)
-            and len(fittable) > 1
-        )
-        if parallel and not Settings._fork_pool_ok(
-                self._log, "spectrum bins", len(fittable)):
-            parallel = False
-        if parallel:
-            with ProcessPoolExecutor(
-                    max_workers=n_workers,
-                    initializer=Settings._cap_worker_threads,
-                    initargs=(n_workers,)) as exec_:
-                results = list(exec_.map(
-                    _fit_pi_bin,
-                    [bins[j] for j in fittable],
-                    [self.n_runs] * len(fittable),
-                    [bin_seeds[j] for j in fittable],
-                ))
-            for j, fitted_pi in zip(fittable, results):
-                self._pi[j] = fitted_pi
-                self._pi[n_sub - j] = 1.0 - fitted_pi
-        else:
-            for j in fittable:
-                self._pi[j] = _fit_pi_bin(bins[j], self.n_runs, bin_seeds[j])
-                self._pi[n_sub - j] = 1.0 - self._pi[j]
+        n_workers = (
+            min(len(fittable), Settings._resolve_n_workers(os.cpu_count() or 1))
+            if Settings._use_parallel(self.parallelize) else 1)
+        pool = _ForkPool(n_workers, self._log, "spectrum bins")
+        results = pool.map(
+            lambda j: _fit_pi_bin(bins[j], self.n_runs, bin_seeds[j]), fittable)
+        for j, fitted_pi in zip(fittable, results):
+            self._pi[j] = fitted_pi
+            self._pi[n_sub - j] = 1.0 - fitted_pi
 
         self._n_sites_per_bin = dict(bin_weight_totals)
         self._n_sites_fallback_kingman = n_fallback

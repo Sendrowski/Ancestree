@@ -24,7 +24,6 @@ import os
 from abc import ABC, abstractmethod
 from collections import Counter
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
-from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -46,7 +45,7 @@ from ancestree.focal import FocalNode
 from ancestree.likelihood import Likelihood, _normalise
 from ancestree.models import JC69, SubstitutionModel
 from ancestree.posterior import Grade, Posterior
-from ancestree.settings import Settings
+from ancestree.settings import Settings, _ForkPool
 from ancestree.sources import _site_from_tskit_variant
 from ancestree.sites import (
     BaseComposition,
@@ -1420,37 +1419,6 @@ class Inference(ReprMixin, ABC):
             "annotate; write a VCF with to_vcf() instead."
         )
 
-# The ARGBasedInference whose ``_infer_range`` runs in fork-pool workers. The
-# parent sets it before creating the pool and clears it after. Children
-# inherit it by copy-on-write fork and receive only ``(tree_start,
-# tree_stop)``, so the ARG is never pickled.
-_ARG_INFERENCE_FOR_FORK: "ARGBasedInference | None" = None
-
-
-def _arg_infer_chunk_worker(
-    chunk: tuple[int, int],
-) -> tuple[list[tuple[Site, np.ndarray]], _Tally]:
-    """Worker entrypoint for :meth:`ARGBasedInference._infer_fork_pool`.
-
-    :param chunk: ``(tree_start, tree_stop)`` tree-index range.
-    :return: The chunk's ``(Site, values)`` list and its tally, for the
-        parent to sum.
-    """
-    inference = _ARG_INFERENCE_FOR_FORK
-    if inference is None:
-        raise RuntimeError(
-            "_arg_infer_chunk_worker invoked without an inference object "
-            "set in the parent; fork did not propagate module globals."
-        )
-    start, stop = chunk
-    inference._tally = _Tally()
-    results = [
-        (site, np.asarray(post.values))
-        for site, post in inference._infer_range(start, stop, show_progress=False)
-    ]
-    return results, inference._tally
-
-
 @dataclasses.dataclass(frozen=True)
 class _TreeWalk:
     """Kernel state shared by every tree of one walk over a tree sequence."""
@@ -1871,16 +1839,7 @@ class ARGBasedInference(Inference):
         self, quiet: bool,
     ) -> Iterator[tuple[Site, Posterior]]:
         """Per-site posterior stream over the whole tree sequence."""
-        n_workers = Settings._resolve_n_workers(
-            self.n_workers, force_serial=self._force_serial)
-        parallel = n_workers > 1
-        if parallel and not Settings._fork_pool_ok(
-                self._log, "tree chunks", n_workers):
-            parallel = False
-        if parallel:
-            yield from self._infer_fork_pool()
-        else:
-            yield from self._infer_range(0, self.ts.num_trees, show_progress=self.progress)
+        yield from self._infer_fork_pool()
         if not quiet:
             self._log_uniform_fallback_summary()
 
@@ -2219,70 +2178,38 @@ class ARGBasedInference(Inference):
         return chunks
 
     def _infer_fork_pool(self) -> Iterator[tuple[Site, Posterior]]:
-        """Fork-pool driver for :meth:`infer`. Falls back to single-worker
-        on non-fork platforms with a warning.
-
-        The parent partitions trees into chunks (by site count), the
-        fork-pool runs each chunk's ``_infer_range`` to completion
-        in a child, and the parent yields results in chunk order.
-        """
-        import multiprocessing as mp
-
-        if "fork" not in mp.get_all_start_methods():
-            self._log.warning(
-                "ARGBasedInference(n_workers=%s): the 'fork' start method is "
-                "unavailable on this platform (likely Windows). Falling back "
-                "to single-worker. Pickling the ARG to spawn workers would "
-                "dominate the runtime and defeat the purpose of "
-                "parallelisation.", self.n_workers,
-            )
-            yield from self._infer_range(0, self.ts.num_trees, show_progress=self.progress)
-            return
-
-        n_workers = Settings._resolve_n_workers(
-            self.n_workers, force_serial=self._force_serial)
+        """Posteriors over every tree, the trees chunked by site count across
+        a fork pool. One worker or one chunk walks them in-process."""
+        pool = _ForkPool(
+            Settings._resolve_n_workers(
+                self.n_workers, force_serial=self._force_serial),
+            self._log, "tree chunks")
         # Several chunks per worker bound what the parent holds in flight.
-        chunks = self._build_tree_chunks(n_workers * self.FORK_CHUNKS_PER_WORKER)
+        chunks = (self._build_tree_chunks(
+            pool.n_workers * self.FORK_CHUNKS_PER_WORKER)
+            if pool.n_workers > 1 else [])
         if len(chunks) <= 1:
             yield from self._infer_range(0, self.ts.num_trees, show_progress=self.progress)
             return
-
-        # The workers read self from the module global.
-        global _ARG_INFERENCE_FOR_FORK
-        _ARG_INFERENCE_FOR_FORK = self
-
-        import collections
-
-        ctx = mp.get_context("fork")
-        # Workers return raw arrays and per-chunk tallies for the parent to rewrap and sum.
         states = self.model.states
-        try:
-            with ctx.Pool(
-                    processes=n_workers,
-                    initializer=Settings._cap_worker_threads,
-                    initargs=(n_workers,)) as pool:
-                # A sliding window of submissions bounds the results queue.
-                window = n_workers + 2
-                remaining = iter(chunks)
-                in_flight: collections.deque = collections.deque()
-                for _ in range(window):
-                    nxt = next(remaining, None)
-                    if nxt is None:
-                        break
-                    in_flight.append(
-                        pool.apply_async(_arg_infer_chunk_worker, (nxt,)))
-                while in_flight:
-                    chunk_results, tally = in_flight.popleft().get()
-                    nxt = next(remaining, None)
-                    if nxt is not None:
-                        in_flight.append(
-                            pool.apply_async(_arg_infer_chunk_worker, (nxt,)))
-                    self._tally += tally
-                    for site, values in chunk_results:
-                        yield site, Posterior(alleles=states, values=values)
-                    del chunk_results
-        finally:
-            _ARG_INFERENCE_FOR_FORK = None
+        for rows, tally in pool.map(self._infer_chunk, chunks):
+            self._tally += tally
+            for site, values in rows:
+                yield site, Posterior(alleles=states, values=values)
+
+    def _infer_chunk(
+        self, chunk: tuple[int, int],
+    ) -> tuple[list[tuple[Site, np.ndarray]], _Tally]:
+        """One fork-pool chunk, walked in a worker.
+
+        :param chunk: ``(tree_start, tree_stop)`` tree-index range.
+        :return: The chunk's ``(Site, values)`` rows and its tally, for the
+            parent to sum.
+        """
+        self._tally = _Tally()
+        rows = [(site, np.asarray(post.values))
+                for site, post in self._infer_range(*chunk)]
+        return rows, self._tally
 
     def _parse_variant(
         self,
@@ -3398,36 +3325,15 @@ class FixedTreeInference(Inference):
         )
 
     def _run_parallel(self, starts: list[np.ndarray]) -> list:
-        """Dispatch independent starts across worker processes.
+        """The starts, fitted across a fork pool.
 
-        Uses the ``fork`` start method so an unguarded module-level script does
-        not re-import its ``__main__``, falling back to a serial fit where
-        ``fork`` is unavailable (Windows) or where the resolved numba threading
-        layer would not survive a fork.
+        :param starts: The initial free-parameter vectors.
+        :return: One optimiser result per start, in start order.
         """
-        import multiprocessing as mp
-
         n_workers = Settings._resolve_n_workers(
-            self.n_workers or min(len(starts), os.cpu_count() or 1)
-        )
-        if n_workers <= 1:
-            return [self._run_one(x0) for x0 in starts]
-        if not Settings._fork_pool_ok(self._log, "starts", len(starts)):
-            return [self._run_one(x0) for x0 in starts]
-        if "fork" not in mp.get_all_start_methods():
-            self._log.warning(
-                "FixedTreeInference(parallelize=True): the 'fork' start method "
-                "is unavailable on this platform (likely Windows); running the "
-                "%d starts serially. Spawn would re-pickle the whole inference "
-                "per start and re-import the caller's __main__.", len(starts),
-            )
-            return [self._run_one(x0) for x0 in starts]
-        ctx = mp.get_context("fork")
-        with ProcessPoolExecutor(
-                max_workers=n_workers, mp_context=ctx,
-                initializer=Settings._cap_worker_threads,
-                initargs=(n_workers,)) as exec_:
-            return list(exec_.map(self._run_one, starts))
+            self.n_workers or min(len(starts), os.cpu_count() or 1))
+        return list(_ForkPool(n_workers, self._log, "starts").map(
+            self._run_one, starts))
 
     def _generate_starts(self) -> list[np.ndarray]:
         """Initial points for the L-BFGS-B variable vector (free params only).

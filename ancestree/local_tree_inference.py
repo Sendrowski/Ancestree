@@ -60,7 +60,7 @@ from ancestree.likelihood import _normalise
 from ancestree.models import JC69, SubstitutionModel
 from ancestree.posterior import Posterior
 from ancestree.priors import StationaryPrior
-from ancestree.settings import Settings
+from ancestree.settings import Settings, _ForkPool
 from ancestree.sites import (BaseComposition, Site, SiteSource,
                              SiteTable, _PanelSites, _path_format)
 from ancestree._repr import ReprMixin
@@ -68,21 +68,6 @@ from ancestree._repr import ReprMixin
 #: Deepest time grid the sampled-path storage can address. Bin indices are
 #: ``int8`` (see ``SegmentEnsemble``).
 MAX_TIME_BINS: int = int(np.iinfo(np.int8).max)
-
-# Set by LocalTreeInference._infer_segmented just before forking the segment
-# pool. Children inherit it via copy-on-write fork (no pickling of the input).
-_LOCAL_TREE_FOR_FORK: "LocalTreeInference | None" = None
-
-
-def _segment_worker(spec):
-    """Fork-pool entrypoint: process one segment spec on the inherited instance."""
-    inst = _LOCAL_TREE_FOR_FORK
-    if inst is None:
-        raise RuntimeError(
-            "_LOCAL_TREE_FOR_FORK not set in the parent; fork did not "
-            "propagate the module global."
-        )
-    return inst._process_segment(spec)
 
 
 @dataclass(frozen=True)
@@ -1765,37 +1750,9 @@ class LocalTreeInference(Inference):
         # Resolves the segmentation before any worker forks, so they inherit it.
         units = self._segments_with_bar()
         states = self.model.states
-        n_workers = Settings._resolve_n_workers(self.n_workers)
-        if n_workers > 1 and not Settings._fork_pool_ok(
-                self._log, "genomic segments", n_workers):
-            n_workers = 1
-        if n_workers > 1:
-            import multiprocessing as mp
-            if "fork" in mp.get_all_start_methods():
-                global _LOCAL_TREE_FOR_FORK
-                _LOCAL_TREE_FOR_FORK = self
-                try:
-                    ctx = mp.get_context("fork")
-                    with ctx.Pool(
-                            processes=n_workers,
-                            initializer=Settings._cap_worker_threads,
-                            initargs=(n_workers,)) as pool:
-                        # imap streams work-units to workers in genomic order.
-                        for seg_out, tally in pool.imap(
-                                _segment_worker, units):
-                            self._tally += tally
-                            for orig, values in seg_out:
-                                yield orig, Posterior(alleles=states, values=values)
-                finally:
-                    _LOCAL_TREE_FOR_FORK = None
-                return
-            self._log.warning(
-                "LocalTreeInference(n_workers=%s): the 'fork' start method is "
-                "unavailable on this platform; running the segments "
-                "single-threaded.", self.n_workers,
-            )
-        for wu in units:
-            seg_out, tally = self._process_segment(wu)
+        pool = _ForkPool(Settings._resolve_n_workers(self.n_workers),
+                         self._log, "genomic segments")
+        for seg_out, tally in pool.map(self._process_segment, units):
             self._tally += tally
             for orig, values in seg_out:
                 yield orig, Posterior(alleles=states, values=values)

@@ -2135,7 +2135,7 @@ class TestRunParallelFallbacks:
         inf.n_workers = 2
         with caplog.at_level(logging.WARNING, logger="ancestree"):
             self._check(inf)
-        assert any("running the 2 starts serially" in r.message
+        assert any("'fork' start method is unavailable" in r.message
                    for r in caplog.records)
 
 

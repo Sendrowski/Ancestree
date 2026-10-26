@@ -23,7 +23,6 @@ import numpy as np
 import msprime
 import pytest
 
-import ancestree.local_tree_inference as lti
 from ancestree import (JC69, LocalTreeBuilder, LocalTreeInference, STATES,
                        Site)
 from ancestree.settings import Settings
@@ -244,28 +243,6 @@ def test_chunked_small_config_runs_and_recovers():
 
 
 # ------------------------------------------------------ segment workers
-def test_segment_worker_requires_the_module_global(monkeypatch):
-    """The fork entrypoint refuses to run without the inherited instance."""
-    monkeypatch.setattr(lti, "_LOCAL_TREE_FOR_FORK", None)
-    with pytest.raises(RuntimeError, match="_LOCAL_TREE_FOR_FORK"):
-        lti._segment_worker(None)
-
-
-def test_segment_worker_processes_the_inherited_instance(monkeypatch):
-    """The fork entrypoint delegates to the parent's ``_process_segment``."""
-    sites, names = toy_sites(range(0, 1500, 20))
-    inf = toy_chunked_inference(sites, names, n_ensemble=None)
-    work_units = list(inf.segmentation.units())
-    assert work_units
-    monkeypatch.setattr(lti, "_LOCAL_TREE_FOR_FORK", inf)
-    rows, counts = lti._segment_worker(work_units[0])
-    direct, direct_counts = inf._process_segment(work_units[0])
-    assert counts == direct_counts
-    assert [s.pos for s, _ in rows] == [s.pos for s, _ in direct]
-    for (_, a), (_, b) in zip(rows, direct):
-        np.testing.assert_allclose(a, b)
-
-
 def test_chunked_workers_fall_back_to_serial_on_an_unsafe_fork(monkeypatch, caplog):
     """An unsafe numba layer runs the segments in-process with a warning."""
     sites, names = toy_sites(range(0, 3000, 20))

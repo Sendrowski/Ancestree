@@ -26,9 +26,8 @@ import msprime
 import numpy as np
 import pytest
 
-import ancestree.inference as inference_mod
 from ancestree import ARGBasedInference, JC69
-from ancestree.inference import _arg_infer_chunk_worker, _Tally
+from ancestree.inference import _Tally
 from ancestree.settings import Settings
 
 
@@ -315,28 +314,15 @@ def test_fork_pool_clamps_chunks_to_num_trees():
     assert out_parallel == serial
 
 
-# ----------------------------------------------- fork-pool worker guard
-def test_fork_worker_without_parent_inference_raises():
-    # _ARG_INFERENCE_FOR_FORK is None outside an active parallel infer().
-    with pytest.raises(RuntimeError, match="fork did not propagate"):
-        _arg_infer_chunk_worker((0, 1))
-
-
-def test_chunk_worker_refuses_to_run_without_a_parent(monkeypatch):
-    monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", None)
-    with pytest.raises(RuntimeError, match="without an inference object"):
-        _arg_infer_chunk_worker((0, 1))
-
-
-def test_chunk_worker_reproduces_the_serial_walk(small_ts, monkeypatch):
-    """The fork-pool worker, run in-process, returns the serial posteriors
+# ----------------------------------------------- fork-pool chunk
+def test_chunk_worker_reproduces_the_serial_walk(small_ts):
+    """The fork-pool chunk, run in-process, returns the serial posteriors
     and tally."""
     inf = ARGBasedInference(small_ts, JC69(), mu=1e-8, progress=False)
     inf._quiet = True
     serial = [(s.pos, p.values) for s, p in inf.infer()]
     serial_tally = inf._tally
-    monkeypatch.setattr(inference_mod, "_ARG_INFERENCE_FOR_FORK", inf)
-    results, tally = _arg_infer_chunk_worker((0, small_ts.num_trees))
+    results, tally = inf._infer_chunk((0, small_ts.num_trees))
     assert [(s.pos, v.tolist()) for s, v in results] == \
         [(pos, v.tolist()) for pos, v in serial]
     assert tally == serial_tally
