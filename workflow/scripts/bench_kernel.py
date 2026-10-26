@@ -27,21 +27,12 @@ about 100 s per configuration at 100 Mb. The bench is self-contained, with no
 real-data dependency.
 """
 import json
-import multiprocessing as mp
 import os
 import resource
 import subprocess
 import sys
 import time
 from pathlib import Path
-
-# Force the fork start method so FixedTreeInference's multi-start
-# ProcessPoolExecutor (used in the VCF mode 2-worker config below) can
-# inherit module-level globals from the parent. Under snakemake's
-# script-wrap the default `spawn` method can't re-import the tempfile-
-# wrapped script and the workers crash with BrokenProcessPool.
-if "fork" in mp.get_all_start_methods():
-    mp.set_start_method("fork", force=True)
 
 import msprime
 import tskit
@@ -185,8 +176,8 @@ def _run_vcf_config(
     ``n_workers`` controls the L-BFGS-B multi-start parallelism only.
     Per-site ``infer()`` is always single-threaded. ``n_workers=1`` runs
     the fit sequentially (``parallelize=False``); ``n_workers > 1`` runs
-    the multi-start replicates in parallel via the inference layer's
-    ``ProcessPoolExecutor`` (``parallelize=True, n_starts=n_workers``).
+    the multi-start replicates on the inference layer's fork pool
+    (``parallelize=True, n_starts=n_workers``).
     """
     label = f"VCF numba={'on ' if use_numba else 'off'} / {n_workers}w"
     if False:
