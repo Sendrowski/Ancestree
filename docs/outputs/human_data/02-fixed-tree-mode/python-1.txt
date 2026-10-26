@@ -1,6 +1,6 @@
 INFO:ancestree.CyVCF2Source: Reading variants from msl.vcf.gz (38 haplotype samples)
 INFO:ancestree.FixedTreeInference: Fitting 11 branch rate(s) by ML over the config histogram.
-INFO:ancestree.FixedTreeInference: L-BFGS-B converged in 17 iterations (marginal log-likelihood -9725036.0405)
+INFO:ancestree.FixedTreeInference: L-BFGS-B converged in 17 iterations (marginal log-likelihood -9725036.0406)
 INFO:ancestree.FixedTreeInference: MLE branch rates: K0=5.0389e-03, K1=5.8016e-03, K2=1.4816e-03, K3=7.2223e-03, K4=7.3906e-03, K5=1.4778e-02, K6=2.0932e-03, K7=1.6678e-02, K8=9.8671e-03, K9=2.9731e-02, K10=1.3331e-01
 INFO:ancestree.FixedTreeInference: Ingroup MRCA → outgroup divergences: chimpanzee_h0=1.0841e-02, gorilla_h0=1.3743e-02, orangutan_h0=2.8689e-02, gibbon_h0=3.2682e-02, rhesus_h0=5.5602e-02, mouse_lemur_h0=1.5918e-01
 INFO:ancestree.FixedTreeInference: Using 10 ingroup sample(s): HG03052, HG03054, HG03055, HG03057, HG03058, HG03060, HG03061, HG03063, HG03064, HG03066
