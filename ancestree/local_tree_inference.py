@@ -42,9 +42,7 @@ from ancestree._geometry import (
     Segmentation, _check_on_axis, _filled, _parse_bp,
 )
 from ancestree._smc_kernel import pair_posterior_mean_tmrcas
-from ancestree._upgma import (
-    WindowedUpgmaTreeSequence,
-)
+from ancestree._upgma import build_windowed_tree_sequence
 from ancestree.focal import FocalNode
 from ancestree.inference import ARGBasedInference, Inference, _Tally
 from ancestree.likelihood import _normalise
@@ -825,15 +823,17 @@ class LocalTreeBuilder(ReprMixin):
         intervals = [geometry.windows[w] for w in trees]
         lo, hi = (b[trees] for b in geometry.window_blocks)
         # Exact UPGMA over the full pairwise-TMRCA matrix (combinations order).
-        condensed = [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in zip(lo, hi)]
-        from ancestree._ensemble import window_exposure
-        upgma = WindowedUpgmaTreeSequence(
-            len(self.sample_names), self.axis_length,
-            intervals, condensed, sample_names=self.sample_names,
-            window_weights=window_exposure(
-                self._pair_called, self._pair_block_sites, lo, hi),
-        )
-        topo = upgma.build()
+        from ancestree._ensemble import upgma_batch, window_exposure
+        n = len(self.sample_names)
+        condensed = np.ascontiguousarray(
+            [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in zip(lo, hi)],
+            dtype=np.float64).reshape(-1, n * (n - 1) // 2)
+        linkages = np.empty((len(condensed), n - 1, 4))
+        upgma_batch(condensed, n, linkages, window_exposure(
+            self._pair_called, self._pair_block_sites, lo, hi))
+        topo = build_windowed_tree_sequence(
+            n, self.axis_length, intervals, list(linkages),
+            sample_names=self.sample_names)
         span = geometry.tree_span
         if span is not None and intervals and span != (intervals[0][0],
                                                        intervals[-1][1]):
@@ -847,7 +847,6 @@ class LocalTreeBuilder(ReprMixin):
         # placement on its window's own tree, so ts.variants() reproduces them.
         tables = topo.dump_tables()
         alleles = list(STATES)
-        n = len(self.sample_names)
         order = np.argsort(pos0, kind="stable")
         # Only the sites under a tree are baked.
         lo_site, hi_site = (0, 0) if span is None else np.searchsorted(
@@ -868,7 +867,9 @@ class LocalTreeBuilder(ReprMixin):
                 continue
             w = int(window_of[si])
             if w != w_tree:
-                tree, w_tree = upgma.window_tree(w), w
+                tree = build_windowed_tree_sequence(
+                    n, 1.0, [(0.0, 1.0)], [linkages[w]]).first()
+                w_tree = w
             shift = w * (n - 1)
             anc, muts = tree.map_mutations(row, alleles)
             site_id = tables.sites.add_row(position=float(pos0[idx]),
