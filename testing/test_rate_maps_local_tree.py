@@ -140,7 +140,6 @@ def test_an_uncovered_stretch_takes_mu_in_the_hmm_and_the_kernel(partial,
     rate and NaN sites at ``mu``, while the HMM took ``mu`` past the end and
     masked NaN blocks as zero-rate."""
     a, b = _builder(mutation_map=partial), _builder(mutation_map=complete)
-    n_blocks = a._genotype_matrix()[3]
     for x, y in zip(a._hmm_inputs(), b._hmm_inputs()):
         assert (x is None) == (y is None)
         if x is not None:

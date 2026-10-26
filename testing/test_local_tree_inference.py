@@ -2354,12 +2354,6 @@ def test_hmm_pair_prior_mean_excludes_masked_blocks(monkeypatch):
     assert t_masked > t_unmasked
 
 
-# --------------------------------------------- candidate-neighbour restriction
-def _candidate_names(ts):
-    nm = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
-    return [nm[int(s)] for s in ts.samples()]
-
-
 def test_one_segment_reproduces_the_unsegmented_build():
     """An input inside one ``chunk_size`` is segmented in name only.
 

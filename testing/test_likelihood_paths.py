@@ -19,23 +19,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ancestree import GTR, HKY, JC69, K2, Likelihood, OutgroupLadderTree
+from ancestree import GTR, HKY, JC69, K2, Likelihood
 from ancestree.sites import BaseComposition, Site
 
 
 # ----------------------------------------------------------------- fixtures
-
-
-def _make_ladder_tree(n_outgroups: int = 3) -> OutgroupLadderTree:
-    """Outgroup-ladder tree with 3 ingroup haplotypes + ``n_outgroups`` outgroups."""
-    ingroup = [f"ing_{i}" for i in range(3)]
-    outgroup = [f"og_{i}" for i in range(n_outgroups)]
-    tree = OutgroupLadderTree(ingroup, outgroup)
-    # Set per-branch rates to something biologically reasonable so
-    # transition probabilities are not near-degenerate (which would mask
-    # cross-path numerical drift behind matrix saturation).
-    tree.set_params(np.full(tree.n_params, 0.05))
-    return tree
 
 
 def _make_sites() -> list[Site]:

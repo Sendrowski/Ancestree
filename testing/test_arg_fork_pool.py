@@ -157,14 +157,9 @@ def test_fork_pool_topology_only_arg_with_injected_sites(
         np.testing.assert_array_equal(s_post.values, f_post.values)
 
 
-def test_build_tree_chunks_matches_legacy_per_tree_walk():
-    """``_build_tree_chunks`` yields a valid, balanced, contiguous partition.
-
-    The vectorised ``searchsorted`` split is compared against a per-tree
-    greedy walk. It must lose no sites and stay balanced, but need not be
-    identical to the greedy walk, since the two distribute the remainder
-    differently.
-    """
+def test_build_tree_chunks_is_a_balanced_contiguous_partition():
+    """``_build_tree_chunks`` yields a contiguous partition of the trees that
+    loses no sites and keeps each chunk near the per-chunk target."""
     from ancestree import ARGBasedInference, JC69
 
     ts = msprime.sim_ancestry(
@@ -194,10 +189,7 @@ def test_build_tree_chunks_matches_legacy_per_tree_walk():
     for (a, b), (c, _d) in zip(chunks, chunks[1:]):
         assert a < b and b == c
 
-    # No sites lost, and each chunk stays near the per-chunk target. The
-    # vectorised searchsorted split need not reproduce the legacy greedy
-    # walk's exact per-chunk counts (it spreads the remainder more evenly),
-    # so balance is asserted to a tolerance rather than as bit-identical counts.
+    # No sites lost, and each chunk within 5% of all sites of its target.
     counts = [int(per_tree_sites[a:b].sum()) for a, b in chunks]
     assert sum(counts) == total_sites
     target = total_sites / 4

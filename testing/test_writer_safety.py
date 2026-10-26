@@ -13,7 +13,6 @@ that scores nothing is refused or reported, and a row the run does not
 score carries nothing from an earlier run.
 """
 import glob
-import gzip
 import os
 import shutil
 
@@ -22,9 +21,7 @@ import pytest
 
 import ancestree as anc
 from ancestree.posterior import Posterior
-from ancestree.sites import Site
 from ancestree.writers import TskitWriter, VCFWriter, Writer, ZarrWriter
-from testing._helpers import post
 from testing._helpers import DEMO_VCF, QUICKSTART_VCF
 from testing._helpers import site_pair, staged_files, write_vcf
 

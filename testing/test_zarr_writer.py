@@ -19,7 +19,6 @@ from ancestree.writers import ZarrWriter
 from testing._helpers import post, write_vcz
 
 import zarr
-from testing._helpers import site_pair
 
 # Fixed-length string arrays (the VCZ layout) draw a zarr-v3
 # UnstableSpecificationWarning that the format mandates and so cannot act on;

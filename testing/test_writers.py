@@ -892,7 +892,6 @@ class TestFullPosteriorInEveryFormat:
         """``AA_post`` is declared in the header with one value per state."""
         import cyvcf2
 
-        import cyvcf2
         import ancestree as anc
 
         inference = anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)

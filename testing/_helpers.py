@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 import pytest
+import tskit
 
 from ancestree import BaseComposition
 from ancestree.posterior import Posterior
@@ -285,8 +286,6 @@ def panel_tables() -> "tuple[tskit.TableCollection, dict[str, int]]":
 
     :return: The tables and ``{name: node}`` for every node.
     """
-    import tskit
-
     tables = tskit.TableCollection(sequence_length=10.0)
     ids: dict[str, int] = {}
     for name in ("a", "b", "c", "d", "o1", "o2"):

@@ -25,12 +25,6 @@ from testing._helpers import canonical_alleles
 #: unbounded scratch would reach.
 PEAK_RSS_LIMIT_MB = 1200
 
-#: How much peak RSS may grow between a few-window and a many-window run over
-#: the SAME sites. Blocking caps the scratch, so the honest expectation is
-#: ~0. This leaves room for allocator noise without admitting growth,
-#: which reached gigabytes.
-WINDOW_SLOPE_LIMIT_MB = 350
-
 
 def _sites(seed=3, n=8, L=40_000):
     """A panel dense enough to tile many windows."""

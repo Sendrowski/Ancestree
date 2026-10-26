@@ -16,16 +16,6 @@ from testing._helpers import no_counts as _no_counts
 from testing.test_likelihood import _ManualTree
 
 
-def _two_tip_tree(branch_length: float) -> _ManualTree:
-    """Tiny tree: root → (tipA, tipB), each child branch of length t."""
-    return _ManualTree(
-        children_map={2: [0, 1]},
-        branch_lengths={0: branch_length, 1: branch_length},
-        root_id=2,
-        tip_to_sample={0: "tipA", 1: "tipB"},
-    )
-
-
 def _three_tip_tree(t_left: float, t_right: float, t_inner: float) -> _ManualTree:
     """Tree:  root → (tipA, inner → (tipB, tipC))."""
     return _ManualTree(
@@ -229,13 +219,6 @@ class TestSiteMonomorphic:
         assert s.chrom == "chr1"
         assert s.pos == 42
         assert s.info == {"src": "test"}
-
-
-# NOTE: TestLogLikelihoodMonomorphic was removed when
-# Likelihood.log_likelihood_monomorphic + _log_L_uniform_leaves were
-# deleted. The monomorphic contribution is now absorbed into the
-# unified config-multiplicity fit (see BaseComposition.project_sites_to_configs)
-# and exercised end-to-end by the B3 + B7 simulation benchmarks.
 
 
 class TestCompositionSpansTheRegion:
