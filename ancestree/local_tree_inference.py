@@ -1594,8 +1594,8 @@ class LocalTreeInference(Inference):
         length ends at its last site. The resolved block width is written back
         to ``self.block_size``, which every segment builder then shares. An
         ``"auto"`` halo is grounded in the recombination correlation length: it
-        estimates per-bp pairwise diversity ``π`` from the site allele
-        frequencies, converts to a mean pairwise TMRCA ``E[t] = π / (2μ)``,
+        estimates per-bp pairwise diversity ``π`` from the ingroup's site
+        allele frequencies, since ingroup pairs decorrelate slowest, converts to a mean pairwise TMRCA ``E[t] = π / (2μ)``,
         whence the bp over which the HMM's TMRCA decorrelates is
         ``L_c ≈ 1 / (r · E[t])``, and takes ``halo = 5·L_c`` (≈ e⁻⁵ residual
         correlation), capped at ``chunk_size/2``. Either halo is raised to the
@@ -1616,6 +1616,7 @@ class LocalTreeInference(Inference):
         pairdiff = 0.0
         declared = self._declared_length
         per_contig = declared is None or isinstance(declared, Mapping)
+        ingroup = self._resolved_ingroup
         if need_window or need_halo or need_density or per_contig:
             self._last_sites = {}
             cur = None
@@ -1630,7 +1631,8 @@ class LocalTreeInference(Inference):
                 if last > self._last_sites.get(str(cur), -1):
                     self._last_sites[str(cur)] = last
                 if need_halo:
-                    vals = [a for a in s.tip_alleles.values() if a is not None]
+                    vals = [a for a in map(s.tip_alleles.get, ingroup)
+                            if a is not None]
                     N = len(vals)
                     if N >= 2:
                         same = sum(c * (c - 1) for c in Counter(vals).values())

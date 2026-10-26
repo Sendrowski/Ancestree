@@ -301,6 +301,25 @@ class TestResolvedWidths:
         inference = _inference(inputs[dataset], chunk_size=CHUNK, halo="auto")
         assert _resolved(inference)[2] == CHUNK // 2
 
+    def test_auto_halo_reads_the_ingroup_diversity(self, inputs):
+        """The auto halo is ``5 / (r · π / (2μ))`` for the ingroup's per-bp
+        pairwise diversity ``π``, which the outgroups do not enter. ``π`` was
+        taken over every tip, so divergent outgroups inflated it and shrank
+        the halo below the span over which ingroup pairs decorrelate."""
+        ingroup = [f"i{k}" for k in range(N_IND - 1)]
+        rows = _simulated_rows()
+        n = 2 * len(ingroup)
+        pairdiff = 0.0
+        for _pos, _alleles, g in rows:
+            k = int(np.sum(g[:n]))
+            pairdiff += 2.0 * k * (n - k) / (n * (n - 1))
+        span = rows[-1][0] - rows[0][0] + 1
+        expected = int(np.ceil(5.0 / (REC * pairdiff / span / (2.0 * MU))))
+        inference = _inference(inputs["regional"], chunk_size=10 * HEADER,
+                               halo="auto", ingroup_samples=ingroup,
+                               outgroup_samples=[f"i{N_IND - 1}"])
+        assert _resolved(inference)[2] == expected
+
     @pytest.mark.parametrize("store", ["multi_vcf", "multi_vcz"])
     def test_widths_over_several_contigs(self, inputs, store):
         """The density sums the site extents of both contigs."""
