@@ -234,8 +234,9 @@ class Writer(ReprMixin, ABC):
         """A sibling path to build ``output`` at, renamed onto it once the
         block completes.
 
-        The staged file is removed if the block or the rename raises, leaving
-        the destination unchanged.
+        A staged directory swaps with an existing store, which is restored if
+        the rename fails. The staged file or directory is removed if the block
+        or the rename raises, leaving the destination unchanged.
 
         :param output: Final path.
         :return: The staged path, in the same directory.
@@ -244,9 +245,21 @@ class Writer(ReprMixin, ABC):
         staged = os.path.join(d, f".partial-{os.getpid()}-{name}")
         try:
             yield staged
-            os.replace(staged, output)
+            if os.path.isdir(staged) and os.path.exists(output):
+                backup = f"{staged}.old"
+                os.rename(output, backup)
+                try:
+                    os.rename(staged, output)
+                except BaseException:
+                    os.rename(backup, output)
+                    raise
+                shutil.rmtree(backup, ignore_errors=True)
+            else:
+                os.replace(staged, output)
         except BaseException:
-            if os.path.exists(staged):
+            if os.path.isdir(staged):
+                shutil.rmtree(staged, ignore_errors=True)
+            elif os.path.exists(staged):
                 os.unlink(staged)
             raise
 
@@ -1337,7 +1350,8 @@ class ZarrWriter(Writer):
         self._require_backend(
             "zarr", "`pip install zarr` or `conda install -c conda-forge zarr`")
         self._input = None if input_zarr is None else str(input_zarr)
-        super().__init__(output_zarr, min_confidence, samples, contig_lengths)
+        super().__init__(os.path.normpath(output_zarr), min_confidence,
+                         samples, contig_lengths)
         if not _replaceable_store(self._output):
             raise ValueError(
                 f"ZarrWriter: {self._output} exists and is not a Zarr store, "
@@ -1516,59 +1530,29 @@ class ZarrWriter(Writer):
 
         if self._input is not None:
             self._refuse_template_overwrite()
-        # The build is staged in a sibling temp store and swapped into place
-        # once every array is written and the empty-match refusal has passed.
-        parent = os.path.dirname(os.path.abspath(self._output)) or "."
-        staging = tempfile.mkdtemp(prefix=".ancestree_vcz_", dir=parent)
-        work_dir = os.path.join(staging, "store")
-
-        try:
+        with self._staged(self._output) as staged:
             if self._input is None:
                 # The format bio2zarr writes, which zarr v2 writes by default.
                 version = ({"zarr_format": 2} if hasattr(zarr, "create_array")
                            else {})
                 n_annotated = self._write_from_sites(
-                    zarr.open_group(work_dir, mode="w", **version), posteriors,
+                    zarr.open_group(staged, mode="w", **version), posteriors,
                     info, provenance, store_posterior)
             else:
-                shutil.copytree(self._input, work_dir)
-                self._subset_samples(work_dir)
-                root = zarr.open(work_dir, mode="r+")
+                shutil.copytree(self._input, staged)
+                self._subset_samples(staged)
+                root = zarr.open(staged, mode="r+")
                 n_annotated, n_seen = self._annotate_store(
                     root, posteriors, info, provenance, store_posterior,
                 )
                 if n_annotated == 0 and n_seen:
                     self._refuse_no_matches(
                         n_seen, f"the variants of {self._input!r}")
-                self._reconsolidate(work_dir)
-            self._swap_into_place(work_dir, self._output)
-        except BaseException:
-            shutil.rmtree(staging, ignore_errors=True)
-            raise
-        shutil.rmtree(staging, ignore_errors=True)  # empty after the swap
+                self._reconsolidate(staged)
 
         self._log.info("Wrote %s annotated sites to %s",
                        f"{n_annotated:,}", self._output)
         return n_annotated
-
-    @staticmethod
-    def _swap_into_place(src_dir: str, dst_dir: str) -> None:
-        """Atomically rename ``src_dir`` onto ``dst_dir`` (same filesystem).
-
-        A failed swap is rolled back, so the original store is never lost.
-        """
-
-        if os.path.exists(dst_dir):
-            backup = f"{dst_dir}.old-{os.getpid()}"
-            os.rename(dst_dir, backup)
-            try:
-                os.rename(src_dir, dst_dir)
-            except BaseException:
-                os.rename(backup, dst_dir)  # roll back to the original
-                raise
-            shutil.rmtree(backup, ignore_errors=True)
-        else:
-            os.rename(src_dir, dst_dir)
 
     def _annotate_store(
         self,

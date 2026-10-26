@@ -489,14 +489,46 @@ class TestStagedFiles:
         assert staged_files(tmp_path) == []
         assert output.read_text(encoding="utf-8") == "keep"
 
-    def test_a_failed_swap_restores_the_original_store(self, tmp_path):
+    def test_a_failed_swap_restores_the_original_store(self, tmp_path,
+                                                       monkeypatch):
         dst = tmp_path / "store.vcz"
         dst.mkdir()
         (dst / "marker").write_text("original", encoding="utf-8")
-        with pytest.raises(FileNotFoundError):
-            ZarrWriter._swap_into_place(str(tmp_path / "missing"), str(dst))
+        rename = os.rename
+
+        def _rename(src, target):
+            """Fail the rename of the staged store onto ``dst``."""
+            if str(target) == str(dst) and not str(src).endswith(".old"):
+                raise OSError("rename failed")
+            rename(src, target)
+
+        monkeypatch.setattr(os, "rename", _rename)
+        with pytest.raises(OSError, match="rename failed"):
+            with Writer._staged(str(dst)) as staged:
+                os.mkdir(staged)
         assert (dst / "marker").read_text(encoding="utf-8") == "original"
-        assert not glob.glob(str(tmp_path / "store.vcz.old-*"))
+        assert staged_files(tmp_path) == []
+
+    def test_a_failed_zarr_write_keeps_the_old_store(self, tmp_path):
+        """A write raising mid-stream leaves the store it would replace as it
+        was, with nothing staged beside it."""
+        import zarr
+
+        template = tmp_path / "in.vcz"
+        ZarrWriter(None, template).write([site_pair(100), site_pair(200)])
+        out = tmp_path / "out.vcz"
+        ZarrWriter(template, out).write([site_pair(100)])
+        before = list(zarr.open(str(out), mode="r")["variant_AA"][:])
+
+        def pairs():
+            yield site_pair(200)
+            raise RuntimeError("mid-stream")
+
+        with pytest.raises(RuntimeError, match="mid-stream"):
+            ZarrWriter(template, out).write(pairs())
+        assert list(zarr.open(str(out), mode="r")["variant_AA"][:]) == before
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["in.vcz",
+                                                               "out.vcz"]
 
 
 class TestVCFWriter:

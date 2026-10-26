@@ -167,6 +167,18 @@ class TestZarrWriter:
         r = zarr.open(out, mode="r")
         assert "kappa" in dict(r.attrs["ancestree_info"])
 
+    def test_an_output_with_a_trailing_separator_is_replaced(
+            self, vcz_store, tmp_path):
+        """A second write to ``out.vcz/`` replaces the store. The backup path
+        was built by appending to the raw output string, which with a
+        trailing separator lands inside the store and fails the rename."""
+        out = str(tmp_path / "out.vcz") + "/"
+        pairs = [(_site(100), post("A", 0.9))]
+        ZarrWriter(vcz_store, out).write(iter(pairs))
+        assert ZarrWriter(vcz_store, out).write(iter(pairs)) == 1
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "in.vcz", "out.vcz"]
+
     def test_repr_shows_the_output(self, tmp_path):
         writer = ZarrWriter(tmp_path / "in.vcz", tmp_path / "out.vcz")
         assert repr(writer) == f"ZarrWriter(output={str(tmp_path / 'out.vcz')!r})"
