@@ -227,9 +227,7 @@ class BuildGeometry(ReprMixin):
     :param window: Window width in bp, a whole number of blocks.
     :param position_base: Frame position base ``b_f``.
     :param windows: ``(left, right)`` windows in the frame, or ``None`` to tile
-        each segment between ``segment_breaks`` with windows of ``window`` bp.
-    :param segment_breaks: Positions at which the HMM resets and window tiling
-        restarts, snapped to the block grid.
+        the frame with windows of ``window`` bp.
     :param recombination_map: :class:`msprime.RateMap` on the frame, or ``None``.
     :param accessibility: Half-open callable ``(start, end)`` intervals on the
         frame, or ``None`` for all callable. The HMM reads only their part
@@ -253,15 +251,13 @@ class BuildGeometry(ReprMixin):
                 "block": self.block, "window": self.window}
 
     def __init__(self, length: float, *, block: int, window: int,
-                 position_base: int = 0, windows=None, segment_breaks=(),
-                 recombination_map=None, accessibility=None,
+                 position_base: int = 0, windows=None, recombination_map=None, accessibility=None,
                  mutation_map=None, core=None, data=None, origin: int = 0,
                  contig: "str | None" = None) -> None:
         self.length = float(length)
         self.position_base = int(position_base)
         self.block = bs = int(block)
         self.window = int(window)
-        self.segment_breaks = list(segment_breaks) if segment_breaks else []
         self.recombination_map = recombination_map
         self.accessibility = (None if accessibility is None
                               else list(accessibility))
@@ -281,24 +277,11 @@ class BuildGeometry(ReprMixin):
         #: ``(n_blocks + 1,)`` float64 block edges, the last at the axis end.
         self.block_edges = np.where(edges >= self.length, self.axis_length,
                                     edges)
-        # The segments between breaks, snapped to the block grid so every
-        # block lies in one.
-        cuts = sorted({0.0, self.length} | {
-            float(round(float(b) / bs) * bs) for b in self.segment_breaks
-            if 0.0 < round(float(b) / bs) * bs < self.length})
-        segments = [(a, b) for a, b in zip(cuts, cuts[1:]) if b > a]
-        #: Block-index ranges, one per segment, partitioning ``[0, n_blocks)``.
-        self.seg_bounds = [
-            (b0, b1) for b0, b1 in
-            ((min(n, max(0, int(s0 // bs))), min(n, max(0, int(np.ceil(s1 / bs)))))
-             for s0, s1 in segments) if b1 > b0]
         if windows is None:
-            windows = np.concatenate([_tile(s0, s1, self.window)
-                                      for s0, s1 in segments])
+            windows = _tile(0.0, self.length, self.window)
             windows[-1, 1] = self.axis_length
-        #: ``(n_windows, 2)`` float64 ``(left, right)`` windows in the frame.
-        #: Tiled, none crosses a segment break and the last reaches the axis
-        #: end.
+        #: ``(n_windows, 2)`` float64 ``(left, right)`` windows in the frame,
+        #: the last reaching the axis end.
         self.windows = iv = np.asarray(windows, dtype=np.float64).reshape(-1, 2)
         lo = np.clip(np.floor_divide(iv[:, 0], bs).astype(np.int64), 0, n - 1)
         hi = np.ceil(iv[:, 1] / bs).astype(np.int64)

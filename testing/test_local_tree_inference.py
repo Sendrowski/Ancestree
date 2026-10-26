@@ -82,11 +82,9 @@ def _sites_and_truth(ts, sample_names):
 
 
 # --------------------------------------------------------------- HMM core
-def test_seg_block_bounds_cover_final_block():
-    """The segment bounds partition [0, n_blocks) exactly.
-
-    ``n_blocks`` uses ceil(), so the final, ragged block must be covered for
-    a sequence_length whose remainder mod block_size is <= block_size/2.
+def test_the_final_ragged_block_is_written():
+    """``n_blocks`` uses ceil(), so the final, ragged block is a block of its
+    own for a sequence_length whose remainder mod block_size is <= block_size/2.
     """
     # L=50000, block_size=4000 -> 12.5 -> ceil n_blocks=13. Old round(12.5)=12
     # (banker's) left block 12 uncovered.
@@ -100,10 +98,6 @@ def test_seg_block_bounds_cover_final_block():
     )
     _g, _pos, _bos, nb = builder._genotype_matrix()
     assert nb == 13
-    covered = set()
-    for b0, b1 in builder.geometry.seg_bounds:
-        covered.update(range(b0, b1))
-    assert covered == set(range(nb)), f"blocks {set(range(nb)) - covered} uncovered"
     # End to end: every per-block TMRCA is written (no leftover zero column).
     pair_block_t = builder._pairwise_block_tmrcas(_g, _bos, nb)
     assert (pair_block_t[:, -1] > 0).all(), "final block left unwritten (zero)"
@@ -935,75 +929,12 @@ def test_inferred_topology_beats_chance():
     )
 
 
-def test_block_tmrcas_segment_reset():
-    """`seg_bounds` severs the HMM at segment breaks (exact Δ→∞ reset).
-
-    Two segments on one axis: the first all-different (deep TMRCA), the
-    second all-identical (recent). Without segments the chain carries the
-    deep signal across the boundary and decays into the second segment;
-    with `seg_bounds` splitting at the boundary the second segment resets to
-    the prior, so its first block is recent and the segment is flat.
-    """
-    nb, k = 24, 12
-    g = np.zeros((nb, 2), dtype=np.int8)
-    g[:k] = (0, 1)  # segment A: pair differs every block (deep)
-    g[k:] = (0, 0)  # segment B: pair identical (recent)
-    bos = np.arange(nb)
-    hmm = PairwiseCoalescentHMM(2, mu=1.25e-8, rec_rate=1e-8, block_size=1)
-
-    joint = hmm.block_tmrcas(g, bos, nb)[0]
-    split = hmm.block_tmrcas(g, bos, nb, seg_bounds=[(0, k), (k, nb)])[0]
-
-    # Backward compatibility: a single full-span segment == the default.
-    same = hmm.block_tmrcas(g, bos, nb, seg_bounds=[(0, nb)])[0]
-    assert np.allclose(joint, same)
-
-    # Decoupling: the reset removes the deep carry-over at the boundary, so
-    # segment B starts (and stays) more recent under the split than the joint
-    # pass, and is essentially flat (no boundary gradient).
-    assert split[k] < joint[k]
-    assert np.ptp(split[k:]) < np.ptp(joint[k:])
-    assert split[k:].max() <= joint[k:].max() + 1e-9
-
-
-def test_segment_aware_windows_and_bounds():
-    """`segment_breaks` give per-segment, runt-free windows and block bounds.
-
-    Windows never cross a break, are equal-width within a segment (no tiny
-    end window), and the segment block-bounds partition ``[0, n_blocks)``.
-    """
-    b = LocalTreeBuilder(
-        [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
-        sequence_length=10000, block_size=100, window=1000,
-        segment_breaks=[3050, 6000],  # 3050 snaps to the 3000 block edge
-    )
-    segs = [(b0 * 100.0, b1 * 100.0) for b0, b1 in b.geometry.seg_bounds]
-    assert segs == [(0.0, 3000.0), (3000.0, 6000.0), (6000.0, 10000.0)]
-
-    wins = b.geometry.windows
-    # every window lies strictly within one segment (crosses no break)
-    for left, right in wins:
-        seg = [s for s in segs if s[0] <= left and right <= s[1]]
-        assert len(seg) == 1, (left, right)
-    # equal width within each segment (no runt remainder)
-    for s0, s1 in segs:
-        widths = [round(r - l, 6) for l, r in wins if s0 <= l < s1]
-        assert max(widths) - min(widths) < 1e-6
-
-    bounds = b.geometry.seg_bounds
-    assert bounds == [(0, 30), (30, 60), (60, 100)]
-    # contiguous partition of [0, n_blocks)
-    assert bounds[0][0] == 0 and bounds[-1][1] == 100
-    assert all(bounds[i][1] == bounds[i + 1][0] for i in range(len(bounds) - 1))
-
-
-def test_no_segment_breaks_covers_axis():
-    """Default (no breaks): one segment, windows cover [0, L)."""
+def test_windows_tile_the_axis():
+    """The windows tile [0, L) without gaps."""
     b = LocalTreeBuilder(
         [], mu=1.25e-8, rec_rate=1e-8, sample_names=["a", "b"],
         sequence_length=9000, block_size=100, window=1000,
     )
-    assert b.geometry.seg_bounds == [(0, 90)]
     wins = b.geometry.windows
     assert wins[0][0] == 0.0 and wins[-1][1] == 9000.0
     assert all(wins[i][1] == wins[i + 1][0] for i in range(len(wins) - 1))

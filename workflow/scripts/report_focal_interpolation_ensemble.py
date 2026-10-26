@@ -210,8 +210,7 @@ class EnsembleFocalScan:
         geometry = builder.geometry
         if (geometry.recombination_map is not None
                 or geometry.accessibility is not None
-                or geometry.mutation_map is not None
-                or geometry.segment_breaks):
+                or geometry.mutation_map is not None):
             raise ValueError("the ensemble path assumes a plain uniform map")
         self.builder = builder
 

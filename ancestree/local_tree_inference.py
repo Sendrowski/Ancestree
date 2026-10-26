@@ -407,7 +407,6 @@ class PairwiseCoalescentHMM(ReprMixin):
 
     def block_tmrcas(
         self, genotypes: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
-        seg_bounds: "Sequence[tuple[int, int]] | None" = None,
         step: "np.ndarray | None" = None,
         block_mask: "np.ndarray | None" = None,
         emit_scale: "np.ndarray | None" = None,
@@ -418,11 +417,6 @@ class PairwiseCoalescentHMM(ReprMixin):
             (0..3), ``-1`` for missing.
         :param block_of_site: ``(n_sites,)`` block index per site.
         :param n_blocks: Total number of blocks.
-        :param seg_bounds: Optional ``(start, end)`` block-index ranges that
-            partition ``[0, n_blocks)`` in order. The forward-backward runs
-            independently within each range (the ``Δ → ∞`` recombination
-            reset), while the time grid and per-pair prior stay global.
-            Defaults to one segment over all blocks.
         :param step: Optional ``(n_blocks-1,)`` genetic distance of each
             inter-block step in nominal-block units, the local recombination
             rate over the interval divided by ``rec_rate·block_size``.
@@ -442,9 +436,6 @@ class PairwiseCoalescentHMM(ReprMixin):
             genotypes, block_of_site, n_blocks, dtype=np.int64)
         self.called, self.block_sites = called, block_sites
 
-        if seg_bounds is None:
-            seg_bounds = [(0, n_blocks)]
-
         edges, t_rep, lam, log_lam, r, t_bar_all = self.calibrate(
             counts, emit_scale=emit_scale, block_mask=block_mask,
             called=called, block_sites=block_sites)
@@ -452,21 +443,13 @@ class PairwiseCoalescentHMM(ReprMixin):
         out = np.zeros((counts.shape[0], n_blocks), dtype=np.float64)
         for p in range(counts.shape[0]):
             pi = self._coalescent_prior(edges, t_bar_all[p])
-            # Run the forward--backward separately on each contiguous segment
-            # so the chain resets to the prior at every break (no carry-over).
-            for s0, s1 in seg_bounds:
-                if s1 > s0:
-                    seg_step = None if step is None else step[s0:s1 - 1]
-                    seg_mask = None if block_mask is None else block_mask[s0:s1]
-                    seg_esc = None if called is None \
-                        else called[p, s0:s1] / block_sites[s0:s1]
-                    if emit_scale is not None:
-                        seg_esc = emit_scale[s0:s1] if seg_esc is None \
-                            else emit_scale[s0:s1] * seg_esc
-                    out[p, s0:s1] = pair_posterior_mean_tmrca(
-                        counts[p, s0:s1], t_rep, lam, log_lam, r, pi,
-                        step=seg_step, mask=seg_mask, escale=seg_esc,
-                    )
+            esc = None if called is None else called[p] / block_sites
+            if emit_scale is not None:
+                esc = emit_scale if esc is None else emit_scale * esc
+            out[p] = pair_posterior_mean_tmrca(
+                counts[p], t_rep, lam, log_lam, r, pi,
+                step=step, mask=block_mask, escale=esc,
+            )
         return out
 
 
@@ -590,12 +573,6 @@ class LocalTreeBuilder(ReprMixin):
         :class:`~ancestree.inference.ARGBasedInference`. Set ``False`` for
         a smaller, topology-only tree sequence, which carries no genotypes and
         so cannot be annotated on its own.
-    :param segment_breaks: Optional bp positions at which the coordinate axis
-        is severed into independent segments (e.g.\\ contig boundaries when
-        several contigs are packed into one region). The pairwise HMM is reset
-        at each break (no information crosses it) and windows are tiled per
-        segment so none straddles a break. Breaks are snapped to the block
-        grid. Defaults to a single contiguous segment.
     :param recombination_map: Optional :class:`msprime.RateMap` (in this
         region's bp coordinates) driving the HMM's TMRCA-reset rate. When
         given, the per-block transition uses the map's local genetic distance
@@ -626,7 +603,7 @@ class LocalTreeBuilder(ReprMixin):
         :class:`~ancestree._geometry.BuildGeometry`, which a chunked run
         supplies per segment, setting the axis, the widths, the windows and
         the maps in place of ``sequence_length``, ``window``, ``block_size``,
-        ``segment_breaks``, the three maps and ``position_base``.
+        the three maps and ``position_base``.
     :param position_base: Coordinate of the region's first base in the sites'
         positions, ``1`` for VCF / VCF-Zarr sites. The region's bases then lie
         on ``[position_base, sequence_length + position_base)``, the axis the
@@ -659,7 +636,6 @@ class LocalTreeBuilder(ReprMixin):
         n_time_bins: int = 32,
         time_grid: "np.ndarray | None" = None,
         bake_genotypes: bool = True,
-        segment_breaks: "Sequence[float] | None" = None,
         recombination_map=None,
         accessibility: "Sequence[tuple[float, float]] | None" = None,
         mutation_map=None,
@@ -703,7 +679,7 @@ class LocalTreeBuilder(ReprMixin):
                 window, block_size, len(pos), extent)
             geometry = BuildGeometry(
                 sequence_length, block=block, window=window_bp,
-                position_base=position_base, segment_breaks=segment_breaks,
+                position_base=position_base,
                 recombination_map=recombination_map,
                 accessibility=accessibility, mutation_map=mutation_map,
                 data=(float(pos[0]), float(pos[-1] + 1)) if len(pos) else None)
@@ -900,8 +876,7 @@ class LocalTreeBuilder(ReprMixin):
         )
         step, block_mask, emit_scale = self._hmm_inputs()
         self._pair_block_t = hmm.block_tmrcas(
-            g, block_of_site, n_blocks, seg_bounds=self.geometry.seg_bounds,
-            step=step, block_mask=block_mask, emit_scale=emit_scale,
+            g, block_of_site, n_blocks, step=step, block_mask=block_mask, emit_scale=emit_scale,
         )
         self._pair_called, self._pair_block_sites = hmm.called, hmm.block_sites
         return self._pair_block_t
