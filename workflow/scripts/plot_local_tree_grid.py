@@ -23,7 +23,7 @@ try:
     out_pdf = str(snakemake.output.pdf)  # type: ignore[name-defined]
 except NameError:
     in_json = "results/reports/local_tree_grid.json"
-    out_pdf = "results/reports/bench_local_tree_grid.pdf"
+    out_pdf = "reports/manuscripts/latex/figures/bench_local_tree_grid.pdf"
 
 report = json.loads(Path(in_json).read_text(encoding="utf-8"))
 windows = report["windows"]

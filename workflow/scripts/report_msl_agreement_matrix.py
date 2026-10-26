@@ -13,7 +13,7 @@ Each off-diagonal cell is the hard-agreement rate (MAP_A == MAP_B) on that
 pair's overlapping positions. Outputs:
 
 - ``results/reports/msl_agreement_matrix.json`` — full pairwise stats + soft
-- ``results/reports/msl_agreement_heatmap.pdf``
+- ``reports/manuscripts/latex/figures/msl_agreement_heatmap.pdf``
 """
 import glob
 import json
@@ -38,7 +38,7 @@ try:
     out_pdf = snakemake.output.pdf  # type: ignore[name-defined]
 except NameError:
     out_json = "results/reports/msl_agreement_matrix.json"
-    out_pdf = "results/reports/msl_agreement_heatmap.pdf"
+    out_pdf = "reports/manuscripts/latex/figures/msl_agreement_heatmap.pdf"
 
 ES = ("external/polarbear/data/real_data/ancestral_state/"
       "est_sfs/est-sfs_ancstate.txt")
@@ -343,5 +343,4 @@ cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 cbar.set_label(r"Brier score $\sum_s (P_A - P_B)^2$", fontsize=9)
 fig.tight_layout()
 fig.savefig(out_pdf, bbox_inches="tight")
-fig.savefig(str(Path(out_pdf).with_suffix(".png")), dpi=160, bbox_inches="tight")
 print(f"wrote {out_pdf}", flush=True)

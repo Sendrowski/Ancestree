@@ -2422,7 +2422,7 @@ rule report_msl_agreement_matrix:
         prob_full = f"{DATA}/rerun_polarbear_workdir/prob_ancstate_full.txt",
     output:
         json = f"{REPORTS}/msl_agreement_matrix.json",
-        pdf = f"{REPORTS}/msl_agreement_heatmap.pdf",
+        pdf = f"{LATEX}/figures/msl_agreement_heatmap.pdf",
     resources:
         # Not covered by the input-size default: the rerun's wide posterior
         # file (four per-state columns over 1.14M sites) is chosen at runtime
@@ -2434,18 +2434,6 @@ rule report_msl_agreement_matrix:
         "envs/bench.yml"
     script:
         "scripts/report_msl_agreement_matrix.py"
-
-
-rule copy_msl_agreement_heatmap:
-    """Copy the agreement heatmap into the manuscript figures directory."""
-    input:
-        rules.report_msl_agreement_matrix.output.pdf,
-    output:
-        "reports/manuscripts/latex/figures/msl_agreement_heatmap.pdf",
-    conda:
-        "envs/bench.yml"
-    shell:
-        "cp {input} {output}"
 
 
 # ----------------------------- kernel benchmark (simulated data)
@@ -4528,7 +4516,7 @@ rule tmrca_distributions_figure:
         meta = expand(f"{REPORTS}/tmrca_distributions_{{s}}_meta.json",
                       s=list(TMRCA_SCENARIOS)),
     output:
-        pdf = f"{REPORTS}/tmrca_distributions.pdf",
+        pdf = f"{LATEX}/figures/tmrca_distributions.pdf",
     params:
         scenarios = list(TMRCA_SCENARIOS),
     conda:
@@ -4536,17 +4524,6 @@ rule tmrca_distributions_figure:
     script:
         "scripts/plot_tmrca_distributions.py"
 
-
-rule copy_tmrca_distributions_figure:
-    """Copy the TMRCA-distribution figure into the manuscript figures dir."""
-    input:
-        pdf = rules.tmrca_distributions_figure.output.pdf,
-    output:
-        pdf = "reports/manuscripts/latex/figures/tmrca_distributions.pdf",
-    conda:
-        "envs/bench.yml"
-    shell:
-        "cp {input.pdf} {output.pdf}"
 
 
 rule report_focal_interpolation_ensemble_shard:
@@ -4750,7 +4727,7 @@ rule ensemble_scaling_figure:
             n_workers=ENSEMBLE_SCALING_WORKERS,
         ),
     output:
-        pdf = f"{REPORTS}/ensemble_scaling.pdf",
+        pdf = f"{LATEX}/figures/ensemble_scaling.pdf",
         summary = f"{REPORTS}/ensemble_scaling.json",
     resources:
         mem_mb = 4000,
@@ -4759,15 +4736,6 @@ rule ensemble_scaling_figure:
         "envs/bench.yml"
     script:
         "scripts/plot_ensemble_scaling.py"
-
-rule ensemble_scaling_figure_copy:
-    """The ensemble-scaling figure, in the manuscript's figure tree."""
-    input:
-        pdf = rules.ensemble_scaling_figure.output.pdf,
-    output:
-        fig_copy = "reports/manuscripts/latex/figures/ensemble_scaling.pdf",
-    shell:
-        "cp {input.pdf} {output.fig_copy}"
 
 
 # Standalone-script manuscript figures (gallery, ingroup-size, site-scaling,

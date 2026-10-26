@@ -28,7 +28,7 @@ except NameError:
     in_npz = [f"results/data/tmrca_distributions_{s}.npz" for s in scenarios]
     in_meta = [f"results/reports/tmrca_distributions_{s}_meta.json"
                for s in scenarios]
-    out_pdf = "results/reports/tmrca_distributions.pdf"
+    out_pdf = "reports/manuscripts/latex/figures/tmrca_distributions.pdf"
 
 #: Row headings, in the order the scenarios are given.
 TITLES = {"baseline": "constant size", "pop_growth": "recent growth",

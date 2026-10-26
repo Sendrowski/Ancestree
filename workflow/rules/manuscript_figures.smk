@@ -138,7 +138,7 @@ rule epo_spectra_figure:
     input:
         json = f"{REPORTS}/epo_spectra.json",
     output:
-        pdf = f"{REPORTS}/epo_spectra.pdf",
+        pdf = f"{FIGURES_DIR}/epo_spectra.pdf",
     params:
         simulation = False,
     conda:
@@ -147,39 +147,19 @@ rule epo_spectra_figure:
         "../scripts/plot_epo_contrasts.py"
 
 
-rule epo_spectra_figure_copy:
-    """The EPO spectrum figure, in the manuscript's figure tree."""
-    input:
-        pdf = rules.epo_spectra_figure.output.pdf,
-    output:
-        fig_copy = f"{FIGURES_DIR}/epo_spectra.pdf",
-    shell:
-        "cp {input.pdf} {output.fig_copy}"
-
-
 rule epo_simulation_spectra_figure:
     """Appendix: unfolded spectrum of the simulation matched to the EPO
     comparison under the same contrasts, relative to the simulated truth."""
     input:
         json = f"{REPORTS}/epo_simulation.json",
     output:
-        pdf = f"{REPORTS}/epo_simulation_spectra.pdf",
+        pdf = f"{FIGURES_DIR}/epo_simulation_spectra.pdf",
     params:
         simulation = True,
     conda:
         "../envs/bench.yml"
     script:
         "../scripts/plot_epo_contrasts.py"
-
-
-rule epo_simulation_spectra_figure_copy:
-    """The EPO simulation spectrum figure, in the manuscript's figure tree."""
-    input:
-        pdf = rules.epo_simulation_spectra_figure.output.pdf,
-    output:
-        fig_copy = f"{FIGURES_DIR}/epo_simulation_spectra.pdf",
-    shell:
-        "cp {input.pdf} {output.fig_copy}"
 
 
 rule epo_tables:
@@ -312,7 +292,7 @@ rule scenario_sfs_figure:
                       "outgroup_clade", "slim"],
         ),
     output:
-        pdf = f"{REPORTS}/scenario_sfs.pdf",
+        pdf = f"{FIGURES_DIR}/bench_scenario_sfs.pdf",
     conda:
         "../envs/bench.yml"
     script:
@@ -395,13 +375,3 @@ rule msl_runtime_table:
         "../envs/bench.yml"
     shell:
         "python reports/scripts/make_msl_runtime_table.py"
-
-
-rule scenario_sfs_figure_copy:
-    """The scenario-SFS figure, in the manuscript's figure tree."""
-    input:
-        pdf = rules.scenario_sfs_figure.output.pdf,
-    output:
-        fig_copy = f"{FIGURES_DIR}/bench_scenario_sfs.pdf",
-    shell:
-        "cp {input.pdf} {output.fig_copy}"

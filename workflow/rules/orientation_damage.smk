@@ -12,7 +12,7 @@
 # Build with::
 #
 #     snakemake --profile workflow/profiles/slurm \
-#         results/reports/bench_orientation_damage.pdf
+#         reports/manuscripts/latex/figures/bench_orientation_damage.pdf
 #
 # ``DATA`` / ``REPORTS`` / ``RELATE_DIR`` come from the including Snakefile.
 
@@ -251,7 +251,7 @@ rule orientation_damage_figure:
     input:
         report = rules.orientation_report.output.json,
     output:
-        pdf = f"{REPORTS}/bench_orientation_damage.pdf",
+        pdf = f"{LATEX}/figures/bench_orientation_damage.pdf",
     params:
         scheme = ORIENTATION_FIGURE_SCHEME,
     resources:
@@ -261,15 +261,3 @@ rule orientation_damage_figure:
         "../envs/bench.yml"
     script:
         "../scripts/plot_orientation_damage.py"
-
-
-rule copy_orientation_damage_figure:
-    """Copy the orientation-damage figure PDF into the manuscript figures dir."""
-    input:
-        damage = rules.orientation_damage_figure.output.pdf,
-    output:
-        damage = "reports/manuscripts/latex/figures/bench_orientation_damage.pdf",
-    conda:
-        "../envs/bench.yml"
-    shell:
-        "cp {input.damage} {output.damage}"

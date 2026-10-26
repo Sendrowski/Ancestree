@@ -266,23 +266,11 @@ rule plot_local_tree_appendix_figs:
         window = rules.report_local_tree_window.output.json,
         genealogy = rules.report_local_tree_genealogy.output.json,
     output:
-        pdf = f"{REPORTS}/bench_local_tree_window_genealogy.pdf",
+        pdf = f"{LATEX}/figures/bench_local_tree_window_genealogy.pdf",
     conda:
         "../envs/bench.yml"
     script:
         "../scripts/plot_local_tree_appendix_figs.py"
-
-
-rule copy_local_tree_appendix_figures:
-    """Copy the two-panel figure PDF into the manuscript figures directory."""
-    input:
-        rules.plot_local_tree_appendix_figs.output.pdf,
-    output:
-        "reports/manuscripts/latex/figures/bench_local_tree_window_genealogy.pdf",
-    conda:
-        "../envs/bench.yml"
-    shell:
-        "cp {input} {output}"
 
 
 # =========================================================================
@@ -517,7 +505,7 @@ rule plot_local_tree_scans_comparison:
     input:
         window = expand(REPORTS + "/local_tree_window_og{n_out}.json", n_out=LT_OG_NOUTS),
     output:
-        pdf = f"{REPORTS}/bench_local_tree_scans_outgroups.pdf",
+        pdf = f"{LATEX}/figures/bench_local_tree_scans_outgroups.pdf",
     params:
         which = "scans",
         n_outs = LT_OG_NOUTS,
@@ -533,7 +521,7 @@ rule plot_local_tree_genealogy_comparison:
         window = expand(REPORTS + "/local_tree_window_og{n_out}.json", n_out=LT_OG_NOUTS),
         genealogy = expand(REPORTS + "/local_tree_genealogy_og{n_out}.json", n_out=LT_OG_NOUTS),
     output:
-        pdf = f"{REPORTS}/bench_local_tree_genealogy_outgroups.pdf",
+        pdf = f"{LATEX}/figures/bench_local_tree_genealogy_outgroups.pdf",
     params:
         which = "genealogy",
         n_outs = LT_OG_NOUTS,
@@ -541,18 +529,3 @@ rule plot_local_tree_genealogy_comparison:
         "../envs/bench.yml"
     script:
         "../scripts/plot_local_tree_outgroup_comparison.py"
-
-
-rule copy_local_tree_outgroup_comparison_figures:
-    """Copy the outgroup-comparison figure PDFs into the manuscript."""
-    input:
-        scans = rules.plot_local_tree_scans_comparison.output.pdf,
-        genealogy = rules.plot_local_tree_genealogy_comparison.output.pdf,
-    output:
-        scans = "reports/manuscripts/latex/figures/bench_local_tree_scans_outgroups.pdf",
-        genealogy = "reports/manuscripts/latex/figures/bench_local_tree_genealogy_outgroups.pdf",
-    conda:
-        "../envs/bench.yml"
-    shell:
-        "cp {input.scans} {output.scans} && "
-        "cp {input.genealogy} {output.genealogy}"

@@ -99,20 +99,8 @@ rule plot_local_tree_grid:
     input:
         grid = rules.report_local_tree_grid.output.json,
     output:
-        pdf = f"{REPORTS}/bench_local_tree_grid.pdf",
+        pdf = f"{LATEX}/figures/bench_local_tree_grid.pdf",
     conda:
         "../envs/bench.yml"
     script:
         "../scripts/plot_local_tree_grid.py"
-
-
-rule copy_local_tree_grid_figure:
-    """Copy the window-by-block heatmap into the manuscript figures dir."""
-    input:
-        pdf = rules.plot_local_tree_grid.output.pdf,
-    output:
-        pdf = "reports/manuscripts/latex/figures/bench_local_tree_grid.pdf",
-    conda:
-        "../envs/bench.yml"
-    shell:
-        "cp {input.pdf} {output.pdf}"

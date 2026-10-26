@@ -7,12 +7,10 @@ budget context for the per-class robustness results (Figure 4 / the
 baselines appendix figure). The spectra come straight from the cached
 robustness cells, so no extra inference is run.
 
-Invoked by the ``scenario_sfs_figure`` rule (``shell: python …``) or run
-directly. Either way it globs the cached per-cell JSONs (scenarios + cell
-loader shared with :mod:`_robustness_common`) and renders.
-
-Outputs: ``results/reports/scenario_sfs.pdf`` (+ a ~200-dpi PNG) and a
-copy at ``reports/manuscripts/latex/figures/bench_scenario_sfs.pdf``.
+Invoked by the ``scenario_sfs_figure`` rule or run directly, which globs the
+cached per-cell JSONs (scenarios + cell loader shared with
+:mod:`_robustness_common`). Writes
+``reports/manuscripts/latex/figures/bench_scenario_sfs.pdf``.
 """
 import glob
 import os
@@ -34,7 +32,7 @@ try:
     out_pdf = Path(snakemake.output.pdf)  # type: ignore[name-defined]
     rc.load_cell_summaries(list(snakemake.input.cells))  # type: ignore[name-defined]
 except NameError:
-    out_pdf = rc.REPORTS / "scenario_sfs.pdf"
+    out_pdf = rc.REPO / "reports" / "manuscripts" / "latex" / "figures" / "bench_scenario_sfs.pdf"
     # Not a bare robustness_cell_* glob: that also matches the
     # robustness_cell_intersect_* cells, which carry the SAME internal
     # (scenario, method, n_out) key over SINGER's budget prefix rather than the

@@ -43,7 +43,7 @@ except NameError:
                     "results/data/local_tree_window_og3.json"]
     gen_jsons = ["results/data/local_tree_genealogy_og1.json",
                  "results/data/local_tree_genealogy_og3.json"]
-    out_pdf = f"results/reports/bench_local_tree_{which}_outgroups.pdf"
+    out_pdf = f"reports/manuscripts/latex/figures/bench_local_tree_{which}_outgroups.pdf"
 
 
 wbs = [json.loads(Path(p).read_text(encoding="utf-8")) for p in window_jsons]

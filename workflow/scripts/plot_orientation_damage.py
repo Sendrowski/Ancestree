@@ -18,7 +18,7 @@ try:
     scheme = snakemake.params.scheme  # type: ignore[name-defined]
 except NameError:
     in_json = "results/reports/orientation_damage.json"
-    out_pdf = "results/reports/bench_orientation_damage.pdf"
+    out_pdf = "reports/manuscripts/latex/figures/bench_orientation_damage.pdf"
     scheme = "freq_biased5"
 
 KC_SCALE = 1e5

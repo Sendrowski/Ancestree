@@ -19,7 +19,7 @@ try:
 except NameError:
     import glob
     in_cells = sorted(glob.glob("results/data/ensemble_scaling_m*_w*.json"))
-    out_pdf = "results/reports/ensemble_scaling.pdf"
+    out_pdf = "reports/manuscripts/latex/figures/ensemble_scaling.pdf"
     out_json = "results/reports/ensemble_scaling.json"
 
 cells = [json.load(open(p, encoding="utf-8")) for p in in_cells]

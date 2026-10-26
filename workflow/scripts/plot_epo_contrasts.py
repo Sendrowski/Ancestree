@@ -26,7 +26,7 @@ try:
     SIMULATION = bool(snakemake.params.simulation)  # type: ignore[name-defined]
 except NameError:
     IN_JSON = Path("results/reports/epo_spectra.json")
-    FIG = Path("results/reports/epo_spectra.pdf")
+    FIG = Path("reports/manuscripts/latex/figures/epo_spectra.pdf")
     SIMULATION = False
 
 #: EPO's reconstruction under its model on the simulation; on the data it is the zero line.

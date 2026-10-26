@@ -31,7 +31,7 @@ try:
 except NameError:
     in_window = "results/reports/local_tree_window_bench.json"
     in_genealogy = "results/reports/local_tree_genealogy.json"
-    out_pdf = "results/reports/bench_local_tree_window_genealogy.pdf"
+    out_pdf = "reports/manuscripts/latex/figures/bench_local_tree_window_genealogy.pdf"
 
 #: Font scale for panels drawn at half the text width.
 FS = 1.25
