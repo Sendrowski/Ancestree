@@ -593,10 +593,6 @@ class VCFWriter(Writer):
     :raises ImportError: If ``cyvcf2`` is not installed.
     """
 
-    AA_INFO_HEADER = {"ID": "AA", **AA_INFO_FIELDS["AA"]}
-    AA_PROB_INFO_HEADER = {"ID": "AA_prob", **AA_INFO_FIELDS["AA_prob"]}
-    AA_POST_INFO_HEADER = {"ID": "AA_post", **AA_INFO_FIELDS["AA_post"]}
-
     @staticmethod
     def _vcf_type_of(value: object) -> str:
         """Map a Python ``info`` value to a VCF 4.2 INFO ``Type`` token.
@@ -731,10 +727,9 @@ class VCFWriter(Writer):
         :return: ``[(field_id, vcf_type, value), ...]`` for the ``info`` fields,
             to be emitted per annotated record.
         """
-        self._declare(in_vcf, self.AA_INFO_HEADER)
-        self._declare(in_vcf, self.AA_PROB_INFO_HEADER)
-        if store_posterior:
-            self._declare(in_vcf, self.AA_POST_INFO_HEADER)
+        for field, spec in AA_INFO_FIELDS.items():
+            if store_posterior or field != AA_POST_FIELD:
+                self._declare(in_vcf, {"ID": field, **spec})
         if provenance:
             version = str(provenance.get("version", ""))
             mode = str(provenance.get("mode", ""))
@@ -750,7 +745,7 @@ class VCFWriter(Writer):
         if info:
             for key, value in info.items():
                 field_id = f"AA_{key}"
-                if field_id in ("AA_prob", "AA_post"):
+                if field_id in AA_INFO_FIELDS:
                     raise ValueError(
                         f"info key {key!r} maps to the reserved INFO field "
                         f"{field_id!r} (used for the ancestral-allele assignment); "
@@ -834,7 +829,7 @@ class VCFWriter(Writer):
                 # records carrying it.
                 if not store_posterior:
                     with contextlib.suppress(KeyError):
-                        writer.remove_header("AA_post", order=[_BCF_HL_INFO])
+                        writer.remove_header(AA_POST_FIELD, order=[_BCF_HL_INFO])
                 n_annotated = 0
                 # Pass 2 walks the template in the same order pass 1 built
                 # the arrays, so the row is the record index. Re-locating by
@@ -847,7 +842,7 @@ class VCFWriter(Writer):
                                        info_fields)
                         n_annotated += 1
                     else:
-                        for field_id in ("AA", "AA_prob", "AA_post"):
+                        for field_id in AA_INFO_FIELDS:
                             if variant.INFO.get(field_id) is not None:
                                 del variant.INFO[field_id]
                     writer.write_record(variant)
