@@ -2380,7 +2380,7 @@ class FixedTreeInference(Inference):
         are ``round(pi × (n_target_sites − n_polymorphic))``.
     :param n_target_sites: Total target-region length, from which the
         monomorphic weights are derived. Required when
-        ``base_composition.counts`` is all-zero and ``fit_required=True``.
+        ``base_composition.counts`` is all-zero and a fit runs.
     :param sample_filter: Restrict a VCF / VCZ read to these sample names,
         each of which must be in ``ingroup_samples`` or ``outgroup_samples``.
         ``None`` reads every sample and ignores those in neither list.
@@ -2425,7 +2425,7 @@ class FixedTreeInference(Inference):
         ``True`` (default) makes :meth:`infer` raise until
         :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`
         has run, and ``False`` scores at ``initial_rates`` until a fit runs and
-        relaxes the monomorphic-calibration check.
+        defers the monomorphic-calibration check to that fit.
     :param baseline_check: INFO-log MAP agreement with the majority-outgroup
         rule (:class:`~ancestree.inference.MajorityOutgroupInference`) as a
         consistency check on the fitted model. Default ``True``.
@@ -2599,21 +2599,9 @@ class FixedTreeInference(Inference):
         actual_bc = BaseComposition.require(
             actual_bc, context="FixedTreeInference",
         )
-        # One pass over the source projects the polymorphic sites onto the
-        # config histogram. The no-outgroup path returns before any fit.
-        resolved_subsample_size: int | None = None
-        proj_weights: dict | None = None
-        n_poly_projected: int | None = None
         if not self._no_outgroup_mode and not self._given_tree:
-            resolved_subsample_size = self._resolve_subsample_size(
+            self.subsample_size = self._resolve_subsample_size(
                 ingroup_weight, subsample_size,
-            )
-            self.subsample_size = resolved_subsample_size
-            proj_weights, n_poly_projected = actual_bc._project_polymorphic(
-                self.sites,
-                self.tree.ingroup_samples,
-                self.tree.outgroup_samples,
-                resolved_subsample_size,
             )
         # A composition without per-base counts takes them from n_target_sites
         # as round(pi x n_target), keeping its empirical pi.
@@ -2624,26 +2612,6 @@ class FixedTreeInference(Inference):
             actual_bc = dataclasses.replace(
                 actual_bc, counts=dict(zip(STATES, [int(x) for x in arr])))
         self.base_composition = actual_bc
-        # A fit needs monomorphic-site calibration: non-zero counts or
-        # n_target_sites.
-        if (
-            fit_required
-            and self.base_composition.n_total == 0
-            and n_target_sites is None
-        ):
-            raise ValueError(
-                "FixedTreeInference requires monomorphic-site calibration "
-                "for the branch-rate fit. Supply ``n_target_sites=L`` "
-                "(the genome length, so the inference can derive the "
-                "monomorphic-site count from the polymorphic count), "
-                "or pass a ``base_composition`` whose ``counts`` are "
-                "non-zero (e.g. via "
-                "``BaseComposition.from_n_target_sites(L)`` / "
-                "``BaseComposition.from_fasta(path)`` / "
-                "``BaseComposition.from_counts(...)``). Use "
-                "``fit_required=False`` if you intentionally want to "
-                "skip the fit and use the tree's current branch rates."
-            )
         tree = self.tree
         self.bounds = bounds
         self.progress = progress
@@ -2787,42 +2755,59 @@ class FixedTreeInference(Inference):
         self._model_params_mle: dict[str, float] | None = None
         self._log_likelihood_mle: float | None = None
 
-        # ---- config-multiplicity ML fit: weighted Felsenstein over the unique
-        # (projected AFS, outgroup pattern) configs, monomorphic sites included
-        # as boundary configs.
-        subsample_size = resolved_subsample_size
-        # Merge the monomorphic counts into the projection and materialise
-        # the config sites.
         if not self.tree.ingroup_samples:
             self._refuse_empty_ingroup(
                 len(self.tree.ingroup_samples) + len(self.tree.outgroup_samples),
                 regardless=True)
-        self._fit_configs, self._fit_weights = (
-            self.base_composition._finalize_configs(
-                proj_weights,
-                self.base_composition.monomorphic_counts(n_poly_projected),
-                self.tree.ingroup_samples,
-                self.tree.outgroup_samples,
-                subsample_size,
-            )
-        )
-        if self._fit_configs:
-            if self.ingroup_weight is not None:
-                self._fit_log_prior = self.ingroup_weight.log_probs(
-                    self._fit_configs)
-            else:
-                # The slot carries the ingroup term alone. The objective adds
-                # the root prior itself.
-                self._fit_log_prior = np.zeros(
-                    (len(self._fit_configs), model.n_states),
-                )
-        else:
-            self._fit_log_prior = None
+        self._fit_configs = self._fit_weights = self._fit_log_prior = None
+        if self.fit_required:
+            self._prepare_fit()
 
         # The readout node. The fit itself maximises at the ingroup MRCA.
         self.focal = FocalNode.parse(focal)
 
         self._warn_on_redundant_outgroups(outgroup_similarity_threshold)
+
+    def _prepare_fit(self) -> None:
+        """Build the fit's config histogram: one weighted config per unique
+        (projected ingroup AFS, outgroup pattern), monomorphic sites included
+        as boundary configs, with each config's ingroup-weight row.
+
+        :raises ValueError: If the composition carries no monomorphic-site
+            calibration, or covers fewer sites than are polymorphic.
+        """
+        bc = self.base_composition
+        if bc.n_total == 0:
+            raise ValueError(
+                "FixedTreeInference requires monomorphic-site calibration "
+                "for the branch-rate fit. Supply ``n_target_sites=L`` "
+                "(the genome length, so the inference can derive the "
+                "monomorphic-site count from the polymorphic count), "
+                "or pass a ``base_composition`` whose ``counts`` are "
+                "non-zero (e.g. via "
+                "``BaseComposition.from_n_target_sites(L)`` / "
+                "``BaseComposition.from_fasta(path)`` / "
+                "``BaseComposition.from_counts(...)``). Use "
+                "``fit_required=False`` if you intentionally want to "
+                "skip the fit and use the tree's current branch rates."
+            )
+        ingroup = self.tree.ingroup_samples
+        outgroups = self.tree.outgroup_samples
+        weights, n_poly = bc._project_polymorphic(
+            self.sites, ingroup, outgroups, self.subsample_size)
+        self._fit_configs, self._fit_weights = bc._finalize_configs(
+            weights, bc.monomorphic_counts(n_poly), ingroup, outgroups,
+            self.subsample_size)
+        if not self._fit_configs:
+            self._fit_log_prior = None
+        elif self.ingroup_weight is not None:
+            self._fit_log_prior = self.ingroup_weight.log_probs(
+                self._fit_configs)
+        else:
+            # The slot carries the ingroup term alone. The objective adds the
+            # root prior itself.
+            self._fit_log_prior = np.zeros(
+                (len(self._fit_configs), self.model.n_states))
 
     def _ingroup_haplotype_count(self) -> int:
         """Panel tips the ingroup ids resolve to.
@@ -3161,11 +3146,15 @@ class FixedTreeInference(Inference):
 
         :return: Mapping from :attr:`OutgroupLadderTree.param_names <ancestree.trees.OutgroupLadderTree.param_names>` entry to the
             MLE rate. Empty dict where nothing is fitted.
+        :raises ValueError: If the composition carries no monomorphic-site
+            calibration, or covers fewer sites than are polymorphic.
         :raises RuntimeError: If every start fails to converge. A partial
             failure is tolerated and the best converged start wins.
         """
         if self._no_outgroup_mode or self._given_tree:
             return {}
+        if self._fit_configs is None:
+            self._prepare_fit()
         self._log.info(
             "Fitting %d branch rate(s) by ML over the config histogram.",
             len(self.tree.param_names),

@@ -1255,6 +1255,35 @@ class TestListsGivenWithALadder:
         assert self._run(**lists).tree.outgroup_samples == ("o1", "o2")
 
 
+class TestCalibrationIsCheckedWhenAFitRuns:
+    """The monomorphic-site calibration is needed by the fit alone.
+
+    A composition shorter than the polymorphic count was refused with
+    ``fit_required=False``, where no fit runs, and a composition with no
+    counts at all let a later ``fit()`` run uncalibrated.
+    """
+
+    @staticmethod
+    def _unfitted(composition):
+        return FixedTreeInference(
+            _ladder_sites(200, outgroups=("i1", "o1", "o2")), JC69(),
+            composition, ingroup_samples=["i1"], outgroup_samples=["o1", "o2"],
+            fit_required=False, progress=False, baseline_check=False)
+
+    def test_a_short_composition_scores_without_a_fit(self):
+        short = BaseComposition.from_counts(A=10, C=10, G=10, T=10)
+        assert len(list(self._unfitted(short).infer())) == 200
+
+    def test_a_short_composition_is_refused_by_the_fit(self):
+        short = BaseComposition.from_counts(A=10, C=10, G=10, T=10)
+        with pytest.raises(ValueError, match="length of the target region"):
+            self._unfitted(short).fit()
+
+    def test_no_counts_are_refused_by_the_fit(self):
+        with pytest.raises(ValueError, match="monomorphic-site calibration"):
+            self._unfitted(_no_counts()).fit()
+
+
 def test_an_unfitted_run_scores_at_the_initial_rates():
     """With ``fit_required=False`` the posterior is the one at
     ``initial_rates``.
@@ -1853,9 +1882,9 @@ class TestRedundantOutgroupCheckStreams:
     """
 
     def test_the_prefix_is_not_held_while_the_stream_is_read(self):
-        # The constructor reads the source twice, for the config projection
-        # and then for this check, so the census lands in the second pass.
-        source = _PairSource(n_sites=200, diff_at=[0], census_at=380)
+        # Without a fit to prepare, the constructor reads the source once,
+        # for this check.
+        source = _PairSource(n_sites=200, diff_at=[0], census_at=180)
         _stream_inference(source)
         assert source.live_sites is not None
         assert source.live_sites < 20
@@ -2351,6 +2380,7 @@ class TestAnOutgroupOnlyFitNeedsANonStationaryRootPrior:
             sites, HKY(kappa=2.0), base_composition=_no_counts(), tree=tree,
             n_target_sites=400, progress=False, baseline_check=False,
             fit_required=False)
+        inf._prepare_fit()
         rows = np.asarray(inf._fit_log_prior)
         varying = int((rows.max(axis=1) - rows.min(axis=1) > 1e-12).sum())
         return varying, len(rows)

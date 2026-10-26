@@ -285,6 +285,8 @@ class TestCompositionSpansTheRegion:
             tree=OutgroupLadderTree(ing, out),
             fit_required=False, progress=False,
         )
+        by_target._prepare_fit()
+        by_composition._prepare_fit()
         left = {
             tuple(sorted(c.tip_alleles.items())): w
             for c, w in zip(by_target._fit_configs, by_target._fit_weights)
