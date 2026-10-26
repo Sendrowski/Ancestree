@@ -25,10 +25,6 @@ LT_WINDOW_CONFIG = dict(
     n_ingroup=20, length=1e8, mu=1.25e-8, rec_rate=1e-8,
     pop_size=3e4, seed=42,
 )
-# The genealogy-recovery benchmark shares the same 100 Mb ingroup-only ARG as
-# the window/rec/mu/switch grids, so the whole analysis rests on one
-# simulation.
-LT_GENEALOGY_CONFIG = dict(LT_WINDOW_CONFIG, length=1e8)
 # Primary grid: local-tree window sized to ~N SNPs.
 # Block tracks the window (one tree per window's SNPs), so each point is a
 # distinct local-tree resolution. 1-2 SNP/tree is dropped: a tree needs >2 SNPs
@@ -48,25 +44,13 @@ LT_WINDOW_MU_SPECS = ["0.01", "0.1", "1.0", "10.0", "100.0"]
 LT_WINDOW_SWITCH_SPECS = ["0.0", "0.05", "0.1", "0.2", "0.5"]
 
 rule simulate_local_tree_window:
-    """One neutral ingroup-only msprime ARG with JC69 ancestral truth."""
+    """One neutral ingroup-only msprime ARG with JC69 ancestral truth, shared
+    by the window, misspecification and genealogy-recovery benchmarks."""
     output:
         trees = f"{DATA}/local_tree_window_sim.trees",
         meta = f"{DATA}/local_tree_window_sim_meta.json",
     params:
         **LT_WINDOW_CONFIG,
-    conda:
-        "../envs/bench.yml"
-    script:
-        "../scripts/simulate_local_tree_window.py"
-
-
-rule simulate_local_tree_genealogy:
-    """Dedicated 100 Mb ingroup-only ARG for the genealogy-recovery benchmark."""
-    output:
-        trees = f"{DATA}/local_tree_genealogy_sim_100mb.trees",
-        meta = f"{DATA}/local_tree_genealogy_sim_100mb_meta.json",
-    params:
-        **LT_GENEALOGY_CONFIG,
     conda:
         "../envs/bench.yml"
     script:
@@ -221,8 +205,8 @@ rule report_local_tree_genealogy_shard:
 
     Runs under ``envs/tsinfer.yml``, which carries tsinfer."""
     input:
-        trees = rules.simulate_local_tree_genealogy.output.trees,
-        meta = rules.simulate_local_tree_genealogy.output.meta,
+        trees = rules.simulate_local_tree_window.output.trees,
+        meta = rules.simulate_local_tree_window.output.meta,
     output:
         json = f"{DATA}/local_tree_genealogy_shard_{{shard}}.json",
     params:
@@ -246,8 +230,8 @@ rule report_local_tree_genealogy:
 
     Concatenates the per-window shards. No inference happens here."""
     input:
-        trees = rules.simulate_local_tree_genealogy.output.trees,
-        meta = rules.simulate_local_tree_genealogy.output.meta,
+        trees = rules.simulate_local_tree_window.output.trees,
+        meta = rules.simulate_local_tree_window.output.meta,
         shards = expand(f"{DATA}/local_tree_genealogy_shard_{{shard}}.json",
                         shard=LT_GEN_SHARDS),
     output:
@@ -290,31 +274,15 @@ LT_OG_SPLIT_TIMES = [3e5, 9e5, 1.5e6]
 LT_OG_CONFIG = dict(LT_WINDOW_CONFIG, length=2e7,
                     n_outgroup_pops=len(LT_OG_SPLIT_TIMES),
                     outgroup_split_times=LT_OG_SPLIT_TIMES)
-LT_OG_GENEALOGY_CONFIG = dict(LT_WINDOW_CONFIG, length=2e7,
-                              n_outgroup_pops=len(LT_OG_SPLIT_TIMES),
-                              outgroup_split_times=LT_OG_SPLIT_TIMES)
-
-
-rule simulate_local_tree_window_og:
-    """20 Mb ingroup + 3-outgroup-ladder ARG for the appendix comparison."""
-    output:
-        trees = f"{DATA}/local_tree_window_og_sim.trees",
-        meta = f"{DATA}/local_tree_window_og_sim_meta.json",
-    params:
-        **LT_OG_CONFIG,
-    conda:
-        "../envs/bench.yml"
-    script:
-        "../scripts/simulate_local_tree_window.py"
 
 
 rule simulate_local_tree_genealogy_og:
-    """20 Mb ingroup + 3-outgroup-ladder ARG for the genealogy comparison."""
+    """20 Mb ingroup + 3-outgroup-ladder ARG for the appendix comparison."""
     output:
         trees = f"{DATA}/local_tree_genealogy_og_sim_20mb.trees",
         meta = f"{DATA}/local_tree_genealogy_og_sim_20mb_meta.json",
     params:
-        **LT_OG_GENEALOGY_CONFIG,
+        **LT_OG_CONFIG,
     conda:
         "../envs/bench.yml"
     script:
@@ -324,8 +292,8 @@ rule simulate_local_tree_genealogy_og:
 rule infer_local_tree_window_og_cell:
     """One (n_out, window, rec_rate) outgroup cell, scored vs truth."""
     input:
-        trees = rules.simulate_local_tree_window_og.output.trees,
-        meta = rules.simulate_local_tree_window_og.output.meta,
+        trees = rules.simulate_local_tree_genealogy_og.output.trees,
+        meta = rules.simulate_local_tree_genealogy_og.output.meta,
     output:
         f"{DATA}/local_tree_window_og{{n_out}}_w{{window}}_r{{rec}}.json",
     params:
@@ -353,8 +321,8 @@ rule infer_local_tree_window_og_cell:
 rule infer_local_tree_window_og_mu_cell:
     """One (n_out, mu) outgroup cell (window + rec held at defaults)."""
     input:
-        trees = rules.simulate_local_tree_window_og.output.trees,
-        meta = rules.simulate_local_tree_window_og.output.meta,
+        trees = rules.simulate_local_tree_genealogy_og.output.trees,
+        meta = rules.simulate_local_tree_genealogy_og.output.meta,
     output:
         f"{DATA}/local_tree_window_og{{n_out}}_w{LT_WINDOW_DEFAULT_WINDOW}_r1.0_m{{mu}}.json",
     params:
@@ -381,8 +349,8 @@ rule infer_local_tree_window_og_mu_cell:
 rule infer_local_tree_window_og_switch_cell:
     """One (n_out, switch) outgroup cell (window/rec/mu held at the origin)."""
     input:
-        trees = rules.simulate_local_tree_window_og.output.trees,
-        meta = rules.simulate_local_tree_window_og.output.meta,
+        trees = rules.simulate_local_tree_genealogy_og.output.trees,
+        meta = rules.simulate_local_tree_genealogy_og.output.meta,
     output:
         f"{DATA}/local_tree_window_og{{n_out}}_w{LT_WINDOW_DEFAULT_WINDOW}_r1.0_m1.0_s{{switch}}.json",
     params:
@@ -409,8 +377,8 @@ rule infer_local_tree_window_og_switch_cell:
 rule infer_local_tree_window_og_ceiling:
     """True-ARG ceiling for one n_out (genuine genealogy on the kept panel)."""
     input:
-        trees = rules.simulate_local_tree_window_og.output.trees,
-        meta = rules.simulate_local_tree_window_og.output.meta,
+        trees = rules.simulate_local_tree_genealogy_og.output.trees,
+        meta = rules.simulate_local_tree_genealogy_og.output.meta,
     output:
         f"{DATA}/local_tree_window_og{{n_out}}_true_arg.json",
     params:
@@ -454,7 +422,7 @@ rule report_local_tree_window_og:
             switch=LT_WINDOW_SWITCH_SPECS, allow_missing=True,
         ),
         ceiling = DATA + "/local_tree_window_og{n_out}_true_arg.json",
-        meta = rules.simulate_local_tree_window_og.output.meta,
+        meta = rules.simulate_local_tree_genealogy_og.output.meta,
     output:
         json = REPORTS + "/local_tree_window_og{n_out}.json",
         md = REPORTS + "/local_tree_window_og{n_out}.md",
