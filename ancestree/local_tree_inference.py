@@ -1365,9 +1365,17 @@ class LocalTreeInference(Inference):
         :param site: The site scored.
         :param x: Its position on the tree's axis.
         :return: A scalar rate or a rate map.
+        :raises ValueError: If ``site`` lies on a contig holding no site of
+            the source.
         """
         contig = str(site.chrom)
         if contig not in self._kernel_mus:
+            known = self.segmentation.contigs
+            if contig not in known:
+                raise ValueError(
+                    f"the site at {contig}:{site.pos} lies on contig "
+                    f"{contig!r}, which holds no site of the source; its "
+                    f"contigs are {known[:10]}")
             geometry = self.segmentation.contig(contig)
             self._kernel_mus[contig] = _filled(
                 geometry.mutation_map, self.mu, float(geometry.axis_end))

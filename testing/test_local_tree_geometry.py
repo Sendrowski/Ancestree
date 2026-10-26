@@ -540,6 +540,17 @@ class TestInferSiteMatchesInfer:
                 inference.infer_site(tree, site).values, expected,
                 rtol=0, atol=1e-12)
 
+    def test_an_unknown_contig_is_named(self, inputs):
+        """A site on a contig the source lacks raised a bare ``KeyError``
+        from the contig lookup."""
+        from dataclasses import replace
+        inference = _inference(inputs["regional"])
+        site = next(iter(inference._source))
+        tree = TskitLocalTree(inference.point_tree_sequence(), site.pos,
+                              sample_map={n: i for i, n in enumerate(NAMES)})
+        with pytest.raises(ValueError, match=r"contig 'chr9'.*\['1'\]"):
+            inference.infer_site(tree, replace(site, chrom="chr9"))
+
 
 class TestTreeOutput:
     """Axis lengths, baked sites and member tiling of the tree output."""
