@@ -1537,6 +1537,7 @@ class ARGBasedInference(Inference):
                 f"msprime.RateMap); got {type(mu).__name__}"
             )
         self._check_time_units(ts, mu_matches_time_units)
+        self._mu_matches_time_units = bool(mu_matches_time_units)
         #: Remaining draws of the ARG posterior, or None for a single ARG.
         self._draws_rest = draws_rest
         self._draws_source = draws_source
@@ -1683,8 +1684,11 @@ class ARGBasedInference(Inference):
         import tskit
 
         def resolve(d):
-            """Load a draw given as a path, restricted to the panel."""
+            """Load a draw given as a path, restricted to the panel, and
+            check its time units where they differ from the first draw's."""
             ts = tskit.load(d) if isinstance(d, (str, os.PathLike)) else d
+            if ts.time_units != self._input_ts.time_units:
+                self._check_time_units(ts, self._mu_matches_time_units)
             return TskitLocalTree.restrict(ts, self._panel_map)[0]
 
         if self._draws_source is not None:

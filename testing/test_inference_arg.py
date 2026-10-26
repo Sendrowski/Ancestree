@@ -323,6 +323,29 @@ class TestTimeUnits:
                 self._ts("generations"), JC69(), mu=1e-8, progress=False)
         assert not [r for r in caplog.records if "time units" in r.message]
 
+    @pytest.mark.parametrize("as_list", [True, False])
+    def test_every_draw_of_a_posterior_sample_is_checked(self, as_list):
+        """Only the first draw's units were checked, so an uncalibrated
+        later draw was scored with a per-generation rate."""
+        import tskit
+
+        draws = [self._ts("generations"),
+                 self._ts(tskit.TIME_UNITS_UNCALIBRATED)]
+        inference = ARGBasedInference(
+            draws if as_list else iter(draws), JC69(), mu=1e-8,
+            progress=False)
+        with pytest.raises(ValueError, match="uncalibrated"):
+            list(inference.infer())
+
+    def test_draws_sharing_the_first_draws_units_warn_once(self, caplog):
+        draws = [self._ts("unknown") for _ in range(3)]
+        with caplog.at_level(
+                logging.WARNING, logger="ancestree.ARGBasedInference"):
+            list(ARGBasedInference(
+                draws, JC69(), mu=1e-8, progress=False).infer())
+        assert sum("no time units" in r.message
+                   for r in caplog.records) == 1
+
 
 def test_a_sample_in_both_groups_is_refused():
     """A sample named as ingroup and outgroup would be read as both.
