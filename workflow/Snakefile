@@ -2169,6 +2169,17 @@ rule docs_msl_data:
         "scripts/build_docs_msl.py"
 
 
+rule quickstart_trees:
+    """The small two-subclade ARG with two outgroups that the quickstart
+    notebook loads."""
+    output:
+        "docs/_static/quickstart.trees",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_quickstart.py"
+
+
 rule simulate_epo_scenario:
     """One replicate of the simulation matched to the EPO comparison."""
     output:

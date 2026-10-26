@@ -16,8 +16,7 @@ walkthrough uses to demonstrate polarisation::
 
 The output is a ``.trees`` file with sample names baked into individual
 metadata, loaded back via :meth:`~ancestree.trees.TskitLocalTree.from_tskit_tree`.
-
-Run directly::
+Rule ``quickstart_trees`` runs this script, which also runs directly::
 
     python workflow/scripts/simulate_quickstart.py
 """
@@ -27,7 +26,10 @@ import msprime
 import tskit
 
 
-OUT = Path(__file__).resolve().parents[2] / "docs" / "_static" / "quickstart.trees"
+try:
+    OUT = Path(snakemake.output[0])  # type: ignore[name-defined]
+except NameError:
+    OUT = Path(__file__).resolve().parents[2] / "docs" / "_static" / "quickstart.trees"
 
 
 def main() -> None:
