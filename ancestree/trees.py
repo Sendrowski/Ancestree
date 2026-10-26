@@ -1467,23 +1467,11 @@ class OutgroupLadderTree(Tree):
     @property
     def _backbone(self) -> "tuple[list[int], list[float]]":
         """The I-to-deepest-join path and its branch lengths."""
-        path, lengths = [self._I], []
-        node = self._I
-        while True:
-            kids = [c for c in self._children_map.get(node, [])
-                    if c in self._ladder_nodes]
-            if not kids:
-                break
-            node = kids[0]
-            lengths.append(float(self._branch_lengths[node]))
-            path.append(node)
         # The backbone ends on the deepest outgroup's branch, not at the join
         # below it: that join is the ancestor of the panel minus its most
         # distant member, so the panel's own ancestor lies further along.
-        deepest = self._outgroup_tips[-1]
-        path.append(deepest)
-        lengths.append(float(self._branch_lengths[deepest]))
-        return path, lengths
+        path = [self._I, *self._ladder_nodes, self._outgroup_tips[-1]]
+        return path, [float(self._branch_lengths[n]) for n in path[1:]]
 
     @property
     def _backbone_limit(self) -> float:
