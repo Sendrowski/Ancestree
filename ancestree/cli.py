@@ -793,13 +793,12 @@ def _add_local_tree_parser(
     )
     p.add_argument(
         "--sequence-length", type=float, default=None,
-        help=("Region length L in bp, which the local-tree windows tile as "
-              "[0, L). For VCF / VCZ input the axis covers positions 1..L, "
-              "that is [0, L+1). "
-              "Give it whenever it is known: under --chunk-size it is what "
-              "lays one window grid over the whole region and not one per "
-              "segment. Default: each contig's length in the VCF header or "
-              "VCZ store."),
+        help=("Region length L in bp, one value for every contig, which the "
+              "local-tree windows tile as [0, L). For VCF / VCZ input the axis "
+              "covers positions 1..L, that is [0, L+1). Under --chunk-size it "
+              "lays one window grid over a contig and not one per segment. "
+              "Default: each contig's length in the VCF header or VCZ store, "
+              "and a contig without one is tiled to its last site."),
     )
     p.add_argument(
         "--chunk-size", type=_chunk_size,

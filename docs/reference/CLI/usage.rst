@@ -63,10 +63,10 @@ ensemble of genealogies drawn from the HMM posterior rather than scored on a
 single reconstructed tree: ``--ensemble-size`` sets the number drawn (64 by
 default), ``--ensemble-seed`` fixes the draw, and ``--no-ensemble`` scores the
 single posterior-mean tree instead. No outgroups and no input ARG are
-required, only the panel genotypes, the region length, and rough
-mutation / recombination rates. As with ``arg``, an annotated ``.trees``
-file is written instead when ``--out`` ends in ``.trees``, and ``--out-trees``
-additionally dumps the inferred (pre-annotation) local-tree sequence.
+required, only the panel genotypes and rough mutation / recombination rates.
+As with ``arg``, an annotated ``.trees`` file is written instead when
+``--out`` ends in ``.trees``, and ``--out-trees`` additionally dumps the
+inferred (pre-annotation) local-tree sequence.
 
 .. note::
 
