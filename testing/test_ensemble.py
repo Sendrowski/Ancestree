@@ -725,11 +725,11 @@ class TestSegmentEnsemble:
         builder, names = self._builder()
         ens = SegmentEnsemble(builder, JC69(), len(names), None)
         unbounded = ens.posterior(0.0, 4, member_chunk=4, seed=1)
-        assert ens._path_chunk(4, 4) == 4
+        assert ens._chunk_size(4, 4) == 4
 
         per_member = ens.alpha_ck.shape[0] * ens.n_blocks
         monkeypatch.setattr(ensemble_module, "MAX_PATH_BYTES", 3 * per_member)
-        assert ens._path_chunk(4, 4) == 2
-        assert ens._path_chunk(4, 9) == 3
+        assert ens._chunk_size(4, 4) == 2
+        assert ens._chunk_size(9, 4) == 3
         bounded = ens.posterior(0.0, 4, member_chunk=4, seed=1)
         np.testing.assert_allclose(bounded, unbounded, rtol=1e-12, atol=1e-15)

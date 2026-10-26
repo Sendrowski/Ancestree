@@ -607,7 +607,7 @@ MAX_HMM_ALPHA_BYTES = 256 * 1024 ** 2
 
 #: Ceiling on a member chunk's sampled paths, ``(member_chunk, n_pairs,
 #: n_blocks) int8``. Sized to keep the member chunk wide: see
-#: :meth:`SegmentEnsemble._path_chunk`.
+#: :meth:`SegmentEnsemble._chunk_size`.
 MAX_PATH_BYTES = 4 * 1024 ** 3
 
 
@@ -1162,34 +1162,26 @@ class SegmentEnsemble:
                            self.tip_states, row_off[w0:w0 + W + 1],
                            row_idx, nslot, S_STATES, out)
 
-    def _path_chunk(self, member_chunk: int, n_members: int) -> int:
-        """Members whose sampled paths, ``(n_pairs, n_blocks) int8`` each,
-        fit :data:`MAX_PATH_BYTES`, reduced to a divisor of the ensemble size.
-        """
-        per = max(self.alpha_ck.shape[0] * self.n_blocks, 1)
-        cap = max(int(MAX_PATH_BYTES // per), 1)
-        if member_chunk <= cap:
-            return member_chunk
-        c = min(cap, member_chunk)
-        while n_members % c:
-            c -= 1
-        return c
-
     def _chunk_size(self, n_members: int, member_chunk: int) -> int:
         """Genealogies drawn at once, the largest divisor of ``n_members`` no
-        greater than ``member_chunk``. The result does not depend on it.
+        greater than ``member_chunk`` whose sampled paths, ``(n_pairs,
+        n_blocks) int8`` per member, fit :data:`MAX_PATH_BYTES`. The result
+        does not depend on it.
 
         :param n_members: Ensemble size.
         :param member_chunk: Upper bound on genealogies held at once.
         :return: Chunk size dividing ``n_members``.
         """
-        chunk = min(member_chunk, n_members)
+        per = max(self.alpha_ck.shape[0] * self.n_blocks, 1)
+        chunk = min(member_chunk, n_members,
+                    max(int(MAX_PATH_BYTES // per), 1))
         while n_members % chunk:
             chunk -= 1
         if chunk < member_chunk:
             logging.getLogger(f"ancestree.{type(self).__name__}").info(
-                "member_chunk=%d does not divide n_ensemble=%d; drawing %d at "
-                "a time instead", member_chunk, n_members, chunk)
+                "Drawing %d genealogies at a time, the largest divisor of "
+                "n_ensemble=%d within member_chunk=%d and the path memory "
+                "budget", chunk, n_members, member_chunk)
         return chunk
 
     def draw_chunks(self, n_members: int, *, member_chunk: int = 8,
@@ -1207,8 +1199,7 @@ class SegmentEnsemble:
             carrying sites (``needed``).
         """
         windows = self.needed if windows is None else windows
-        chunk = self._path_chunk(
-            self._chunk_size(n_members, member_chunk), n_members)
+        chunk = self._chunk_size(n_members, member_chunk)
         path = self._draw_paths(chunk)
         draws = np.empty((chunk, len(windows), self.alpha_ck.shape[0]))
         for start in range(0, n_members, chunk):
@@ -1288,8 +1279,7 @@ class SegmentEnsemble:
             (see :meth:`_stream_key`).
         :return: ``(n_sites, 4)`` posterior, rows aligned with ``positions``.
         """
-        chunk = self._path_chunk(self._chunk_size(n_members, member_chunk),
-                                 n_members)
+        chunk = self._chunk_size(n_members, member_chunk)
         W = len(self.needed)
         eig = self.model.real_eig(pi=self._pi)
         if eig is None:
