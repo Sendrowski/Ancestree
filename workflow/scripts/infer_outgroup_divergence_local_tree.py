@@ -34,6 +34,7 @@ from ancestree import JC69, LocalTreeInference, MajorityOutgroupInference, Site
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _outgroup_divergence_common import select_outgroup_pops  # noqa: E402
 from _robustness_common import LOCAL_TREE_ENSEMBLE_MEMBERS  # noqa: E402
+from _truth import site_truths  # noqa: E402
 
 
 try:
@@ -108,9 +109,9 @@ print(
     flush=True,
 )
 
-# Window, block width and focal node are the library defaults, matching the ARG
-# cell's readout: one tree per 8-SNP window over the density-adaptive ~4-SNP
-# emission block, the posterior read at the panel's own root. n_ensemble is the
+# Window and block width are the library defaults: one tree per 8-SNP window
+# over the density-adaptive ~4-SNP emission block. The named ingroup puts the
+# focal node at the ingroup MRCA, as in the ARG cell. n_ensemble is the
 # manuscript's ensemble size, shared with the heatmap's local-tree row, so every
 # figure marginalises each window's call over the same number of genealogies
 # drawn from the HMM posterior.
@@ -120,12 +121,16 @@ inference = LocalTreeInference(
     rec_rate=rec_rate,
     sample_names=keep_sample_names,
     sequence_length=float(ts_sub.sequence_length),
+    ingroup_samples=ingroup_names,
+    outgroup_samples=selected_outgroup_names,
     n_ensemble=LOCAL_TREE_ENSEMBLE_MEMBERS,
     progress=False,
 )
 
+# Graded at the ingroup MRCA, the node the posterior is read at.
 truth_by_pos: dict[int, str] = {
-    int(site.position): site.ancestral_state for site in ts_full.sites()
+    pos: t.at_ingroup_mrca for pos, t in site_truths(
+        ts_full, [sample_id_to_node[s] for s in ingroup_names]).items()
 }
 
 ingroup_name_set = set(ingroup_names)

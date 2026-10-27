@@ -29,6 +29,7 @@ import tskit
 
 from ancestree import STATES
 from _robustness_common import _evenly_spread_outgroups
+from _truth import site_truths
 
 #: Orientation schemes, in the order they are reported. ``true_aa`` is the
 #: reference arm every other arm is scored against.
@@ -109,7 +110,7 @@ def distance_to_nearest(pos: np.ndarray, flip: np.ndarray) -> np.ndarray:
 
     :param pos: Site positions in bp, strictly ascending.
     :param flip: Boolean mask, ``True`` where the scheme declares the allele
-        that is not the simulator-true ancestral state.
+        that is not the true ancestral state at the ingroup MRCA.
     :return: Distance in bp, exactly ``0`` at a mis-oriented site and ``inf``
         if no site is mis-oriented.
     """
@@ -210,6 +211,7 @@ class OrientationPanel:
         self.outgroup_names: list[str] = []
         self.truth_full: tskit.TreeSequence = None
         self.truth_ts: tskit.TreeSequence = None
+        self.state_at_ingroup_mrca: dict[int, str] = {}
 
     def load(self) -> "OrientationPanel":
         """Read the simulation, build the orientation panel and the ingroup truth.
@@ -227,6 +229,9 @@ class OrientationPanel:
         self.outgroup_names = _evenly_spread_outgroups(all_og,
                                                        self.n_out_reference)
         keep = self.ingroup_names + self.outgroup_names
+        self.state_at_ingroup_mrca = {
+            pos: t.at_ingroup_mrca for pos, t in site_truths(
+                ts, [node_for_name[x] for x in self.ingroup_names]).items()}
         self.truth_full = ts.simplify(
             samples=[node_for_name[x] for x in keep], filter_sites=False)
         self.truth_ts = self.truth_full.simplify(
@@ -261,9 +266,11 @@ class OrientationPanel:
     def shared_sites(self) -> dict:
         """Collect the shared site set: biallelic, ACGT, ingroup-segregating.
 
-        ``alleles[:, 0]`` is the simulator-true ancestral state, so the derived
+        ``alleles[:, 0]`` is the simulated state at the ingroup MRCA, the
+        true ancestral allele of an ingroup polymorphism, so the derived
         allele count is the number of ingroup haplotypes carrying
-        ``alleles[:, 1]``.
+        ``alleles[:, 1]``. A site whose state there is neither allele has no
+        true orientation and is left out.
 
         :return: ``pos`` (bp, ascending float), ``genotypes`` (``int8``, one
             allele index per ingroup haplotype), ``alleles`` (``<U1``, two
@@ -279,6 +286,11 @@ class OrientationPanel:
             g_ing = np.asarray(v.genotypes, dtype=np.int8)[:n_ing]
             if len(set(g_ing.tolist())) < 2:
                 continue
+            anc = self.state_at_ingroup_mrca[int(v.site.position)]
+            if anc not in al:
+                continue
+            if anc == al[1]:
+                al, g_ing = (al[1], al[0]), (1 - g_ing).astype(np.int8)
             positions.append(float(v.site.position))
             genotypes.append(g_ing)
             alleles.append((al[0], al[1]))

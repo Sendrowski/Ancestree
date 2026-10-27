@@ -427,7 +427,7 @@ class OrientationDamageReport:
             "bootstrap_seed": self.boot_seed,
             "derived_allele_count_definition": (
                 "number of ingroup haplotypes carrying the allele that is not "
-                "the simulator-true ancestral state, in 1..n_ingroup - 1"),
+                "the simulated state at the ingroup MRCA, in 1..n_ingroup - 1"),
             "mean_derived_allele_count_all_sites": float(daf.mean()),
             "orientation_maps": self.map_summary,
             "metric_directions": METRIC_DIRECTIONS,

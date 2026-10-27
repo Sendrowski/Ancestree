@@ -1027,7 +1027,7 @@ class TestBenchmarkTruthAtFocal:
         import sys
 
         sys.path.insert(0, "workflow/scripts")
-        from _robustness_common import _truth_at_node
+        from _truth import truth_at_node
 
         # One mutation above the ingroup MRCA: the deep state is A, the state
         # at the ingroup MRCA is T.
@@ -1048,13 +1048,13 @@ class TestBenchmarkTruthAtFocal:
         tree = ts.first()
 
         assert ts.site(0).ancestral_state == "A"
-        assert _truth_at_node(ts.site(0), tree, ingroup) == "T"
+        assert truth_at_node(ts.site(0), tree, ingroup) == "T"
 
     def test_falls_back_to_the_deep_state_without_an_mrca(self):
         import sys
 
         sys.path.insert(0, "workflow/scripts")
-        from _robustness_common import _truth_at_node
+        from _truth import truth_at_node
 
         tables = tskit.TableCollection(sequence_length=10.0)
         a = tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
@@ -1063,7 +1063,7 @@ class TestBenchmarkTruthAtFocal:
         tables.sort()
         ts = tables.tree_sequence()
         # No edges, so the two samples are separate roots with no MRCA.
-        assert _truth_at_node(ts.site(0), ts.first(), [a, b]) == "C"
+        assert truth_at_node(ts.site(0), ts.first(), [a, b]) == "C"
 
     def test_the_fixed_class_is_graded_at_a_node_that_does_not_move(self):
         """The grading node must not deepen as outgroups are added.
@@ -1077,7 +1077,7 @@ class TestBenchmarkTruthAtFocal:
         import sys
 
         sys.path.insert(0, "workflow/scripts")
-        from _robustness_common import _split_truth_for_panel
+        from _truth import site_truths
 
         # Ingroup, a near outgroup, and a far one. A mutation on the branch
         # between the two outgroup joins is seen only from the far root, so the
@@ -1109,14 +1109,14 @@ class TestBenchmarkTruthAtFocal:
         # The primitive still grades at whatever panel it is handed, and the
         # two panels genuinely disagree, which is why the callers must pin
         # it rather than pass their own selection.
-        assert _split_truth_for_panel(ts, ingroup, ingroup + [near])[2] == "T"
-        assert _split_truth_for_panel(ts, ingroup, full)[2] == "A"
+        assert site_truths(ts, ingroup, ingroup + [near])[2].graded == "T"
+        assert site_truths(ts, ingroup, full)[2].graded == "A"
 
     def test_the_split_table_grades_each_class_at_its_own_node(self):
         import sys
 
         sys.path.insert(0, "workflow/scripts")
-        from _robustness_common import _split_truth_for_panel
+        from _truth import site_truths
 
         # Two sites on one tree: one polymorphic within the ingroup, one the
         # ingroup has fixed by a mutation above its MRCA.
@@ -1142,12 +1142,13 @@ class TestBenchmarkTruthAtFocal:
         tables.compute_mutation_parents()
         ts = tables.tree_sequence()
 
-        truth = _split_truth_for_panel(ts, [i0, i1], [i0, i1, out])
+        truth = {p: t.graded for p, t in
+                 site_truths(ts, [i0, i1], [i0, i1, out]).items()}
         # Fixed within the ingroup, so graded at the panel root.
         assert truth[2] == "A"
         # The mutation above the ingroup MRCA is the one a simplified panel
         # would have deleted. Reading the unsimplified tree keeps it.
-        assert _split_truth_for_panel(ts, [i0, i1], [i0, i1])[2] == "T"
+        assert site_truths(ts, [i0, i1], [i0, i1])[2].graded == "T"
         # Polymorphic within the ingroup, so graded at the ingroup MRCA.
         assert truth[6] == "T"
 

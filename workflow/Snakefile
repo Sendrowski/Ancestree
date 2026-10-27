@@ -2493,11 +2493,29 @@ rule kernel_bench_table:
         "python reports/scripts/make_kernel_bench_table.py"
 
 
+rule edge_cases_estsfs:
+    """est-sfs 2.04 on the four edge-case classes with three outgroups,
+    embedded in a background drawn under JC69 on the same tree so est-sfs fits
+    branch rates matching it. The binary comes from ``envs/estsfs.yml``."""
+    output:
+        json = f"{REPORTS}/edge_cases_estsfs.json",
+    params:
+        n_background = 100_000,
+        seed = 2025,
+        nrandom = 5,
+    conda:
+        "envs/estsfs.yml"
+    script:
+        "scripts/edge_cases_estsfs.py"
+
+
 rule edge_cases_posteriors:
     """Kernel-level posteriors on four hand-built site classes, each without
     and then with three outgroups. Runs Ancestree's sum-product and
-    PolarBEAR's max-product kernel on the same trees. No external data
-    dependency."""
+    PolarBEAR's max-product kernel on the same trees, and carries the est-sfs
+    P^maj_anc from rule ``edge_cases_estsfs``."""
+    input:
+        estsfs = rules.edge_cases_estsfs.output.json,
     output:
         json = f"{REPORTS}/edge_cases.json",
     conda:

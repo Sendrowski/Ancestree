@@ -5,7 +5,8 @@ For each biallelic ingroup site the unfolded derived count depends on which
 allele is ancestral. A MAP estimate commits each site to one bin; the
 posterior instead spreads it fractionally across the two candidate bins
 (i and n-i). Three spectra are accumulated over the true ingroup derived count
-i in {1, ..., n-1} --- true, MAP, and expected --- plus the per-bin
+i in {1, ..., n-1}, counted against the state at the ingroup MRCA the
+posteriors are read at --- true, MAP, and expected --- plus the per-bin
 confidence histogram (``p_max`` binned, matching
 ``_robustness_common.summarize_persite``). The spectra are pooled over the
 baseline scenario's independent chunks, the same simulation the robustness
@@ -22,6 +23,7 @@ import tskit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _robustness_common as rc  # noqa: E402
+from _truth import site_truths  # noqa: E402
 from ancestree.inference import ARGBasedInference  # noqa: E402
 from ancestree.models import JC69  # noqa: E402
 
@@ -54,19 +56,19 @@ for chunk_path in CHUNKS:
     ts = tskit.load(str(chunk_path))
     sample_id_to_node = {f"tsk_{ind.id}": int(ind.nodes[0])
                          for ind in ts.individuals()}
-    ingroup_counts, truth = {}, {}
-    for v in ts.variants():
-        pos = int(v.site.position)
-        cnt = Counter(v.alleles[v.genotypes[j]] for j in range(n)
-                      if v.alleles[v.genotypes[j]] not in ("", None))
-        ingroup_counts[pos] = cnt
-        truth[pos] = v.site.ancestral_state
-
     nodes = [sample_id_to_node[s] for s in ingroup_names]
+    ingroup_counts = {}
+    for v in ts.variants(samples=nodes):
+        ingroup_counts[int(v.site.position)] = Counter(
+            v.alleles[g] for g in v.genotypes if g != tskit.MISSING_DATA)
+    truth = {pos: t.at_ingroup_mrca
+             for pos, t in site_truths(ts, nodes).items()}
+
+    # The ingroup-only panel's root is the ingroup MRCA.
     ts_sub = ts.simplify(samples=nodes, filter_sites=False)
     inf = ARGBasedInference(ts_sub, JC69(), mu=mu,
                             sample_map={s: i for i, s in enumerate(ingroup_names)},
-                            recurrence="full", progress=False)
+                            progress=False)
     for site, post in inf.infer():
         pos = int(site.pos)
         cnt = ingroup_counts.get(pos)
@@ -80,7 +82,7 @@ for chunk_path in CHUNKS:
         if nobs != n:  # fully-called sites only
             continue
         der_true = n - cnt[anc_true]
-        if der_true == 0 or der_true == n:  # segregating only
+        if der_true == 0 or der_true == n:  # segregating about the MRCA state
             continue
         T[der_true] += 1
         amap = post.map_allele

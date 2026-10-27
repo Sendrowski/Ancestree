@@ -16,6 +16,7 @@ Run directly (defaults to ``depth=1e6``)::
     python workflow/scripts/infer_single_outgroup_vcf.py
 """
 import json
+import sys
 import tempfile
 from pathlib import Path
 
@@ -27,6 +28,9 @@ from ancestree import (
     KingmanIngroupWeight,
     TskitLocalTree,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _truth import site_truths  # noqa: E402
 
 
 try:
@@ -69,7 +73,9 @@ with open(in_vcf, "w", encoding="utf-8") as f:
     )
 
 ingroup_weight = KingmanIngroupWeight(ingroup_samples=ingroup_names)
-truth = {int(s.position): s.ancestral_state for s in ts.sites()}
+# Graded at the ingroup MRCA, the ladder's ingroup node the posterior is read at.
+truth = {pos: t.at_ingroup_mrca for pos, t in site_truths(
+    ts, [nodes[s] for s in ingroup_names]).items()}
 
 vcf_inf = Inference.from_fixed_tree(
     in_vcf,

@@ -52,6 +52,7 @@ from ancestree.sites import Site
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _report_common import _panel, _truth_at  # noqa: E402
+from _truth import site_truths  # noqa: E402
 
 try:  # snakemake execution
     TREES = snakemake.input.trees
@@ -161,26 +162,21 @@ class EnsembleFocalScan:
         self.is_ingroup = np.arange(self.n_hap) < self.n_ing
         self.sample_names = [self.names[int(n)] for n in self.samples]
 
+        # The classes and the full-panel root's truth are read on the
+        # unsimplified source, whatever n_out is.
+        all_outgroups = _panel(self.source, self.source.num_samples)[1]
+        self.truths = site_truths(self.source, ingroup,
+                                  ingroup + all_outgroups)
         positions, classes = [], []
         tip_states = np.full((self.ts.num_sites, self.n_hap), -1, dtype=np.int8)
-        ing_set = set(self.ing_nodes)
         for i, variant in enumerate(self.ts.variants()):
-            positions.append(int(variant.site.position))
+            pos = int(variant.site.position)
+            positions.append(pos)
             for h, g in enumerate(variant.genotypes):
                 allele = variant.alleles[g]
                 if allele:
                     tip_states[i, h] = anc.STATE_INDEX.get(allele, -1)
-            alleles = {variant.alleles[g]
-                       for node, g in zip(self.samples, variant.genotypes)
-                       if int(node) in ing_set and variant.alleles[g]}
-            if len(alleles) > 1:
-                classes.append("polymorphic")
-            elif alleles and next(iter(alleles)) == variant.site.ancestral_state:
-                classes.append("fixed_ancestral")
-            elif alleles:
-                classes.append("fixed_derived")
-            else:
-                classes.append("")
+            classes.append(self.truths[pos].site_class)
         self.positions = np.asarray(positions, dtype=np.int64)
         self.site_class = np.asarray(classes)
         self.tip_states = tip_states
@@ -233,6 +229,7 @@ class EnsembleFocalScan:
         :param fractions: Focal positions to resolve on the true trees.
         :return: ``(moving, at_mrca, at_root)``; ``moving`` is
             ``(len(fractions), n_sites) int8``, the others ``(n_sites,) int8``.
+            ``at_root`` is the full outgroup panel's root at every ``n_out``.
             ``-1`` marks a state outside the model alphabet.
         """
         index = {int(p): i for i, p in enumerate(self.positions)}
@@ -249,13 +246,13 @@ class EnsembleFocalScan:
                 continue
             points = [point_at(tree, f) for f in fractions]
             shallow = point_at(tree, 0.0)
-            deep = point_at(tree, 1.0)
             for site in tree.sites():
-                row = index[int(site.position)]
+                pos = int(site.position)
+                row = index[pos]
                 at_mrca[row] = anc.STATE_INDEX.get(
                     _truth_at(tree, site, shallow.node, shallow.tau), -1)
                 at_root[row] = anc.STATE_INDEX.get(
-                    _truth_at(tree, site, deep.node, deep.tau), -1)
+                    self.truths[pos].at_panel_root, -1)
                 for fi, point in enumerate(points):
                     moving[fi, row] = anc.STATE_INDEX.get(
                         _truth_at(tree, site, point.node, point.tau), -1)

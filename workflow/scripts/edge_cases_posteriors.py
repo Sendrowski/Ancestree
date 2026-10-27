@@ -7,15 +7,17 @@ ingroup-only regime) and then WITH three outgroups attached (the EST-SFS /
 fixed-tree regime). Every (class, regime) is evaluated on the *same* tree by:
 
 - \\texttt{Ancestree}: the Felsenstein sum-product marginal (full 4-state
-  posterior over A,C,G,T), via :class:`~ancestree.inference.Likelihood`.
+  posterior over A,C,G,T), via :class:`~ancestree.inference.Likelihood`, read
+  at the ingroup MRCA for an ingroup-polymorphic class and at the root for the
+  ingroup-monomorphic one.
 - \\texttt{PolarBEAR}: its own ML (max-product) kernel
   (``polarize_ML.calculate_node_info_tskit_tree``). PolarBEAR's *pipeline*
   builds ingroup-only trees, but its *kernel* runs on any tree it is handed,
   so it has a value in the outgroup regime too.
 
 EST-SFS exposes only the scalar P^maj_anc (posterior that the ingroup-major
-allele is ancestral) and operates only with outgroups. Those values come
-from the est-sfs tool and are carried here as constants.
+allele is ancestral) and operates only with outgroups. Those values are read
+from the est-sfs 2.04 run of ``edge_cases_estsfs.py``.
 
 Output: ``results/reports/edge_cases.json``.
 """
@@ -28,13 +30,16 @@ from scipy.special import logsumexp
 
 try:
     out_json = snakemake.output.json  # type: ignore[name-defined]
+    in_estsfs = snakemake.input.estsfs  # type: ignore[name-defined]
 except NameError:
     out_json = "results/reports/edge_cases.json"
+    in_estsfs = "results/reports/edge_cases_estsfs.json"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ancestree import JC69, Likelihood, STATE_INDEX  # noqa: E402
 from ancestree.sites import Site  # noqa: E402
-from ancestree.trees import TskitLocalTree  # noqa: E402
+from ancestree.trees import RerootedTree, TskitLocalTree  # noqa: E402
+from _edge_cases import CLASSES, newick  # noqa: E402
 
 # PolarBEAR's ML kernel (max-product) lives in the vendored source tree.
 _PB = "external/polarbear/code/polarize"
@@ -47,56 +52,12 @@ import polarize_ML  # type: ignore[import-not-found]  # noqa: E402
 # shared tree with one shared per-branch divergence.
 PB_THETA = 1.0
 
-# --- the four site classes ------------------------------------------------
-# Ingroup is a balanced quartet ((i0,i1),(i2,i3)) except the polytomy class,
-# which is a 4-way star. Outgroups attach as a nested ladder (o1 closest).
-# Branches are short (subs/site) so the tree is unsaturated and the deeper
-# outgroups stay informative for the root state.
-IT = 0.015  # ingroup tip branch
-IC = 0.015  # ingroup cherry -> ingroup-MRCA
-RUNG = 0.01  # one ladder step between successive outgroup joins
-S = IT + IC  # ingroup-MRCA depth (also the star tip branch)
-
-
-def _ladder(ingroup_block: str) -> str:
-    """Attach o1..o3 as a nested ladder above ``ingroup_block`` (whose MRCA
-    sits at depth S). Ultrametric, all leaves at depth ``S + 3*RUNG``."""
-    return (f"((({ingroup_block}:{RUNG},o1:{S+RUNG}):{RUNG},"
-            f"o2:{S+2*RUNG}):{RUNG},o3:{S+3*RUNG});")
-
-
-def _quartet(outgroups: bool) -> str:
-    block = f"((i0:{IT},i1:{IT}):{IC},(i2:{IT},i3:{IT}):{IC})"
-    return _ladder(block) if outgroups else block + ";"
-
-
-def _star(outgroups: bool) -> str:
-    block = f"(i0:{S},i1:{S},i2:{S},i3:{S})"
-    return _ladder(block) if outgroups else block + ";"
-
-
-CLASSES = [
-    {"name": "Homoplastic biallelic", "topo": _quartet,
-     "ingroup": {"i0": "A", "i1": "G", "i2": "A", "i3": "G"},
-     "outgroup": {"o1": "A", "o2": "A", "o3": "A"},
-     "estsfs": "0.00"},
-    {"name": "Tri-allelic", "topo": _quartet,
-     "ingroup": {"i0": "A", "i1": "A", "i2": "C", "i3": "G"},
-     "outgroup": {"o1": "T", "o2": "T", "o3": "T"},
-     "estsfs": "0.00"},
-    {"name": "Ingroup-monomorphic", "topo": _quartet,
-     "ingroup": {"i0": "A", "i1": "A", "i2": "A", "i3": "A"},
-     "outgroup": {"o1": "G", "o2": "G", "o3": "G"},
-     "estsfs": "1.00"},
-    {"name": "4-way polytomy", "topo": _star,
-     "ingroup": {"i0": "A", "i1": "A", "i2": "A", "i3": "G"},
-     "outgroup": {"o1": "A", "o2": "A", "o3": "A"},
-     "estsfs": "1.00"},
-]
-
-
-def _ancestree_post(nwk: str, tip_alleles: dict[str, str]) -> np.ndarray:
+def _ancestree_post(nwk: str, tip_alleles: dict[str, str],
+                    at_ingroup_mrca: bool) -> np.ndarray:
     tree = TskitLocalTree.from_newick(nwk)
+    if at_ingroup_mrca:
+        ingroup = [tree.tip_for_sample(s) for s in tip_alleles if s.startswith("i")]
+        tree = RerootedTree(tree, tree.tskit_tree.mrca(*ingroup), 0.0)
     site = Site(chrom="1", pos=1, alleles=tuple(sorted(set(tip_alleles.values()))),
                 tip_alleles=dict(tip_alleles))
     log_L = Likelihood(JC69()).log_likelihoods(tree, [site])[0]
@@ -118,22 +79,25 @@ def _polarbear_post(nwk: str, tip_alleles: dict[str, str]) -> np.ndarray:
     return np.exp(root_info - logsumexp(root_info))
 
 
+estsfs = json.loads(Path(in_estsfs).read_text(encoding="utf-8"))["classes"]
 rows = []
 for c in CLASSES:
     ing = c["ingroup"]
     og = c["outgroup"]
     for outgroups in (False, True):
-        nwk = c["topo"](outgroups)
+        nwk = newick(c["star"], outgroups)
         tips = dict(ing)
         if outgroups:
             tips.update(og)
+        p_major = estsfs[c["name"]]["p_major_ancestral"]
         rows.append({
             "class": c["name"],
             "ingroup": dict(ing),
             "outgroups": dict(og) if outgroups else None,
-            "ancestree": _ancestree_post(nwk, tips).tolist(),
+            "ancestree": _ancestree_post(
+                nwk, tips, at_ingroup_mrca=c["polymorphic"]).tolist(),
             "polarbear": _polarbear_post(nwk, tips).tolist(),
-            "estsfs": c["estsfs"] if outgroups else None,
+            "estsfs": f"{p_major:.2f}" if outgroups else None,
         })
 
 report = {"pb_theta": PB_THETA, "rows": rows}

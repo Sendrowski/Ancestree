@@ -61,7 +61,7 @@ def _counts(summary):
     for key, g in summary["stats"].items():
         klass, b, _rec = key.split("|")
         b = int(b)
-        if klass == "biallelic_poly":
+        if not klass.endswith("_mono"):  # ingroup-fixed sites only
             continue
         count, pv_n, map_sum, ptrue_sum = g[0], g[1], g[2], g[3]
         if b == n:

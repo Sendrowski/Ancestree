@@ -13,7 +13,9 @@ and the ``report_msl_*`` scripts:
   ingroup-fixed variant sites, and every variant site of the panel (the source
   of the fixed-tree branch-rate fit);
 - :func:`load_pos_idx` / :func:`load_estsfs` -- parse the ``pos<TAB>idx``
-  ancestral-call files the three Ancestree modes, PolarBEAR, and EST-SFS emit.
+  ancestral-call files the three Ancestree modes, PolarBEAR, and EST-SFS emit;
+- :func:`load_estsfs_posteriors` -- the four-state est-sfs posterior from its
+  P-major-ancestral column.
 
 Imported via the same ``sys.path``-insert pattern the benchmark scripts use
 for ``_msl_arg_kernel``.
@@ -196,4 +198,59 @@ def load_estsfs(path: str) -> dict[int, int]:
             if idx < 0:
                 continue
             out[pos] = idx
+    return out
+
+
+def estsfs_major_minor(counts) -> tuple[int, int]:
+    """Major and minor ingroup alleles as est-sfs.c's ``assign_observed_type``
+    picks them: the first state of highest count, then the first other state of
+    highest count, both in A, C, G, T order.
+
+    :param counts: Ingroup counts of A, C, G, T.
+    :return: ``(major, minor)`` indices into :data:`~ancestree.STATES`.
+    """
+    counts = [int(c) for c in counts]
+    major = max(range(4), key=lambda j: (counts[j], -j))
+    minor = max((j for j in range(4) if j != major),
+                key=lambda j: (counts[j], -j))
+    return major, minor
+
+
+def load_estsfs_posteriors(index_pos_path: str, input_path: str,
+                           pvalues_path: str, keep) -> dict[int, np.ndarray]:
+    """Four-state est-sfs posterior per site from its column 3.
+
+    Column 3 of est-sfs's ``output-file-pvalues.txt`` is the posterior that the
+    ingroup-major allele is ancestral at the ingroup node. The major allele
+    receives it and the minor allele the remainder, with the alleles taken from
+    the est-sfs input counts by :func:`estsfs_major_minor`. The three files are
+    line-aligned: data row ``r`` of the p-values file is line ``r`` of the
+    input and of the index file.
+
+    :param index_pos_path: ``est_sfs_index_pos.txt`` (``index chrom pos``).
+    :param input_path: ``est_sfs_input.txt``, the est-sfs input.
+    :param pvalues_path: ``output-file-pvalues.txt``.
+    :param keep: Positions to return.
+    :return: ``{pos: posterior over A, C, G, T}``.
+    :raises ValueError: If the three files fall out of alignment.
+    """
+    out: dict[int, np.ndarray] = {}
+    with open(index_pos_path, encoding="utf-8") as idx_f, \
+            open(input_path, encoding="utf-8") as in_f, \
+            open(pvalues_path, encoding="utf-8") as pv_f:
+        rows = (line for line in pv_f if not line.startswith("0 "))
+        for idx_line, in_line, pv_line in zip(idx_f, in_f, rows):
+            index, _chrom, pos = idx_line.split()[:3]
+            pos = int(pos)
+            if pos not in keep:
+                continue
+            pv = pv_line.split()
+            if int(pv[0]) != int(index) + 1:
+                raise ValueError(f"est-sfs files out of alignment at index {index}")
+            major, minor = estsfs_major_minor(in_line.split()[0].split(","))
+            p_major = float(pv[2])
+            vec = np.zeros(4)
+            vec[major] = p_major
+            vec[minor] += 1.0 - p_major
+            out[pos] = vec
     return out

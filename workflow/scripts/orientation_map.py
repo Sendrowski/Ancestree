@@ -3,8 +3,9 @@
 Schemes, all reading the same genotypes and differing only in which of a site's
 two alleles they call ancestral:
 
-- ``true_aa`` --- the simulator's true ancestral state, tskit ``alleles[0]``.
-  This is the reference arm every other arm is scored against.
+- ``true_aa`` --- the simulated state at the ingroup MRCA, ``alleles[:, 0]``
+  of the shared site set. This is the reference arm every other arm is scored
+  against.
 - ``major_allele`` --- the more frequent allele among the 20 ingroup
   haplotypes, with an exact 10/10 tie keeping the true ancestral state.
 - ``random5`` --- a uniformly random fraction of the sites (0.05 by default)
@@ -71,8 +72,8 @@ class OrientationMapBuilder:
         """Compute the declared ancestral allele at every shared site.
 
         :return: an ``int8`` index into the site's allele pair (``0`` is the
-            simulator-true ancestral state) and the scheme's parameters and
-            diagnostics.
+            true ancestral state at the ingroup MRCA) and the scheme's
+            parameters and diagnostics.
         :raises ValueError: If ``scheme`` is not a known scheme name.
         """
         if self.scheme == "true_aa":
@@ -150,7 +151,7 @@ class OrientationMapBuilder:
         """Fixed-tree MAP call with ``n_out`` outgroups spread by split depth.
 
         A call that is neither of the site's two alleles cannot orient it. Such
-        a site keeps the simulator-true ancestral state and is counted.
+        a site keeps the true ancestral state and is counted.
         """
         meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
         scen = Scenario(key=f"orientation_ft_n{n_out}",
@@ -178,7 +179,7 @@ class OrientationMapBuilder:
             "n_calls_not_among_site_alleles": n_unorientable,
             "unorientable_site_handling": (
                 "a MAP call that is neither of the site's two alleles keeps the "
-                "simulator-true ancestral state"),
+                "true ancestral state at the ingroup MRCA"),
         }
 
 

@@ -67,10 +67,10 @@ if ts_relate.num_sites != pos.size:
                      f"site set has {pos.size}")
 ne_dip = panel.ne_diploid()
 
-orient = None
-if scheme != "true_aa":
-    orient = {int(round(float(pos[k]))): str(alleles[k, anc_idx[k]])
-              for k in range(pos.size)}
+# Every arm, the reference included, declares its allele explicitly: the
+# panel's own ancestral state is the root of the whole simulation.
+orient = {int(round(float(pos[k]))): str(alleles[k, anc_idx[k]])
+          for k in range(pos.size)}
 
 try:
     arg, runtime = _relate.relate_infer(

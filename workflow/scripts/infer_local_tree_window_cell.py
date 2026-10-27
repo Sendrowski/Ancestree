@@ -46,6 +46,7 @@ import tskit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _robustness_common import (  # noqa: E402
     _sumsq, _evenly_spread_outgroups, LOCAL_TREE_ENSEMBLE_MEMBERS)
+from _truth import site_truths  # noqa: E402
 
 from ancestree import ARGBasedInference, JC69, STATES, Site  # noqa: E402
 from ancestree import LocalTreeInference  # noqa: E402
@@ -77,10 +78,12 @@ mu_true = float(meta["mu"])  # the TRUE simulation mutation rate
 r_true = float(meta["rec_rate"])
 ts = tskit.load(str(in_trees))
 
-# Per-site truth + node→name map (single haplotype per individual).
+# Per-site truth at the ingroup MRCA, the node every cell reads its posterior
+# at, and the node→name map (single haplotype per individual).
 name_for_node = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
 node_for_name = {v: k for k, v in name_for_node.items()}
-truth_by_pos = {int(s.position): s.ancestral_state for s in ts.sites()}
+truth_by_pos = {pos: t.at_ingroup_mrca for pos, t in site_truths(
+    ts, [node_for_name[n] for n in ingroup_names]).items()}
 
 # Outgroup ladder (n_out=0 keeps the ingroup-only behaviour: keep_names is the
 # whole panel and every truth-bearing site is scored). With n_out>0 the kept

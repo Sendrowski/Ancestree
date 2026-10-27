@@ -53,6 +53,10 @@ from collections.abc import Sequence
 from ancestree.focal import FocalNode
 from ancestree.sites import SiteSource
 
+import sys as _sys
+_sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _truth import SiteTruth, site_truths  # noqa: E402
+
 logging.getLogger("ancestree").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -78,9 +82,6 @@ PerSite = list[tuple[int, str, int, float, int, float]]
 #: marginalises each window's call over. ``None`` is the plug-in point estimate.
 LOCAL_TREE_ENSEMBLE_MEMBERS = int(
     os.environ.get("ANCESTREE_ENSEMBLE_MEMBERS", "128"))
-
-#: Cache key for the only panel-root table there is (the full panel).
-_FULL_PANEL = "__full__"
 
 FOCAL_POLY = "ingroup_mrca"
 FOCAL_MONO = "panel_root"
@@ -216,39 +217,6 @@ class _ScenarioSiteSource(SiteSource):
                        tip_alleles=ta)
 
 
-def _truth_at_node(site, tree, nodes) -> str:
-    """The simulated state at the MRCA of ``nodes``.
-
-    A run that reports at some node must be graded there too, otherwise the
-    estimate and the truth are two different quantities and the difference
-    reads as inference error. Walks the mutations above that node and takes the
-    most recent one.
-
-    :param site: The :class:`tskit.Site` carrying the mutations.
-    :param tree: The local tree covering it.
-    :param nodes: Node ids whose MRCA the state is read at.
-    :return: The true state at that node.
-    """
-    import tskit
-
-    mrca = tree.mrca(*[int(n) for n in nodes])
-    if mrca == tskit.NULL:
-        return site.ancestral_state
-    state, best = site.ancestral_state, float("inf")
-    for mutation in site.mutations:
-        node = int(mutation.node)
-        if node != mrca and not tree.is_descendant(mrca, node):
-            continue
-        # A mutation's own time places it on the branch above its node. Two
-        # mutations on one branch share that node and are ordered only by it.
-        time = float(mutation.time)
-        if np.isnan(time):
-            time = tree.time(node)
-        if time < best:  # most recent mutation on the path wins
-            best, state = time, mutation.derived_state
-    return state
-
-
 # ----------------------------------------------------------------- scenario
 @dataclass
 class Scenario:
@@ -273,8 +241,12 @@ class Scenario:
     all_outgroup_names: list[str] = field(default_factory=list)
     sample_id_to_node: dict[str, int] = field(default_factory=dict)
     name_for_node: dict[int, str] = field(default_factory=dict)
+    #: Ingroup copies differing from the state the site is graded against
+    #: (:attr:`_truth.SiteTruth.derived`).
     sfs_bin: dict[int, int] = field(default_factory=dict)
-    truth_by_pos: dict[int, str] = field(default_factory=dict)
+    truths: dict[int, SiteTruth] = field(default_factory=dict)
+    truth_at_ingroup_mrca: dict[int, str] = field(default_factory=dict)
+    truth_at_panel_root: dict[int, str] = field(default_factory=dict)
     n_alleles_per_pos: dict[int, int] = field(default_factory=dict)
     mut_count_by_pos: dict[int, int] = field(default_factory=dict)
 
@@ -343,35 +315,37 @@ class Scenario:
                               for ind in self.ts.individuals()}
         self.sample_id_to_node = {f"tsk_{ind.id}": int(ind.nodes[0])
                                   for ind in self.ts.individuals()}
-        self.truth_at_ingroup_mrca: dict[int, str] = {}
-        self._panel_root_truth: dict[tuple[str, ...], dict[int, str]] = {}
-        ingroup_nodes = [self.sample_id_to_node[s] for s in self.ingroup_names]
-        for tree in self.ts.trees():
-            for site in tree.sites():
-                self.truth_at_ingroup_mrca[int(site.position)] = _truth_at_node(
-                    site, tree, ingroup_nodes,
-                )
+        self._load_truths()
         for v in self.ts.variants():
-            anc = v.site.ancestral_state
             pos = int(v.site.position)
-            derived = sum(1 for j in range(self.n_ingroup)
-                          if v.alleles[v.genotypes[j]] != anc)
-            self.sfs_bin[pos] = derived
-            self.truth_by_pos[pos] = anc
             observed = {a for g, a in zip(v.genotypes, v.alleles)
                         if a not in ("", None)}
             self.n_alleles_per_pos[pos] = len(observed)
             self.mut_count_by_pos[pos] = len(v.site.mutations)
 
+    def _load_truths(self) -> None:
+        """Truth, polymorphism and derived count per site, at the ingroup MRCA
+        for ingroup-polymorphic sites and at the full-panel root for the rest
+        (:func:`_truth.site_truths`)."""
+        ingroup = [self.sample_id_to_node[s] for s in self.ingroup_names]
+        panel = ingroup + [self.sample_id_to_node[s]
+                           for s in self.all_outgroup_names]
+        self.truths = site_truths(self.ts, ingroup, panel)
+        self.sfs_bin = {p: t.derived for p, t in self.truths.items()}
+        self.truth_at_ingroup_mrca = {p: t.at_ingroup_mrca
+                                      for p, t in self.truths.items()}
+        self.truth_at_panel_root = {p: t.at_panel_root
+                                    for p, t in self.truths.items()}
+
     def ingroup_is_polymorphic(self, pos: int) -> bool:
-        """Whether more than one allele segregates within the ingroup.
+        """Whether the ingroup carries at least two alleles.
 
         Decides which of the two runs scores the site: the ingroup MRCA is the
         node an ingroup polymorphism is polarised about, while a site the
         ingroup has fixed is only informative about the deeper panel root.
         """
-        b = self.sfs_bin.get(pos)
-        return b is not None and 0 < b < self.n_ingroup
+        t = self.truths.get(pos)
+        return t is not None and t.polymorphic
 
     def truth_table(self, focal: str) -> dict[int, str]:
         """Simulated states at whichever node ``focal`` names.
@@ -389,16 +363,7 @@ class Scenario:
         """
         if focal == FOCAL_POLY:
             return self.truth_at_ingroup_mrca
-        cached = self._panel_root_truth.get(_FULL_PANEL)
-        if cached is None:
-            nodes = [self.sample_id_to_node[s]
-                     for s in self.ingroup_names + list(self.all_outgroup_names)]
-            cached = {
-                int(site.position): _truth_at_node(site, tree, nodes)
-                for tree in self.ts.trees() for site in tree.sites()
-            }
-            self._panel_root_truth[_FULL_PANEL] = cached
-        return cached
+        return self.truth_at_panel_root
 
     def split_truth(self, panel: "Sequence[str]") -> dict[int, str]:
         """One truth table graded at the node each site class is asked about.
@@ -427,20 +392,11 @@ class Scenario:
             positions it covers. The grading node is the full-panel root.
         :return: Position to true state at the node that site class names.
         """
-        poly = self.truth_at_ingroup_mrca
-        root = self.truth_table(FOCAL_MONO)
-        return {pos: (poly.get(pos) if self.ingroup_is_polymorphic(pos)
-                      else state)
-                for pos, state in root.items()}
+        return {pos: t.graded for pos, t in self.truths.items()}
 
     def classify(self, pos: int) -> str:
-        n_a = self.n_alleles_per_pos.get(pos, 0)
-        b = self.sfs_bin.get(pos)
-        if n_a > 2:
-            return "polyallelic"
-        if b is None or b == 0 or b == self.n_ingroup:
-            return "biallelic_mono"
-        return "biallelic_poly"
+        return _classify(self.ingroup_is_polymorphic(pos),
+                         self.n_alleles_per_pos.get(pos, 0))
 
     def _select_outgroups(self, n_out: int) -> list[str]:
         """Outgroups evenly spread across split depths
@@ -1414,44 +1370,18 @@ def _slim_chunk_mutcount(chunk_idx: int) -> dict[int, int]:
     return out
 
 
-def _slim_classify(bin_: int, n_alleles: int, n_ingroup: int) -> str:
-    if n_alleles > 2:
-        return "polyallelic"
-    if bin_ == 0 or bin_ == n_ingroup:
-        return "biallelic_mono"
-    return "biallelic_poly"
+def _classify(polymorphic: bool, n_alleles: int) -> str:
+    """Site class from ingroup polymorphism and the number of observed alleles.
 
-
-def _split_truth_for_panel(ts, ingroup_nodes, panel_nodes) -> dict[int, str]:
-    """Truth at the node each site class is asked about, keyed by position.
-
-    Read from the unsimplified sequence: simplifying to the panel deletes the
-    branches above its root along with any mutation on them, which is exactly
-    where a site the ingroup has fixed carries its only mutation.
-
-    :param ts: The full simulated tree sequence, before any simplification.
-    :param ingroup_nodes: Sample node ids making up the ingroup.
-    :param panel_nodes: Sample node ids in the panel, ingroup included.
-    :return: Position to true state at the ingroup MRCA for sites polymorphic
-        within the ingroup, and at the panel root for the rest.
+    :param polymorphic: Whether the ingroup carries at least two alleles.
+    :param n_alleles: Distinct alleles observed at the site.
+    :return: ``biallelic_poly``, ``polyallelic``, ``biallelic_mono`` or
+        ``polyallelic_mono``. The ``_mono`` classes are the ingroup-fixed sites.
     """
-    ingroup = [int(n) for n in ingroup_nodes]
-    panel = [int(n) for n in panel_nodes]
-    index = {int(n): j for j, n in enumerate(ts.samples())}
-    ingroup_index = [index[n] for n in ingroup]
-    polymorphic = {}
-    for v in ts.variants():
-        alleles = {v.alleles[v.genotypes[j]] for j in ingroup_index}
-        alleles -= {None, ""}
-        polymorphic[int(v.site.position)] = len(alleles) > 1
-    out: dict[int, str] = {}
-    for tree in ts.trees():
-        for site in tree.sites():
-            pos = int(site.position)
-            out[pos] = _truth_at_node(
-                site, tree, ingroup if polymorphic.get(pos) else panel,
-            )
-    return out
+    shape = "polyallelic" if n_alleles > 2 else "biallelic"
+    if polymorphic:
+        return "polyallelic" if shape == "polyallelic" else "biallelic_poly"
+    return f"{shape}_mono"
 
 
 def _slim_chunk_ts_and_samples(chunk_idx: int, n_out: int):
@@ -1487,37 +1417,33 @@ def _slim_chunk_ts_and_samples(chunk_idx: int, n_out: int):
     # panel being SCORED is still keep_nodes. Only the grading node is fixed.
     full_out_nodes = [out_nodes_by_pop[out_to_pop[nm]][0]
                       for nm in all_outgroup_names]
-    truth_by_pos = _split_truth_for_panel(
-        ts_full, ingroup_nodes, list(ingroup_nodes) + full_out_nodes)
-    return ts_sub, keep_names, n_ingroup, truth_by_pos
+    truths = site_truths(ts_full, ingroup_nodes,
+                         list(ingroup_nodes) + full_out_nodes)
+    return ts_sub, keep_names, n_ingroup, truths
 
 
 def _slim_chunk_majority(chunk_idx: int, n_out: int) -> PerSite:
-    ts_sub, keep_names, n_ingroup, truth_by_pos = _slim_chunk_ts_and_samples(
+    ts_sub, keep_names, n_ingroup, truths = _slim_chunk_ts_and_samples(
         chunk_idx, n_out,
     )
     ingroup_names = keep_names[:n_ingroup]
     outgroup_names = keep_names[n_ingroup:]
     sites: list[Site] = []
-    flags: list[tuple[int, int, str, int]] = []
+    flags: list[tuple[int, str, str, int]] = []
     for v in ts_sub.variants():
         pos = int(v.site.position)
-        t = truth_by_pos.get(pos)
-        if t is None or t not in STATES:
+        truth = truths.get(pos)
+        if truth is None or truth.graded not in STATES:
             continue
         n_alleles = sum(1 for a in v.alleles if a not in ("", None))
-        ingroup_derived = sum(
-            1 for j in range(n_ingroup)
-            if v.alleles[v.genotypes[j]] != v.site.ancestral_state
-        )
         tip_alleles = {sid: v.alleles[v.genotypes[j]]
                        for j, sid in enumerate(keep_names)}
         sites.append(Site(
             chrom="1", pos=pos, alleles=tuple(v.alleles),
             tip_alleles=tip_alleles,
         ))
-        flags.append((ingroup_derived, n_alleles, t,
-                      _slim_chunk_mutcount(chunk_idx).get(pos, 0)))
+        flags.append((truth.derived, _classify(truth.polymorphic, n_alleles),
+                      truth.graded, _slim_chunk_mutcount(chunk_idx).get(pos, 0)))
     if not sites:
         return []
     # n_out=0 → no outgroup vote. Fall back to the major ingroup allele.
@@ -1526,32 +1452,16 @@ def _slim_chunk_majority(chunk_idx: int, n_out: int) -> PerSite:
         ingroup_samples=ingroup_names, for_comparison_only=True,
     )
     out: PerSite = []
-    for (site, post), (bin_, n_alleles, t, n_mut) in zip(inf.infer(), flags):
-        klass = _slim_classify(bin_, n_alleles, n_ingroup)
+    for (site, post), (bin_, klass, t, n_mut) in zip(inf.infer(), flags):
         out.append((bin_, klass, int(post.map_allele == t),
                     float(post[t]), n_mut, _sumsq(post)))
-    return out
-
-
-def _ingroup_polymorphic(ts, n_ingroup: int) -> dict[int, bool]:
-    """Whether more than one allele segregates within the ingroup, per site.
-
-    :param ts: The panel tree sequence, ingroup first among the samples.
-    :param n_ingroup: Number of leading samples making up the ingroup.
-    :return: Position to whether the ingroup is polymorphic there.
-    """
-    out: dict[int, bool] = {}
-    for v in ts.variants():
-        alleles = {v.alleles[g] for g in v.genotypes[:n_ingroup]}
-        alleles -= {None, ""}
-        out[int(v.site.position)] = len(alleles) > 1
     return out
 
 
 def _slim_chunk_arg_live(chunk_idx: int, n_out: int,
                          *, mu: float | None = None,
                          keep_intervals=None) -> PerSite:
-    ts_sub, keep_names, n_ingroup, truth_by_pos = _slim_chunk_ts_and_samples(
+    ts_sub, keep_names, n_ingroup, truths = _slim_chunk_ts_and_samples(
         chunk_idx, n_out,
     )
     meta = _slim_chunk_meta(chunk_idx)
@@ -1561,7 +1471,6 @@ def _slim_chunk_arg_live(chunk_idx: int, n_out: int,
     keep = _pos_in_intervals(keep_intervals)
     ingroup_names = keep_names[:n_ingroup]
     outgroup_names = keep_names[n_ingroup:]
-    polymorphic = _ingroup_polymorphic(ts_sub, n_ingroup)
     out: PerSite = []
     for focal, want in FOCAL_PASSES:
         inf = ARGBasedInference(
@@ -1573,22 +1482,19 @@ def _slim_chunk_arg_live(chunk_idx: int, n_out: int,
           pos = int(site.pos)
           if not keep(pos):
               continue
-          if want is not None and polymorphic.get(pos, False) is not want:
+          truth = truths.get(pos)
+          if truth is None or (want is not None and truth.polymorphic is not want):
               continue
-          t = truth_by_pos.get(pos)
-          if t is None or t not in STATES:
+          t = truth.graded
+          if t not in STATES:
               continue
           v = next(iter(ts_sub.variants(
               samples=ts_sub.samples(),
               left=site.pos, right=site.pos + 1,
           )))
           n_alleles = sum(1 for a in v.alleles if a not in ("", None))
-          ingroup_derived = sum(
-              1 for j in range(n_ingroup)
-              if v.alleles[v.genotypes[j]] != v.site.ancestral_state
-          )
-          klass = _slim_classify(ingroup_derived, n_alleles, n_ingroup)
-          out.append((ingroup_derived, klass,
+          klass = _classify(truth.polymorphic, n_alleles)
+          out.append((truth.derived, klass,
                       int(post.map_allele == t), float(post[t]),
                       _slim_chunk_mutcount(chunk_idx).get(pos, 0), _sumsq(post)))
     return out
@@ -1604,7 +1510,7 @@ def _slim_pooled_ft(n_out: int, *, adaptive: bool = False) -> PerSite:
     need a consistent-sample genealogy), which is lossless for them.
     """
     all_sites: list[Site] = []
-    flags: list[tuple[int, int, str, int, int, bool]] = []
+    flags: list[tuple[int, str, str, int, bool]] = []
     ingroup_names: list[str] = []
     outgroup_names: list[str] = []
     total_seq_len = 0
@@ -1612,7 +1518,7 @@ def _slim_pooled_ft(n_out: int, *, adaptive: bool = False) -> PerSite:
         meta_p = DATA / f"slim_outgroup_bias10_fdel{SLIM_FDEL}_chunk{c}_meta.json"
         if not meta_p.exists():
             continue
-        ts_sub, keep_names, n_ingroup, truth_by_pos = _slim_chunk_ts_and_samples(
+        ts_sub, keep_names, n_ingroup, truths = _slim_chunk_ts_and_samples(
             c, n_out,
         )
         ingroup_names = keep_names[:n_ingroup]
@@ -1623,28 +1529,19 @@ def _slim_pooled_ft(n_out: int, *, adaptive: bool = False) -> PerSite:
         total_seq_len += seq_len
         for v in ts_sub.variants():
             pos = int(v.site.position)
-            t = truth_by_pos.get(pos)
-            if t is None or t not in STATES:
+            truth = truths.get(pos)
+            if truth is None or truth.graded not in STATES:
                 continue
             n_alleles = sum(1 for a in v.alleles if a not in ("", None))
-            ingroup_derived = sum(
-                1 for j in range(n_ingroup)
-                if v.alleles[v.genotypes[j]] != v.site.ancestral_state
-            )
             tip_alleles = {sid: v.alleles[v.genotypes[j]]
                            for j, sid in enumerate(keep_names)}
-            # Which pass a site belongs to is decided by whether the ingroup
-            # carries more than one allele, not by how many differ from the
-            # ancestral state: a whole ingroup split between two derived
-            # alleles is polymorphic yet has every sample differing.
-            polymorphic = len({v.alleles[v.genotypes[j]]
-                               for j in range(n_ingroup)}) > 1
             all_sites.append(Site(chrom="1", pos=off + pos,
                                   alleles=tuple(v.alleles),
                                   tip_alleles=tip_alleles))
-            flags.append((ingroup_derived, n_alleles, t,
-                          _slim_chunk_mutcount(c).get(pos, 0), n_ingroup,
-                          polymorphic))
+            flags.append((truth.derived,
+                          _classify(truth.polymorphic, n_alleles),
+                          truth.graded, _slim_chunk_mutcount(c).get(pos, 0),
+                          truth.polymorphic))
     if not all_sites:
         return []
     prior = (AdaptiveIngroupWeight(ingroup_samples=ingroup_names)
@@ -1672,12 +1569,11 @@ def _slim_pooled_ft(n_out: int, *, adaptive: bool = False) -> PerSite:
         runs = [(inf, True), (deep, False)]
     out: PerSite = []
     for run, want in runs:
-        for (site, post), (bin_, n_alleles, t, n_mut, n_ing, poly) in zip(
+        for (site, post), (bin_, klass, t, n_mut, poly) in zip(
             run.infer(), flags,
         ):
             if want is not None and poly is not want:
                 continue
-            klass = _slim_classify(bin_, n_alleles, n_ing)
             out.append((bin_, klass, int(post.map_allele == t),
                         float(post[t]), n_mut, _sumsq(post)))
     return out
@@ -1981,8 +1877,8 @@ class SlimScenario(Scenario):
     :class:`Scenario` API, so the SINGER (and every other) Scenario method runs
     on SLiM chunks unchanged. SLiM chunks are ordinary tskit sequences. Only the
     meta format and the population-based sample layout differ from the msprime
-    scenarios, which :meth:`load` bridges. ``classify`` is identical to
-    :func:`_slim_classify`, so per-site classes match the other SLiM rows."""
+    scenarios, which :meth:`load` bridges. Site classes come from
+    :func:`_classify`, as for the other SLiM rows."""
 
     def load(self) -> None:
         meta = _slim_chunk_meta(self.chunk_idx)
@@ -2011,25 +1907,12 @@ class SlimScenario(Scenario):
         for nm in self.all_outgroup_names:
             self.sample_id_to_node[nm] = out_nodes[out_to_pop[nm]][0]
         self.name_for_node = {v: k for k, v in self.sample_id_to_node.items()}
-        ingroup_set = set(ingroup_nodes)
-        ingroup_idx = [j for j, sn in enumerate(self.ts.samples())
-                       if int(sn) in ingroup_set]
-        self.truth_at_ingroup_mrca = {}
-        self._panel_root_truth = {}
+        self._load_truths()
         for v in self.ts.variants():
-            anc = v.site.ancestral_state
             pos = int(v.site.position)
-            self.sfs_bin[pos] = sum(1 for j in ingroup_idx
-                                    if v.alleles[v.genotypes[j]] != anc)
-            self.truth_by_pos[pos] = anc
             self.n_alleles_per_pos[pos] = len(
                 {a for a in v.alleles if a not in ("", None)})
             self.mut_count_by_pos[pos] = len(v.site.mutations)
-        for tree in self.ts.trees():
-            for site in tree.sites():
-                self.truth_at_ingroup_mrca[int(site.position)] = _truth_at_node(
-                    site, tree, ingroup_nodes,
-                )
 
 
 def _chunk_scenario(scenario_key: str, chunk_idx: int) -> Scenario:
@@ -2894,6 +2777,11 @@ def load_summary(path) -> dict:
 # ----------------------------------------------------------- plot helpers
 N_INGROUP_DEFAULT = SCENARIOS[0].n_ingroup if SCENARIOS[0].n_ingroup else 20
 
+def _is_fixed(klass: str) -> bool:
+    """Whether a :func:`_classify` class is an ingroup-fixed one."""
+    return klass.endswith("_mono")
+
+
 CATS = [
     ("ISM bi", lambda n_ing: (
         lambda b, k, m: 1 <= b <= n_ing - 1 and k == "biallelic_poly" and m == 1
@@ -2908,7 +2796,7 @@ CATS = [
         lambda b, k, m: b == n_ing - 1
     )),
     ("fixed", lambda n_ing: (
-        lambda b, k, m: b == n_ing
+        lambda b, k, m: b == n_ing and _is_fixed(k)
     )),
 ]
 
@@ -2928,7 +2816,7 @@ BALANCE_FREQ_BINS = True
 # already span both sides of each fold, so they need no entry).
 _BALANCED_MIRROR = {
     "i=n−1": lambda n_ing: (lambda b, k, m: b == 1),
-    "fixed": lambda n_ing: (lambda b, k, m: b == 0),
+    "fixed": lambda n_ing: (lambda b, k, m: b == 0 and _is_fixed(k)),
 }
 
 
@@ -2999,12 +2887,22 @@ def summary_col_count(summary, cat_label, pred_factory, n_ing) -> int:
                if any(p(b, klass, m) for p in preds))
 
 
+def _in_bin_range(b: int, klass: str, n_ing_max: int) -> bool:
+    """Whether a group belongs to the per-bin view: bins ``1..n-1`` hold the
+    ingroup-polymorphic sites, the end bins ``0`` and ``n`` the ingroup-fixed
+    ones. An ingroup-polymorphic site carrying no copy of the state at the
+    ingroup MRCA counts ``n`` derived copies and belongs to neither."""
+    if b in (0, n_ing_max):
+        return _is_fixed(klass)
+    return 0 < b < n_ing_max
+
+
 def summary_per_bin_brier(summary, n_ing_max: int):
     """Per-bin (0..n) mean Brier, matching plot_brier_per_bin.per_bin_brier."""
     bsum = [0.0] * (n_ing_max + 1)
     bcnt = [0] * (n_ing_max + 1)
     for b, klass, m, g in _iter_stats(summary):
-        if 0 <= b <= n_ing_max:
+        if _in_bin_range(b, klass, n_ing_max):
             ms, cnt = _group_metric(g, "brier")
             bsum[b] += ms; bcnt[b] += cnt
     return [bsum[i] / bcnt[i] if bcnt[i] else float("nan")
@@ -3015,7 +2913,7 @@ def summary_per_bin_count(summary, n_ing_max: int):
     """Per-bin total site count (all classes), for the scenario-SFS figure."""
     out = [0] * (n_ing_max + 1)
     for b, klass, m, g in _iter_stats(summary):
-        if 0 <= b <= n_ing_max:
+        if _in_bin_range(b, klass, n_ing_max):
             out[b] += g[0]
     return out
 

@@ -24,6 +24,7 @@ Output: ``results/reports/local_tree_genealogy.{json,md}``.
 """
 import json
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,9 @@ import tskit
 from ancestree import Site, STATES, JC69, ARGBasedInference
 from ancestree.local_tree_inference import (LocalTreeBuilder,
                                             LocalTreeInference)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _truth import site_truths  # noqa: E402
 
 #: Members drawn per window for the ensemble columns. Matches the
 #: manuscript's local-tree configuration.
@@ -73,15 +77,15 @@ n_ing = len(ingroup_names)
 ts = tskit.load(str(in_trees))
 name_for_node = {int(ind.nodes[0]): f"tsk_{ind.id}" for ind in ts.individuals()}
 node_for_name = {v: k for k, v in name_for_node.items()}
-truth_states = {int(s.position): s.ancestral_state for s in ts.sites()}
+# Truth at the ingroup MRCA, the node every posterior here is read at.
+truth_states = {pos: t.at_ingroup_mrca for pos, t in site_truths(
+    ts, [node_for_name[n] for n in ingroup_names]).items()}
 
 # Outgroup ladder: n_out=0 keeps the ingroup-only panel. N_out>0 adds the
 # evenly-spread outgroups to both the inferred and the (simplified) true
 # tree, so sample indices align. TMRCA pairs are always drawn among the
 # ingroup (indices 0..n_ing-1, since keep_names lists the ingroup first).
 if n_out > 0:
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent))
     from _robustness_common import _evenly_spread_outgroups  # noqa: E402
     _ordered = sorted(meta["outgroups_by_pop"].keys(), key=lambda s: int(s.split("_")[1]))
     _all_og = [nm for p in _ordered for nm in meta["outgroups_by_pop"][p]]
@@ -287,12 +291,18 @@ def _ensemble_recovery(inf, window_snps: int) -> dict:
 
 def _tsinfer_recovery() -> dict:
     """tsinfer ARG built from the same genotypes with the CORRECT (simulator)
-    ancestral allele (tskit's ``variant.alleles[0]`` is the true ancestral
-    state), as a genealogy-inference reference independent of window size."""
+    ancestral allele, as a genealogy-inference reference independent of window
+    size. That allele is the state at the ingroup MRCA for an ingroup
+    polymorphism and at the kept panel's root for a site the ingroup has
+    fixed. A site whose state there is neither of its two alleles cannot be
+    oriented and is left out of tsinfer's input."""
     import tsinfer
     # Build from the kept panel (truth_ts is the ingroup, plus the n_out
     # outgroups when n_out>0. It equals ts for n_out=0), so the tsinfer samples
     # align with the local-tree builder's and with truth_ts for the metrics.
+    orient = {pos: t.graded for pos, t in site_truths(
+        ts, [node_for_name[n] for n in ingroup_names],
+        [node_for_name[n] for n in keep_names]).items()}
     sd = tsinfer.SampleData(sequence_length=float(truth_ts.sequence_length))
     with sd:
         for v in truth_ts.variants():
@@ -301,7 +311,11 @@ def _tsinfer_recovery() -> dict:
                 continue
             if len(set(v.genotypes)) < 2:
                 continue
-            sd.add_site(v.site.position, v.genotypes, al)  # allele 0 = ancestral
+            anc = orient.get(int(v.site.position))
+            if anc not in al:
+                continue
+            sd.add_site(v.site.position, v.genotypes, al,
+                        ancestral_allele=al.index(anc))
     inf_ts = tsinfer.infer(sd, recombination_rate=r_true).simplify()
     # tsinfer leaves trees undated. Date them properly with the standard
     # tsinfer->tsdate pipeline (variational gamma) at the true mutation rate, so

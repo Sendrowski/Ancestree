@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _msl_io import load_estsfs, load_pos_idx  # noqa: E402
+from _msl_io import load_estsfs, load_estsfs_posteriors, load_pos_idx  # noqa: E402
 
 
 def concat(glob_pat: str) -> dict[int, int]:
@@ -141,7 +141,9 @@ for a in range(K):
 # Soft agreement: every tool exposes a per-site posterior over A,C,G,T, so for
 # each ordered pair (a, b) we can measure the mean posterior mass method a
 # places on method b's MAP allele, over the same overlap as the hard rate.
-#   - Ancestree modes / EST-SFS: full ACGT posterior, indexed directly.
+#   - Ancestree modes: full ACGT posterior, indexed directly.
+#   - EST-SFS: P-major-ancestral at the ingroup node on the major allele and
+#     its complement on the minor (load_estsfs_posteriors).
 #   - PolarBEAR: prob_ancstate_full.txt (our patched run, which appends the full
 #     normalised 4-state vector PolarBEAR's kernel computes but natively
 #     discards) gives the posterior in VCF allele order (ref, alt1, ...). We
@@ -155,6 +157,8 @@ post_npz = {
 }
 ES_IDXPOS = ("external/polarbear/data/real_data/ancestral_state/est_sfs/"
              "est_sfs_index_pos.txt")
+ES_INPUT = ("external/polarbear/data/real_data/ancestral_state/est_sfs/"
+            "est_sfs_input.txt")
 ES_PVALS = ("external/polarbear/data/real_data/ancestral_state/est_sfs/"
             "output-file-pvalues.txt")
 
@@ -175,21 +179,8 @@ for mode, paths in post_npz.items():
         ANC[mode] = _load_post(paths)
 
 ES_post: dict[int, np.ndarray] = {}
-if Path(ES_PVALS).exists() and Path(ES_IDXPOS).exists():
-    ip = [int(l.split()[2]) for l in open(ES_IDXPOS, encoding="utf-8") if len(l.split()) >= 3]
-    for line in open(ES_PVALS, encoding="utf-8"):
-        p = line.split()
-        if len(p) < 7:
-            continue
-        try:
-            r = int(p[0])
-        except ValueError:
-            continue
-        if r == 0:  # header lines
-            continue
-        pos = ip[r - 1]
-        if pos in all_map_pos:
-            ES_post[pos] = np.array([float(p[3]), float(p[4]), float(p[5]), float(p[6])])
+if all(Path(f).exists() for f in (ES_IDXPOS, ES_INPUT, ES_PVALS)):
+    ES_post = load_estsfs_posteriors(ES_IDXPOS, ES_INPUT, ES_PVALS, all_map_pos)
 
 PB_post: dict[int, np.ndarray] = {}
 if Path(PB_FULL).exists() and Path(PB_VCF).exists():

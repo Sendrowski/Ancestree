@@ -15,11 +15,15 @@ Run directly (defaults to ``depth=1e6``)::
     python workflow/scripts/infer_single_outgroup_arg.py
 """
 import json
+import sys
 from pathlib import Path
 
 import tskit
 
 from ancestree import ARGBasedInference, JC69
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _truth import site_truths  # noqa: E402
 
 
 try:
@@ -65,11 +69,15 @@ inference = ARGBasedInference(
     ts_sub, JC69(),
     mu=mu,
     sample_map=sample_map,
+    ingroup_samples=ingroup_names,
+    outgroup_samples=outgroup_names,
     progress=False,
 )
 
+# Graded at the ingroup MRCA, the node the posterior is read at.
 truth_by_pos: dict[int, str] = {
-    int(site.position): site.ancestral_state for site in ts_full.sites()
+    pos: t.at_ingroup_mrca for pos, t in site_truths(
+        ts_full, [sample_id_to_node[s] for s in ingroup_names]).items()
 }
 ingroup_name_set = set(ingroup_names)
 

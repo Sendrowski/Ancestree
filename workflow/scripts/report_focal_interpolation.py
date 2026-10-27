@@ -11,7 +11,11 @@ curves are comparable across scenarios whose divergences differ.
 
 Each point is scored against the simulated truth read *at that same point*, so
 the curve measures where the ancestral state is best recovered rather than how
-far the estimate drifts from one fixed reference.
+far the estimate drifts from one fixed reference. Two fixed gradings hold the
+question still instead: ``at_mrca`` reads the truth at the ingroup MRCA and
+``at_root`` at the root of the full outgroup panel, whatever ``n_out`` is.
+Sites the ingroup has fixed are classed fixed ancestral or fixed derived
+against that full-panel root.
 """
 import json
 import sys
@@ -26,6 +30,7 @@ from ancestree.models import JC69
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _report_common import _panel, _truth_at  # noqa: E402
+from _truth import site_truths  # noqa: E402
 
 try:  # snakemake execution
     TREES = snakemake.input.trees
@@ -151,7 +156,7 @@ def _calls(mode, prepared, names, ing_nodes, samples, focal):
     :return: ``{position: Posterior}``.
     """
     if mode == "fixed_tree":
-        prepared.focal = focal
+        prepared.focal = FocalNode.parse(focal)
         inference = prepared
     else:
         inference = anc.ARGBasedInference(
@@ -167,6 +172,10 @@ def _calls(mode, prepared, names, ing_nodes, samples, focal):
 def main() -> None:
     """Sweep the focal node and write per-class accuracy to JSON."""
     source = tskit.load(TREES)
+    ingroup, all_outgroups = _panel(source, source.num_samples)
+    truths = site_truths(source, ingroup, ingroup + all_outgroups)
+    site_class = {pos: t.site_class for pos, t in truths.items()}
+    at_root = {pos: t.at_panel_root for pos, t in truths.items()}
     rows = []
     for n_out in N_OUTS:
         ingroup, outgroups = _panel(source, n_out)
@@ -176,22 +185,9 @@ def main() -> None:
         ing_nodes = samples[:len(ingroup)]
 
         # Three classes, not two. A monomorphic ingroup fixed for the
-        # simulation's ancestral allele is answered correctly at the ingroup
-        # MRCA by construction, so pooling it with the fixed-derived sites
-        # turns the curve into a statement about class composition.
-        site_class = {}
-        ing_set = set(ing_nodes)
-        for variant in ts.variants():
-            alleles = {variant.alleles[g]
-                       for node, g in zip(samples, variant.genotypes)
-                       if int(node) in ing_set and variant.alleles[g]}
-            pos = int(variant.site.position)
-            if len(alleles) > 1:
-                site_class[pos] = "polymorphic"
-            elif alleles and next(iter(alleles)) == variant.site.ancestral_state:
-                site_class[pos] = "fixed_ancestral"
-            elif alleles:
-                site_class[pos] = "fixed_derived"
+        # ancestral allele is answered correctly at the ingroup MRCA by
+        # construction, so pooling it with the fixed-derived sites turns the
+        # curve into a statement about class composition.
 
         # Each mode's trees are built once and reused across the grid, so a
         # fine scan costs one kernel pass per point rather than a re-inference.
@@ -208,22 +204,20 @@ def main() -> None:
                 # being reported at, so each point answers its own question.
                 # "at_mrca" and "at_root" hold the question fixed and move only
                 # the estimator, so those curves read as the cost of reporting
-                # at the wrong node.
+                # at the wrong node. "at_root" is the full panel's root at
+                # every n_out.
                 truth = {}
-                fixed = {"at_mrca": {}, "at_root": {}}
+                fixed = {"at_mrca": {}, "at_root": at_root}
                 for tree in ts.trees():
                     if not tree.num_sites:
                         continue
                     point = _focal_point(tree, ing_nodes, fraction)
                     shallow = _focal_point(tree, ing_nodes, 0.0)
-                    deep = _focal_point(tree, ing_nodes, 1.0)
                     for site in tree.sites():
                         pos = int(site.position)
                         truth[pos] = _truth_at(tree, site, point.node, point.tau)
                         fixed["at_mrca"][pos] = _truth_at(
                             tree, site, shallow.node, shallow.tau)
-                        fixed["at_root"][pos] = _truth_at(
-                            tree, site, deep.node, deep.tau)
 
                 for label in ("polymorphic", "fixed_ancestral",
                               "fixed_derived"):
