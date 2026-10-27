@@ -1613,3 +1613,59 @@ class TestThePostOrderRefusesIndicesItCannotBoundsCheck:
         offsets, children, order = jk.postorder_csr_from_parents(parents, root, n)
         np.testing.assert_array_equal(order, [2])
         assert len(offsets) == n + 1 and len(children) == n - 1
+
+
+class TestIsolatedSamples:
+    """A sample with neither parent nor children is missing data in tskit,
+    not a root of its own. Counting it as one put the ingroup under several
+    roots, so a region where one ingroup sample was isolated was read at the
+    panel root instead of the MRCA of the ingroup samples present."""
+
+    @staticmethod
+    def _ts():
+        """``((a, b), c)`` joined with the outgroup ``o``, and ``e`` isolated.
+
+        :return: The tree sequence, with sites on the edges above ``ab`` and
+            ``o``, and the node ids by name.
+        """
+        tables = tskit.TableCollection(sequence_length=10.0)
+        ids = {name: tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+               for name in ("a", "b", "c", "o", "e")}
+        for name, time in (("ab", 1.0), ("abc", 2.0), ("root", 4.0)):
+            ids[name] = tables.nodes.add_row(flags=0, time=time)
+        for parent, child in (("ab", "a"), ("ab", "b"), ("abc", "ab"),
+                              ("abc", "c"), ("root", "abc"), ("root", "o")):
+            tables.edges.add_row(left=0, right=10.0, parent=ids[parent],
+                                 child=ids[child])
+        for pos, node in ((2.0, "ab"), (6.0, "o")):
+            site = tables.sites.add_row(position=pos, ancestral_state="A")
+            tables.mutations.add_row(site=site, node=ids[node],
+                                     derived_state="C")
+        tables.sort()
+        return tables.tree_sequence(), ids
+
+    def test_the_mrca_is_that_of_the_samples_present(self):
+        ts, ids = self._ts()
+        tree = ts.first()
+        nodes = [ids[n] for n in ("a", "b", "c", "e")]
+        assert tree.num_roots == 2
+        assert not FocalNode.spans_roots(tree, nodes)
+        assert FocalNode().locate(tree, nodes).node == ids["abc"]
+        assert FocalNode.spans_roots(tree, [ids["e"]])
+
+    def test_the_run_reads_at_the_mrca_of_the_samples_present(self):
+        ts, ids = self._ts()
+
+        def run(ingroup, focal=None):
+            inf = anc.ARGBasedInference(
+                ts, JC69(), mu=0.05,
+                sample_map={n: ids[n] for n in [*ingroup, "o"]},
+                ingroup_samples=ingroup, outgroup_samples=["o"], focal=focal,
+                progress=False)
+            return np.array([p.values for _, p in inf.infer()])
+
+        with_isolated = run(["a", "b", "c", "e"])
+        np.testing.assert_allclose(with_isolated, run(["a", "b", "c"]),
+                                   rtol=1e-12)
+        assert np.abs(with_isolated - run(["a", "b", "c", "e"],
+                                          "panel_root")).max() > 1e-3

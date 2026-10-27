@@ -212,13 +212,16 @@ class FocalNode:
 
         :param tree: The :class:`tskit.Tree` to search.
         :param ingroup_nodes: Sample node ids making up the ingroup.
-        :return: ``True`` where they fall under several roots.
+        :return: ``True`` where the ingroup samples present in the tree fall
+            under several roots, or none is present.
         """
         import tskit
 
-        return bool(tree.num_roots > 1 and ingroup_nodes is not None
-                    and len(ingroup_nodes)
-                    and _mrca(tree, ingroup_nodes, None) == tskit.NULL)
+        if (tree.num_roots == 1 or ingroup_nodes is None
+                or not len(ingroup_nodes)):
+            return False
+        present = _present(tree, ingroup_nodes)
+        return not present or _mrca(tree, present, None) == tskit.NULL
 
     def resolve(
         self,
@@ -249,7 +252,9 @@ class FocalNode:
                     'the "ingroup_mrca" anchor needs ingroup_nodes; pass '
                     "ingroup_samples= (or outgroup_samples=) to the inference"
                 )
-            anchor_node = _mrca(tree, ingroup_nodes, postorder_rank)
+            ingroup_nodes = _present(tree, ingroup_nodes)
+            anchor_node = (_mrca(tree, ingroup_nodes, postorder_rank)
+                           if len(ingroup_nodes) else tskit.NULL)
             if anchor_node == tskit.NULL:
                 raise ValueError(
                     "the ingroup has no common ancestor in this tree (it spans "
@@ -323,6 +328,17 @@ class FocalNode:
                 return path[step], want
             want -= length
         return path[-1], 0.0
+
+
+def _present(tree, nodes):
+    """``nodes`` without the samples ``tree`` holds isolated, with neither a
+    parent nor children, tskit's encoding of missing data."""
+    import tskit
+
+    if tree.num_roots == 1:
+        return nodes
+    return [n for n in nodes if tree.parent(int(n)) != tskit.NULL
+            or tree.num_children(int(n))]
 
 
 def _mrca(tree, nodes, postorder_rank: "dict[int, int] | None") -> int:
