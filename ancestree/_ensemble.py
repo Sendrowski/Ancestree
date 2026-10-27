@@ -953,22 +953,31 @@ def _search(cum, T, v):
 # ------------------------------------------------------------ scoring
 
 
-#: Ceiling on the per-call scoring scratch, ``member_chunk x windows x ...``
-#: packing arrays. Windows are scored independently, in blocks sized to fit.
+#: Ceiling on the per-call scoring scratch, the ``member_chunk x windows x ...``
+#: condensed TMRCAs and packing arrays. Windows are scored independently, in blocks sized to fit.
 #: The draws are not blocked: FFBS walks the whole block chain backwards.
 MAX_SCRATCH_BYTES = 256 * 1024 ** 2
 
 
-def _window_block(n_windows, n_members, n_hap):
+def _window_block(n_windows, n_members, n_hap, n_pairs):
     """How many windows to score at once under :data:`MAX_SCRATCH_BYTES`, at
     least 256 or all of them."""
     nslot = 2 * n_hap + 1
     per_window = n_members * (
-        nslot * 8  # branch_t
+        n_pairs * 8  # condensed TMRCAs
+        + nslot * 8  # branch_t
         + (2 * n_hap - 1) * 4 + (n_hap - 1) * 32 + 6 * nslot * 4)
     block = int(MAX_SCRATCH_BYTES // max(per_window, 1))
     # The floor never exceeds the windows that exist, and at least one window.
     return max(min(max(block, 256), n_windows), 1)
+
+
+def _leading(buf, n_w):
+    """The first ``n_w`` windows' worth of a ``(M, W, ...)`` buffer's memory,
+    as a contiguous ``(M, n_w, ...)`` view."""
+    rest = buf.shape[2:]
+    size = buf.shape[0] * n_w * int(np.prod(rest, dtype=np.int64))
+    return buf.reshape(-1)[:size].reshape(buf.shape[0], n_w, *rest)
 
 
 class SegmentEnsemble:
@@ -1126,7 +1135,7 @@ class SegmentEnsemble:
         step = self._w_block
         for w0 in range(0, W_all, step):
             n_w = min(step, W_all - w0)
-            blk = cond[:, :n_w]
+            blk = _leading(cond, n_w)
             paths_to_condensed(path, self.edge_lo, self.edge_hi, self.t_bar,
                                self.needed, self.blk_lo, self.blk_hi, w0,
                                self.pair_key, self._stream_key(seed), member0,
@@ -1139,11 +1148,8 @@ class SegmentEnsemble:
         n = self.n_hap
         n_all, nslot = 2 * n - 1, 2 * n + 1
         M, W = condensed.shape[0], condensed.shape[1]
-        # A short final block gets its own contiguous buffers, so the reshapes
-        # below are views.
         (Z, branch_t, parent0, sample_dense, fmrca, pidx, cofs, cflat, poi,
-         root) = (arrays if W == self._w_block else self._buffers(M, W))
-        condensed = np.ascontiguousarray(condensed)
+         root) = (_leading(a, W) for a in arrays)
         upgma_batch(condensed.reshape(M * W, -1), n, Z.reshape(M * W, n - 1, 4),
                     self.win_weight[w0:w0 + W])
         pack_base_all(Z.reshape(M * W, n - 1, 4), n, self.is_ingroup, self.mu,
@@ -1290,7 +1296,8 @@ class SegmentEnsemble:
                 f"ancestree is reversible and does; a custom non-reversible or "
                 f"non-diagonalisable model cannot be used in ensemble mode.")
         self._lam, self._V, self._Vinv = eig
-        self._w_block = _window_block(W, chunk, self.n_hap)
+        self._w_block = _window_block(W, chunk, self.n_hap,
+                                      self.alpha_ck.shape[0])
         acc = np.zeros((self.n_sites, S_STATES))
         ref = np.full(self.n_sites, -1e300)
         arrays = self._buffers(chunk, self._w_block)

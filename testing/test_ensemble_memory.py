@@ -4,8 +4,8 @@ The scoring scratch is ``member_chunk x windows x ...``. Left unbounded it grows
 with the number of windows in a segment, and at ``window="1snp"`` that is one
 window per SNP, gigabytes of scratch for a dataset of a few megabytes.
 :func:`score_ensemble` rebuilds the transition matrices per window in-thread,
-leaving ``branch_t`` the largest term, and
-:data:`ancestree._ensemble.MAX_SCRATCH_BYTES` caps it by scoring windows in
+leaving the condensed pairwise TMRCAs and ``branch_t`` the largest terms, and
+:data:`ancestree._ensemble.MAX_SCRATCH_BYTES` caps them by scoring windows in
 blocks, so peak memory is flat in window count.
 
 Peak RSS is measured in a child process (``ru_maxrss`` of RUSAGE_CHILDREN),
@@ -104,24 +104,34 @@ def _peak_rss_mb(window, n_ensemble, n_sites):
 
 def test_block_size_shrinks_as_the_ensemble_grows():
     """The bound is on bytes, so a bigger member chunk means fewer windows."""
-    small = _window_block(100_000, 1, 20)
-    large = _window_block(100_000, 32, 20)
+    small = _window_block(100_000, 1, 20, 190)
+    large = _window_block(100_000, 32, 20, 190)
     assert large < small
     for members in (1, 8, 32, 512):
-        blk = _window_block(100_000, members, 20)
+        blk = _window_block(100_000, members, 20, 190)
         nslot = 2 * 20 + 1
-        # branch_t: the dominant per-window array, since the transition
+        # branch_t: the dominant packing array, since the transition
         # matrices are never stored.
         assert blk * members * nslot * 8 <= MAX_SCRATCH_BYTES or blk == 256
 
 
+def test_block_size_counts_the_condensed_tmrcas():
+    """The ``(member, window, pair)`` float64 TMRCAs are scratch too. Sizing
+    the block by the packing arrays alone let them reach 2 GB at 200
+    haplotypes and one member."""
+    n_hap, n_pairs = 200, 19900
+    for members in (1, 2, 8):
+        blk = _window_block(100_000, members, n_hap, n_pairs)
+        assert blk * members * n_pairs * 8 <= MAX_SCRATCH_BYTES or blk == 256
+
+
 def test_block_size_never_starves_the_parallel_loop():
     """Blocking is a memory measure. It must not shrink below the floor."""
-    assert _window_block(100_000, 4096, 200) >= 256
+    assert _window_block(100_000, 4096, 200, 19900) >= 256
 
 
 def test_block_size_is_capped_by_the_window_count():
-    assert _window_block(10, 8, 20) == 10
+    assert _window_block(10, 8, 20, 190) == 10
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="ru_maxrss units are Linux")
@@ -157,7 +167,7 @@ def test_posterior_is_independent_of_the_window_block():
     sites, names, L = _sites()
     ref = _run_posteriors(sites, names, L)
     for block in (1, 3, 7, 64):  # 3 and 7 leave a short final block
-        monkey = lambda W, M, n, b=block: min(b, W)  # noqa: E731
+        monkey = lambda W, M, n, P, b=block: min(b, W)  # noqa: E731
         orig = _ensemble._window_block
         _ensemble._window_block = monkey
         try:
