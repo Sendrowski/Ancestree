@@ -550,8 +550,8 @@ def _add_fixed_tree_parser(
     g.add_argument(
         "--focal-depth", type=float, metavar="D",
         help=(
-            "Place the readout point D expected substitutions per site above "
-            "the ingroup MRCA."
+            "Read out D substitutions per site above the ingroup MRCA "
+            "(sample plane with --tree)."
         ),
     )
     p.add_argument(
