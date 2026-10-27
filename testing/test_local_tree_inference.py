@@ -463,6 +463,37 @@ def test_uncalled_site_scores_at_the_composition_prior(n_ensemble):
                                rtol=1e-12)
 
 
+@pytest.mark.parametrize("make", [toy_inference, toy_chunked_inference])
+def test_plug_in_scores_missing_calls_as_missing(make):
+    """The plug-in scores each site's observed calls on its point tree, a
+    missing or non-ACGT call kept missing as in the ensemble. Scoring the
+    baked tree sequence read them as the alleles map_mutations had imputed."""
+    from ancestree.trees import TskitLocalTree
+
+    sites, names = toy_sites(range(0, 2000, 20), n_hap=8)
+    rng = np.random.default_rng(1)
+    sites = [replace(s, tip_alleles={
+        n: (None if u < 0.2 else "N" if u < 0.25 else a)
+        for (n, a), u in zip(s.tip_alleles.items(), rng.random(len(names)))})
+        for s in sites]
+    inf = make(sites, names, n_ensemble=None)
+    plug = {s.pos: p.values for s, p in inf.infer()}
+    pts = inf.point_tree_sequence()
+    smap = {pts.individual(pts.node(u).individual).metadata["name"]: int(u)
+            for u in pts.samples()}
+    arg = ARGBasedInference(pts, JC69(), mu=MU, progress=False)
+    n_missing = 0
+    for site in sites:
+        if not any(site.tip_alleles[n] in STATES for n in names):
+            continue
+        n_missing += any(site.tip_alleles[n] not in STATES for n in names)
+        tree = TskitLocalTree.from_tskit_tree(pts.at(site.pos), sample_map=smap)
+        np.testing.assert_allclose(plug[site.pos],
+                                   arg.infer_site(tree, site).values,
+                                   rtol=1e-10, atol=1e-14)
+    assert n_missing > 50
+
+
 # --------------------------------------------------------- end to end
 def test_polarisation_accuracy_and_outgroup_gain():
     """Genotype-only polarisation is well above chance. Outgroups help."""

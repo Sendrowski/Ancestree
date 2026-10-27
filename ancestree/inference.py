@@ -1435,6 +1435,10 @@ class ARGBasedInference(Inference):
         that ``outgroup_samples`` drops.
     """
 
+    #: ``(num_sites, n_samples) bool``, per tree-sequence site the sample
+    #: columns read as missing whatever allele its mutations give them.
+    _uncalled: "np.ndarray | None" = None
+
     @property
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
@@ -1808,7 +1812,9 @@ class ARGBasedInference(Inference):
                     ]
                     sites_in_tree = [
                         _site_from_tskit_variant(
-                            v, sample_nodes, self._node_to_sample, self.chrom)
+                            v, sample_nodes, self._node_to_sample, self.chrom,
+                            None if self._uncalled is None
+                            else self._uncalled[v.index])
                         for v in variants_in_tree
                     ]
                     focal = self._resolve_focal(tree)
@@ -2138,6 +2144,8 @@ class ARGBasedInference(Inference):
             )
             lut = np.append(lut, np.int8(-1))
             g = np.asarray(v.genotypes)
+            if self._uncalled is not None:
+                g = np.where(self._uncalled[v.index], -1, g)
             g_safe = np.where(g < 0, len(alleles), g)
             tip[b] = lut[g_safe]
         tip[:, ~bound_mask] = -1

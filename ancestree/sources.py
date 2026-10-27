@@ -37,6 +37,7 @@ def _site_from_tskit_variant(
     sample_nodes: np.ndarray,
     node_to_sample: Mapping[int, str],
     chrom: str,
+    uncalled: "np.ndarray | None" = None,
 ) -> Site:
     """Convert one tskit variant into a :class:`~ancestree.sites.Site`.
 
@@ -50,10 +51,13 @@ def _site_from_tskit_variant(
     :param node_to_sample: Mapping from tskit sample node id to caller-facing
         sample id. Nodes absent from it are left out of ``tip_alleles``.
     :param chrom: Contig name to embed in the emitted site.
+    :param uncalled: Optional ``(n_samples,)`` mask of columns read as missing.
     :return: The site, whose ``local_tree_handle`` is the variant's genomic
         position.
     """
     genotypes = variant.genotypes
+    if uncalled is not None:
+        genotypes = np.where(uncalled, -1, genotypes)
     alleles = tuple((a.upper() if a else a) for a in variant.alleles)
     tip_alleles: dict[str, str | None] = {}
     for i, node in enumerate(sample_nodes):

@@ -1500,10 +1500,11 @@ class LocalTreeInference(Inference):
                 ens.uniform_fallback[keep].sum()) + n_bad)
         else:
             origin = geometry.origin
+            ts = segment.to_tree_sequence()
             # The trees lie on the core alone, so the per-tree tallies count
             # no halo tree.
             arg = ARGBasedInference(
-                segment.to_tree_sequence(), self.model,
+                ts, self.model,
                 mu=geometry.kernel_mu(self.mu), prior=self.prior,
                 base_composition=self.base_composition, progress=False,
                 n_workers=1, focal=self.focal,
@@ -1511,6 +1512,17 @@ class LocalTreeInference(Inference):
                 outgroup_samples=self._resolved_outgroups or None,
             )
             arg._quiet = True
+            # Each site is scored on its observed calls, a missing one kept
+            # missing.
+            g, positions, _ = segment.prepared_hmm
+            uncalled = g < 0
+            if uncalled.any():
+                order = np.argsort(positions, kind="stable")
+                column = {name: i for i, name in enumerate(self.sample_names)}
+                arg._uncalled = uncalled[np.ix_(
+                    order[np.searchsorted(positions[order], ts.sites_position)],
+                    [column[arg._node_to_sample[int(u)]]
+                     for u in arg.ts.samples()])]
             # Paired by position in the segment's frame (pos - origin). A site
             # absent from the baked tree sequence scores at the prior.
             scored = {int(ts_site.pos): np.asarray(post.values)
