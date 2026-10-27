@@ -2331,7 +2331,10 @@ class FixedTreeInference(Inference):
         are ``round(pi × (n_target_sites − n_polymorphic))``.
     :param n_target_sites: Total target-region length, from which the
         monomorphic weights are derived. Required when
-        ``base_composition.counts`` is all-zero and a fit runs.
+        ``base_composition.counts`` is all-zero and a fit runs. The derived
+        monomorphic sites count as called at every tip, so an outgroup missing
+        at a fraction :math:`m` of the variant sites has its divergence fitted
+        about :math:`(1 - m)` times too small, which an all-sites input avoids.
     :param sample_filter: Restrict a VCF / VCZ read to these sample names,
         each of which must be in one of the sample lists where both are given.
         ``None`` reads every sample and ignores those in neither list.

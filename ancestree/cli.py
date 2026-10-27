@@ -615,7 +615,10 @@ def _add_fixed_tree_parser(
         help=(
             "Genome length L for monomorphic-site calibration, required for "
             "the branch-rate MLE unless --base-composition supplies per-base "
-            "counts."
+            "counts. The monomorphic sites count as called in every outgroup, "
+            "so an outgroup missing at a fraction m of the variants has its "
+            "divergence fitted about (1 - m) times too small, which an "
+            "all-sites input avoids."
         ),
     )
     composition.add_argument(
