@@ -1385,7 +1385,7 @@ class ARGBasedInference(Inference):
         such as :class:`msprime.RateMap`, whose rate at each site's position
         scales the branches that site is scored on.
     :param base_composition: Optional :class:`~ancestree.sites.BaseComposition`
-        of empirical base frequencies. Required by the non-symmetric models,
+        of empirical base frequencies. Sets the non-symmetric models' π,
         and the π of the root prior under every model. ``None`` is uniform.
     :param prior: Optional root :class:`~ancestree.priors.StationaryPrior`
         applied after the kernel. ``None`` (default) builds one from the base
