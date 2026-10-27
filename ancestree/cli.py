@@ -956,20 +956,19 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     ])
     out_format = _out_format(args, "fixed-tree", ("vcf", "vcz"))
     from ancestree.inference import FixedTreeInference
-    from ancestree.trees import FixedTree, OutgroupLadderTree, Tree
+    from ancestree.trees import FixedTree, Tree
 
     ingroup = args.ingroup
     if ingroup is None and args.outgroups:
         ingroup = FixedTreeInference.default_ingroup(
             args.vcf, args.outgroups, sample_filter=args.samples or None)
 
-    # Build the tree first, so a topology error surfaces early. A supplied Newick is used verbatim. Otherwise --outgroups is
-    # taken as closest-first and the rates are fitted.
+    # A supplied Newick is used verbatim. Otherwise --outgroups is taken as
+    # closest-first and the rates are fitted.
+    tree: "Tree | None" = None
     if st:
         with open(args.tree, encoding="utf-8") as fh:
-            tree: Tree = FixedTree.from_newick(fh.read().strip())
-    else:
-        tree = OutgroupLadderTree(ingroup, args.outgroups)
+            tree = FixedTree.from_newick(fh.read().strip())
 
     template_vcf = args.template_vcf
     if out_format == "vcz" and template_vcf is not None:
@@ -1010,8 +1009,8 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         args.vcf,
         model=model,
         tree=tree,
-        ingroup_samples=ingroup if st else None,
-        outgroup_samples=args.outgroups if st else None,
+        ingroup_samples=ingroup,
+        outgroup_samples=args.outgroups,
         sample_filter=(args.samples or None),
         baseline_check=args.baseline_check,
         focal=_build_focal(args),

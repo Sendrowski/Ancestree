@@ -1254,6 +1254,28 @@ def test_local_tree_samples_select_individuals(tmp_path):
              "--outgroups", "o1_h0", "--out", str(out)])
 
 
+def test_fixed_tree_resolves_haploid_outgroup_names(tmp_path):
+    """Haploid outgroups in a diploid VCF are named by individual, as in the
+    human_data notebook. The CLI built the ladder itself from the raw names,
+    skipping FixedTreeInference's resolution, and refused them as absent."""
+    import msprime
+    from testing._helpers import write_panel_vcf
+
+    ts = msprime.sim_mutations(msprime.sim_ancestry(
+        8, ploidy=1, sequence_length=100_000, recombination_rate=1e-8,
+        population_size=1e4, random_seed=3), rate=5e-8, random_seed=3)
+    vcf = write_panel_vcf(ts, tmp_path / "mixed.vcf",
+                          outgroups=("chimpanzee", "gorilla"))
+    calls = {}
+    for names in ("chimpanzee,gorilla", "chimpanzee_h0,gorilla_h0"):
+        out = tmp_path / f"{names}.vcf"
+        assert run(["fixed-tree", "--vcf", vcf, "--outgroups", names,
+                    "--n-target-sites", "100000", "--n-starts", "1",
+                    "--out", str(out)]) == 0
+        calls[names] = _aa_calls(out)
+    assert calls["chimpanzee,gorilla"] == calls["chimpanzee_h0,gorilla_h0"]
+
+
 def test_local_tree_reads_a_tree_sequence_through_the_cli(tmp_path):
     """The CLI must reach the source the library accepts. ``--phase-seed``
     defaulting to 0 rather than the constructor's None made every reader
