@@ -1221,6 +1221,33 @@ def test_a_repeated_sample_name_is_refused(lists):
                            progress=False, baseline_check=False, **lists)
 
 
+@pytest.mark.parametrize("weight, outgroups", [
+    (anc.KingmanIngroupWeight(["x0", "x1"]), []),
+    (anc.KingmanIngroupWeight(["i0", "x1"]), ["o1", "o2"]),
+    (anc.KingmanIngroupWeight(["i0", "o1"]), ["o1", "o2"]),
+    (anc.AdaptiveIngroupWeight(["x0", "x1", "x2"]), ["o1", "o2"]),
+])
+def test_an_ingroup_weight_outside_the_ingroup_is_refused(weight, outgroups):
+    """A weight over ids the ingroup does not hold reads every site as an
+    unobserved ingroup, and the fit drove K0 to ten times its value with K1
+    at zero."""
+    sites = _ladder_sites(20, outgroups=("i0", "i1", "o1", "o2"))
+    with pytest.raises(ValueError, match="not in the ingroup"):
+        FixedTreeInference(sites, JC69(), n_target_sites=1_000,
+                           ingroup_samples=["i0", "i1"],
+                           outgroup_samples=outgroups, ingroup_weight=weight,
+                           progress=False, baseline_check=False)
+
+
+def test_an_ingroup_weight_on_part_of_the_ingroup_is_accepted():
+    sites = _ladder_sites(20, outgroups=("i0", "i1", "o1", "o2"))
+    FixedTreeInference(sites, JC69(), n_target_sites=1_000,
+                       ingroup_samples=["i0", "i1"],
+                       outgroup_samples=["o1", "o2"],
+                       ingroup_weight=anc.KingmanIngroupWeight(["i1"]),
+                       progress=False, baseline_check=False)
+
+
 class TestListsGivenWithALadder:
     """Sample lists passed beside a ladder must name the ladder's samples.
 

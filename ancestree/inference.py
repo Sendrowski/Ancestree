@@ -2394,7 +2394,8 @@ class FixedTreeInference(Inference):
 
     :raises ValueError: On a tree with no outgroups, a sample list naming a
         sample twice or differing from the ladder's, an ingroup and outgroup
-        set that overlap, a ``sample_filter`` entry in neither list, or an
+        set that overlap, a ``sample_filter`` entry in neither list, an
+        ingroup weight naming a sample outside the ingroup, or an
         unresolvable focal placement.
     """
 
@@ -2550,6 +2551,8 @@ class FixedTreeInference(Inference):
                 else self.tree.ingroup_samples)
             self._resolved_outgroups = tuple(
                 () if self.tree is None else self.tree.outgroup_samples)
+        if not self._given_tree:
+            self._refuse_weight_outside(ingroup_weight)
         self.model = model
         actual_bc = BaseComposition.require(
             actual_bc, context="FixedTreeInference",
@@ -3057,6 +3060,25 @@ class FixedTreeInference(Inference):
                 f"'<name>_h1', and an outgroup is one ladder tip, so name one "
                 f"haplotype."
             )
+
+    def _refuse_weight_outside(self, ingroup_weight) -> None:
+        """Refuse an ingroup weight naming a sample outside the run's ingroup.
+
+        :param ingroup_weight: The supplied weight, or ``None``.
+        :raises ValueError: If one of its ``ingroup_samples`` matches no
+            ingroup haplotype or individual.
+        """
+        names = getattr(ingroup_weight, "ingroup_samples", None) or ()
+        named = set(self._resolved_ingroup)
+        ingroup = _by_individual(named)
+        outside = [s for s in names
+                   if s not in ingroup and not _named(s, named)]
+        if outside:
+            raise ValueError(
+                f"FixedTreeInference: {len(outside)} sample(s) of the "
+                f"{type(ingroup_weight).__name__} are not in the ingroup: "
+                f"{outside[:6]}{' ...' if len(outside) > 6 else ''}. The "
+                f"ingroup holds ids like {list(self._resolved_ingroup)[:4]}.")
 
     def fit(self) -> dict[str, float]:
         r"""Run L-BFGS-B to fit the tree's branch rates by ML.
