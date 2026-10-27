@@ -2318,7 +2318,7 @@ class FixedTreeInference(Inference):
         :meth:`FixedTreeInference.default_ingroup()
         <ancestree.inference.FixedTreeInference.default_ingroup>`). On a
         :class:`~ancestree.trees.FixedTree` they only set the reporting node
-        and default to every tip.
+        and default to the tips of individuals not named as outgroups.
     :param outgroup_samples: Outgroup sample names, closest first. Required
         without ``tree``. ``[]`` is the no-outgroup mode, where the ingroup
         weight and the root prior alone give the posterior.
@@ -2535,9 +2535,10 @@ class FixedTreeInference(Inference):
                     f"FixedTreeInference: sample(s) {unknown} are not tips "
                     f"of the tree, whose tips are {sorted(tips)}."
                 )
-            self._resolved_ingroup = (
-                tuple(ingroup_samples) if ingroup_samples else tips)
             self._resolved_outgroups = tuple(outgroup_samples or ())
+            self._resolved_ingroup = (
+                tuple(ingroup_samples) if ingroup_samples
+                else tuple(self._ingroup_of(tips, self._resolved_outgroups)))
         else:
             self._check_filter_labelled(sample_filter, ingroup_samples,
                                         outgroup_samples)

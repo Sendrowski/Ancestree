@@ -404,6 +404,16 @@ class TestSpeciesTreeAsGiven:
             self._posterior(ingroup_samples=["c", "b"], focal="panel_root"),
             self._posterior(), rtol=1e-12)
 
+    def test_outgroups_alone_set_the_ingroup(self):
+        """Naming only the outgroups reads at the MRCA of the other tips. The
+        ingroup used to default to every tip, outgroups included, which read
+        at the root and made grade() refuse the overlapping lists."""
+        named = self._posterior(ingroup_samples=["h", "c", "b"],
+                                outgroup_samples=["g"])
+        np.testing.assert_array_equal(
+            self._posterior(outgroup_samples=["g"]), named)
+        assert np.abs(named - self._posterior()).max() > 1e-4
+
     def test_label_off_the_tree_raises(self):
         """A sample present in the data but absent from the tree cannot set
         the reporting node."""
