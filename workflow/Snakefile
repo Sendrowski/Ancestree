@@ -321,13 +321,15 @@ OUTGROUP_DIVERGENCE_CONFIG = dict(
     n_ingroup=20, length=1e6, mu=1.25e-8, rec_rate=1e-8,
     pop_size=3e4, ingroup_pop_size=3e4, seed=42,
 )
-# Uniform in log space (a factor of 3 per step), reaching shallow enough
-# that the outgroups stop being informative and ARG mode degrades.
+# Uniform in log space (five steps per decade), reaching shallow enough that
+# the outgroups stop being informative and deep enough that recurrent
+# mutation erodes their signal.
 OUTGROUP_DIVERGENCE_DEPTHS = [
     "1e4", "1.6e4", "2.5e4", "4e4",
     "6.3e4", "1e5", "1.6e5", "2.5e5",
     "4e5", "6.3e5", "1e6", "1.6e6",
     "2.5e6", "4e6", "6.3e6", "1e7",
+    "1.6e7", "2.5e7",
 ]
 OUTGROUP_DIVERGENCE_SPACINGS = ["linear", "geometric", "compact_near", "compact_far"]
 # Outgroup counts each simulated cell is subsetted to, without re-simulating:

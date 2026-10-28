@@ -19,14 +19,15 @@
 # ``DATA`` / ``REPORTS`` / ``OUTGROUP_DIVERGENCE_CONFIG`` / ``capped_runtime``
 # come from the including Snakefile.
 
-#: Outgroup split times in generations, 16 values log-uniform from 1e4 to 1e7
+#: Outgroup split times in generations, log-uniform from 1e4 to 2.5e7
 #: inclusive (a factor of 10**(1/5) per step), rounded to two significant
-#: figures.
+#: figures, matching OUTGROUP_DIVERGENCE_DEPTHS.
 SINGLE_OUTGROUP_DEPTHS = [
     "1e4", "1.6e4", "2.5e4", "4e4",
     "6.3e4", "1e5", "1.6e5", "2.5e5",
     "4e5", "6.3e5", "1e6", "1.6e6",
     "2.5e6", "4e6", "6.3e6", "1e7",
+    "1.6e7", "2.5e7",
 ]
 
 
@@ -95,7 +96,7 @@ rule infer_single_outgroup_vcf:
 
 
 rule report_single_outgroup:
-    """Aggregate the 16 depths x {arg, vcf} cells into the report pair."""
+    """Aggregate the depth x {arg, vcf} cells into the report pair."""
     input:
         arg_cells = expand(
             f"{DATA}/single_outgroup_arg_d{{depth}}.json",
