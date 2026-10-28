@@ -135,10 +135,6 @@ class TskitSource(SiteSource):
             ts.num_sites, len(self._samples_list),
         )
 
-    def samples(self) -> list[str]:
-        """Caller-facing sample ids in the canonical order from the tskit ts."""
-        return list(self._samples_list)
-
     def contig_lengths(self) -> dict[str, int]:
         """The tree sequence's length, as the length of its contig.
 
@@ -279,10 +275,6 @@ class CyVCF2Source(SiteSource):
     def ploidy(self) -> int:
         """Ploidy that expands each per-sample genotype into per-haplotype tips."""
         return self._ploidy
-
-    def samples(self) -> list[str]:
-        """Per-haplotype tip ids in ``sample_filter`` order, else file order."""
-        return list(self._samples_list)
 
     def contig_lengths(self) -> dict[str, int]:
         """The length of each contig the VCF header declares with one.
@@ -446,10 +438,6 @@ class VcfZarrSource(SiteSource):
     def ploidy(self) -> int:
         """Ploidy as recorded in the ``call_genotype`` array."""
         return self._ploidy
-
-    def samples(self) -> list[str]:
-        """Per-haplotype tip ids in ``sample_filter`` order, else store order."""
-        return list(self._samples_list)
 
     def __iter__(self) -> Iterator[Site]:
         """Stream :class:`~ancestree.sites.Site` records, chunking the underlying zarr reads."""

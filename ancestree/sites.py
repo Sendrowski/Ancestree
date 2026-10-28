@@ -1232,6 +1232,8 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     _phase_seed: int = 0
     #: Haplotypes read per sample.
     _ploidy: int = 1
+    #: Sample identifiers in source-canonical order.
+    _samples_list: "list[str]"
     #: Whether a record carrying more haplotypes than the resolved ploidy has
     #: been reported.
     _warned_ploidy_truncated: bool = False
@@ -1558,7 +1560,6 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         """Iterate :class:`~ancestree.sites.Site` records in source-canonical order."""
         ...
 
-    @abstractmethod
     def samples(self) -> list[str]:
         """Stable list of sample identifiers that may appear in
         :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`.
@@ -1568,6 +1569,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
 
         :return: Sample identifiers in source-canonical order.
         """
+        return list(self._samples_list)
 
     @staticmethod
     def _decode(x: object) -> str:
