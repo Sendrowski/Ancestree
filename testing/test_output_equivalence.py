@@ -526,3 +526,88 @@ def test_an_ascertained_composition_is_reported_to_a_pi_model(caplog):
 
     assert build(HKY(kappa=2.0)), "a base-frequency model must be told"
     assert not build(JC69()), "a uniform stationary vector cannot be biased"
+
+
+_MIXED_VCF = """##fileformat=VCFv4.2
+##contig=<ID=1,length=1000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="gt">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts0\ts1\ts2\ts3
+1\t10\tsnp\tC\tG\t.\tPASS\t.\tGT\t0\t1\t1\t0
+1\t20\tins\tA\tG,AT\t.\tPASS\t.\tGT\t1\t2\t0\t0
+1\t30\tstar\tA\tG,*\t.\tPASS\t.\tGT\t1\t1\t2\t0
+1\t40\tindel\tA\tAT,*\t.\tPASS\t.\tGT\t1\t2\t0\t0
+1\t50\tdel\tCT\tC\t.\tPASS\t.\tGT\t0\t1\t0\t0
+"""
+
+#: ``_MIXED_VCF`` with the indel and ``*`` carriers uncalled.
+_MIXED_AS_MISSING_VCF = """##fileformat=VCFv4.2
+##contig=<ID=1,length=1000>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="gt">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts0\ts1\ts2\ts3
+1\t10\tsnp\tC\tG\t.\tPASS\t.\tGT\t0\t1\t1\t0
+1\t20\tins\tA\tG\t.\tPASS\t.\tGT\t1\t.\t0\t0
+1\t30\tstar\tA\tG\t.\tPASS\t.\tGT\t1\t1\t.\t0
+"""
+
+
+class TestSnpRecordWithAnIndelAllele:
+    """A record whose ALT mixes a SNP with an indel or ``*`` is a site.
+
+    GATK joint genotyping writes a SNP overlapping an indel as ``REF A, ALT
+    G,AT`` or ``G,*``. Both readers dropped such a record without a word, so
+    the SNP was neither scored nor annotated. Its indel and ``*`` carriers are
+    marginalised and counted as the tree-sequence path does, and a record
+    with no single-base ALT stays skipped.
+    """
+
+    @pytest.fixture(params=["vcf", "vcz"])
+    def mixed(self, request, tmp_path):
+        import bio2zarr.vcf as bio2zarr_vcf
+
+        vcf = tmp_path / "mixed.vcf"
+        vcf.write_text(_MIXED_VCF, encoding="utf-8")
+        if request.param == "vcf":
+            return str(vcf)
+        vcz = tmp_path / "mixed.vcz"
+        bio2zarr_vcf.convert([str(vcf)], str(vcz), show_progress=False)
+        return str(vcz)
+
+    @staticmethod
+    def _inference(path):
+        tree = OutgroupLadderTree(["s0", "s1", "s2"], ["s3"])
+        tree.set_params(np.array([0.02]))
+        return FixedTreeInference(
+            _open(path), JC69(), BaseComposition.from_n_target_sites(1000),
+            tree=tree, fit_required=False, progress=False)
+
+    def test_the_snp_alleles_are_read(self, mixed):
+        sites = {s.pos: s for s in _open(mixed)}
+        assert sorted(sites) == [10, 20, 30]
+        assert sites[20].alleles == ("A", "G", "AT")
+        assert dict(sites[20].tip_alleles) == {
+            "s0": "G", "s1": "AT", "s2": "A", "s3": "A"}
+        assert sites[30].tip_alleles["s2"] == "*"
+
+    def test_the_indel_carriers_are_marginalised(self, mixed, tmp_path,
+                                                 caplog):
+        missing = tmp_path / "missing.vcf"
+        missing.write_text(_MIXED_AS_MISSING_VCF, encoding="utf-8")
+        want = {s.pos: p.values
+                for s, p in self._inference(str(missing)).infer()}
+        with caplog.at_level("WARNING"):
+            got = {s.pos: p.values for s, p in self._inference(mixed).infer()}
+        assert sorted(got) == sorted(want)
+        for pos in want:
+            np.testing.assert_array_equal(got[pos], want[pos])
+        assert any("2 site(s) carry an allele outside" in r.message
+                   and "2 tip(s) were marginalised" in r.message
+                   for r in caplog.records)
+
+    def test_only_the_snp_records_are_annotated(self, mixed, tmp_path):
+        out = str(tmp_path / ("out.vcf" if mixed.endswith(".vcf")
+                              else "out.vcz"))
+        inference = self._inference(mixed)
+        (inference.to_vcf if out.endswith(".vcf") else inference.to_zarr)(out)
+        calls = {int(r.pos): r.aa for r in Reader(out).annotations()}
+        assert all(calls[pos] is not None for pos in (10, 20, 30))
+        assert calls.get(40) is None and calls.get(50) is None

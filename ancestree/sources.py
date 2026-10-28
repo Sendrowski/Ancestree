@@ -175,8 +175,10 @@ class CyVCF2Source(SiteSource):
     name is kept unchanged. Ploidy is auto-detected from the first called
     variant on ``chrom_filter``. Pass ``ploidy=`` explicitly to override.
 
-    Non-SNP variants (indels, complex alleles, alleles outside the
-    A/C/G/T alphabet) are silently skipped.
+    A record is read when its REF and at least one ALT are A/C/G/T, or it
+    has no ALT. Its other alleles (an indel, ``*`` or a symbolic allele) stay
+    in the site and their carriers are marginalised. Records with no A/C/G/T
+    ALT, such as pure indels, are skipped.
 
     The source is re-iterable: each ``iter(source)`` reopens the VCF.
 
@@ -352,8 +354,8 @@ class VcfZarrSource(SiteSource):
     Genotypes are read in chunks to bound memory on large stores.
 
     Per-haplotype tip naming follows :class:`~ancestree.sources.CyVCF2Source`: a diploid
-    sample ``S`` becomes ``S_h0`` / ``S_h1``. Non-SNP variants
-    (multi-character alleles, alleles outside A/C/G/T) are skipped.
+    sample ``S`` becomes ``S_h0`` / ``S_h1``, and records are read or
+    skipped as there.
 
     :param zarr_path: Path (or any zarr-compatible URI) to the VCZ root.
     :param sample_filter: Optional sequence of sample names to keep

@@ -88,10 +88,11 @@ class Site:
     1."""
 
     alleles: tuple[str, ...]
-    """Observed alleles, REF first. Each entry is a single-character string
+    """Observed alleles, REF first, each normally a single-character string
     drawn from :attr:`SubstitutionModel.states <ancestree.models.SubstitutionModel.states>` (default
-    A/C/G/T). Multi-character alleles (indels) are not handled by the
-    likelihood kernel."""
+    A/C/G/T). An allele outside them, such as an indel, ``*`` or a symbolic
+    allele, may appear beside them, and the kernel marginalises the tips
+    holding it."""
 
     tip_alleles: Mapping[str, str | None]
     """Mapping from sample identifier to the observed allele at this site
@@ -1389,21 +1390,26 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
 
     @staticmethod
     def _snp_alleles(raw: "Iterable[str | None]"):
-        """A record's alleles upper-cased, and the SNP alleles among them.
+        """A record's alleles upper-cased, and the site alleles among them.
+
+        A record is a SNP when its reference allele is one of
+        :data:`~ancestree.STATES` and so is at least one alternate allele, or
+        it carries none. Its other alternates, such as an indel, ``*`` or a
+        symbolic allele, stay in the site, and the tips holding one are
+        marginalised.
 
         :param raw: The record's alleles, REF first, with ``None`` in the slot
             of an allele the record does not carry.
         :return: ``(alleles, site_alleles)``, or ``None`` where the record is
-            not a SNP: it carries no reference allele, or an allele outside
-            :data:`~ancestree.STATES`.
+            not a SNP.
         """
         alleles = tuple((a.upper() if a else None) for a in raw)
-        site_alleles = tuple(a for a in alleles if a)
-        if not site_alleles or alleles[0] is None:
+        if alleles[0] not in STATE_INDEX:
             return None
-        if not all(len(a) == 1 and a in STATES for a in site_alleles):
+        alts = [a for a in alleles[1:] if a]
+        if alts and not any(a in STATE_INDEX for a in alts):
             return None
-        return alleles, site_alleles
+        return alleles, tuple(a for a in alleles if a)
 
     def _phase_order(self, sample: str, pos: int,
                      called: "Iterable[int]",
@@ -1432,9 +1438,10 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
                             calls) -> Iterator[Site]:
         """Decode VCF-style records into sites.
 
-        Non-SNP records are skipped and unphased calls drawn into a haplotype
-        order. A haploid source keeps the sample name, any other names
-        haplotype ``k`` ``<name>_h<k>``.
+        Records that are not a SNP (:meth:`SiteSource._snp_alleles`) are
+        skipped and unphased calls drawn into a haplotype order. A haploid
+        source keeps the sample name, any other names haplotype ``k``
+        ``<name>_h<k>``.
 
         :param records: ``(chrom, pos, alleles, payload)`` per record in file
             order, ``alleles`` REF first with ``None`` or ``""`` in the slot of
@@ -1454,9 +1461,9 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         seen_unphased: dict = {}
         seen_padded: dict = {}
         for chrom, pos, raw, payload in records:
-            # Tested before the allele filter, so a record skipped for
-            # carrying a non-ACGT allele still marks the position it shared
-            # with the record that follows it.
+            # Tested before the allele filter, so a skipped indel record
+            # still marks the position it shares with the record that
+            # follows it.
             if (chrom, pos) == prev and not warned_split:
                 self._warn_split_multiallelic(chrom, pos)
                 warned_split = True
@@ -1543,7 +1550,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
             "other alternates' carriers as the reference allele, inflating "
             "the reference frequency, and scores the position once per line. "
             "The kernel handles poly-allelic sites directly: rejoin with "
-            "`bcftools norm -m+` before annotating.", chrom, pos,
+            "`bcftools norm -m+any` before annotating.", chrom, pos,
         )
 
     @abstractmethod
