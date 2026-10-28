@@ -17,99 +17,99 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.8849571142007332,
-        "mean_max_prob": 0.8840098021354895,
-        "mean_entropy_bits": 0.3630184127755688,
-        "baseline_agreement": 0.9957667565885039,
+        "accuracy": 0.7347409559382998,
+        "mean_max_prob": 0.99989543524357,
+        "mean_entropy_bits": 0.0005766641860134823,
+        "baseline_agreement": 0.842444836411427,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.9931196212473176,
-        "mean_max_prob": 0.9928126737976815,
-        "mean_entropy_bits": 0.02281272638437056,
-        "baseline_agreement": 0.999712395743457,
+        "accuracy": 0.9985841021216345,
+        "mean_max_prob": 0.9987710088032739,
+        "mean_entropy_bits": 0.006283290961573194,
+        "baseline_agreement": 0.9909736510254198,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9924305502989933,
-          "mean_max_prob": 0.9928271143194598,
-          "mean_entropy_bits": 0.022818614682441795,
-          "baseline_agreement": 0.9994701385209295,
+          "accuracy": 0.9996972220119598,
+          "mean_max_prob": 0.9995513356904955,
+          "mean_entropy_bits": 0.0023915593746066657,
+          "baseline_agreement": 0.9906138823707517,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9930394431554525,
-          "mean_max_prob": 0.9923365545067371,
-          "mean_entropy_bits": 0.024368017954574637,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9987716664391975,
+          "mean_max_prob": 0.9989679956537201,
+          "mean_entropy_bits": 0.004989795243213365,
+          "baseline_agreement": 0.9912651835676266,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9925415949512335,
-          "mean_max_prob": 0.9917537132938372,
-          "mean_entropy_bits": 0.0257138503261367,
-          "baseline_agreement": 0.9996175176898069,
+          "accuracy": 0.9973226238286479,
+          "mean_max_prob": 0.9985146452811346,
+          "mean_entropy_bits": 0.006832233353318783,
+          "baseline_agreement": 0.9904379422451711,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9925224327018943,
-          "mean_max_prob": 0.992471738992375,
-          "mean_entropy_bits": 0.023571876623932043,
-          "baseline_agreement": 0.9997507477567298,
+          "accuracy": 0.9992522432701895,
+          "mean_max_prob": 0.9990804623703385,
+          "mean_entropy_bits": 0.00588559944112505,
+          "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9944847605224963,
-          "mean_max_prob": 0.9943429863931048,
-          "mean_entropy_bits": 0.018452052805078396,
-          "baseline_agreement": 0.9997097242380262,
+          "accuracy": 0.9982583454281567,
+          "mean_max_prob": 0.998431491994968,
+          "mean_entropy_bits": 0.008373801935211964,
+          "baseline_agreement": 0.9921625544267054,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9934340118187788,
-          "mean_max_prob": 0.9920348714731352,
-          "mean_entropy_bits": 0.024819046605800567,
-          "baseline_agreement": 0.9996717005909389,
+          "accuracy": 0.9973736047275115,
+          "mean_max_prob": 0.9979187271253498,
+          "mean_entropy_bits": 0.010014156695851211,
+          "baseline_agreement": 0.990151017728168,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9931826336562612,
-          "mean_max_prob": 0.9922144357176632,
-          "mean_entropy_bits": 0.024225851056853858,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9982059562253319,
+          "mean_max_prob": 0.9982144223119039,
+          "mean_entropy_bits": 0.010081902471600464,
+          "baseline_agreement": 0.9928238249013276,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9952662721893492,
-          "mean_max_prob": 0.9937768103359828,
-          "mean_entropy_bits": 0.020287518937989982,
-          "baseline_agreement": 0.9996055226824457,
+          "accuracy": 0.9964497041420118,
+          "mean_max_prob": 0.996989205236478,
+          "mean_entropy_bits": 0.013269099203000546,
+          "baseline_agreement": 0.9889546351084813,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9941102229701304,
-          "mean_max_prob": 0.993961869944213,
-          "mean_entropy_bits": 0.019741475952953853,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9983172065628944,
+          "mean_max_prob": 0.9982920538759935,
+          "mean_entropy_bits": 0.009494863624998484,
+          "baseline_agreement": 0.9894825410180901,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9943181818181818,
-          "mean_max_prob": 0.9958903607933293,
-          "mean_entropy_bits": 0.013872429535924831,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9983766233766234,
+          "mean_max_prob": 0.998218261917349,
+          "mean_entropy_bits": 0.010439571818079418,
+          "baseline_agreement": 0.9943181818181818,
           "n_baseline_compared": 1232
         }
       }
@@ -122,9 +122,9 @@
       },
       "fitted_kappa": null,
       "fitted_outgroup_divergence": [
-        0.006662770801968254,
-        0.019516285477787623,
-        0.0322778913603705
+        0.006662949700071228,
+        0.01951660572282568,
+        0.032278221116265174
       ],
       "sim_kappa": 4.0,
       "sim_pi": [
@@ -135,98 +135,98 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.7336203915058449,
-        "mean_max_prob": 0.9998017473179243,
-        "mean_entropy_bits": 0.001086744045025624,
-        "baseline_agreement": 0.8424344608148302,
+        "accuracy": 0.7345593829978557,
+        "mean_max_prob": 0.9997949476069075,
+        "mean_entropy_bits": 0.001124525864516091,
+        "baseline_agreement": 0.8424223559521339,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.984270259507533,
-        "mean_max_prob": 0.9974636498951168,
-        "mean_entropy_bits": 0.013903284138789359,
-        "baseline_agreement": 0.9908630340036725,
+        "accuracy": 0.9962832680692905,
+        "mean_max_prob": 0.997376657641778,
+        "mean_entropy_bits": 0.014386646687736225,
+        "baseline_agreement": 0.9907081701732262,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9845583226099462,
-          "mean_max_prob": 0.9987524057966247,
-          "mean_entropy_bits": 0.008832496481835891,
+          "accuracy": 0.9982590265687684,
+          "mean_max_prob": 0.9986338911077203,
+          "mean_entropy_bits": 0.009361604582523032,
           "baseline_agreement": 0.9915222163348725,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9843046267230791,
-          "mean_max_prob": 0.9981571534588557,
-          "mean_entropy_bits": 0.012522703543095223,
+          "accuracy": 0.9969974068513716,
+          "mean_max_prob": 0.9980050802791638,
+          "mean_entropy_bits": 0.013047215799756526,
           "baseline_agreement": 0.990992220554115,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9845094664371773,
-          "mean_max_prob": 0.9978959146422448,
-          "mean_entropy_bits": 0.013821839198891971,
+          "accuracy": 0.9957926945878753,
+          "mean_max_prob": 0.9977680487941016,
+          "mean_entropy_bits": 0.014296823639427322,
           "baseline_agreement": 0.9915853891757507,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9840478564307079,
-          "mean_max_prob": 0.997530880001533,
-          "mean_entropy_bits": 0.014913977035348004,
+          "accuracy": 0.9977567298105683,
+          "mean_max_prob": 0.9973371716147114,
+          "mean_entropy_bits": 0.015510141796861847,
           "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9878084179970973,
-          "mean_max_prob": 0.9970210878477385,
-          "mean_entropy_bits": 0.016058867117746702,
+          "accuracy": 0.9962264150943396,
+          "mean_max_prob": 0.9968632902438861,
+          "mean_entropy_bits": 0.01660665597159589,
           "baseline_agreement": 0.993033381712627,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9842416283650689,
-          "mean_max_prob": 0.9956603329667456,
-          "mean_entropy_bits": 0.01942056747235079,
-          "baseline_agreement": 0.990151017728168,
+          "accuracy": 0.9931057124097177,
+          "mean_max_prob": 0.9957077766549585,
+          "mean_entropy_bits": 0.019655153300190877,
+          "baseline_agreement": 0.9871963230466185,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9888769285970578,
-          "mean_max_prob": 0.9968394086047617,
-          "mean_entropy_bits": 0.01588798369807623,
-          "baseline_agreement": 0.9956942949407965,
+          "accuracy": 0.9956942949407965,
+          "mean_max_prob": 0.9968987553395491,
+          "mean_entropy_bits": 0.016412918435999704,
+          "baseline_agreement": 0.9939002511661285,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.980276134122288,
-          "mean_max_prob": 0.9944760099475751,
-          "mean_entropy_bits": 0.021524563388118676,
-          "baseline_agreement": 0.9854043392504931,
+          "accuracy": 0.9928994082840237,
+          "mean_max_prob": 0.9948258181007401,
+          "mean_entropy_bits": 0.021819937762325596,
+          "baseline_agreement": 0.98698224852071,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9798064787547328,
-          "mean_max_prob": 0.9961889698041505,
-          "mean_entropy_bits": 0.01817720795428402,
-          "baseline_agreement": 0.9856962557846024,
+          "accuracy": 0.9941102229701304,
+          "mean_max_prob": 0.9960629272996251,
+          "mean_entropy_bits": 0.018638041976680016,
+          "baseline_agreement": 0.9869583508624317,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9772727272727273,
-          "mean_max_prob": 0.9931810018107892,
-          "mean_entropy_bits": 0.02545735846969494,
+          "accuracy": 0.9886363636363636,
+          "mean_max_prob": 0.993051219957983,
+          "mean_entropy_bits": 0.025644829924116867,
           "baseline_agreement": 0.9829545454545454,
           "n_baseline_compared": 1232
         }
@@ -249,99 +249,99 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.8850937262225911,
-        "mean_max_prob": 0.8833270903810639,
-        "mean_entropy_bits": 0.36443388717474196,
-        "baseline_agreement": 0.9957200664038183,
+        "accuracy": 0.7347409559382998,
+        "mean_max_prob": 0.9998804283895711,
+        "mean_entropy_bits": 0.0007165237932429763,
+        "baseline_agreement": 0.8424465656775264,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.9930753744386186,
-        "mean_max_prob": 0.9927512516502826,
-        "mean_entropy_bits": 0.02321105555052745,
-        "baseline_agreement": 0.9997566425521559,
+        "accuracy": 0.9985841021216345,
+        "mean_max_prob": 0.9986187137721212,
+        "mean_entropy_bits": 0.007666916854205311,
+        "baseline_agreement": 0.9909957744297693,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9923548558019832,
-          "mean_max_prob": 0.9927735871834726,
-          "mean_entropy_bits": 0.02318201919344409,
-          "baseline_agreement": 0.9995458330179396,
+          "accuracy": 0.9996972220119598,
+          "mean_max_prob": 0.9994999121432446,
+          "mean_entropy_bits": 0.002871217402332376,
+          "baseline_agreement": 0.9906138823707517,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9930394431554525,
-          "mean_max_prob": 0.9922496287965099,
-          "mean_entropy_bits": 0.0248090905286652,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9987716664391975,
+          "mean_max_prob": 0.9989179069459013,
+          "mean_entropy_bits": 0.005981694136817101,
+          "baseline_agreement": 0.9912651835676266,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9925415949512335,
-          "mean_max_prob": 0.9917123452541378,
-          "mean_entropy_bits": 0.02605372249216744,
-          "baseline_agreement": 0.9996175176898069,
+          "accuracy": 0.9973226238286479,
+          "mean_max_prob": 0.9983804052885785,
+          "mean_entropy_bits": 0.008132677478882529,
+          "baseline_agreement": 0.9906291834002677,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9922731804586241,
-          "mean_max_prob": 0.9924498755291655,
-          "mean_entropy_bits": 0.02387367113631227,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9992522432701895,
+          "mean_max_prob": 0.9989117341329568,
+          "mean_entropy_bits": 0.007417369728358186,
+          "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9944847605224963,
-          "mean_max_prob": 0.9942594377566323,
-          "mean_entropy_bits": 0.01894352340641762,
-          "baseline_agreement": 0.9997097242380262,
+          "accuracy": 0.9982583454281567,
+          "mean_max_prob": 0.9982740591286798,
+          "mean_entropy_bits": 0.010159167735992035,
+          "baseline_agreement": 0.9921625544267054,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9934340118187788,
-          "mean_max_prob": 0.9919486438719457,
-          "mean_entropy_bits": 0.025120118810471423,
-          "baseline_agreement": 0.9996717005909389,
+          "accuracy": 0.9973736047275115,
+          "mean_max_prob": 0.9976941729767155,
+          "mean_entropy_bits": 0.012099765058548515,
+          "baseline_agreement": 0.990151017728168,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9931826336562612,
-          "mean_max_prob": 0.9921344887698162,
-          "mean_entropy_bits": 0.024652648173083335,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9982059562253319,
+          "mean_max_prob": 0.9978303958062419,
+          "mean_entropy_bits": 0.012604950389543321,
+          "baseline_agreement": 0.9928238249013276,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9952662721893492,
-          "mean_max_prob": 0.9937170861710882,
-          "mean_entropy_bits": 0.020925245226485225,
-          "baseline_agreement": 0.9996055226824457,
+          "accuracy": 0.9964497041420118,
+          "mean_max_prob": 0.9965898904119335,
+          "mean_entropy_bits": 0.01596580488318889,
+          "baseline_agreement": 0.9889546351084813,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9941102229701304,
-          "mean_max_prob": 0.9939269973523387,
-          "mean_entropy_bits": 0.02009857586890967,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9983172065628944,
+          "mean_max_prob": 0.9979669345544901,
+          "mean_entropy_bits": 0.01215120752007142,
+          "baseline_agreement": 0.9894825410180901,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9943181818181818,
-          "mean_max_prob": 0.9957924048356819,
-          "mean_entropy_bits": 0.014456099497662857,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9983766233766234,
+          "mean_max_prob": 0.9979122952703975,
+          "mean_entropy_bits": 0.013123031808792485,
+          "baseline_agreement": 0.9943181818181818,
           "n_baseline_compared": 1232
         }
       }
@@ -352,11 +352,11 @@
       "empirical_params": {
         "kappa": 3.8328438858216844
       },
-      "fitted_kappa": 3.835795010451092,
+      "fitted_kappa": 3.8358549252070344,
       "fitted_outgroup_divergence": [
-        0.006669469763919581,
-        0.019556258362981933,
-        0.03237486998097521
+        0.006669839525877496,
+        0.019556742598587196,
+        0.0323754225110576
       ],
       "sim_kappa": 4.0,
       "sim_pi": [
@@ -367,98 +367,98 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.7336203915058449,
-        "mean_max_prob": 0.9997675702230383,
-        "mean_entropy_bits": 0.0013327377898345767,
-        "baseline_agreement": 0.8424344608148302,
+        "accuracy": 0.7345611122639552,
+        "mean_max_prob": 0.9997575246947458,
+        "mean_entropy_bits": 0.0013854030089910502,
+        "baseline_agreement": 0.8424223559521339,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.984270259507533,
-        "mean_max_prob": 0.9970264044712042,
-        "mean_entropy_bits": 0.017050410590596202,
-        "baseline_agreement": 0.9908630340036725,
+        "accuracy": 0.99630539147364,
+        "mean_max_prob": 0.9968978867833103,
+        "mean_entropy_bits": 0.017724184244581855,
+        "baseline_agreement": 0.9907081701732262,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9845583226099462,
-          "mean_max_prob": 0.9983265775537097,
-          "mean_entropy_bits": 0.011078527155405995,
+          "accuracy": 0.9982590265687684,
+          "mean_max_prob": 0.998172626321748,
+          "mean_entropy_bits": 0.011677993791213842,
           "baseline_agreement": 0.9915222163348725,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9843046267230791,
-          "mean_max_prob": 0.997650802222824,
-          "mean_entropy_bits": 0.015576885710306932,
+          "accuracy": 0.9969974068513716,
+          "mean_max_prob": 0.9974901899699791,
+          "mean_entropy_bits": 0.01618662378436244,
           "baseline_agreement": 0.990992220554115,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9845094664371773,
-          "mean_max_prob": 0.9972851491093844,
-          "mean_entropy_bits": 0.01731889927861565,
+          "accuracy": 0.9956014534327787,
+          "mean_max_prob": 0.9971211165554572,
+          "mean_entropy_bits": 0.018048974907181072,
           "baseline_agreement": 0.9915853891757507,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9840478564307079,
-          "mean_max_prob": 0.9972536443517847,
-          "mean_entropy_bits": 0.018064651403804206,
+          "accuracy": 0.9977567298105683,
+          "mean_max_prob": 0.9970384719927059,
+          "mean_entropy_bits": 0.01888813267469304,
           "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9878084179970973,
-          "mean_max_prob": 0.9965848951182051,
-          "mean_entropy_bits": 0.019548330508731816,
+          "accuracy": 0.9962264150943396,
+          "mean_max_prob": 0.9963583809529379,
+          "mean_entropy_bits": 0.02038923404145503,
           "baseline_agreement": 0.993033381712627,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9842416283650689,
-          "mean_max_prob": 0.99529928353654,
-          "mean_entropy_bits": 0.02312523259357861,
-          "baseline_agreement": 0.990151017728168,
+          "accuracy": 0.9931057124097177,
+          "mean_max_prob": 0.9952452344701863,
+          "mean_entropy_bits": 0.023709158519522,
+          "baseline_agreement": 0.9871963230466185,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9888769285970578,
-          "mean_max_prob": 0.9964525025958441,
-          "mean_entropy_bits": 0.019859226785152857,
-          "baseline_agreement": 0.9956942949407965,
+          "accuracy": 0.9956942949407965,
+          "mean_max_prob": 0.9964765184957848,
+          "mean_entropy_bits": 0.020645946539780836,
+          "baseline_agreement": 0.9939002511661285,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.980276134122288,
-          "mean_max_prob": 0.9941587152380703,
-          "mean_entropy_bits": 0.02530418190753775,
-          "baseline_agreement": 0.9854043392504931,
+          "accuracy": 0.9936883629191321,
+          "mean_max_prob": 0.9944050276070946,
+          "mean_entropy_bits": 0.0259978601066111,
+          "baseline_agreement": 0.98698224852071,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9798064787547328,
-          "mean_max_prob": 0.9957179124719728,
-          "mean_entropy_bits": 0.022520247331605906,
-          "baseline_agreement": 0.9856962557846024,
+          "accuracy": 0.9941102229701304,
+          "mean_max_prob": 0.9955449817809254,
+          "mean_entropy_bits": 0.023256883898630457,
+          "baseline_agreement": 0.9869583508624317,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9772727272727273,
-          "mean_max_prob": 0.9927609347252216,
-          "mean_entropy_bits": 0.02951427623418891,
+          "accuracy": 0.9886363636363636,
+          "mean_max_prob": 0.992588225518065,
+          "mean_entropy_bits": 0.029976262977275642,
           "baseline_agreement": 0.9829545454545454,
           "n_baseline_compared": 1232
         }
@@ -486,99 +486,99 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.8851836480597635,
-        "mean_max_prob": 0.8862789206394348,
-        "mean_entropy_bits": 0.3675515176182103,
-        "baseline_agreement": 0.9952860206128519,
+        "accuracy": 0.7347426852043992,
+        "mean_max_prob": 0.9998980798906465,
+        "mean_entropy_bits": 0.0005610697232991056,
+        "baseline_agreement": 0.842441377879228,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.9931638680560164,
-        "mean_max_prob": 0.9931279677015177,
-        "mean_entropy_bits": 0.02282633121685139,
-        "baseline_agreement": 0.9996681489347581,
+        "accuracy": 0.9986283489303334,
+        "mean_max_prob": 0.9987952490435624,
+        "mean_entropy_bits": 0.0061223573339118645,
+        "baseline_agreement": 0.9909515276210703,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9923548558019832,
-          "mean_max_prob": 0.9931317616287904,
-          "mean_entropy_bits": 0.022861538254819166,
-          "baseline_agreement": 0.9994701385209295,
+          "accuracy": 0.9996215275149497,
+          "mean_max_prob": 0.9995723576617561,
+          "mean_entropy_bits": 0.0022998933344198008,
+          "baseline_agreement": 0.9905381878737416,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9933124061689641,
-          "mean_max_prob": 0.9926195937289249,
-          "mean_entropy_bits": 0.024471339928218133,
-          "baseline_agreement": 0.9997270369864883,
+          "accuracy": 0.999181110959465,
+          "mean_max_prob": 0.9990068484110722,
+          "mean_entropy_bits": 0.004842480675962071,
+          "baseline_agreement": 0.9911287020608708,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9925415949512335,
-          "mean_max_prob": 0.9922360481033417,
-          "mean_entropy_bits": 0.02547419731287111,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9977051061388411,
+          "mean_max_prob": 0.9985973103922566,
+          "mean_entropy_bits": 0.0067435504242087385,
+          "baseline_agreement": 0.9904379422451711,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9927716849451645,
-          "mean_max_prob": 0.9927533222210525,
-          "mean_entropy_bits": 0.02380310617837879,
-          "baseline_agreement": 0.9992522432701895,
+          "accuracy": 0.9990029910269193,
+          "mean_max_prob": 0.9991806812969611,
+          "mean_entropy_bits": 0.0055603670897452434,
+          "baseline_agreement": 0.9915254237288136,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9947750362844703,
-          "mean_max_prob": 0.9945685462403054,
-          "mean_entropy_bits": 0.01851724820759766,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.997677793904209,
+          "mean_max_prob": 0.9985109075781154,
+          "mean_entropy_bits": 0.00808187385494147,
+          "baseline_agreement": 0.9921625544267054,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9934340118187788,
-          "mean_max_prob": 0.9926105175970371,
-          "mean_entropy_bits": 0.024427757840877945,
-          "baseline_agreement": 0.9996717005909389,
+          "accuracy": 0.9983585029546946,
+          "mean_max_prob": 0.9979377819113182,
+          "mean_entropy_bits": 0.009932284370835157,
+          "baseline_agreement": 0.9898227183191071,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9931826336562612,
-          "mean_max_prob": 0.9926908025667113,
-          "mean_entropy_bits": 0.024058490434512917,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9974883387154646,
+          "mean_max_prob": 0.9981754583584008,
+          "mean_entropy_bits": 0.009709104502412825,
+          "baseline_agreement": 0.9935414424111948,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9952662721893492,
-          "mean_max_prob": 0.993923095677485,
-          "mean_entropy_bits": 0.020391973005797804,
-          "baseline_agreement": 0.9996055226824457,
+          "accuracy": 0.9968441814595661,
+          "mean_max_prob": 0.9968451621883202,
+          "mean_entropy_bits": 0.013190718785578035,
+          "baseline_agreement": 0.9893491124260355,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.993689524610854,
-          "mean_max_prob": 0.9940063237945881,
-          "mean_entropy_bits": 0.020054323643472333,
-          "baseline_agreement": 0.9995793016407236,
+          "accuracy": 0.9987379049221708,
+          "mean_max_prob": 0.9982286434900779,
+          "mean_entropy_bits": 0.009404663495458676,
+          "baseline_agreement": 0.9890618426588136,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9943181818181818,
-          "mean_max_prob": 0.9960256114522706,
-          "mean_entropy_bits": 0.013906173610433423,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9967532467532467,
+          "mean_max_prob": 0.9982116012657695,
+          "mean_entropy_bits": 0.010027016267776698,
+          "baseline_agreement": 0.9951298701298701,
           "n_baseline_compared": 1232
         }
       }
@@ -596,9 +596,9 @@
       },
       "fitted_kappa": null,
       "fitted_outgroup_divergence": [
-        0.006663349168603883,
-        0.019518803735624115,
-        0.03228904170064727
+        0.0066632047396929985,
+        0.019518936798026083,
+        0.03228917477156867
       ],
       "sim_kappa": 4.0,
       "sim_pi": [
@@ -609,98 +609,98 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.7336290378363423,
-        "mean_max_prob": 0.9998038091322339,
-        "mean_entropy_bits": 0.001092271367199286,
-        "baseline_agreement": 0.8424431071453276,
+        "accuracy": 0.7345645707961541,
+        "mean_max_prob": 0.9998000315739944,
+        "mean_entropy_bits": 0.0010993398452867355,
+        "baseline_agreement": 0.8424344608148302,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.9843808765292803,
-        "mean_max_prob": 0.9974900277658516,
-        "mean_entropy_bits": 0.013973998058096128,
-        "baseline_agreement": 0.9909736510254198,
+        "accuracy": 0.9963496382823389,
+        "mean_max_prob": 0.9974416994885283,
+        "mean_entropy_bits": 0.014064428789903174,
+        "baseline_agreement": 0.9908630340036725,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9845583226099462,
-          "mean_max_prob": 0.9987406259267924,
-          "mean_entropy_bits": 0.008838165972152574,
+          "accuracy": 0.9982590265687684,
+          "mean_max_prob": 0.9987263512421402,
+          "mean_entropy_bits": 0.008969602215700785,
           "baseline_agreement": 0.9915222163348725,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9843046267230791,
-          "mean_max_prob": 0.99813552153892,
-          "mean_entropy_bits": 0.012621292066728986,
+          "accuracy": 0.9969974068513716,
+          "mean_max_prob": 0.998135423731408,
+          "mean_entropy_bits": 0.012636225552016166,
           "baseline_agreement": 0.990992220554115,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9845094664371773,
-          "mean_max_prob": 0.9978596289356482,
-          "mean_entropy_bits": 0.013960555035760863,
+          "accuracy": 0.9957926945878753,
+          "mean_max_prob": 0.9978848823874201,
+          "mean_entropy_bits": 0.013925324827881138,
           "baseline_agreement": 0.9915853891757507,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9840478564307079,
-          "mean_max_prob": 0.9975146410321791,
-          "mean_entropy_bits": 0.015061627399256152,
+          "accuracy": 0.9977567298105683,
+          "mean_max_prob": 0.9974695002410985,
+          "mean_entropy_bits": 0.015173801107728343,
           "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9878084179970973,
-          "mean_max_prob": 0.9970131450220084,
-          "mean_entropy_bits": 0.016118415681479842,
+          "accuracy": 0.9962264150943396,
+          "mean_max_prob": 0.9970114696437035,
+          "mean_entropy_bits": 0.01627705873203073,
           "baseline_agreement": 0.993033381712627,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9822718319107026,
-          "mean_max_prob": 0.9957162043346341,
-          "mean_entropy_bits": 0.019604898218334214,
-          "baseline_agreement": 0.9881812212738017,
+          "accuracy": 0.9947472094550229,
+          "mean_max_prob": 0.9957098037405678,
+          "mean_entropy_bits": 0.019559568832511233,
+          "baseline_agreement": 0.990151017728168,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9878005023322569,
-          "mean_max_prob": 0.9970584588229935,
-          "mean_entropy_bits": 0.015957558840401665,
-          "baseline_agreement": 0.9946178686759957,
+          "accuracy": 0.995335486185863,
+          "mean_max_prob": 0.9967821409582739,
+          "mean_entropy_bits": 0.016094497460449685,
+          "baseline_agreement": 0.9956942949407965,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9842209072978304,
-          "mean_max_prob": 0.9947769181197514,
-          "mean_entropy_bits": 0.021615159046483274,
-          "baseline_agreement": 0.9893491124260355,
+          "accuracy": 0.9921104536489151,
+          "mean_max_prob": 0.9944087088881931,
+          "mean_entropy_bits": 0.021768295323515246,
+          "baseline_agreement": 0.9854043392504931,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9814892721918385,
-          "mean_max_prob": 0.9962999391974182,
-          "mean_entropy_bits": 0.018206897376438956,
-          "baseline_agreement": 0.987379049221708,
+          "accuracy": 0.9945309213294068,
+          "mean_max_prob": 0.9961658359586132,
+          "mean_entropy_bits": 0.018391531571548866,
+          "baseline_agreement": 0.9856962557846024,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9772727272727273,
-          "mean_max_prob": 0.993165924860734,
-          "mean_entropy_bits": 0.02531174955735854,
+          "accuracy": 0.9886363636363636,
+          "mean_max_prob": 0.9932482358712051,
+          "mean_entropy_bits": 0.02560293430460554,
           "baseline_agreement": 0.9829545454545454,
           "n_baseline_compared": 1232
         }
@@ -729,99 +729,99 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.8854378501763851,
-        "mean_max_prob": 0.8856795793638602,
-        "mean_entropy_bits": 0.36903692131540144,
-        "baseline_agreement": 0.9966400359687348,
+        "accuracy": 0.7347426852043992,
+        "mean_max_prob": 0.9998839846789351,
+        "mean_entropy_bits": 0.0006960316011994027,
+        "baseline_agreement": 0.842444836411427,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.993141744651667,
-        "mean_max_prob": 0.9930659722359488,
-        "mean_entropy_bits": 0.023226163957083525,
-        "baseline_agreement": 0.9997787659565054,
+        "accuracy": 0.9986283489303334,
+        "mean_max_prob": 0.9986524339061438,
+        "mean_entropy_bits": 0.007455594561541406,
+        "baseline_agreement": 0.9909957744297693,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9923548558019832,
-          "mean_max_prob": 0.993077674531715,
-          "mean_entropy_bits": 0.023231981802706095,
-          "baseline_agreement": 0.9996972220119598,
+          "accuracy": 0.9996215275149497,
+          "mean_max_prob": 0.9995277298967846,
+          "mean_entropy_bits": 0.0027720322799295012,
+          "baseline_agreement": 0.9905381878737416,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9933124061689641,
-          "mean_max_prob": 0.9925369955476075,
-          "mean_entropy_bits": 0.02489712124101,
-          "baseline_agreement": 0.9997270369864883,
+          "accuracy": 0.999181110959465,
+          "mean_max_prob": 0.9989573742962945,
+          "mean_entropy_bits": 0.005801875173657455,
+          "baseline_agreement": 0.9911287020608708,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9927328361063301,
-          "mean_max_prob": 0.9922113951171746,
-          "mean_entropy_bits": 0.025799468888279338,
-          "baseline_agreement": 0.9998087588449034,
+          "accuracy": 0.9977051061388411,
+          "mean_max_prob": 0.9984392984385314,
+          "mean_entropy_bits": 0.008029973652101974,
+          "baseline_agreement": 0.9908204245553643,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9922731804586241,
-          "mean_max_prob": 0.9927117580271883,
-          "mean_entropy_bits": 0.024123741063016006,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9990029910269193,
+          "mean_max_prob": 0.999030131439858,
+          "mean_entropy_bits": 0.007012465299113256,
+          "baseline_agreement": 0.9915254237288136,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9947750362844703,
-          "mean_max_prob": 0.994479034742411,
-          "mean_entropy_bits": 0.019027700626443576,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.997677793904209,
+          "mean_max_prob": 0.9983622634125777,
+          "mean_entropy_bits": 0.009758334288931634,
+          "baseline_agreement": 0.9921625544267054,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9934340118187788,
-          "mean_max_prob": 0.9925320994032443,
-          "mean_entropy_bits": 0.024709932630056327,
-          "baseline_agreement": 0.9996717005909389,
+          "accuracy": 0.9983585029546946,
+          "mean_max_prob": 0.9977866072861191,
+          "mean_entropy_bits": 0.011880733299896662,
+          "baseline_agreement": 0.9898227183191071,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9931826336562612,
-          "mean_max_prob": 0.9926127214582605,
-          "mean_entropy_bits": 0.02448119191543819,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9974883387154646,
+          "mean_max_prob": 0.9978259901047093,
+          "mean_entropy_bits": 0.012138870596711138,
+          "baseline_agreement": 0.9935414424111948,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9952662721893492,
-          "mean_max_prob": 0.9938580025071032,
-          "mean_entropy_bits": 0.021042403150852658,
-          "baseline_agreement": 0.9996055226824457,
+          "accuracy": 0.9968441814595661,
+          "mean_max_prob": 0.99646865153885,
+          "mean_entropy_bits": 0.015718177870370012,
+          "baseline_agreement": 0.9893491124260355,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.993689524610854,
-          "mean_max_prob": 0.993951102963126,
-          "mean_entropy_bits": 0.020424818974440064,
-          "baseline_agreement": 0.9995793016407236,
+          "accuracy": 0.9987379049221708,
+          "mean_max_prob": 0.997901211679228,
+          "mean_entropy_bits": 0.01204699813408588,
+          "baseline_agreement": 0.9890618426588136,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9943181818181818,
-          "mean_max_prob": 0.9959235518473495,
-          "mean_entropy_bits": 0.014512008219840807,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9967532467532467,
+          "mean_max_prob": 0.997891976867239,
+          "mean_entropy_bits": 0.012684598900822767,
+          "baseline_agreement": 0.9951298701298701,
           "n_baseline_compared": 1232
         }
       }
@@ -838,11 +838,11 @@
         ],
         "kappa": 3.8206801786327724
       },
-      "fitted_kappa": 4.01068030931206,
+      "fitted_kappa": 4.010524087471572,
       "fitted_outgroup_divergence": [
-        0.006670276885062719,
-        0.01956123727593409,
-        0.03239283505651971
+        0.0066701552833492205,
+        0.01956126890587287,
+        0.03239302650910834
       ],
       "sim_kappa": 4.0,
       "sim_pi": [
@@ -853,98 +853,98 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.7336290378363423,
-        "mean_max_prob": 0.999766605013484,
-        "mean_entropy_bits": 0.0013557681490986595,
-        "baseline_agreement": 0.8424431071453276,
+        "accuracy": 0.7345663000622535,
+        "mean_max_prob": 0.999763156843028,
+        "mean_entropy_bits": 0.0013617783126251776,
+        "baseline_agreement": 0.8424344608148302,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.9843808765292803,
-        "mean_max_prob": 0.9970140560432359,
-        "mean_entropy_bits": 0.01734505000466301,
-        "baseline_agreement": 0.9909736510254198,
+        "accuracy": 0.9963717616866884,
+        "mean_max_prob": 0.9969699417967443,
+        "mean_entropy_bits": 0.017421941165569076,
+        "baseline_agreement": 0.9908630340036725,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9845583226099462,
-          "mean_max_prob": 0.9982799466475782,
-          "mean_entropy_bits": 0.011233642279537633,
+          "accuracy": 0.9982590265687684,
+          "mean_max_prob": 0.9982686589827883,
+          "mean_entropy_bits": 0.01134375662750387,
           "baseline_agreement": 0.9915222163348725,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9843046267230791,
-          "mean_max_prob": 0.997573835331916,
-          "mean_entropy_bits": 0.01593727064079341,
+          "accuracy": 0.9969974068513716,
+          "mean_max_prob": 0.9976149125056738,
+          "mean_entropy_bits": 0.01585600974105364,
           "baseline_agreement": 0.990992220554115,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9845094664371773,
-          "mean_max_prob": 0.9972140494012716,
-          "mean_entropy_bits": 0.017643175127407672,
+          "accuracy": 0.9956014534327787,
+          "mean_max_prob": 0.9972550615066352,
+          "mean_entropy_bits": 0.01765032127762409,
           "baseline_agreement": 0.9915853891757507,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9840478564307079,
-          "mean_max_prob": 0.9972062109305534,
-          "mean_entropy_bits": 0.018433964078409495,
+          "accuracy": 0.9977567298105683,
+          "mean_max_prob": 0.9971882691178681,
+          "mean_entropy_bits": 0.018519974976149472,
           "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9878084179970973,
-          "mean_max_prob": 0.9965408142203398,
-          "mean_entropy_bits": 0.019870128222297244,
+          "accuracy": 0.9962264150943396,
+          "mean_max_prob": 0.9965107299509415,
+          "mean_entropy_bits": 0.0200651491588458,
           "baseline_agreement": 0.993033381712627,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9822718319107026,
-          "mean_max_prob": 0.9953330924615545,
-          "mean_entropy_bits": 0.0235633018089545,
-          "baseline_agreement": 0.9881812212738017,
+          "accuracy": 0.9947472094550229,
+          "mean_max_prob": 0.9952569187622353,
+          "mean_entropy_bits": 0.023572447372699253,
+          "baseline_agreement": 0.990151017728168,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9878005023322569,
-          "mean_max_prob": 0.996637727898723,
-          "mean_entropy_bits": 0.020242398237052775,
-          "baseline_agreement": 0.9946178686759957,
+          "accuracy": 0.995335486185863,
+          "mean_max_prob": 0.9963625139062879,
+          "mean_entropy_bits": 0.0203341165024199,
+          "baseline_agreement": 0.9956942949407965,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9842209072978304,
-          "mean_max_prob": 0.9944116744132367,
-          "mean_entropy_bits": 0.025644504790205212,
-          "baseline_agreement": 0.9893491124260355,
+          "accuracy": 0.9928994082840237,
+          "mean_max_prob": 0.9940075523007931,
+          "mean_entropy_bits": 0.025908627850034466,
+          "baseline_agreement": 0.9854043392504931,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9814892721918385,
-          "mean_max_prob": 0.9957775811805336,
-          "mean_entropy_bits": 0.02288543843656116,
-          "baseline_agreement": 0.987379049221708,
+          "accuracy": 0.9945309213294068,
+          "mean_max_prob": 0.9956625080132279,
+          "mean_entropy_bits": 0.02301291477784176,
+          "baseline_agreement": 0.9856962557846024,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9772727272727273,
-          "mean_max_prob": 0.9927069323156832,
-          "mean_entropy_bits": 0.029684146726884693,
+          "accuracy": 0.9886363636363636,
+          "mean_max_prob": 0.9927981144198923,
+          "mean_entropy_bits": 0.029932446925899425,
           "baseline_agreement": 0.9829545454545454,
           "n_baseline_compared": 1232
         }
@@ -980,99 +980,99 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.8854378501763851,
-        "mean_max_prob": 0.8856461987030328,
-        "mean_entropy_bits": 0.36919933387817006,
-        "baseline_agreement": 0.9966400359687348,
+        "accuracy": 0.7347426852043992,
+        "mean_max_prob": 0.9998834840013173,
+        "mean_entropy_bits": 0.0007004274194747654,
+        "baseline_agreement": 0.842444836411427,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.993141744651667,
-        "mean_max_prob": 0.9930622462990345,
-        "mean_entropy_bits": 0.023256593373107527,
-        "baseline_agreement": 0.9997787659565054,
+        "accuracy": 0.9986283489303334,
+        "mean_max_prob": 0.9986473229055042,
+        "mean_entropy_bits": 0.007499129209343822,
+        "baseline_agreement": 0.9909957744297693,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9923548558019832,
-          "mean_max_prob": 0.9930743341095433,
-          "mean_entropy_bits": 0.02325844823609539,
-          "baseline_agreement": 0.9996972220119598,
+          "accuracy": 0.9996215275149497,
+          "mean_max_prob": 0.9995245047354612,
+          "mean_entropy_bits": 0.002791238305031388,
+          "baseline_agreement": 0.9905381878737416,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9933124061689641,
-          "mean_max_prob": 0.9925330504821394,
-          "mean_entropy_bits": 0.024928693678167312,
-          "baseline_agreement": 0.9997270369864883,
+          "accuracy": 0.999181110959465,
+          "mean_max_prob": 0.998955688999999,
+          "mean_entropy_bits": 0.0058297931992260755,
+          "baseline_agreement": 0.9911287020608708,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9927328361063301,
-          "mean_max_prob": 0.992208214831895,
-          "mean_entropy_bits": 0.025828490980074868,
-          "baseline_agreement": 0.9998087588449034,
+          "accuracy": 0.9977051061388411,
+          "mean_max_prob": 0.998438128595067,
+          "mean_entropy_bits": 0.008066433721728257,
+          "baseline_agreement": 0.9908204245553643,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9922731804586241,
-          "mean_max_prob": 0.9927074670398761,
-          "mean_entropy_bits": 0.024153852406219097,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9990029910269193,
+          "mean_max_prob": 0.9990241053410921,
+          "mean_entropy_bits": 0.007062047802232607,
+          "baseline_agreement": 0.9915254237288136,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9947750362844703,
-          "mean_max_prob": 0.9944744947178918,
-          "mean_entropy_bits": 0.019063244663894988,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.997677793904209,
+          "mean_max_prob": 0.9983592433092555,
+          "mean_entropy_bits": 0.009811760051853087,
+          "baseline_agreement": 0.9921625544267054,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9934340118187788,
-          "mean_max_prob": 0.9925286835678456,
-          "mean_entropy_bits": 0.024739473333871043,
-          "baseline_agreement": 0.9996717005909389,
+          "accuracy": 0.9983585029546946,
+          "mean_max_prob": 0.9977792161433121,
+          "mean_entropy_bits": 0.011945557507499654,
+          "baseline_agreement": 0.9898227183191071,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9931826336562612,
-          "mean_max_prob": 0.9926087871996602,
-          "mean_entropy_bits": 0.024512079721185537,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9974883387154646,
+          "mean_max_prob": 0.9978100451371172,
+          "mean_entropy_bits": 0.012217017248464957,
+          "baseline_agreement": 0.9935414424111948,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9952662721893492,
-          "mean_max_prob": 0.9938513027630734,
-          "mean_entropy_bits": 0.02108995744348263,
-          "baseline_agreement": 0.9996055226824457,
+          "accuracy": 0.9968441814595661,
+          "mean_max_prob": 0.9964537100360579,
+          "mean_entropy_bits": 0.015802770741813202,
+          "baseline_agreement": 0.9893491124260355,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.993689524610854,
-          "mean_max_prob": 0.9939503391778872,
-          "mean_entropy_bits": 0.020450245353485854,
-          "baseline_agreement": 0.9995793016407236,
+          "accuracy": 0.9987379049221708,
+          "mean_max_prob": 0.9978910977609706,
+          "mean_entropy_bits": 0.012132127509643367,
+          "baseline_agreement": 0.9890618426588136,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9943181818181818,
-          "mean_max_prob": 0.9959189041660397,
-          "mean_entropy_bits": 0.014546419231156108,
-          "baseline_agreement": 1.0,
+          "accuracy": 0.9967532467532467,
+          "mean_max_prob": 0.9978867017425299,
+          "mean_entropy_bits": 0.012768894578495811,
+          "baseline_agreement": 0.9951298701298701,
           "n_baseline_compared": 1232
         }
       }
@@ -1098,9 +1098,9 @@
       },
       "fitted_kappa": null,
       "fitted_outgroup_divergence": [
-        0.006669063686045598,
-        0.0195610781537601,
-        0.03239274331254135
+        0.006670031944445158,
+        0.019560836147645692,
+        0.032393712863414574
       ],
       "sim_kappa": 4.0,
       "sim_pi": [
@@ -1111,98 +1111,98 @@
       ],
       "all": {
         "n_sites": 578280,
-        "accuracy": 0.7336290378363423,
-        "mean_max_prob": 0.9997665860339963,
-        "mean_entropy_bits": 0.0013557568095320532,
-        "baseline_agreement": 0.8424431071453276,
+        "accuracy": 0.7345680293283531,
+        "mean_max_prob": 0.9997630276135413,
+        "mean_entropy_bits": 0.001362170002575056,
+        "baseline_agreement": 0.8424344608148302,
         "n_baseline_compared": 578280
       },
       "ingroup_polymorphic": {
         "n_sites": 45201,
-        "accuracy": 0.9843808765292803,
-        "mean_max_prob": 0.9970138132284675,
-        "mean_entropy_bits": 0.017344904931665135,
-        "baseline_agreement": 0.9909736510254198,
+        "accuracy": 0.9963938850910378,
+        "mean_max_prob": 0.9969682884964608,
+        "mean_entropy_bits": 0.017426952259664685,
+        "baseline_agreement": 0.9908630340036725,
         "n_baseline_compared": 45201
       },
       "by_minor_count": {
         "1": {
           "n_sites": 13211,
-          "accuracy": 0.9845583226099462,
-          "mean_max_prob": 0.998279125362088,
-          "mean_entropy_bits": 0.011236914966779782,
+          "accuracy": 0.9982590265687684,
+          "mean_max_prob": 0.9982673030656184,
+          "mean_entropy_bits": 0.011350624814019949,
           "baseline_agreement": 0.9915222163348725,
           "n_baseline_compared": 13211
         },
         "2": {
           "n_sites": 7327,
-          "accuracy": 0.9843046267230791,
-          "mean_max_prob": 0.9975737043422439,
-          "mean_entropy_bits": 0.015935002211128608,
+          "accuracy": 0.9969974068513716,
+          "mean_max_prob": 0.9976143689706668,
+          "mean_entropy_bits": 0.015858013225209296,
           "baseline_agreement": 0.990992220554115,
           "n_baseline_compared": 7327
         },
         "3": {
           "n_sites": 5229,
-          "accuracy": 0.9845094664371773,
-          "mean_max_prob": 0.9972139007670806,
-          "mean_entropy_bits": 0.017645466184386893,
+          "accuracy": 0.9956014534327787,
+          "mean_max_prob": 0.9972518207272164,
+          "mean_entropy_bits": 0.017658154820909107,
           "baseline_agreement": 0.9915853891757507,
           "n_baseline_compared": 5229
         },
         "4": {
           "n_sites": 4012,
-          "accuracy": 0.9840478564307079,
-          "mean_max_prob": 0.9972059441481418,
-          "mean_entropy_bits": 0.01842895673631731,
+          "accuracy": 0.9977567298105683,
+          "mean_max_prob": 0.9971882182655608,
+          "mean_entropy_bits": 0.018520786857882745,
           "baseline_agreement": 0.9917746759720838,
           "n_baseline_compared": 4012
         },
         "5": {
           "n_sites": 3445,
-          "accuracy": 0.9878084179970973,
-          "mean_max_prob": 0.9965410946674212,
-          "mean_entropy_bits": 0.01987343704123038,
+          "accuracy": 0.9962264150943396,
+          "mean_max_prob": 0.9965080528197046,
+          "mean_entropy_bits": 0.020073828557366516,
           "baseline_agreement": 0.993033381712627,
           "n_baseline_compared": 3445
         },
         "6": {
           "n_sites": 3046,
-          "accuracy": 0.9822718319107026,
-          "mean_max_prob": 0.9953289458163891,
-          "mean_entropy_bits": 0.02356397287147188,
-          "baseline_agreement": 0.9881812212738017,
+          "accuracy": 0.9947472094550229,
+          "mean_max_prob": 0.9952526266188166,
+          "mean_entropy_bits": 0.023581951981368286,
+          "baseline_agreement": 0.990151017728168,
           "n_baseline_compared": 3046
         },
         "7": {
           "n_sites": 2787,
-          "accuracy": 0.9878005023322569,
-          "mean_max_prob": 0.9966377304356869,
-          "mean_entropy_bits": 0.02023928690028443,
-          "baseline_agreement": 0.9946178686759957,
+          "accuracy": 0.995335486185863,
+          "mean_max_prob": 0.9963616201723158,
+          "mean_entropy_bits": 0.02033811652673789,
+          "baseline_agreement": 0.9956942949407965,
           "n_baseline_compared": 2787
         },
         "8": {
           "n_sites": 2535,
-          "accuracy": 0.9842209072978304,
-          "mean_max_prob": 0.9944129202064687,
-          "mean_entropy_bits": 0.02564028617515842,
-          "baseline_agreement": 0.9893491124260355,
+          "accuracy": 0.9932938856015779,
+          "mean_max_prob": 0.9940084748570329,
+          "mean_entropy_bits": 0.025908564656071043,
+          "baseline_agreement": 0.9854043392504931,
           "n_baseline_compared": 2535
         },
         "9": {
           "n_sites": 2377,
-          "accuracy": 0.9814892721918385,
-          "mean_max_prob": 0.9957781519618457,
-          "mean_entropy_bits": 0.022878559998268273,
-          "baseline_agreement": 0.987379049221708,
+          "accuracy": 0.9945309213294068,
+          "mean_max_prob": 0.995660808385063,
+          "mean_entropy_bits": 0.023012716690766356,
+          "baseline_agreement": 0.9856962557846024,
           "n_baseline_compared": 2377
         },
         "10": {
           "n_sites": 1232,
-          "accuracy": 0.9772727272727273,
-          "mean_max_prob": 0.9927149067246359,
-          "mean_entropy_bits": 0.029681882102526532,
+          "accuracy": 0.9886363636363636,
+          "mean_max_prob": 0.9927906497237001,
+          "mean_entropy_bits": 0.029938537731518347,
           "baseline_agreement": 0.9829545454545454,
           "n_baseline_compared": 1232
         }

@@ -4,7 +4,7 @@ Loads the B9 simulation (``model_comparison_sim.trees`` — mutated under
 HKY(κ=4, AT-rich π)) and runs ancestral-allele inference under one of
 four Ancestree substitution models (``JC69``, ``K2``, ``F81``, ``HKY``)
 in one of two modes (``arg`` / ``vcf``). Writes per-site posteriors plus
-the simulator's truth ancestral state in a JSON schema matching B6 /
+the simulated state each site is graded at in a JSON schema matching B6 /
 B8 (so :mod:`report_model_comparison` can stratify by SFS bin with the
 same code path).
 
@@ -38,6 +38,7 @@ Or via snakemake::
 """
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 
@@ -57,6 +58,9 @@ from ancestree import (
     TskitLocalTree,
     TskitSource,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _truth import site_truths  # noqa: E402
 
 
 try:
@@ -180,8 +184,11 @@ def _build_model(name: str, mode: str, ts_for_sites: tskit.TreeSequence):
 # parameters are already in subs/site so mu doesn't apply there).
 model, base_composition, empirical_params = _build_model(model_name, mode, ts_sub)
 
+# Ingroup-polymorphic sites are graded at the ingroup MRCA, the rest at the
+# root of the full panel.
 truth_by_pos: dict[int, str] = {
-    int(site.position): site.ancestral_state for site in ts.sites()
+    pos: t.graded for pos, t in site_truths(
+        ts, [sample_id_to_node[s] for s in ingroup_names], keep_node_ids).items()
 }
 
 
@@ -215,6 +222,8 @@ if mode == "arg":
         mu=mu,
         base_composition=base_composition,
         sample_map=sample_map,
+        ingroup_samples=ingroup_names,
+        outgroup_samples=outgroup_names,
         progress=False,
     )
     for site, posterior in inference.infer():
