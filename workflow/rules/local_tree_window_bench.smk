@@ -200,8 +200,7 @@ LT_GEN_SHARDS = [str(w) for w in
 rule report_local_tree_genealogy_shard:
     """One window (or the tsinfer reference) of the genealogy bench.
 
-    Sharded because the ensemble columns draw ENSEMBLE_MEMBERS members per
-    window. Windows share no state, so each is an independent job.
+    Windows share no state, so each is an independent job.
 
     Runs under ``envs/tsinfer.yml``, which carries tsinfer."""
     input:
@@ -441,26 +440,46 @@ rule report_local_tree_window_og:
         "../scripts/report_local_tree_window.py"
 
 
-rule report_local_tree_genealogy_og:
-    """Genealogy recovery for one n_out on the 20 Mb outgroup sim, including
-    the tsinfer (correct-AA) reference (tsinfer env)."""
+rule report_local_tree_genealogy_og_shard:
+    """One window (or the tsinfer reference) of the genealogy bench for one
+    n_out on the 20 Mb outgroup sim (tsinfer env)."""
     input:
         trees = rules.simulate_local_tree_genealogy_og.output.trees,
         meta = rules.simulate_local_tree_genealogy_og.output.meta,
+    output:
+        json = f"{DATA}/local_tree_genealogy_og{{n_out}}_shard_{{shard}}.json",
+    params:
+        n_out = lambda wc: int(wc.n_out),
+        shard = lambda wc: wc.shard,
+    wildcard_constraints:
+        n_out = r"[13]",
+        shard = r"[0-9]+|tsinfer",
+    threads: 4
+    resources:
+        mem_mb = lambda wildcards, attempt: 16000 * attempt,
+        runtime = lambda wildcards, attempt: capped_runtime(240, attempt),
+    conda:
+        "../envs/tsinfer.yml"
+    script:
+        "../scripts/report_local_tree_genealogy.py"
+
+
+rule report_local_tree_genealogy_og:
+    """Genealogy recovery for one n_out on the 20 Mb outgroup sim.
+
+    Concatenates the per-window shards. No inference happens here."""
+    input:
+        trees = rules.simulate_local_tree_genealogy_og.output.trees,
+        meta = rules.simulate_local_tree_genealogy_og.output.meta,
+        shards = expand(f"{DATA}/local_tree_genealogy_og{{{{n_out}}}}_shard_{{shard}}.json",
+                        shard=LT_GEN_SHARDS),
     output:
         json = REPORTS + "/local_tree_genealogy_og{n_out}.json",
         md = REPORTS + "/local_tree_genealogy_og{n_out}.md",
     params:
         n_out = lambda wc: int(wc.n_out),
-        run_tsinfer = True,
     wildcard_constraints:
         n_out = r"[13]",
-    threads: 8
-    resources:
-        # Local-tree over a 20 Mb simulation. The ensemble scratch is bounded
-        # by _ensemble.MAX_SCRATCH_BYTES, so this is near the plug-in size.
-        mem_mb = lambda wildcards, attempt: 24000 * attempt,
-        runtime = lambda wildcards, attempt: capped_runtime(600, attempt),
     conda:
         "../envs/tsinfer.yml"
     script:

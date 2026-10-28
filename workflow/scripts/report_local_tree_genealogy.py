@@ -37,7 +37,7 @@ from ancestree.local_tree_inference import (LocalTreeBuilder,
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _truth import site_truths  # noqa: E402
 
-#: Members drawn per window for the ensemble columns. Matches the
+#: Members drawn per window for the ensemble Brier. Matches the
 #: manuscript's local-tree configuration.
 ENSEMBLE_MEMBERS = int(os.environ.get("ANCESTREE_ENSEMBLE_MEMBERS", "128"))
 
@@ -130,15 +130,13 @@ pairs = [all_pairs[k] for k in pair_idx]
 rf_max = 2.0 * (n_keep - 2)  # max RF for two rooted binary trees on n_keep leaves
 
 
-def _accumulate(inf_ts, acc=None) -> dict:
-    """Add the span-weighted comparison of ``inf_ts`` against the true ``ts``
-    to ``acc``, so a genealogy given in pieces is measured as one.
+def _accumulate(inf_ts) -> dict:
+    """Span-weighted sums comparing ``inf_ts`` against the true ``ts``.
 
-    :param inf_ts: An inferred tree sequence, or one piece of it.
-    :param acc: The sums of the pieces before it, ``None`` for the first.
-    :return: The updated sums, for :func:`_metrics`.
+    :param inf_ts: An inferred tree sequence.
+    :return: The sums, for :func:`_metrics`.
     """
-    acc = acc or {"rf": 0.0, "kc": 0.0, "span": 0.0, "t_true": [], "t_inf": []}
+    acc = {"rf": 0.0, "kc": 0.0, "span": 0.0, "t_true": [], "t_inf": []}
 
     # NB: tskit's ``trees()`` reuses one mutable Tree per iteration, so the
     # stream must be processed in place (never ``list(...)``-materialised).
@@ -247,46 +245,9 @@ def _window_recovery(window_snps: int) -> dict:
         outgroup_samples=[n for n in builder.sample_names
                           if n not in ingroup_set] or None,
     )
-    out = {"window_snps": window_snps,
-           **_metrics_vs_truth(inf_ts),
-           "mean_brier": _brier_of_posteriors(ens.infer())}
-    out.update(_ensemble_recovery(ens, window_snps))
-    return out
-
-
-def _ensemble_recovery(inf, window_snps: int) -> dict:
-    """The same genealogy metrics over the ENSEMBLE the mode actually scores.
-
-    The point tree above is the posterior-mean UPGMA build --- the plug-in
-    estimator. Ensemble mode does not score it: it marginalises over
-    genealogies drawn from the pairwise-HMM posterior, so a figure describing
-    only the point tree describes a tree the default mode never uses. Each
-    member is measured against the truth over every core it is drawn on, and
-    the metrics are averaged over members, with the spread kept so the
-    member-to-member variability is visible.
-
-    :param inf: The ensemble inference whose members are measured. The
-        caller's instance is reused: a second, argument-identical build would
-        repeat the pairwise-HMM pass and all ENSEMBLE_MEMBERS draws.
-    :param window_snps: Window width, for the record.
-    :return: ``ens_<metric>`` means plus ``ens_<metric>_sd`` and the member
-        count, prefixed so they sit beside the point-tree columns.
-    """
-    pooled: dict[int, dict] = {}
-    for _interval, members in inf.tree_sequences():
-        for m, member in enumerate(members):
-            pooled[m] = _accumulate(member, pooled.get(m))
-    per_member = [_metrics(pooled[m]) for m in sorted(pooled)]
-    if not per_member:
-        return {"ens_members": 0}
-    keys = [k for k, v in per_member[0].items() if isinstance(v, (int, float))]
-    out: dict = {"ens_members": len(per_member)}
-    for k in keys:
-        vals = np.array([m[k] for m in per_member], dtype=float)
-        vals = vals[np.isfinite(vals)]
-        out[f"ens_{k}"] = float(vals.mean()) if vals.size else float("nan")
-        out[f"ens_{k}_sd"] = float(vals.std()) if vals.size else float("nan")
-    return out
+    return {"window_snps": window_snps,
+            **_metrics_vs_truth(inf_ts),
+            "mean_brier": _brier_of_posteriors(ens.infer())}
 
 
 def _tsinfer_recovery() -> dict:
@@ -342,9 +303,7 @@ def _tsinfer_recovery() -> dict:
 
 
 # One shard per window, plus one for the tsinfer reference. Each is an
-# independent job. The merge concatenates them in WINDOWS order. A single
-# job over all eleven windows at ENSEMBLE_MEMBERS draws exceeded the SLURM
-# walltime, and the windows share no state.
+# independent job. The merge concatenates them in WINDOWS order.
 if shard is not None:
     if shard == "tsinfer":
         payload = {"tsinfer": _tsinfer_recovery()}
