@@ -1988,16 +1988,16 @@ EPO_SIMULATION_RUNS = [
     "sample_mrca_class_rate_out3", "sample_node_class_rate_out3",
     "sample_mrca_class_rate_out1", "sample_node_class_rate_out1",
 ]
-EPO_SIMULATION_SEEDS = list(range(1, 9))
-# The comparison covers every chr1 chunk, the matched simulation one seed
-# per chunk of its own 8.
+# The comparison covers every chr1 chunk, and the matched simulation runs one
+# seed per chunk, taking that chunk's gaps and panel. The chunks spanning the
+# centromere and its heterochromatin (118.75-150 Mb) hold too few eligible
+# positions for a replicate's length.
 EPO_REGIONS = MSL_CHR1_CHUNK_REGIONS
 EPO_SIMULATION_REGIONS = [
-    "chr1_6250000_12500000", "chr1_31250000_37500000",
-    "chr1_56250000_62500000", "chr1_93750000_100M", "chr1_175M_181250000",
-    "chr1_181250000_187500000", "chr1_212500000_218750000",
-    "chr1_231250000_237500000",
+    region for (start, end), region in zip(MSL_CHR1_CHUNKS, EPO_REGIONS)
+    if end <= 118_750_000 or start >= 150_000_000
 ]
+EPO_SIMULATION_SEEDS = list(range(1, len(EPO_SIMULATION_REGIONS) + 1))
 # Split times in generations on the topology of the EPO species tree, an
 # ingroup of 20,000 and ancestral sizes of 30,000 (60,000 in the
 # human-Pan ancestor), with every 20th site mutating ten times faster.
