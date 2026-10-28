@@ -4,20 +4,20 @@
   "rows": [
     {
       "method": "fixed-tree mode (Kingman prior, no outgroups)",
-      "brier": 0.057478826616716897,
+      "brier": 0.05747882661671693,
       "map_agreement": 0.9662275201300029,
       "n": 792598
     },
     {
       "method": "ARG mode",
-      "brier": 1.0751897471836733e-07,
+      "brier": 1.0751897469364776e-07,
       "map_agreement": 1.0,
       "n": 792598
     },
     {
       "method": "local-tree mode",
-      "brier": 0.011020004910196904,
-      "map_agreement": 0.9929939263031197,
+      "brier": 0.011135295941034384,
+      "map_agreement": 0.9928261237096233,
       "n": 792598
     }
   ]

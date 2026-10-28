@@ -19,9 +19,9 @@
   "results/data/tmrca_sim_baseline_chunk9.trees"
  ],
  "sequence_length_total": 50000000.0,
- "n_windows": 735156,
+ "n_windows": 735147,
  "n_pairs": 190,
- "n_window_pair_values": 139679640,
+ "n_window_pair_values": 139677930,
  "n_time_grids": 30,
  "grid_step_log10": 0.13112564243320302
 }

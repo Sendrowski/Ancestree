@@ -19,9 +19,9 @@
   "results/data/tmrca_sim_pop_decline_chunk9.trees"
  ],
  "sequence_length_total": 50000000.0,
- "n_windows": 757432,
+ "n_windows": 757444,
  "n_pairs": 190,
- "n_window_pair_values": 143912080,
+ "n_window_pair_values": 143914360,
  "n_time_grids": 30,
- "grid_step_log10": 0.12338829249534555
+ "grid_step_log10": 0.12338840411667462
 }

@@ -13,7 +13,7 @@
     {
       "method": "ancestree_local_tree",
       "sites": 1140085,
-      "seconds": 6728.926770568127
+      "seconds": 7023.687535954057
     },
     {
       "method": "polarbear",
@@ -23,7 +23,7 @@
     {
       "method": "estsfs",
       "sites": 985038,
-      "seconds": 2567.7
+      "seconds": 2568.0
     }
   ]
 }

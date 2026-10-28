@@ -57,284 +57,284 @@
   ],
   "cells": {
     "anc_arg__n0": {
-      "baseline": 19.00105253374204,
-      "cpg_hypermut": 30.424671140995997,
-      "strong_ils": 34.01280947899795,
-      "outgroup_clade": 51.941228013,
-      "slim": 291.34667203201025
+      "baseline": 34.60036005591974,
+      "cpg_hypermut": 30.454611649853177,
+      "strong_ils": 40.687747555901296,
+      "outgroup_clade": 51.69650028075557,
+      "slim": 295.45787613047287
     },
     "anc_arg__n1": {
-      "baseline": 23.479955399176106,
-      "cpg_hypermut": 16.073925414995756,
-      "strong_ils": 41.6036595889982,
-      "outgroup_clade": 44.43348655099544,
-      "slim": 97.7535772809988
+      "baseline": 31.628969910321757,
+      "cpg_hypermut": 25.028112817904912,
+      "strong_ils": 38.79025914997328,
+      "outgroup_clade": 44.76032017241232,
+      "slim": 75.64560725959018
     },
     "anc_arg__n3": {
-      "baseline": 26.850847251014784,
-      "cpg_hypermut": 30.11400733499795,
-      "strong_ils": 60.99795525900299,
-      "outgroup_clade": 45.382948364000185,
-      "slim": 346.9087802130143
+      "baseline": 37.058409130899236,
+      "cpg_hypermut": 21.454610254149884,
+      "strong_ils": 53.72084080602508,
+      "outgroup_clade": 47.609508976340294,
+      "slim": 273.8196791228838
     },
     "anc_arg__n10": {
-      "baseline": 35.982044292846695,
-      "cpg_hypermut": 35.16744371799905,
-      "strong_ils": 44.689295183003196,
-      "outgroup_clade": 56.980372960999375,
-      "slim": 323.0378105480031
+      "baseline": 49.240133375977166,
+      "cpg_hypermut": 35.93516316707246,
+      "strong_ils": 54.08065907994751,
+      "outgroup_clade": 60.34745555988047,
+      "slim": 299.8291888588574
     },
     "parsimony_mu0__n0": {
-      "baseline": 16.61047142627649,
-      "cpg_hypermut": 22.47547472199767,
-      "strong_ils": 41.02690249400075,
-      "outgroup_clade": 45.60915730799388,
-      "slim": 254.34000924398788
+      "baseline": 22.912480269907974,
+      "cpg_hypermut": 19.156511815846898,
+      "strong_ils": 30.113105630967766,
+      "outgroup_clade": 37.87176016229205,
+      "slim": 242.30985455098562
     },
     "parsimony_mu0__n1": {
-      "baseline": 20.466909158276394,
-      "cpg_hypermut": 16.720359910001207,
-      "strong_ils": 30.616982888004713,
-      "outgroup_clade": 68.47643463200075,
-      "slim": 66.22945005300244
+      "baseline": 48.11112164519727,
+      "cpg_hypermut": 22.638649481232278,
+      "strong_ils": 50.92209058627486,
+      "outgroup_clade": 47.659910322050564,
+      "slim": 81.97150506265461
     },
     "parsimony_mu0__n3": {
-      "baseline": 24.272583805490285,
-      "cpg_hypermut": 27.633939366003688,
-      "strong_ils": 47.542339147998064,
-      "outgroup_clade": 53.45451474399488,
-      "slim": 300.20708351300163
+      "baseline": 64.2125671961112,
+      "cpg_hypermut": 53.00117550708819,
+      "strong_ils": 79.75508638063911,
+      "outgroup_clade": 43.522803724277765,
+      "slim": 251.09291425300762
     },
     "parsimony_mu0__n10": {
-      "baseline": 33.00138302939013,
-      "cpg_hypermut": 37.54018825300045,
-      "strong_ils": 55.182931848003136,
-      "outgroup_clade": 54.000655424002616,
-      "slim": 316.40496654199706
+      "baseline": 73.69396187982056,
+      "cpg_hypermut": 37.68478547595441,
+      "strong_ils": 101.76728697377257,
+      "outgroup_clade": 58.21320217126049,
+      "slim": 271.72773127048276
     },
     "local_tree_unphased__n0": {
-      "baseline": 77.97139517881442,
-      "cpg_hypermut": 51.16363305674167,
-      "strong_ils": 75.00995571183739,
-      "outgroup_clade": 64.44933660066454,
-      "slim": 766.3677867166116
+      "baseline": 82.9205819228664,
+      "cpg_hypermut": 59.880860758712515,
+      "strong_ils": 64.09991513611749,
+      "outgroup_clade": 69.16323310427833,
+      "slim": 472.94156996929087
     },
     "local_tree_unphased__n1": {
-      "baseline": 81.66545791813405,
-      "cpg_hypermut": 55.379584650858305,
-      "strong_ils": 62.15580269799102,
-      "outgroup_clade": 161.3329567030887,
-      "slim": 180.42069478478516
+      "baseline": 101.54913886310533,
+      "cpg_hypermut": 72.73995735088829,
+      "strong_ils": 72.82353020214941,
+      "outgroup_clade": 76.71685990900733,
+      "slim": 140.3743467159802
     },
     "local_tree_unphased__n3": {
-      "baseline": 90.98898241401184,
-      "cpg_hypermut": 56.09020692802733,
-      "strong_ils": 79.45022274012445,
-      "outgroup_clade": 73.44380483607529,
-      "slim": 881.5487023263704
+      "baseline": 105.37196215672884,
+      "cpg_hypermut": 66.89490058284719,
+      "strong_ils": 84.67012689716648,
+      "outgroup_clade": 90.40484973590355,
+      "slim": 528.4594264597399
     },
     "local_tree_unphased__n10": {
-      "baseline": 135.94522471085656,
-      "cpg_hypermut": 80.189557045931,
-      "strong_ils": 99.31746615702286,
-      "outgroup_clade": 108.17142376303673,
-      "slim": 934.0669826923404
+      "baseline": 144.34977155097295,
+      "cpg_hypermut": 91.95410858502146,
+      "strong_ils": 104.0411288436735,
+      "outgroup_clade": 110.7317683105357,
+      "slim": 801.7747619024012
     },
     "singer_arg_panel__n0": {
-      "baseline": 29439.32963905728,
-      "cpg_hypermut": 12173.851038302557,
-      "strong_ils": 80461.21506502766,
-      "outgroup_clade": 68332.06164718479,
-      "slim": 33817.03330517356
+      "baseline": 30262.2552954345,
+      "cpg_hypermut": 12474.971491969598,
+      "strong_ils": 81800.23898781692,
+      "outgroup_clade": 69326.11478343271,
+      "slim": 36201.74364353935
     },
     "singer_arg_panel__n1": {
-      "baseline": 39180.31509533973,
-      "cpg_hypermut": 15477.119592200268,
-      "strong_ils": 91522.84514519227,
-      "outgroup_clade": 105128.35723723384,
-      "slim": 13828.749482129044
+      "baseline": 40365.665806205536,
+      "cpg_hypermut": 15535.070283162218,
+      "strong_ils": 92225.23258677397,
+      "outgroup_clade": 106095.55530435205,
+      "slim": 14696.506107447975
     },
     "singer_arg_panel__n3": {
-      "baseline": 84029.78608668572,
-      "cpg_hypermut": 27987.205087370523,
-      "strong_ils": 147571.11371872315,
-      "outgroup_clade": 160187.97044882987,
-      "slim": 110853.93165706634
+      "baseline": 84203.58952443022,
+      "cpg_hypermut": 28116.62836108124,
+      "strong_ils": 147529.04232322887,
+      "outgroup_clade": 161321.4550447137,
+      "slim": 114124.90561437672
     },
     "singer_arg_panel__n10": {
-      "baseline": 236371.78096528875,
-      "cpg_hypermut": 55261.99751939969,
-      "strong_ils": 304263.9519632715,
-      "outgroup_clade": 298229.8535405205,
-      "slim": 486285.9401273392
+      "baseline": 236927.5971793079,
+      "cpg_hypermut": 55336.08443917762,
+      "strong_ils": 305510.6369206547,
+      "outgroup_clade": 299119.8260961437,
+      "slim": 490856.29761141667
     },
     "singer_arg_panel_ft__n0": {
-      "baseline": 28867.384058853728,
-      "cpg_hypermut": 12009.09140914531,
-      "strong_ils": 82927.10136827649,
-      "outgroup_clade": 68441.79376219836,
-      "slim": 33748.525097464415
+      "baseline": 29405.267888931674,
+      "cpg_hypermut": 12830.130775648358,
+      "strong_ils": 83577.58530401901,
+      "outgroup_clade": 68797.77593886822,
+      "slim": 36562.946200087055
     },
     "singer_arg_panel_ft__n1": {
-      "baseline": 37528.60075888212,
-      "cpg_hypermut": 14259.67891360313,
-      "strong_ils": 107560.6043588768,
-      "outgroup_clade": 94463.28179189785,
-      "slim": 11589.043187425075
+      "baseline": 37955.221409194986,
+      "cpg_hypermut": 14560.790661779029,
+      "strong_ils": 108849.95324515793,
+      "outgroup_clade": 95564.49650910406,
+      "slim": 12478.726618613815
     },
     "singer_arg_panel_ft__n3": {
-      "baseline": 91781.30843667011,
-      "cpg_hypermut": 24722.573132128407,
-      "strong_ils": 148217.0407478982,
-      "outgroup_clade": 161703.30174095588,
-      "slim": 103219.90305095496
+      "baseline": 92137.85120876378,
+      "cpg_hypermut": 25117.206489660486,
+      "strong_ils": 149023.1585308515,
+      "outgroup_clade": 163115.7175538639,
+      "slim": 106876.10686343291
     },
     "singer_arg_panel_ft__n10": {
-      "baseline": 233813.41606459662,
-      "cpg_hypermut": 55007.23886942683,
-      "strong_ils": 319016.30669295567,
-      "outgroup_clade": 306079.2512906876,
-      "slim": 477852.176870642
+      "baseline": 234721.09819184896,
+      "cpg_hypermut": 55381.19410221369,
+      "strong_ils": 320058.38757068815,
+      "outgroup_clade": 306868.69119758066,
+      "slim": 482116.0047040471
     },
     "tsinfer_arg__n0": {
-      "baseline": 415.18306809291244,
-      "cpg_hypermut": 441.4589472799853,
-      "strong_ils": 367.7385968921517,
-      "outgroup_clade": 371.54592810869144,
-      "slim": 3328.0837368837238
+      "baseline": 423.85248317208607,
+      "cpg_hypermut": 436.617146986071,
+      "strong_ils": 358.3673452723888,
+      "outgroup_clade": 376.03140580572654,
+      "slim": 3301.894271602272
     },
     "tsinfer_arg__n1": {
-      "baseline": 411.87816250458127,
-      "cpg_hypermut": 445.7840058301099,
-      "strong_ils": 367.9326402830138,
-      "outgroup_clade": 371.3848811382577,
-      "slim": 1030.1708771418962
+      "baseline": 424.6208739015856,
+      "cpg_hypermut": 441.3421971658245,
+      "strong_ils": 373.8580448872526,
+      "outgroup_clade": 374.5499202502542,
+      "slim": 1002.1992833006079
     },
     "tsinfer_arg__n3": {
-      "baseline": 440.5284040377592,
-      "cpg_hypermut": 501.95776297886187,
-      "strong_ils": 390.78745213515685,
-      "outgroup_clade": 386.48194521294863,
-      "slim": 3726.060222254331
+      "baseline": 452.4172839318053,
+      "cpg_hypermut": 489.16772016196046,
+      "strong_ils": 380.07270174415316,
+      "outgroup_clade": 377.2361757840263,
+      "slim": 3724.1146458003204
     },
     "tsinfer_arg__n10": {
-      "baseline": 498.45679002115503,
-      "cpg_hypermut": 555.1405576803518,
-      "strong_ils": 399.1313373381781,
-      "outgroup_clade": 419.74007361905024,
-      "slim": 3733.198912546144
+      "baseline": 525.6848355232505,
+      "cpg_hypermut": 552.836168933427,
+      "strong_ils": 402.6752294629114,
+      "outgroup_clade": 415.68009975308087,
+      "slim": 3755.8914431137964
     },
     "relate_arg_panel_ft__n0": {
-      "baseline": 93.48145452312747,
-      "cpg_hypermut": 121.50026871099908,
-      "strong_ils": 39.27789632596432,
-      "outgroup_clade": 51.735582148967296,
-      "slim": 277.30175125798087
+      "baseline": 103.36774184004025,
+      "cpg_hypermut": 115.88745872779691,
+      "strong_ils": 44.48820822186826,
+      "outgroup_clade": 55.81389747704088,
+      "slim": 359.405523114925
     },
     "relate_arg_panel_ft__n1": {
-      "baseline": 99.15044184466387,
-      "cpg_hypermut": 113.87760830700608,
-      "strong_ils": 62.23915838699577,
-      "outgroup_clade": 47.72758966195761,
-      "slim": 89.6454729679881
+      "baseline": 124.25995492592483,
+      "cpg_hypermut": 123.98209250502987,
+      "strong_ils": 54.77576843407587,
+      "outgroup_clade": 51.77885996119585,
+      "slim": 95.6635169738438
     },
     "relate_arg_panel_ft__n3": {
-      "baseline": 113.06539343126497,
-      "cpg_hypermut": 166.3574539229412,
-      "strong_ils": 69.51347197497671,
-      "outgroup_clade": 53.571869474957566,
-      "slim": 385.69183638095274
+      "baseline": 127.35089600404172,
+      "cpg_hypermut": 148.08052933597355,
+      "strong_ils": 66.98602135688998,
+      "outgroup_clade": 60.14314650284359,
+      "slim": 269.4900279598223
     },
     "relate_arg_panel_ft__n10": {
-      "baseline": 174.26493394583667,
-      "cpg_hypermut": 239.69480448295872,
-      "strong_ils": 104.23525024396986,
-      "outgroup_clade": 81.6583258799219,
-      "slim": 477.18196631431056
+      "baseline": 187.07539239222388,
+      "cpg_hypermut": 225.48702819467871,
+      "strong_ils": 99.4322165180638,
+      "outgroup_clade": 94.44088396590087,
+      "slim": 447.56754905915295
     },
     "anc_ft__n0": {
-      "baseline": 51.44636461278424,
-      "cpg_hypermut": 74.36536464500023,
-      "strong_ils": 4.5082217380004295,
-      "outgroup_clade": 4.855720890998782,
-      "slim": 19.946915389013157
+      "baseline": 4.586127394228242,
+      "cpg_hypermut": 3.331972109968774,
+      "strong_ils": 2.744758039829321,
+      "outgroup_clade": 2.930002211709507,
+      "slim": 19.526725987205282
     },
     "anc_ft__n1": {
-      "baseline": 75.70033563487232,
-      "cpg_hypermut": 142.82433557700278,
-      "strong_ils": 71.08962305399655,
-      "outgroup_clade": 119.07857034400149,
-      "slim": 259.69018461899395
+      "baseline": 56.47068510425743,
+      "cpg_hypermut": 46.286934427917004,
+      "strong_ils": 37.34367970691528,
+      "outgroup_clade": 111.13304838899057,
+      "slim": 196.02193594735581
     },
     "anc_ft__n3": {
-      "baseline": 82.66926071164198,
-      "cpg_hypermut": 134.4830078649993,
-      "strong_ils": 117.39635509199434,
-      "outgroup_clade": 93.99780073200054,
-      "slim": 702.5985651059982
+      "baseline": 55.249372104066424,
+      "cpg_hypermut": 75.53284321713727,
+      "strong_ils": 53.88641084486153,
+      "outgroup_clade": 164.0716864897404,
+      "slim": 908.7426309939474
     },
     "anc_ft__n10": {
-      "baseline": 470.0609338795766,
-      "cpg_hypermut": 1357.7548840109994,
-      "strong_ils": 1106.6857377499982,
-      "outgroup_clade": 551.1934934439996,
-      "slim": 2692.9370139449893
+      "baseline": 615.0306613990106,
+      "cpg_hypermut": 1712.8990560822422,
+      "strong_ils": 1499.1658964490052,
+      "outgroup_clade": 654.9524658079026,
+      "slim": 3299.626401337213
     },
     "anc_ft_adaptive__n0": {
-      "baseline": 51.32688510644948,
-      "cpg_hypermut": 75.9439455899992,
-      "strong_ils": 8.246998675000214,
-      "outgroup_clade": 8.27545019900208,
-      "slim": 22.09750912000527
+      "baseline": 8.729850439820439,
+      "cpg_hypermut": 6.394753597909585,
+      "strong_ils": 9.061388206202537,
+      "outgroup_clade": 8.29020520101767,
+      "slim": 33.65792498132214
     },
     "anc_ft_adaptive__n1": {
-      "baseline": 84.36178194754757,
-      "cpg_hypermut": 133.5337650430065,
-      "strong_ils": 89.89484666099816,
-      "outgroup_clade": 79.40006133899624,
-      "slim": 278.0822454539939
+      "baseline": 87.7237072159769,
+      "cpg_hypermut": 58.04185412102379,
+      "strong_ils": 57.947659822995774,
+      "outgroup_clade": 77.9606518400833,
+      "slim": 177.53404802188743
     },
     "anc_ft_adaptive__n3": {
-      "baseline": 90.33160572941415,
-      "cpg_hypermut": 158.08929960400565,
-      "strong_ils": 113.20461721600077,
-      "outgroup_clade": 133.72133845999633,
-      "slim": 688.2943956279996
+      "baseline": 64.91649396496359,
+      "cpg_hypermut": 93.3070132441353,
+      "strong_ils": 72.86644226312637,
+      "outgroup_clade": 62.001549385953695,
+      "slim": 789.6284757483518
     },
     "anc_ft_adaptive__n10": {
-      "baseline": 470.1613083842676,
-      "cpg_hypermut": 1334.8886050260007,
-      "strong_ils": 1170.718658546004,
-      "outgroup_clade": 518.1108271240028,
-      "slim": 2690.45266595901
+      "baseline": 612.859891417902,
+      "cpg_hypermut": 1722.5986725756666,
+      "strong_ils": 1376.986888209125,
+      "outgroup_clade": 691.0061745650601,
+      "slim": 3124.5240009024274
     },
     "majority_outgroup__n0": {
-      "baseline": 32.57547868194524,
-      "cpg_hypermut": 42.12234509500013,
-      "strong_ils": 1.9763620749981783,
-      "outgroup_clade": 2.235955997999554,
-      "slim": 8.552212566008166
+      "baseline": 40.18952891312074,
+      "cpg_hypermut": 55.38228859368246,
+      "strong_ils": 2.6780048619257286,
+      "outgroup_clade": 3.054489704896696,
+      "slim": 13.787797556840815
     },
     "majority_outgroup__n1": {
-      "baseline": 32.707080566557124,
-      "cpg_hypermut": 42.736741328999415,
-      "strong_ils": 1.8741087630005495,
-      "outgroup_clade": 2.224289638999835,
-      "slim": 2.6153529149996757
+      "baseline": 32.08586816105526,
+      "cpg_hypermut": 42.28816247615032,
+      "strong_ils": 2.0875039930688217,
+      "outgroup_clade": 2.327017685980536,
+      "slim": 3.690204275189899
     },
     "majority_outgroup__n3": {
-      "baseline": 33.69424284435809,
-      "cpg_hypermut": 44.93680015500286,
-      "strong_ils": 2.2053550359996734,
-      "outgroup_clade": 2.4150465849998,
-      "slim": 9.488710868005
+      "baseline": 36.62480804999359,
+      "cpg_hypermut": 48.99858548596967,
+      "strong_ils": 2.3021536289015785,
+      "outgroup_clade": 2.658542768098414,
+      "slim": 13.475809010793455
     },
     "majority_outgroup__n10": {
-      "baseline": 39.54096021596342,
-      "cpg_hypermut": 51.87592597600451,
-      "strong_ils": 2.3335342629980005,
-      "outgroup_clade": 2.782365037001,
-      "slim": 10.627012121009102
+      "baseline": 44.91624420811422,
+      "cpg_hypermut": 62.59832747792825,
+      "strong_ils": 2.6781753121176735,
+      "outgroup_clade": 3.101233868394047,
+      "slim": 15.391817183233798
     }
   }
 }

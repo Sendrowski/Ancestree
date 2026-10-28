@@ -1,0 +1,30 @@
+{
+  "est_sfs": "/faststorage/project/primates_fast_dfe/Ancestree/.snakemake/conda/776ffef8c4308f0324f5731a02f6071b_/bin/est-sfs",
+  "model": "JC69",
+  "nrandom": 5,
+  "n_background_sites": 100000,
+  "seed": 2025,
+  "rates": "Rates: k0 0.010580 k1 0.039047 k2 0.010069 k3 0.049793 k4 0.070480 ",
+  "classes": {
+    "Homoplastic biallelic": {
+      "p_major_ancestral": 0.996738,
+      "major": "A",
+      "minor": "G"
+    },
+    "Tri-allelic": {
+      "p_major_ancestral": 0.52302,
+      "major": "A",
+      "minor": "C"
+    },
+    "Ingroup-monomorphic": {
+      "p_major_ancestral": 1.0,
+      "major": "A",
+      "minor": "C"
+    },
+    "4-way polytomy": {
+      "p_major_ancestral": 0.99998,
+      "major": "A",
+      "minor": "G"
+    }
+  }
+}

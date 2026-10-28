@@ -7,9 +7,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 2.925667292205617,
-    "peak_mib": 546.09765625,
-    "baseline_mib": 295.8046875
+    "wall_s": 3.8814559929305688,
+    "peak_mib": 533.8828125,
+    "baseline_mib": 297.51171875
   },
   {
     "n_ensemble": 8,
@@ -19,9 +19,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 4.727805441012606,
-    "peak_mib": 574.80859375,
-    "baseline_mib": 295.82421875
+    "wall_s": 6.9247249969048426,
+    "peak_mib": 538.05859375,
+    "baseline_mib": 265.5703125
   },
   {
     "n_ensemble": 32,
@@ -31,9 +31,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 11.6892057179939,
-    "peak_mib": 573.05859375,
-    "baseline_mib": 294.3203125
+    "wall_s": 19.019425670034252,
+    "peak_mib": 511.6796875,
+    "baseline_mib": 259.34765625
   },
   {
     "n_ensemble": 128,
@@ -43,9 +43,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 39.35375553090125,
-    "peak_mib": 573.6875,
-    "baseline_mib": 295.80859375
+    "wall_s": 67.12106818391476,
+    "peak_mib": 527.53125,
+    "baseline_mib": 290.83984375
   },
   {
     "n_ensemble": 512,
@@ -55,9 +55,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 148.9761077130679,
-    "peak_mib": 574.63671875,
-    "baseline_mib": 295.8125
+    "wall_s": 242.18287232494913,
+    "peak_mib": 537.140625,
+    "baseline_mib": 264.43359375
   },
   {
     "n_ensemble": 1,
@@ -67,9 +67,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 1.6464389329776168,
-    "peak_mib": 670.78125,
-    "baseline_mib": 294.53515625
+    "wall_s": 2.051787819014862,
+    "peak_mib": 604.66796875,
+    "baseline_mib": 240.7421875
   },
   {
     "n_ensemble": 8,
@@ -79,9 +79,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 2.855396399041638,
-    "peak_mib": 699.3984375,
-    "baseline_mib": 295.83984375
+    "wall_s": 3.6083474550396204,
+    "peak_mib": 696.53515625,
+    "baseline_mib": 292.578125
   },
   {
     "n_ensemble": 32,
@@ -91,9 +91,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 6.416231679031625,
-    "peak_mib": 694.40625,
-    "baseline_mib": 295.83984375
+    "wall_s": 9.695678833988495,
+    "peak_mib": 701.66796875,
+    "baseline_mib": 294.84375
   },
   {
     "n_ensemble": 128,
@@ -103,9 +103,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 19.89879423310049,
-    "peak_mib": 698.3984375,
-    "baseline_mib": 295.6640625
+    "wall_s": 34.761852134019136,
+    "peak_mib": 702.140625,
+    "baseline_mib": 297.41015625
   },
   {
     "n_ensemble": 512,
@@ -115,9 +115,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 75.23849140596576,
-    "peak_mib": 699.26953125,
-    "baseline_mib": 294.34765625
+    "wall_s": 132.89300353592262,
+    "peak_mib": 722.984375,
+    "baseline_mib": 291.72265625
   },
   {
     "n_ensemble": 1,
@@ -127,9 +127,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 0.8717284169979393,
-    "peak_mib": 670.93359375,
-    "baseline_mib": 294.3828125
+    "wall_s": 1.165193558903411,
+    "peak_mib": 602.02734375,
+    "baseline_mib": 238.25390625
   },
   {
     "n_ensemble": 8,
@@ -139,9 +139,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 1.4172376759815961,
-    "peak_mib": 696.25390625,
-    "baseline_mib": 290.98828125
+    "wall_s": 1.9003068910678849,
+    "peak_mib": 626.3203125,
+    "baseline_mib": 237.12109375
   },
   {
     "n_ensemble": 32,
@@ -151,9 +151,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 3.55477299913764,
-    "peak_mib": 699.046875,
-    "baseline_mib": 295.53515625
+    "wall_s": 4.992865672917105,
+    "peak_mib": 624.8984375,
+    "baseline_mib": 238.8203125
   },
   {
     "n_ensemble": 128,
@@ -163,9 +163,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 10.204654523869976,
-    "peak_mib": 700.921875,
-    "baseline_mib": 295.74609375
+    "wall_s": 17.486381253926083,
+    "peak_mib": 629.359375,
+    "baseline_mib": 243.5390625
   },
   {
     "n_ensemble": 512,
@@ -175,9 +175,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 40.72887842194177,
-    "peak_mib": 687.53125,
-    "baseline_mib": 290.80078125
+    "wall_s": 66.91476545494515,
+    "peak_mib": 634.40625,
+    "baseline_mib": 240.29296875
   },
   {
     "n_ensemble": 1,
@@ -187,9 +187,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 0.5178276661317796,
-    "peak_mib": 667.546875,
-    "baseline_mib": 293.5
+    "wall_s": 0.5978854749118909,
+    "peak_mib": 660.796875,
+    "baseline_mib": 299.625
   },
   {
     "n_ensemble": 8,
@@ -199,9 +199,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 0.7183979449328035,
-    "peak_mib": 696.3984375,
-    "baseline_mib": 293.703125
+    "wall_s": 1.7821261989884079,
+    "peak_mib": 770.484375,
+    "baseline_mib": 346.53125
   },
   {
     "n_ensemble": 32,
@@ -211,9 +211,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 1.6760137700475752,
-    "peak_mib": 693.38671875,
-    "baseline_mib": 292.64453125
+    "wall_s": 2.4327707939082757,
+    "peak_mib": 675.44921875,
+    "baseline_mib": 287.796875
   },
   {
     "n_ensemble": 128,
@@ -223,9 +223,9 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 5.0921151749789715,
-    "peak_mib": 698.6015625,
-    "baseline_mib": 295.640625
+    "wall_s": 8.365065680933185,
+    "peak_mib": 679.9140625,
+    "baseline_mib": 293.29296875
   },
   {
     "n_ensemble": 512,
@@ -235,8 +235,8 @@
     "sequence_length": 2000000,
     "chunk_size": "250kb",
     "n_sites": 5076,
-    "wall_s": 19.206425056094304,
-    "peak_mib": 697.44921875,
-    "baseline_mib": 293.69921875
+    "wall_s": 34.74808110203594,
+    "peak_mib": 671.49609375,
+    "baseline_mib": 282.40234375
   }
 ]
