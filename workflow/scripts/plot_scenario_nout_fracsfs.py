@@ -86,9 +86,10 @@ for r, (key, label) in enumerate(SCEN):
                           va="center", labelpad=4)
         if r == len(SCEN) - 1:
             ax.set_xlabel(r"derived count $i$")
-axes[0][0].legend(fontsize=7, framealpha=0.9, loc="lower left")
 fig.supylabel("proportion of segregating sites", fontsize=11, x=0.01)
 fig.subplots_adjust(left=0.18, right=0.99, top=0.95, bottom=0.13, wspace=0, hspace=0)
+fig.legend(*axes[0][0].get_legend_handles_labels(), loc="upper center",
+           bbox_to_anchor=(0.585, 0.045), ncol=3, fontsize=9, frameon=True)
 FIG.parent.mkdir(parents=True, exist_ok=True)
-fig.savefig(FIG)
+fig.savefig(FIG, bbox_inches="tight")
 print(f"wrote {FIG}", flush=True)
