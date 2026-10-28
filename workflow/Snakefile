@@ -425,6 +425,8 @@ rule manuscript:
         "reports/manuscripts/latex/tables/kernel_bench_body.tex",
         "reports/manuscripts/latex/tables/msl_informative_prior.tex",
         "reports/manuscripts/latex/tables/msl_runtime.tex",
+        expand(f"{LATEX}/tables/epo_{{name}}.tex",
+               name=["comparison", "simulation", "brier"]),
         f"{LATEX}/main.tex",
         glob.glob(f"{LATEX}/sections/*.tex"),
         f"{LATEX}/refs.bib",
