@@ -810,14 +810,14 @@ class LocalTreeBuilder(ReprMixin):
         # Exact UPGMA over the full pairwise-TMRCA matrix (combinations order).
         from ancestree._ensemble import upgma_batch, window_exposure
         n = len(self.sample_names)
-        condensed = np.ascontiguousarray(
-            [pair_block_t[:, b0:b1].mean(axis=1) for b0, b1 in zip(lo, hi)],
-            dtype=np.float64).reshape(-1, n * (n - 1) // 2)
+        condensed = np.empty((len(lo), n * (n - 1) // 2), dtype=np.float64)
+        for w, (b0, b1) in enumerate(zip(lo, hi)):
+            np.mean(pair_block_t[:, b0:b1], axis=1, out=condensed[w])
         linkages = np.empty((len(condensed), n - 1, 4))
         upgma_batch(condensed, n, linkages, window_exposure(
             inputs.called, inputs.block_sites, lo, hi))
         topo = build_windowed_tree_sequence(
-            n, self.axis_length, intervals, list(linkages),
+            n, self.axis_length, intervals, linkages,
             sample_names=self.sample_names)
         span = geometry.tree_span
         if not self.bake_genotypes:

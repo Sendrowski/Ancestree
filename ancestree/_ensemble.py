@@ -1266,7 +1266,7 @@ class SegmentEnsemble:
             for member in draws:
                 upgma_batch(member, n, Z, weight)
                 yield build_windowed_tree_sequence(
-                    n, b.axis_length, geometry.tree_intervals, list(Z),
+                    n, b.axis_length, geometry.tree_intervals, Z,
                     sample_names=b.sample_names)
 
     def posterior(self, fraction: float, n_members: int, *, n_coal: int = -1,

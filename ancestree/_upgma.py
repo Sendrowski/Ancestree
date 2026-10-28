@@ -9,6 +9,7 @@ strictly increasing times.
 """
 from __future__ import annotations
 
+from array import array
 from collections.abc import Sequence
 
 import numpy as np
@@ -44,11 +45,12 @@ def build_windowed_tree_sequence(
     else:
         sample_individual = [-1] * n_samples
 
-    internal_times: list[float] = []
-    e_left: list[float] = []
-    e_right: list[float] = []
-    e_parent: list[int] = []
-    e_child: list[int] = []
+    # Typed buffers, one unboxed machine value per entry.
+    internal_times = array("d")
+    e_left = array("d")
+    e_right = array("d")
+    e_parent = array("i")
+    e_child = array("i")
 
     next_internal_id = n_samples  # global counter across windows
 
@@ -99,15 +101,15 @@ def build_windowed_tree_sequence(
     flags = np.zeros(n_samples + n_internal, dtype=np.uint32)
     flags[:n_samples] = tskit.NODE_IS_SAMPLE
     times = np.concatenate((np.zeros(n_samples, dtype=np.float64),
-                            np.asarray(internal_times, dtype=np.float64)))
+                            np.frombuffer(internal_times, dtype=np.float64)))
     individual = np.full(n_samples + n_internal, -1, dtype=np.int32)
     individual[:n_samples] = np.asarray(sample_individual, dtype=np.int32)
     tables.nodes.set_columns(flags=flags, time=times, individual=individual)
     tables.edges.set_columns(
-        left=np.asarray(e_left, dtype=np.float64),
-        right=np.asarray(e_right, dtype=np.float64),
-        parent=np.asarray(e_parent, dtype=np.int32),
-        child=np.asarray(e_child, dtype=np.int32),
+        left=np.frombuffer(e_left, dtype=np.float64),
+        right=np.frombuffer(e_right, dtype=np.float64),
+        parent=np.frombuffer(e_parent, dtype=np.int32),
+        child=np.frombuffer(e_child, dtype=np.int32),
     )
 
     tables.sort()
