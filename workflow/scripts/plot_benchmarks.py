@@ -122,7 +122,7 @@ def plot_ingroup_size(payload: dict, out_pdf: Path) -> None:
     ax_acc.set_ylabel("MAP accuracy")
     ax_br.set_ylabel("mean Brier score (lower = better)")
     ax_br.set_xlabel(r"ingroup derived-allele count $i$ (unfolded, projected to $n=20$)")
-    ax_acc.set_ylim(0.0, 1.04)
+    ax_acc.set_ylim(-0.04, 1.04)
     ax_br.set_ylim(0.0, 1.88)
     ax_acc.legend(loc="lower left", fontsize=7, framealpha=0.9,
                   title="$n_\\mathrm{ingroup}$")
