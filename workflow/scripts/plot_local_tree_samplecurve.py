@@ -7,7 +7,7 @@ robustness scenario, so the point of diminishing returns is visible rather than
 assumed. Points are the per-chunk mean with the chunk-to-chunk spread shaded.
 
 Scored through the same path as the heatmap (intersection mask, focal node per
-site class, ``summarize_persite``), so the y values are on the heatmap's scale.
+site class, ``summarize_persite``), over the ingroup-polymorphic sites.
 """
 import json
 import os
@@ -44,13 +44,18 @@ for path in in_jsons:
     k = int(stem.rsplit("_k", 1)[1])
     scen = summ["scenario"]
     n_ing = summ.get("n_ingroup") or rc.N_INGROUP_DEFAULT
-    # Every site class pooled: this figure is about the ensemble, not about
-    # which class benefits, and the heatmap already splits by class.
-    vals = [rc.summary_cat_value(summ, lbl, pf, n_ing, metric="brier")
-            for lbl, pf in rc.CATS]
-    vals = [v for v in vals if np.isfinite(v)]
-    if vals:
-        by[(scen, k)].append(float(np.mean(vals)))
+    # Mean Brier over the ingroup-polymorphic sites, the only ones the
+    # ensemble acts on. Each stats row is (count, scored, MAP correct,
+    # summed P(true), summed squared posterior) for one class|bin|mutations.
+    brier = scored = 0.0
+    for key, row in summ["stats"].items():
+        klass, b, _ = key.split("|")
+        if klass.endswith("_mono") or not 1 <= int(b) <= n_ing - 1:
+            continue
+        brier += row[1] - 2.0 * row[3] + row[4]
+        scored += row[1]
+    if scored:
+        by[(scen, k)].append(brier / scored)
 
 scens = [s.key for s in rc.FIG_SCENARIOS if any(k[0] == s.key for k in by)]
 labels = {s.key: s.label for s in rc.FIG_SCENARIOS}
