@@ -14,7 +14,7 @@
 # Build with::
 #
 #     snakemake --profile workflow/profiles/slurm \
-#         results/reports/bench_single_outgroup_depth.png
+#         results/reports/bench_single_outgroup_depth.pdf
 
 # ``DATA`` / ``REPORTS`` / ``OUTGROUP_DIVERGENCE_CONFIG`` / ``capped_runtime``
 # come from the including Snakefile.
@@ -130,7 +130,6 @@ rule plot_single_outgroup:
         report = rules.report_single_outgroup.output.json,
     output:
         pdf = f"{REPORTS}/bench_single_outgroup_depth.pdf",
-        png = f"{REPORTS}/bench_single_outgroup_depth.png",
     resources:
         mem_mb = lambda wildcards, attempt: 4000 * attempt,
         runtime = lambda wildcards, attempt: capped_runtime(30, attempt),

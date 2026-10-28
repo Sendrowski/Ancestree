@@ -40,7 +40,6 @@ except NameError:
     FIG = Path("reports/manuscripts/latex/figures/bench_scenario_nout_fracsfs.pdf")
 
 #: Screen copy of the figure, for review outside a PDF viewer.
-PNG = Path("results/reports/bench_scenario_nout_fracsfs.png")
 
 
 def _spectra(summary):
@@ -92,6 +91,4 @@ fig.supylabel("proportion of segregating sites", fontsize=11, x=0.01)
 fig.subplots_adjust(left=0.18, right=0.99, top=0.95, bottom=0.13, wspace=0, hspace=0)
 FIG.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(FIG)
-PNG.parent.mkdir(parents=True, exist_ok=True)
-fig.savefig(PNG, dpi=150)
-print(f"wrote {FIG} + {PNG}", flush=True)
+print(f"wrote {FIG}", flush=True)

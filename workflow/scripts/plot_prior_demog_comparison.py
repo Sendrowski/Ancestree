@@ -58,7 +58,6 @@ except NameError:
     FIG = Path("reports/manuscripts/latex/figures/bench_prior_demog.pdf")
 
 #: Screen copy of the figure, for review outside a PDF viewer.
-PNG = Path("results/reports/bench_prior_demog.png")
 
 
 def _cell(scenario: str, method: str, n_out: int) -> dict:
@@ -142,6 +141,4 @@ fig.legend(handles=src_handles, loc="upper left", bbox_to_anchor=(_cx + 0.01, 0.
            ncol=4, fontsize=8, framealpha=0.92, title="prior", title_fontsize=8.5)
 FIG.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(FIG, bbox_inches="tight")
-PNG.parent.mkdir(parents=True, exist_ok=True)
-fig.savefig(PNG, dpi=150, bbox_inches="tight")
-print(f"wrote {FIG} + {PNG}", flush=True)
+print(f"wrote {FIG}", flush=True)

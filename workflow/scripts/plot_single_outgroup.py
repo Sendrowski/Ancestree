@@ -20,11 +20,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 try:
     in_json = str(snakemake.input.report)  # type: ignore[name-defined]
     out_pdf = str(snakemake.output.pdf)  # type: ignore[name-defined]
-    out_png = str(snakemake.output.png)  # type: ignore[name-defined]
 except NameError:
     in_json = "results/reports/single_outgroup_depth.json"
     out_pdf = "results/reports/bench_single_outgroup_depth.pdf"
-    out_png = "results/reports/bench_single_outgroup_depth.png"
 
 payload = json.loads(Path(in_json).read_text(encoding="utf-8"))
 cfg = payload.get("sim_config", {})
@@ -94,9 +92,8 @@ fig.tight_layout(rect=(0, 0.13, 1, 1))
 fig.legend(handles, labels, loc="lower center", ncol=len(labels),
            frameon=True, fontsize=9, title="Inference mode",
            bbox_to_anchor=(0.5, 0.01))
-for path in (out_pdf, out_png):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=200, bbox_inches="tight")
+Path(out_pdf).parent.mkdir(parents=True, exist_ok=True)
+fig.savefig(out_pdf, bbox_inches="tight")
 plt.close(fig)
 
-print(f"Wrote {out_pdf} and {out_png}", flush=True)
+print(f"Wrote {out_pdf}", flush=True)

@@ -262,10 +262,6 @@ def main() -> None:
     OUT_PDF.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT_PDF, bbox_inches="tight")
     print(f"Wrote {OUT_PDF}")
-    # Screen copy beside the vector figure, for review outside a PDF viewer.
-    png_target = OUT_PDF.with_suffix(".png")
-    fig.savefig(png_target, bbox_inches="tight", dpi=150)
-    print(f"Wrote {png_target}")
 
     # Stdout summary: top-10 bins by flip rate, and top-10 by uSFS ratio departure.
     print("\n=== Top 10 folded bins by MAP-flip rate ===")
