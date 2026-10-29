@@ -271,7 +271,7 @@ class Inference(ReprMixin, ABC):
         """
         if self.focal.is_root:
             return None
-        parts = [f"reported at {self.focal.describe()}"]
+        parts = [f"reported at {self.focal._describe()}"]
         tally = self._tally
         if tally.ingroup_non_monophyletic:
             parts.append(
@@ -466,9 +466,9 @@ class Inference(ReprMixin, ABC):
         """
         n_sites = n_tips = 0
         for site in sites:
-            n = site.n_unrepresentable_tips()
+            n = site._n_unrepresentable_tips()
             n_tips += n
-            if n or site.has_unrepresentable_allele:
+            if n or site._has_unrepresentable_allele:
                 n_sites += 1
         return _Tally(unrepresentable_sites=n_sites, unrepresentable_tips=n_tips)
 
@@ -788,7 +788,7 @@ class Inference(ReprMixin, ABC):
         outgroups = self._resolved_outgroups
         if not outgroups:
             self._log.info(
-                "Baseline (MajorityOutgroupInference) skipped: no outgroups "
+                "baseline (MajorityOutgroupInference) skipped: no outgroups "
                 "designated for the comparator rule."
             )
             return
@@ -932,7 +932,7 @@ class Inference(ReprMixin, ABC):
             self._log.warning(
                 "Rate-map mu is zero or undefined at %d site(s); flooring "
                 "to %g so they are scored as mutationally uninformative "
-                "(prior-dominated) rather than crashing.",
+                "(prior-dominated).",
                 n_floored, _ZERO_RATE_FLOOR,
             )
             self._warned_zero_rate = True
@@ -988,7 +988,7 @@ class Inference(ReprMixin, ABC):
                 f"ingroup samples are tips of the tree supplied, so there is "
                 f"no node to resolve it against."
             )
-        resolved = focal.locate(ts_tree, nodes)
+        resolved = focal._locate(ts_tree, nodes)
         if resolved is None or (int(resolved.node) == int(tree.root)
                                 and resolved.tau <= 0.0):
             return tree
@@ -1548,6 +1548,8 @@ class ARGBasedInference(Inference):
         self._input_ts = ts
         self._panel_map = {s: int(sample_map[s]) for s in panel}
         self.ts, sample_map = TskitLocalTree.restrict(ts, self._panel_map)
+        #: ``{sample: node}`` of the panel in the tree sequence restricted to
+        #: it.
         self.sample_map: dict[str, int] = sample_map
         self._node_to_sample: dict[int, str] = {v: k for k, v in self.sample_map.items()}
 
@@ -2190,10 +2192,10 @@ class ARGBasedInference(Inference):
         """
         if self.focal.is_root:
             return None
-        if FocalNode.spans_roots(tree, self._ingroup_nodes):
+        if FocalNode._spans_roots(tree, self._ingroup_nodes):
             self._tally += _Tally(focal_multiroot_fallback=1)
             return None
-        resolved = self.focal.locate(tree, self._ingroup_nodes)
+        resolved = self.focal._locate(tree, self._ingroup_nodes)
         if resolved is not None and resolved.ingroup_is_monophyletic is False:
             self._tally += _Tally(ingroup_non_monophyletic=1)
         return resolved
@@ -2554,7 +2556,7 @@ class FixedTreeInference(Inference):
         if not self._given_tree:
             self._refuse_weight_outside(ingroup_weight)
         self.model = model
-        actual_bc = BaseComposition.require(
+        actual_bc = BaseComposition._require(
             actual_bc, context="FixedTreeInference",
         )
         if not self._no_outgroup_mode and not self._given_tree:
@@ -2879,7 +2881,7 @@ class FixedTreeInference(Inference):
         n_sites = 0
         for site in sample:
             n_sites += 1
-            observed = [Site.canonical(site.tip_alleles.get(o))
+            observed = [Site._canonical(site.tip_alleles.get(o))
                         for o in outgroups]
             for k, (i, j) in enumerate(pairs):
                 ai, bj = observed[i], observed[j]
@@ -3138,21 +3140,21 @@ class FixedTreeInference(Inference):
         self._params_mle = full.copy()
         if model_values:
             self._model_params_mle = model_values
-            self.model.warn_if_bounds_hit()
+            self.model._warn_if_bounds_hit()
         self._warn_if_branch_rates_at_bounds()
         self._log_likelihood_mle = float(-best.fun)
 
         # Stage 2: an adaptive weight fits its bins at the MLE tree, in batches.
         from ancestree.priors import AdaptiveIngroupWeight
         if isinstance(self.ingroup_weight, AdaptiveIngroupWeight):
-            self.ingroup_weight.begin_fit()
+            self.ingroup_weight._begin_fit()
             for batch in self._iter_site_batches():
-                self.ingroup_weight.accumulate(
+                self.ingroup_weight._accumulate(
                     batch, self._engine.log_likelihoods(self.tree, batch),
                 )
-            self.ingroup_weight.end_fit()
+            self.ingroup_weight._end_fit()
 
-        self.tree.ingroup_depth = self._estimate_ingroup_depth()
+        self.tree._ingroup_depth = self._estimate_ingroup_depth()
         self._warn_if_outgroup_divergences_non_monotone()
         self._log_fit_summary(best.nit, results=results, best_idx=best_idx)
         return self.params_mle  # type: ignore[return-value]
@@ -3217,7 +3219,7 @@ class FixedTreeInference(Inference):
             "along the supplied order; out-of-order pairs: %s. "
             "For n_outgroups >= 3 this biases the fit (the ladder is "
             "asymmetric). To get the closest-first order from the data, "
-            "use OutgroupLadderTree.with_outgroup_order_from_sites(ingroup, "
+            "use OutgroupLadderTree._with_outgroup_order_from_sites(ingroup, "
             "outgroup, sites) for a pre-ordered tree, or "
             "OutgroupLadderTree.order_outgroups_by_divergence(sites, "
             "ingroup, outgroup) for just the sorted list.",
@@ -3331,7 +3333,7 @@ class FixedTreeInference(Inference):
             for j, name in enumerate(self._model_free_param_names)
         }
         if model_values:
-            self.model.set_free_params(model_values)
+            self.model._set_free_params(model_values)
         return full, model_values
 
     def _neg_log_likelihood(self, x_free: np.ndarray) -> float:
@@ -3444,7 +3446,7 @@ class FixedTreeInference(Inference):
         if self.ingroup_weight is not None:
             log_w = (
                 self.ingroup_weight.log_probs(batch) if counts is None
-                else self.ingroup_weight.log_probs_from_counts(counts)
+                else self.ingroup_weight._log_probs_from_counts(counts)
             )
         if not self._given_tree:
             self._tally += self._count_ingroup_monomorphic(batch, counts=counts)
@@ -3574,7 +3576,7 @@ class FixedTreeInference(Inference):
         """MLE values for the model's free parameters, or ``None`` before fit
         (an empty dict if the model has no free params).
 
-        :return: ``{name: value}`` from :meth:`SubstitutionModel.set_free_params() <ancestree.models.SubstitutionModel.set_free_params>`,
+        :return: ``{name: value}`` keyed by the model's free-parameter names,
             or ``None``.
         """
         return self._model_params_mle
@@ -3672,8 +3674,11 @@ class MajorityOutgroupInference(Inference):
                 "warning); otherwise use ARGBasedInference / "
                 "FixedTreeInference for production inference."
             )
+        #: The sites, in input order.
         self.sites: list[Site] = list(sites)
+        #: Outgroup haplotype names the majority rule reads.
         self.outgroup_samples: tuple[str, ...] = tuple(outgroup_samples)
+        #: Ingroup haplotype names.
         self.ingroup_samples: tuple[str, ...] = (
             tuple(ingroup_samples) if ingroup_samples is not None else ()
         )

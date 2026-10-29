@@ -1248,12 +1248,12 @@ class TestPlottingUtilities:
         ladder, _ = self._ladder_and_site()
         heights = [
             FocalTreePlot(ladder, FocalNode("ingroup_mrca", fraction=f))
-            .focal_point()[1]
+            ._focal_point()[1]
             for f in (0.0, 0.5, 1.0)
         ]
         # The canvas puts the deepest node at the top, so the marker rises.
         assert heights[0] < heights[1] < heights[2]
-        assert FocalTreePlot(ladder, "panel_root").focal_point()[1] == heights[2]
+        assert FocalTreePlot(ladder, "panel_root")._focal_point()[1] == heights[2]
 
     def test_the_sweep_ends_on_the_ingroups_allele_and_the_outgroups(self):
         from ancestree.plotting import FocalSweep
@@ -1473,7 +1473,7 @@ class TestPanelRootOnAMultiRootTree:
         ts = self._forest(join_the_roots=False)
         assert ts.first().num_roots == 2
         truth = Grade.truth_at_focal(ts, "panel_root")
-        assert truth == Grade.truth_mapping(ts) == {5: "A"}
+        assert truth == Grade._truth_mapping(ts) == {5: "A"}
 
     def test_one_root_reads_at_that_root(self):
         from ancestree.posterior import Grade
@@ -1650,9 +1650,9 @@ class TestIsolatedSamples:
         tree = ts.first()
         nodes = [ids[n] for n in ("a", "b", "c", "e")]
         assert tree.num_roots == 2
-        assert not FocalNode.spans_roots(tree, nodes)
-        assert FocalNode().locate(tree, nodes).node == ids["abc"]
-        assert FocalNode.spans_roots(tree, [ids["e"]])
+        assert not FocalNode._spans_roots(tree, nodes)
+        assert FocalNode()._locate(tree, nodes).node == ids["abc"]
+        assert FocalNode._spans_roots(tree, [ids["e"]])
 
     def test_the_run_reads_at_the_mrca_of_the_samples_present(self):
         ts, ids = self._ts()

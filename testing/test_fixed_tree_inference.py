@@ -416,7 +416,7 @@ class TestAutoOutgroupOrder:
             truth_tree, JC69(), n_sites=2000,
             ingroup_branch_length=0.005, seed=17,
         )
-        tree = OutgroupLadderTree.with_outgroup_order_from_sites(
+        tree = OutgroupLadderTree._with_outgroup_order_from_sites(
             ingroup, unordered, sites,
         )
         assert list(tree.outgroup_samples) == ["O_close", "O_mid", "O_far"]
@@ -427,7 +427,7 @@ class TestAutoOutgroupOrder:
             tip_alleles={"o1": "A", "o2": "A"},  # no ingroup keys
         )]
         with pytest.raises(ValueError, match="no Site carries ingroup"):
-            OutgroupLadderTree.with_outgroup_order_from_sites(
+            OutgroupLadderTree._with_outgroup_order_from_sites(
                 ["i1"], ["o1", "o2"], sites,
             )
 
@@ -437,7 +437,7 @@ class TestAutoOutgroupOrder:
             tip_alleles={"i1": "A", "o1": "A"},  # o2 missing
         )]
         with pytest.raises(ValueError, match="no sites jointly observed"):
-            OutgroupLadderTree.with_outgroup_order_from_sites(
+            OutgroupLadderTree._with_outgroup_order_from_sites(
                 ["i1"], ["o1", "o2"], sites,
             )
 
@@ -1714,9 +1714,9 @@ class TestIngroupDepth:
             tree=OutgroupLadderTree(ingroup, outgroup),
             n_target_sites=4000, progress=False, n_starts=2,
         )
-        assert inf.tree.ingroup_depth == 0.0
+        assert inf.tree._ingroup_depth == 0.0
         inf.fit()
-        assert inf.tree.ingroup_depth == pytest.approx(40 * 0.25 / 4000, rel=0.02)
+        assert inf.tree._ingroup_depth == pytest.approx(40 * 0.25 / 4000, rel=0.02)
 
 
 class TestSubsampleSizeReconciliation:

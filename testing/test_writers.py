@@ -1364,7 +1364,7 @@ def test_a_restricted_site_is_written_to_its_own_record(tmp_path):
         "chr1\t5\tindel\tC\tCT\t.\tPASS\t.\tGT\t0\t0\n"
         "chr1\t5\tsnp\tC\tA\t.\tPASS\t.\tGT\t0\t1\n", encoding="utf-8")
     site = Site(chrom="chr1", pos=5, alleles=("C", "A"),
-                tip_alleles={"a": "C", "b": "A"}).restricted_to({"a"})
+                tip_alleles={"a": "C", "b": "A"})._restricted_to({"a"})
     out = str(tmp_path / "out.vcf")
     assert VCFWriter(str(template), out).write([(site, post("C", 0.9))]) == 1
     calls = {r.ID: r.INFO.get("AA") for r in cyvcf2.VCF(out)}

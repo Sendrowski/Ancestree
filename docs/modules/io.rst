@@ -39,7 +39,6 @@ the path's suffix to recover the per-site annotations, as
    :nosignatures:
 
    ~ancestree.sites.Site
-   ~ancestree.sites.SiteTable
    ~ancestree.sites.BaseComposition
    ~ancestree.sites.PolymorphicSiteFilter
    ~ancestree.sites.SiteSource
@@ -57,39 +56,32 @@ the path's suffix to recover the per-site annotations, as
 
 .. autoclass:: ancestree.sites.Site
 
-.. autoclass:: ancestree.sites.SiteTable
-
 .. autoclass:: ancestree.sites.BaseComposition
 
 .. autoclass:: ancestree.sites.PolymorphicSiteFilter
-
-.. autodata:: ancestree.STATES
-
-.. autodata:: ancestree.STATE_INDEX
-
-.. autodata:: ancestree.DEFAULT_MU
-
-.. autodata:: ancestree.DEFAULT_REC_RATE
-
-.. autodata:: ancestree.MISSING_ALLELES
-
-.. autodata:: ancestree.TRANSITION_PAIRS
+   :show-inheritance:
 
 .. autoclass:: ancestree.sites.SiteSource
 
 .. autoclass:: ancestree.sources.TskitSource
+   :show-inheritance:
 
 .. autoclass:: ancestree.sources.CyVCF2Source
+   :show-inheritance:
 
 .. autoclass:: ancestree.sources.VcfZarrSource
+   :show-inheritance:
 
 .. autoclass:: ancestree.writers.Writer
 
 .. autoclass:: ancestree.writers.VCFWriter
+   :show-inheritance:
 
 .. autoclass:: ancestree.writers.TskitWriter
+   :show-inheritance:
 
 .. autoclass:: ancestree.writers.ZarrWriter
+   :show-inheritance:
 
 .. autoclass:: ancestree.readers.Reader
 

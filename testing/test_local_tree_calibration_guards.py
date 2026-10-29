@@ -50,7 +50,7 @@ def test_explicit_time_grid_sets_the_bin_count():
     assert hmm.n_time_bins == 3
     sites, names = toy_sites(range(0, 2000, 20))
     b = toy_builder(sites, names, 2000.0, time_grid=grid)
-    assert b.hmm.n_time_bins == 3
+    assert b._hmm.n_time_bins == 3
     inf = toy_inference(sites, names, time_grid=grid, n_time_bins=32)
     assert inf.n_time_bins == 3
     np.testing.assert_array_equal(inf.time_grid, grid)
@@ -133,7 +133,7 @@ def test_uncalled_blocks_do_not_deflate_the_pair_prior_mean():
             counts[0, :k] = 0.0
             called[0, :k] = 0.0
         return float(np.asarray(
-            hmm.calibrate(counts, called=called,
+            hmm._calibrate(counts, called=called,
                           block_sites=np.ones(n_blocks))[-1]).ravel()[0])
 
     reference = t_bar(0.0)
@@ -185,7 +185,7 @@ def test_calibrate_gives_a_never_called_pair_the_median_prior_mean(caplog):
     called = np.ones_like(counts, dtype=np.float64)
     called[0] = 0.0
     with caplog.at_level(logging.WARNING, logger="ancestree"):
-        _edges, _t_rep, _lam, _log_lam, _r, t_bar = hmm.calibrate(
+        _edges, _t_rep, _lam, _log_lam, _r, t_bar = hmm._calibrate(
             counts, called=called, block_sites=np.ones(4))
     per_block = 2.0 * hmm.mu * hmm.block_size
     np.testing.assert_allclose(t_bar[1], 3.0 / per_block)
@@ -202,7 +202,7 @@ def test_calibrate_with_every_pair_blind_falls_back_to_the_grid_mean(caplog):
     counts = np.zeros((1, 4), dtype=np.int64)
     called = np.zeros((1, 4), dtype=np.float64)
     with caplog.at_level(logging.WARNING, logger="ancestree"):
-        _edges, t_rep, _lam, _log_lam, _r, t_bar = hmm.calibrate(
+        _edges, t_rep, _lam, _log_lam, _r, t_bar = hmm._calibrate(
             counts, called=called, block_sites=np.ones(4))
     assert t_bar.shape == (1,)
     assert t_bar[0] == pytest.approx(float(np.mean(t_rep)))

@@ -521,8 +521,8 @@ def test_adaptive_prior_folds_upper_half_bins():
     logL[0, STATE_INDEX["A"]] = np.log(0.7)  # p_major
     logL[0, STATE_INDEX["T"]] = np.log(0.1)  # p_minor
 
-    prior.begin_fit()
-    prior.accumulate([site], logL)
+    prior._begin_fit()
+    prior._accumulate([site], logL)
 
     # No upper-half bin (j >= (5+1)//2 = 3) is left as its own fit bin.
     assert all(j < (5 + 1) // 2 for j in prior._acc_bins), dict(prior._acc_bins)
@@ -590,10 +590,10 @@ class TestAdaptiveStreamedFit:
         # dedup accumulators receive keys in identical first-seen order).
         k = 137
         prior_stream = AdaptiveIngroupWeight(ingroup, n_runs=3, seed=5)
-        prior_stream.begin_fit()
-        prior_stream.accumulate(sites[:k], log_L[:k])
-        prior_stream.accumulate(sites[k:], log_L[k:])
-        prior_stream.end_fit()
+        prior_stream._begin_fit()
+        prior_stream._accumulate(sites[:k], log_L[:k])
+        prior_stream._accumulate(sites[k:], log_L[k:])
+        prior_stream._end_fit()
 
         assert prior_stream.fitted is True
         assert prior_all.fitted is True

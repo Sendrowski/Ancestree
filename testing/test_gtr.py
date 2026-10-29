@@ -145,7 +145,7 @@ class TestGTRFreeParams:
         """An optimiser-style update of rate_AC changes Q[0,1] and clears caches."""
         gtr = GTR(fit_rates=True)
         q_before = gtr.Q(pi=[0.25] * 4).copy()
-        gtr.set_free_params({"rate_AC": 5.0})
+        gtr._set_free_params({"rate_AC": 5.0})
         q_after = gtr.Q(pi=[0.25] * 4)
         assert not np.allclose(q_before, q_after)
         # rate_AC at index 0 -> rates[0] should be 5.0
@@ -154,7 +154,7 @@ class TestGTRFreeParams:
     def test_set_free_params_rejects_non_positive(self):
         gtr = GTR(fit_rates=True)
         with pytest.raises(ValueError, match="must be positive"):
-            gtr.set_free_params({"rate_AC": 0.0})
+            gtr._set_free_params({"rate_AC": 0.0})
 
     def test_fit_mask_sequence_length_validated(self):
         with pytest.raises(ValueError, match="length 6"):
@@ -416,10 +416,8 @@ class TestGTREdges:
         assert repr(GTR(rates=[1, 2, 3, 4, 5, 6])) == "GTR(rates=[1, 2, 3, 4, 5, 6])"
 
     def test_empirical_rates_refuse_a_zero_base_frequency(self):
-        bc = BaseComposition(
-            counts={b: 0 for b in STATES},
-            _pi_cache=np.array([0.5, 0.5, 0.0, 0.0]),
-        )
+        bc = BaseComposition(counts={b: 0 for b in STATES})
+        object.__setattr__(bc, "_pi_cache", np.array([0.5, 0.5, 0.0, 0.0]))
         sites = [Site(chrom="1", pos=1, alleles=(x, y), tip_alleles={"a": x, "b": y})
                  for x, y in
                  [("A", "C"), ("A", "G"), ("A", "T"), ("C", "G"), ("C", "T"), ("G", "T")]]

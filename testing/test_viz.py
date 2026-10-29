@@ -156,7 +156,7 @@ class TestFocalTreePlotAnchors:
         ts, _ = panel_ts()
         plot = FocalTreePlot(TskitLocalTree(ts, position=0.0))
         with pytest.raises(ValueError, match="ingroup_samples="):
-            plot.focal_point()
+            plot._focal_point()
 
     @pytest.mark.parametrize("ingroup", [("a", "b", "c", "d"), ("a", "c")])
     def test_the_anchor_is_the_mrca_of_the_ingroup_tips(self, ingroup):
@@ -164,7 +164,7 @@ class TestFocalTreePlotAnchors:
         plot = FocalTreePlot(TskitLocalTree(ts, position=0.0),
                              ingroup_samples=[str(ids[s]) for s in ingroup])
         # The canvas is six units tall, so a node at time 3 sits at y = 3.
-        assert plot.focal_point()[1] == pytest.approx(3.0)
+        assert plot._focal_point()[1] == pytest.approx(3.0)
 
     @pytest.mark.parametrize("focal", [
         "ingroup_mrca",
@@ -174,12 +174,12 @@ class TestFocalTreePlotAnchors:
     ])
     def test_a_single_ingroup_tip_is_placed_where_the_library_reads(self, focal):
         """Regression: the plot anchored a one-sample ingroup on the tip's
-        parent, while :meth:`FocalNode.locate` reads at the tip itself, so
+        parent, while :meth:`FocalNode._locate` reads at the tip itself, so
         every placement measured from the anchor was drawn one branch high."""
         ts, ids = panel_ts()
         plot = FocalTreePlot(TskitLocalTree(ts, position=0.0), focal,
                              ingroup_samples=[str(ids["a"])])
-        read = FocalNode.parse(focal).locate(ts.first(), [ids["a"]])
+        read = FocalNode.parse(focal)._locate(ts.first(), [ids["a"]])
         node, tau = plot._resolve()
         assert (int(node), tau) == (read.node, pytest.approx(read.tau))
 
@@ -190,8 +190,8 @@ class TestFocalTreePlotAnchors:
                              FocalNode("ingroup_mrca", fraction=0.5),
                              ingroup_samples=everyone)
         root = FocalTreePlot(TskitLocalTree(ts, position=0.0), "panel_root")
-        assert plot.focal_point() == pytest.approx(root.focal_point())
-        assert plot.focal_point()[1] == pytest.approx(6.0)
+        assert plot._focal_point() == pytest.approx(root._focal_point())
+        assert plot._focal_point()[1] == pytest.approx(6.0)
 
     def test_a_depth_on_a_genealogy_is_measured_from_the_sample_plane(self):
         ts, ids = panel_ts()
@@ -200,7 +200,7 @@ class TestFocalTreePlotAnchors:
                              ingroup_samples=[str(ids[s]) for s in "abcd"])
         # Half-way up the branch from the ingroup MRCA (time 3) to the root
         # (time 6).
-        assert plot.focal_point()[1] == pytest.approx(4.5)
+        assert plot._focal_point()[1] == pytest.approx(4.5)
 
     def test_one_coalescence_lands_on_the_first_join_of_a_ladder(self):
         ladder = _ladder()
@@ -208,10 +208,10 @@ class TestFocalTreePlotAnchors:
         # K0 is the branch from the ingroup MRCA to the first join, so a
         # depth of exactly K0 names the same node.
         by_depth = FocalTreePlot(ladder, FocalNode("ingroup_mrca", depth=0.004))
-        below = FocalTreePlot(ladder).focal_point()[1]
-        above = FocalTreePlot(ladder, "panel_root").focal_point()[1]
-        assert by_join.focal_point() == pytest.approx(by_depth.focal_point())
-        assert below < by_join.focal_point()[1] < above
+        below = FocalTreePlot(ladder)._focal_point()[1]
+        above = FocalTreePlot(ladder, "panel_root")._focal_point()[1]
+        assert by_join._focal_point() == pytest.approx(by_depth._focal_point())
+        assert below < by_join._focal_point()[1] < above
 
     def test_one_coalescence_skips_a_unary_node(self):
         """Regression: the marker for ``coalescences=1`` sat on a unary node
@@ -222,5 +222,5 @@ class TestFocalTreePlotAnchors:
         plot = FocalTreePlot(TskitLocalTree(ts, position=0.5),
                              FocalNode("ingroup_mrca", coalescences=1),
                              ingroup_samples=["0", "1"])
-        assert plot.focal_point()[1] == pytest.approx(
+        assert plot._focal_point()[1] == pytest.approx(
             ts.node(UNARY_TS_JOIN).time)

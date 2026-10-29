@@ -1865,8 +1865,8 @@ def test_ensemble_applies_the_mutation_map_to_its_calibration():
     contrast = np.full(n_blocks, 1.0)
     contrast[:4] = 5.0  # a 5x rate contrast over the first third
 
-    *_, t_bar_flat = hmm.calibrate(counts, emit_scale=flat)
-    *_, t_bar_scaled = hmm.calibrate(counts, emit_scale=contrast)
+    *_, t_bar_flat = hmm._calibrate(counts, emit_scale=flat)
+    *_, t_bar_scaled = hmm._calibrate(counts, emit_scale=contrast)
 
     # Blocks at 5x the reference rate carry proportionally fewer coalescent
     # units per difference, so the calibrated per-pair mean must drop.

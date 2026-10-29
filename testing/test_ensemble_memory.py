@@ -214,7 +214,7 @@ def test_calibrate_holds_one_float_copy_of_the_counts(monkeypatch, missing):
     tracemalloc.start()
     try:
         before = tracemalloc.get_traced_memory()[0]
-        hmm.calibrate(counts, emit_scale=emit_scale, block_mask=block_mask, **kw)
+        hmm._calibrate(counts, emit_scale=emit_scale, block_mask=block_mask, **kw)
         peak = tracemalloc.get_traced_memory()[1] - before
     finally:
         tracemalloc.stop()

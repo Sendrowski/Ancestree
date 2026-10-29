@@ -3,5 +3,5 @@ INFO:ancestree.CyVCF2Source: Reading variants from species.vcf (5 haplotype samp
 INFO:ancestree.FixedTreeInference: Using 2 ingroup sample(s): A, B
 INFO:ancestree.FixedTreeInference: Inferring the ancestral allele on the fixed tree, streaming the sites
 FixedTreeInference: 1795 sites [--:--, --sites/s]
-INFO:ancestree.FixedTreeInference: Baseline (MajorityOutgroupInference) skipped: no outgroups designated for the comparator rule.
+INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) skipped: no outgroups designated for the comparator rule.
 INFO:ancestree.FixedTreeInference: Focal node: reported at "ingroup_mrca"

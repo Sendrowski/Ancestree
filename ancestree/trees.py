@@ -566,11 +566,19 @@ class TskitLocalTree(Tree):
         return self._root
 
     def children(self, node: int) -> Sequence[int]:
-        """Immediate children of ``node``. Empty for tips."""
+        """Immediate children of ``node``. Empty for tips.
+
+        :param node: Node id whose children to return.
+        :return: Sequence of child node ids.
+        """
         return self._tree.children(node)
 
     def branch_length(self, node: int) -> float:
-        """Branch length above ``node`` in the tree's native time units."""
+        """Branch length above ``node`` in the tree's native time units.
+
+        :param node: Node id.
+        :return: Branch length, zero at the root.
+        """
         return float(self._tree.branch_length(node))
 
     def postorder(self) -> Sequence[int]:
@@ -578,7 +586,11 @@ class TskitLocalTree(Tree):
         return self._postorder
 
     def tip_for_sample(self, sample_id: str) -> int | None:
-        """Map a caller-facing sample id to its tip node id, or ``None``."""
+        """Map a caller-facing sample id to its tip node id, or ``None``.
+
+        :param sample_id: Caller-facing sample identifier.
+        :return: Tip node id, or ``None`` if the sample is not in this view.
+        """
         return self._sample_to_node.get(sample_id)
 
     def n_tips(self) -> int:
@@ -626,6 +638,19 @@ class TskitLocalTree(Tree):
         When ``show_branch_lengths`` (default), every non-root node's label
         gets a ``[bl=...]`` suffix, matching the base contract and the generic
         ``TreeRenderer`` renderer.
+
+        :param site: If given, tip labels are formatted as
+            ``sample_id=allele`` from
+            :attr:`Site.tip_alleles <ancestree.sites.Site.tip_alleles>`. Tips
+            with missing data show ``?``.
+        :param posterior: If given, the root label shows the
+            :class:`~ancestree.posterior.Posterior`'s MAP allele and its
+            probability.
+        :param show_branch_lengths: Append ``[bl=...]`` to every non-root
+            label.
+        :param tskit_kwargs: Passed through to
+            :meth:`tskit.Tree.draw_text() <tskit.Tree.draw_text>`.
+        :return: ASCII-rendered tree.
         """
         from ancestree._viz import TreeRenderer
         node_labels: dict[int, str] = {}
@@ -654,7 +679,15 @@ class TskitLocalTree(Tree):
         posterior: "Posterior | None" = None,
         **tskit_kwargs,
     ) -> str:
-        """SVG render via :meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>` with label overlays."""
+        """SVG render via :meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>` with label overlays.
+
+        :param site: Optional :class:`~ancestree.sites.Site` for tip-allele overlay.
+        :param posterior: Optional :class:`~ancestree.posterior.Posterior`
+            for the root MAP overlay.
+        :param tskit_kwargs: Passed through to
+            :meth:`tskit.Tree.draw_svg() <tskit.Tree.draw_svg>`.
+        :return: The SVG document as a string.
+        """
         from xml.sax.saxutils import escape
 
         from ancestree._viz import TreeRenderer
@@ -682,6 +715,16 @@ class FixedTree(TskitLocalTree):
     included, and the kernel treats them all alike.
     :meth:`FixedTree.from_newick() <ancestree.trees.TskitLocalTree.from_newick>`
     builds it from a Newick string and keeps every branch length.
+
+    :param ts: The source tree sequence.
+    :param position: A genomic position (in tskit coordinates) inside the
+        segment whose local tree is wanted.
+    :param sample_map: Mapping from caller-facing sample identifiers to tskit
+        sample node ids, or ``None`` to derive it from the individual names.
+    :param root: Optional explicit root id for a multi-rooted local tree,
+        restricting the view to that root's subtree.
+    :raises ValueError: If the local tree has more than one root and no
+        explicit ``root`` was supplied.
     """
 
 
@@ -738,7 +781,11 @@ class RerootedTree(Tree):
         return {"anchor": anchor, "tau": tau}
 
     def node_name(self, node: int) -> str | None:
-        """Delegate to the source tree. Re-rooting does not rename nodes."""
+        """Delegate to the source tree. Re-rooting does not rename nodes.
+
+        :param node: Node id in this tree.
+        :return: The source tree's name for ``node``, or ``None``.
+        """
         return self._source.node_name(node)
 
     def __init__(self, tree: Tree, focal: int, tau: float = 0.0) -> None:
@@ -843,11 +890,19 @@ class RerootedTree(Tree):
         return self._root_node
 
     def children(self, node: int) -> "Sequence[int]":
-        """Immediate children of ``node`` in the re-rooted orientation."""
+        """Immediate children of ``node`` in the re-rooted orientation.
+
+        :param node: Node id whose children to return.
+        :return: Sequence of child node ids. Empty for tips.
+        """
         return self._children.get(int(node), ())
 
     def branch_length(self, node: int) -> float:
-        """Length of the branch above ``node``. Zero at the new root."""
+        """Length of the branch above ``node``. Zero at the new root.
+
+        :param node: Node id.
+        :return: Branch length in substitution-model time units.
+        """
         return float(self._branch.get(int(node), 0.0))
 
     def postorder(self) -> "Sequence[int]":
@@ -855,11 +910,19 @@ class RerootedTree(Tree):
         return tuple(self._postorder)
 
     def tip_for_sample(self, sample_id: str) -> int | None:
-        """Delegate to the source tree. Re-rooting does not move the tips."""
+        """Delegate to the source tree. Re-rooting does not move the tips.
+
+        :param sample_id: Caller-facing sample identifier.
+        :return: Tip node id, or ``None`` if the sample is not in this tree.
+        """
         return self._source.tip_for_sample(sample_id)
 
     def sample_for_tip(self, node: int) -> str | None:
-        """Delegate to the source tree."""
+        """Delegate to the source tree.
+
+        :param node: A tip node id.
+        :return: Caller-facing sample id, or ``None`` when the tip is unnamed.
+        """
         return self._source.sample_for_tip(node)
 
     @property
@@ -952,10 +1015,9 @@ class OutgroupLadderTree(Tree):
     :raises ValueError: If ``outgroup_samples`` is empty.
     """
 
-    #: Mean distance from an ingroup haplotype to the ingroup MRCA, in
-    #: substitutions per site. It places the panel root, and is set by
-    #: :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`.
-    ingroup_depth: float = 0.0
+    # Mean distance from an ingroup haplotype to the ingroup MRCA, in
+    # substitutions per site, set by the fit. It places the panel root.
+    _ingroup_depth: float = 0.0
 
     @property
     def _repr_params(self) -> dict[str, object]:
@@ -975,8 +1037,7 @@ class OutgroupLadderTree(Tree):
         (ties in the majority are broken arbitrarily, first allele in
         insertion order). Outgroups are then sorted by ascending
         disagreement rate. Use this to obtain the inferred order without building a
-        tree. :meth:`OutgroupLadderTree.with_outgroup_order_from_sites` returns
-        both at once.
+        tree.
 
         :param sites: Polymorphic :class:`~ancestree.sites.Site` records carrying ingroup
             tip alleles.
@@ -1012,7 +1073,7 @@ class OutgroupLadderTree(Tree):
             for site, majority in zip(sites, majority_per_site):
                 if majority is None:
                     continue
-                og_allele = Site.canonical(site.tip_alleles.get(og))
+                og_allele = Site._canonical(site.tip_alleles.get(og))
                 if og_allele is None:
                     continue
                 n_obs += 1
@@ -1233,7 +1294,7 @@ class OutgroupLadderTree(Tree):
         return tree
 
     @classmethod
-    def with_outgroup_order_from_sites(
+    def _with_outgroup_order_from_sites(
         cls,
         ingroup_samples: Sequence[str],
         outgroup_samples: Sequence[str],
@@ -1377,11 +1438,19 @@ class OutgroupLadderTree(Tree):
         return self._root
 
     def children(self, node: int) -> Sequence[int]:
-        """Immediate children of ``node`` in the ladder. Empty for tips."""
+        """Immediate children of ``node`` in the ladder. Empty for tips.
+
+        :param node: Node id whose children to return.
+        :return: Sequence of child node ids.
+        """
         return self._children_map.get(node, [])
 
     def branch_length(self, node: int) -> float:
-        """Branch length above ``node`` (one of the fitted ``K_i``)."""
+        """Branch length above ``node`` (one of the fitted ``K_i``).
+
+        :param node: Node id.
+        :return: Branch length, zero at the root.
+        """
         return self._branch_lengths.get(node, 0.0)
 
     def postorder(self) -> Sequence[int]:
@@ -1389,11 +1458,19 @@ class OutgroupLadderTree(Tree):
         return self._postorder
 
     def tip_for_sample(self, sample_id: str) -> int | None:
-        """Sample id to tip node id. Ingroup ids map to ``None``."""
+        """Sample id to tip node id. Ingroup ids map to ``None``.
+
+        :param sample_id: Caller-facing sample identifier.
+        :return: Tip node id of an outgroup sample, or ``None``.
+        """
         return self._sample_to_tip.get(sample_id)
 
     def sample_for_tip(self, node: int) -> str | None:
-        """Tip node id to outgroup sample id, ``None`` for non-tip nodes."""
+        """Tip node id to outgroup sample id, ``None`` for non-tip nodes.
+
+        :param node: A node id.
+        :return: Outgroup sample id, or ``None``.
+        """
         return self._tip_to_sample.get(int(node))
 
     def n_tips(self) -> int:
@@ -1478,14 +1555,15 @@ class OutgroupLadderTree(Tree):
         """How far along the backbone the readout may be placed.
 
         The far end, the ancestor of the whole panel, lies at ``(d - h) / 2``
-        for the deepest outgroup's divergence ``d`` and the
-        :attr:`ingroup_depth` ``h``, and no lower than the deepest join.
+        for the deepest outgroup's divergence ``d`` and the mean depth ``h`` of
+        an ingroup haplotype below the ingroup MRCA, and no lower than the
+        deepest join.
 
         :return: Distance from the ingroup MRCA, in substitutions per site.
         """
         _, lengths = self._backbone
         midpoint = 0.5 * (float(self.outgroup_divergence()[-1])
-                          - float(self.ingroup_depth))
+                          - float(self._ingroup_depth))
         return max(midpoint, sum(lengths[:-1]))
 
     @classmethod
@@ -1547,8 +1625,8 @@ class OutgroupLadderTree(Tree):
 
         The readout lies :math:`\max((d_n - h)/2, J)` above the ingroup MRCA,
         for :math:`d_n` the deepest outgroup's divergence, :math:`h` the
-        :attr:`OutgroupLadderTree.ingroup_depth <ancestree.trees.OutgroupLadderTree.ingroup_depth>`
-        and :math:`J` the distance to the deepest join, all in substitutions
+        mean depth of an ingroup haplotype below the ingroup MRCA, set by the
+        fit, and :math:`J` the distance to the deepest join, all in substitutions
         per site.
 
         :return: A re-rooted view of this tree.

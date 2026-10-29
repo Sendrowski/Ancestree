@@ -21,12 +21,16 @@ Inference
 .. autoclass:: ancestree.inference.Inference
 
 .. autoclass:: ancestree.inference.ARGBasedInference
+   :show-inheritance:
 
 .. autoclass:: ancestree.local_tree_inference.LocalTreeInference
+   :show-inheritance:
 
 .. autoclass:: ancestree.inference.FixedTreeInference
+   :show-inheritance:
 
 .. autoclass:: ancestree.inference.MajorityOutgroupInference
+   :show-inheritance:
 
 .. autoclass:: ancestree.local_tree_inference.PairwiseCoalescentHMM
 

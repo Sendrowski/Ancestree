@@ -94,6 +94,11 @@ class Writer(ReprMixin, ABC):
     Subclasses consume the ``(Site, Posterior)`` pairs of
     :meth:`Inference.infer() <ancestree.inference.Inference.infer>` and
     implement :meth:`write` for one output format.
+
+    :param output: Destination path.
+    :param min_confidence: Calls below this are written as missing.
+    :param samples: Sample columns to write, or ``None`` for all of them.
+    :param contig_lengths: Length of each contig, or ``None``.
     """
 
     @staticmethod
@@ -212,13 +217,7 @@ class Writer(ReprMixin, ABC):
         contig_lengths: "Mapping[str, int] | None" = None,
     ) -> None:
         """Record the destination, the reporting threshold, the samples and
-        the contig lengths.
-
-        :param output: Destination path.
-        :param min_confidence: Calls below this are written as missing.
-        :param samples: Sample columns to write, or ``None`` for all of them.
-        :param contig_lengths: Length of each contig, or ``None``.
-        """
+        the contig lengths."""
         self._output = str(output)
         self._contig_lengths = dict(contig_lengths or {})
         self._min_confidence: float | None = (
@@ -273,9 +272,9 @@ class Writer(ReprMixin, ABC):
             carries no allele or tip the model can read.
         """
         max_prob = float(posterior.max_prob)
-        if not site.has_representable_allele or (
+        if not site._has_representable_allele or (
                 site.tip_alleles
-                and not any(map(Site.canonical, site.tip_alleles.values()))):
+                and not any(map(Site._canonical, site.tip_alleles.values()))):
             return self.AA_UNKNOWN, max_prob
         if self._min_confidence is not None and max_prob < self._min_confidence:
             return self.AA_UNKNOWN, max_prob
@@ -289,7 +288,7 @@ class Writer(ReprMixin, ABC):
         States outside the model's alphabet are zero.
 
         :param posterior: The site's :class:`~ancestree.posterior.Posterior`.
-        :return: One probability per entry of :data:`ancestree.STATES`.
+        :return: One probability per entry of ``ancestree.STATES``.
         """
         values = [0.0] * len(STATES)
         for allele, probability in posterior.items():
@@ -1275,7 +1274,7 @@ class TskitWriter(Writer):
         for site_obj in self._ts.sites():
             scored = (
                 index_by_fpos.get(float(site_obj.position))
-                or index_by_ipos.get(Site.tskit_pos(site_obj.position)))
+                or index_by_ipos.get(Site._tskit_pos(site_obj.position)))
             base_meta = (site_obj.metadata if raw
                          else self._metadata_dict(site_obj.metadata) or {})
             if scored is None:
@@ -1374,7 +1373,7 @@ class ZarrWriter(Writer):
         """Fields shown by :meth:`__repr__`."""
         return {"output": str(self._output)}
 
-    AA_HEADER_LINES = {
+    _AA_HEADER_LINES = {
         field: f'##INFO=<ID={field},Number={spec["Number"]},'
                f'Type={spec["Type"]},Description="{spec["Description"]}">'
         for field, spec in AA_INFO_FIELDS.items()
@@ -1710,7 +1709,7 @@ class ZarrWriter(Writer):
             at = next((i for i, line in enumerate(lines)
                        if line.startswith("#CHROM")),
                       len(lines) - (lines[-1] == ""))
-            lines[at:at] = [line for field, line in self.AA_HEADER_LINES.items()
+            lines[at:at] = [line for field, line in self._AA_HEADER_LINES.items()
                             if store_posterior or field != "AA_post"]
             root.attrs["vcf_header"] = "\n".join(lines)
 

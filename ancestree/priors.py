@@ -112,7 +112,7 @@ class IngroupWeight(ReprMixin, ABC):
 
         :param site: The site to score.
         :return: Length-4 ``log P(ingroup alleles | I = s)`` over states ``s``,
-            for the ingroup MRCA ``I``, in :data:`ancestree.STATES` order.
+            for the ingroup MRCA ``I``, in ``ancestree.STATES`` order.
         """
         raise NotImplementedError
 
@@ -122,7 +122,7 @@ class IngroupWeight(ReprMixin, ABC):
         :param sites: Polymorphic :class:`~ancestree.sites.Site` records.
         :return: ``(len(sites), 4)`` array of ``log P(ingroup alleles | I = s)``
             for the ingroup MRCA ``I`` and state ``s``, in
-            :data:`ancestree.STATES` order. Unobserved alleles get ``-inf``.
+            ``ancestree.STATES`` order. Unobserved alleles get ``-inf``.
         """
         out = np.empty((len(sites), 4), dtype=float)
         for idx, site in enumerate(sites):
@@ -136,11 +136,8 @@ class IngroupWeight(ReprMixin, ABC):
     ) -> None:
         """Optionally fit free parameters from data (default no-op).
 
-        The all-at-once wrapper around the incremental
-        :meth:`AdaptiveIngroupWeight.begin_fit() <ancestree.priors.AdaptiveIngroupWeight.begin_fit>`
-        / :meth:`AdaptiveIngroupWeight.accumulate() <ancestree.priors.AdaptiveIngroupWeight.accumulate>`
-        / :meth:`AdaptiveIngroupWeight.end_fit() <ancestree.priors.AdaptiveIngroupWeight.end_fit>`
-        protocol that :class:`~ancestree.inference.FixedTreeInference` drives.
+        Fits in one call what :class:`~ancestree.inference.FixedTreeInference`
+        fits incrementally over its site batches.
 
         :param sites: Same sequence passed to :meth:`log_probs`.
         :param log_L_per_site: ``(N, 4)`` log-likelihoods at the fitted
@@ -162,7 +159,7 @@ class NoIngroupWeight(IngroupWeight):
         """Flat log vector, independent of the site.
 
         :param site: The site to score, unused.
-        :return: Length-4 zero vector in :data:`ancestree.STATES` order.
+        :return: Length-4 zero vector in ``ancestree.STATES`` order.
         """
         return np.zeros(4)
 
@@ -216,7 +213,12 @@ class StationaryPrior(ReprMixin):
             self._log_prior_per_state: np.ndarray = np.log(pi)
 
     def log_probs(self, sites: Sequence[Site]) -> np.ndarray:
-        """``(N, S)`` log-prior. Identical row for every site."""
+        """``(N, S)`` log-prior. Identical row for every site.
+
+        :param sites: The sites to score, of which only the count is read.
+        :return: ``(len(sites), n_states)`` array of the stationary log-prior,
+            in model state order.
+        """
         return np.broadcast_to(
             self._log_prior_per_state, (len(sites), self.model.n_states)
         ).copy()
@@ -299,7 +301,7 @@ class KingmanIngroupWeight(IngroupWeight):
         """
         folded: Counter = Counter()
         for allele, n in counts.items():
-            state = Site.canonical(allele)
+            state = Site._canonical(allele)
             if state is not None:
                 folded[state] += n
         counts = folded
@@ -317,7 +319,7 @@ class KingmanIngroupWeight(IngroupWeight):
                 out[STATE_INDEX[allele]] = np.log(c / n_obs)
         return out
 
-    def log_probs_from_counts(
+    def _log_probs_from_counts(
         self, counts: Sequence[Counter],
     ) -> np.ndarray:
         """Per-site log weights from tallies the caller supplies.
@@ -366,7 +368,7 @@ class AdaptiveIngroupWeight(IngroupWeight):
     :param n_runs: Independent L-BFGS-B starts per bin. Default ``4``.
     :param seed: Seed for the multistart sampling. Default ``0``.
     :param min_bin_n_sites: Weighted sites per fittable bin below which
-        :meth:`end_fit` warns about MLE instability. Default ``20``. The
+        the fit warns about MLE instability. Default ``20``. The
         warning also fires for a bin pegged at a parameter bound.
     :param parallelize: Dispatch the per-bin fits across worker processes.
         Default ``False``.
@@ -397,7 +399,7 @@ class AdaptiveIngroupWeight(IngroupWeight):
     #: Number of random starts per per-bin fit.
     n_runs: int
 
-    #: Weighted site count per bin below which :meth:`end_fit` warns about
+    #: Weighted site count per bin below which the fit warns about
     #: an unstable per-bin estimate.
     min_bin_n_sites: int
 
@@ -546,15 +548,15 @@ class AdaptiveIngroupWeight(IngroupWeight):
                 self.n_ingroup, self.subsample_size,
             )
 
-        self.begin_fit()
-        self.accumulate(sites, log_L_per_site)
-        self.end_fit()
+        self._begin_fit()
+        self._accumulate(sites, log_L_per_site)
+        self._end_fit()
 
-    def begin_fit(self) -> None:
+    def _begin_fit(self) -> None:
         """Reset the per-bin accumulators to start an incremental fit.
 
-        Pair with :meth:`accumulate` (one or more batches), then
-        :meth:`end_fit`. Each bin keeps ``{(p_major, p_minor): summed
+        Pair with :meth:`_accumulate` (one or more batches), then
+        :meth:`_end_fit`. Each bin keeps ``{(p_major, p_minor): summed
         weight}``, so the accumulator is bounded by the number of distinct
         outgroup patterns and a batched fit equals an all-at-once one.
         """
@@ -564,11 +566,11 @@ class AdaptiveIngroupWeight(IngroupWeight):
         self._acc_bin_weight_totals: dict[int, float] = defaultdict(float)
         self._acc_n_fallback = 0
 
-    def accumulate(
+    def _accumulate(
         self, sites: Sequence[Site], log_L_per_site: np.ndarray,
     ) -> None:
         """Fold one batch of sites + their per-site log-likelihoods into the
-        running fit (between :meth:`begin_fit` and :meth:`end_fit`)."""
+        running fit (between :meth:`_begin_fit` and :meth:`_end_fit`)."""
         n_sub = self.subsample_size
         for site_idx, site in enumerate(sites):
             counts = site.count_alleles(self.ingroup_samples)
@@ -608,8 +610,8 @@ class AdaptiveIngroupWeight(IngroupWeight):
                 else:
                     self._acc_bins[bin_lo][(p_minor, p_major)] += w
 
-    def end_fit(self) -> None:
-        """Finalise an incremental fit started with :meth:`begin_fit`."""
+    def _end_fit(self) -> None:
+        """Finalise an incremental fit started with :meth:`_begin_fit`."""
         bins = {
             j: [(pm, pn, w) for (pm, pn), w in d.items()]
             for j, d in self._acc_bins.items()

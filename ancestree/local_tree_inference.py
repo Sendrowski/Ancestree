@@ -194,7 +194,7 @@ class PairwiseCoalescentHMM(ReprMixin):
         self.time_grid, self.n_time_bins = (
             PairwiseCoalescentHMM._resolve_time_grid(time_grid, n_time_bins))
 
-    def calibrate(self, counts, *, emit_scale=None, block_mask=None,
+    def _calibrate(self, counts, *, emit_scale=None, block_mask=None,
                   called=None, block_sites=None):
         """Time grid, per-bin rates and per-pair prior mean, from block counts.
 
@@ -363,8 +363,7 @@ class PairwiseCoalescentHMM(ReprMixin):
         has_sites = sites_per_block > 0
         # A block listing no site says nothing about a pair's coverage, so it
         # carries its nearest listed neighbour's exposure, the left one on a
-        # tie, rather than a full block's: otherwise a pair uncalled over a
-        # stretch reads it as a run of zero differences.
+        # tie.
         source = np.arange(n_blocks)
         if has_sites.any() and not has_sites.all():
             idx = np.flatnonzero(has_sites)
@@ -393,7 +392,7 @@ class PairwiseCoalescentHMM(ReprMixin):
                                         minlength=n_blocks).astype(dtype)
         return counts, called, block_sites
 
-    def prepare(
+    def _prepare(
         self, genotypes: np.ndarray, block_of_site: np.ndarray, n_blocks: int,
         step: "np.ndarray | None" = None,
         block_mask: "np.ndarray | None" = None,
@@ -427,7 +426,7 @@ class PairwiseCoalescentHMM(ReprMixin):
         dtype = np.int16 if busiest <= np.iinfo(np.int16).max else np.int32
         counts, called, block_sites = self._pair_block_counts(
             genotypes, block_of_site, n_blocks, dtype=dtype)
-        edges, t_rep, lam, log_lam, r, t_bar = self.calibrate(
+        edges, t_rep, lam, log_lam, r, t_bar = self._calibrate(
             counts, emit_scale=emit_scale, block_mask=block_mask,
             called=called, block_sites=block_sites)
         prior = np.stack([self._coalescent_prior(edges, t) for t in t_bar])
@@ -436,10 +435,10 @@ class PairwiseCoalescentHMM(ReprMixin):
                          emit_scale)
 
     @staticmethod
-    def posterior_means(inputs: HmmInputs) -> np.ndarray:
+    def _posterior_means(inputs: HmmInputs) -> np.ndarray:
         """Posterior-mean TMRCA per (pair, block) by forward-backward.
 
-        :param inputs: The :class:`HmmInputs` of :meth:`prepare`.
+        :param inputs: The :class:`HmmInputs` of :meth:`_prepare`.
         :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA (generations),
             one row per haplotype pair in :func:`itertools.combinations` order.
         """
@@ -455,13 +454,23 @@ class PairwiseCoalescentHMM(ReprMixin):
         block_mask: "np.ndarray | None" = None,
         emit_scale: "np.ndarray | None" = None,
     ) -> np.ndarray:
-        """Posterior-mean TMRCA per (pair, block): :meth:`posterior_means` of
-        :meth:`prepare`, whose parameters it takes.
+        """Posterior-mean TMRCA per (pair, block) by forward-backward.
+
+        :param genotypes: ``(n_sites, n_haplotypes)`` int8 allele indices
+            (0..3), ``-1`` for missing.
+        :param block_of_site: ``(n_sites,)`` block index per site.
+        :param n_blocks: Total number of blocks.
+        :param step: Optional ``(n_blocks-1,)`` genetic distance of each
+            inter-block step in nominal-block units. ``None`` is a uniform map.
+        :param block_mask: Optional ``(n_blocks,)`` bool of callable blocks.
+            ``None`` is all callable.
+        :param emit_scale: Optional ``(n_blocks,)`` Poisson exposure scale of
+            each block. ``None`` is all ones.
 
         :return: ``(n(n-1)/2, n_blocks)`` posterior-mean TMRCA (generations),
             one row per haplotype pair in :func:`itertools.combinations` order.
         """
-        return self.posterior_means(self.prepare(
+        return self._posterior_means(self._prepare(
             genotypes, block_of_site, n_blocks, step=step,
             block_mask=block_mask, emit_scale=emit_scale))
 
@@ -475,6 +484,12 @@ class PairwiseTmrcas:
     estimator's most direct intermediate, exposed for inspection and debugging
     (e.g. checking whether a pair's TMRCA track follows the expected
     recombination-driven structure, or why a window's tree is implausible).
+
+    :param sample_names: Panel haplotype names, in genotype-column order.
+    :param pairs: The haplotype-name pair of each row of ``tmrca``.
+    :param block_midpoints: Midpoint of each HMM block, in bp.
+    :param tmrca: Posterior-mean TMRCA of each pair in each block, in
+        generations.
     """
 
     #: Panel haplotype names, in genotype-column order.
@@ -513,7 +528,10 @@ class PairwiseTmrcas:
             )
 
     def to_npz(self, path: "str | os.PathLike") -> None:
-        """Dump the raw arrays to a NumPy ``.npz`` archive, keyed by field name."""
+        """Dump the raw arrays to a NumPy ``.npz`` archive, keyed by field name.
+
+        :param path: Output path.
+        """
         np.savez(
             path,
             sample_names=np.asarray(self.sample_names),
@@ -523,7 +541,11 @@ class PairwiseTmrcas:
         )
 
     def to_csv(self, path: "str | os.PathLike", *, sep: str = ",") -> None:
-        """Write a long ``hap_i, hap_j, block_midpoint, tmrca`` table."""
+        """Write a long ``hap_i, hap_j, block_midpoint, tmrca`` table.
+
+        :param path: Output path.
+        :param sep: Field delimiter.
+        """
         import csv
 
         with open(path, "w", newline="", encoding="utf-8") as fh:
@@ -637,7 +659,7 @@ class LocalTreeBuilder(ReprMixin):
     def _repr_params(self) -> dict[str, object]:
         """Fields shown by :meth:`__repr__`."""
         return {"window_bp": self.window_bp,
-                "n_time_bins": self.hmm.n_time_bins}
+                "n_time_bins": self._hmm.n_time_bins}
 
     def __init__(
         self,
@@ -675,6 +697,7 @@ class LocalTreeBuilder(ReprMixin):
             )
         self.mu = float(mu)
         self.rec_rate = float(rec_rate)
+        #: Panel haplotype names, in tip order.
         self.sample_names: list[str] = list(sample_names)
         if geometry is None:
             if sequence_length is None:
@@ -699,8 +722,7 @@ class LocalTreeBuilder(ReprMixin):
                                                     geometry.position_base)
         self.block_size, self.window_bp = geometry.block, geometry.window
         _check_on_axis(self.sites.pos, geometry.axis_length)
-        #: The pairwise-coalescent HMM the build runs.
-        self.hmm = PairwiseCoalescentHMM(
+        self._hmm = PairwiseCoalescentHMM(
             len(self.sample_names), mu=mu, rec_rate=rec_rate,
             block_size=geometry.block, n_time_bins=n_time_bins,
             time_grid=time_grid)
@@ -748,14 +770,13 @@ class LocalTreeBuilder(ReprMixin):
 
         :return: ``(genotypes, positions, inputs)``: the ``(n_sites, n_hap)``
             allele-index matrix, each site's position on the axis, and the
-            :class:`HmmInputs` of
-            :meth:`PairwiseCoalescentHMM.prepare() <ancestree.local_tree_inference.PairwiseCoalescentHMM.prepare>`.
+            :class:`HmmInputs` the HMM runs on.
         """
         g, positions, block_of_site, n_blocks = self._genotype_matrix()
         step, block_mask, emit_scale = self.geometry.hmm_inputs(
             self.rec_rate, self.mu, log=self._log,
             validate=self._validate_coverage)
-        return g, positions, self.hmm.prepare(
+        return g, positions, self._hmm._prepare(
             g, block_of_site, n_blocks, step=step, block_mask=block_mask,
             emit_scale=emit_scale)
 
@@ -769,15 +790,13 @@ class LocalTreeBuilder(ReprMixin):
             self._log.info(
                 "Running pairwise-coalescent HMM (%s pairs × %s blocks)",
                 f"{n_hap * (n_hap - 1) // 2:,}", f"{self.geometry.n_blocks:,}")
-        return PairwiseCoalescentHMM.posterior_means(self.prepared_hmm[2])
+        return PairwiseCoalescentHMM._posterior_means(self.prepared_hmm[2])
 
     def to_tree_sequence(self):
         """Build (and cache) the self-describing local-tree sequence.
 
         :return: A :class:`tskit.TreeSequence` on the builder's axis, one local
-            tree per window over the data stretch (see
-            :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`)
-            and no edges elsewhere, branch lengths in generations, sample names
+            tree per window over the data stretch and no edges elsewhere, branch lengths in generations, sample names
             in individual metadata, and the observed genotypes baked in as
             sites.
         :raises ValueError: If two sites share a position, which tskit forbids.
@@ -874,20 +893,14 @@ class LocalTreeBuilder(ReprMixin):
         return self._ts
 
     def pairwise_tmrcas(self) -> PairwiseTmrcas:
-        """Inferred per-block pairwise TMRCAs (the raw HMM output).
-
-        Runs (and caches) the pairwise-coalescent HMM and returns its
-        posterior-mean TMRCA matrix with pair and block labels, the
-        intermediate that :meth:`to_tree_sequence` condenses into per-window
-        trees. Exposed for inspection and debugging of genealogy quality;
-        :meth:`PairwiseTmrcas.write` dumps it to file.
+        """The posterior-mean TMRCA of every haplotype pair per HMM block, the
+        matrix :meth:`to_tree_sequence` condenses into per-window trees.
 
         All ``n(n-1)/2`` pairs, in :func:`itertools.combinations` order, over
-        the blocks overlapping
-        :attr:`BuildGeometry.tree_span <ancestree._geometry.BuildGeometry.tree_span>`,
-        at genome coordinates. A block straddling the edge of a chunked core
-        is reported by the core holding its midpoint clipped to the data
-        stretch.
+        the blocks overlapping the data stretch, at genome coordinates. A
+        block straddling the edge of a chunked core is reported by the core
+        holding its midpoint. :meth:`PairwiseTmrcas.write` writes the record
+        to file.
 
         :return: A :class:`~ancestree.local_tree_inference.PairwiseTmrcas` record.
         """
@@ -909,7 +922,10 @@ class LocalTreeBuilder(ReprMixin):
                               self.block_tmrcas[:, keep])
 
     def write(self, path: "str | os.PathLike") -> None:
-        """Dump the inferred local-tree sequence to a ``.trees`` file."""
+        """Dump the inferred local-tree sequence to a ``.trees`` file.
+
+        :param path: Output path.
+        """
         self.to_tree_sequence().dump(str(path))
 
 

@@ -28,7 +28,10 @@ reporting node, passed as ``prior=``, and is accepted by every mode.
 .. autoclass:: ancestree.priors.StationaryPrior
 
 .. autoclass:: ancestree.priors.KingmanIngroupWeight
+   :show-inheritance:
 
 .. autoclass:: ancestree.priors.AdaptiveIngroupWeight
+   :show-inheritance:
 
 .. autoclass:: ancestree.priors.NoIngroupWeight
+   :show-inheritance:

@@ -72,12 +72,12 @@ class TestGrade:
         return anc.Inference.from_arg(small_ts, anc.JC69(), mu=5e-8, progress=False)
 
     def test_a_grade_over_the_stream_is_grade_itself(self, inference, small_ts):
-        truth = Grade.truth_mapping(small_ts)
+        truth = Grade._truth_mapping(small_ts)
         assert Grade(inference.infer(), truth) == inference.grade(truth)
 
     def test_truth_at_the_panel_root_is_the_ancestral_state(self):
         ts = tskit.load(QUICKSTART_TREES)
-        assert Grade.truth_at_focal(ts, "panel_root") == Grade.truth_mapping(ts)
+        assert Grade.truth_at_focal(ts, "panel_root") == Grade._truth_mapping(ts)
 
     def test_truth_at_the_ingroup_mrca_is_the_ingroup_allele_where_fixed(self):
         """At a site fixed within the ingroup, the state at its MRCA is that allele."""
@@ -94,7 +94,7 @@ class TestGrade:
                 fixed += 1
                 assert truth[int(v.site.position)] == next(iter(alleles))
         assert fixed > 0
-        assert truth != Grade.truth_mapping(ts)
+        assert truth != Grade._truth_mapping(ts)
 
     def test_a_tree_sequence_truth_is_read_at_the_ingroup_mrca_by_default(self):
         ts = tskit.load(QUICKSTART_TREES)
@@ -105,7 +105,7 @@ class TestGrade:
         mrca = Grade.truth_at_focal(
             ts, "ingroup_mrca", ingroup_samples=ingroup, outgroup_samples=["o0", "o1"])
         assert inf.grade(ts) == inf.grade(mrca)
-        assert inf.grade(ts).map_recovery > inf.grade(Grade.truth_mapping(ts)).map_recovery
+        assert inf.grade(ts).map_recovery > inf.grade(Grade._truth_mapping(ts)).map_recovery
 
     def test_the_truth_node_is_chosen_independently_of_the_reporting_node(self):
         """A run reporting at the ingroup MRCA graded at the panel root."""
@@ -115,7 +115,7 @@ class TestGrade:
             ts, anc.JC69(), mu=5e-8, progress=False,
             ingroup_samples=ingroup, outgroup_samples=["o0", "o1"])
         root = inf.grade(ts, focal="panel_root")
-        assert root == inf.grade(Grade.truth_mapping(ts))
+        assert root == inf.grade(Grade._truth_mapping(ts))
         res = list(inf.infer())
         assert root == Grade(res, ts, focal="panel_root",
                              ingroup_samples=ingroup, outgroup_samples=["o0", "o1"])
@@ -240,7 +240,7 @@ class TestGrade:
         assert hash(grade) == hash((1.0, grade.brier, 1))
 
     def test_truth_accepts_pairs(self):
-        assert Grade.truth_mapping([(1, "A"), ("2", "C")]) == {1: "A", 2: "C"}
+        assert Grade._truth_mapping([(1, "A"), ("2", "C")]) == {1: "A", 2: "C"}
 
 
 class TestGradeAgainstADifferentlyNamedTruth:

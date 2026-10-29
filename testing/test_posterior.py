@@ -136,5 +136,5 @@ def test_a_tree_sequence_truth_is_keyed_on_the_vcf_position():
     ts.write_vcf(buf)
     vcf_pos = [int(line.split("\t")[1]) for line in buf.getvalue().splitlines()
                if not line.startswith("#")]
-    assert list(Grade.truth_mapping(ts)) == vcf_pos
+    assert list(Grade._truth_mapping(ts)) == vcf_pos
     assert sorted(Grade.truth_at_focal(ts)) == vcf_pos

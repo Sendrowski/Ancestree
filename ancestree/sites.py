@@ -31,15 +31,28 @@ _FILL = -2
 
 @dataclass(frozen=True, slots=True)
 class Site:
-    """A single polymorphic (or monomorphic) site with observed tip alleles."""
+    """A single polymorphic (or monomorphic) site with observed tip alleles.
+
+    :param chrom: Contig / chromosome identifier.
+    :param pos: Position on the contig, in the source's own coordinates.
+    :param alleles: Observed alleles, REF first.
+    :param tip_alleles: Observed allele of each sample, or ``None`` where
+        missing.
+    :param local_tree_handle: Source-specific handle from which the
+        orchestrator constructs this site's tree, or ``None`` under a fixed
+        tree.
+    :param info: Free-form auxiliary information attached to the site, or ``None`` for none.
+    :param unphased: Individuals whose call at this site is unphased.
+    :param padded: Tips filling the slots of a call narrower than the ploidy.
+    """
 
     @staticmethod
-    def canonical(allele: "str | None") -> "str | None":
+    def _canonical(allele: "str | None") -> "str | None":
         """The allele as a model state, or ``None`` where it names none.
 
         One spelling of the case fold every scoring path shares: an allele is
         upper-cased and returned only when it is one of
-        :data:`ancestree.STATES`.
+        ``ancestree.STATES``.
 
         :param allele: The observed allele, in any case.
         :return: The upper-cased state, or ``None``.
@@ -54,8 +67,8 @@ class Site:
         """Whether an allele is neither a model state nor a no-call.
 
         :param allele: The observed allele, compared upper-cased.
-        :return: ``True`` for an allele outside both :data:`ancestree.STATES` and
-            :data:`ancestree.MISSING_ALLELES`, such as an indel or ``*``.
+        :return: ``True`` for an allele outside both ``ancestree.STATES`` and
+            ``ancestree.MISSING_ALLELES``, such as an indel or ``*``.
         """
         if allele is None:
             return False
@@ -63,7 +76,7 @@ class Site:
         return upper not in MISSING_ALLELES and upper not in STATE_INDEX
 
     @staticmethod
-    def tskit_pos(position: float, length: "float | None" = None) -> int:
+    def _tskit_pos(position: float, length: "float | None" = None) -> int:
         """The :attr:`pos` of a tree-sequence site position: the nearest
         integer, ties to even, as :meth:`tskit.TreeSequence.write_vcf` writes
         it, at most ``ceil(length) - 1``.
@@ -81,7 +94,7 @@ class Site:
     pos: int
     """Position on the contig, in the source's own coordinates: 1-based from
     VCF / VCF-Zarr sources, 0-based from tskit / ARG sources, whose continuous
-    positions are rounded (:meth:`Site.tskit_pos() <ancestree.sites.Site.tskit_pos>`). Writers match
+    positions are rounded to the nearest integer, ties to even. Writers match
     posteriors to template records on this value, so it is consistent within a
     single source but not normalised across source types. An output written
     from the sites takes it as the record position, refusing positions below
@@ -105,9 +118,10 @@ class Site:
     :class:`~ancestree.sources.TskitSource` stores the site position here;
     ``None`` when the same fixed tree applies to every site."""
 
-    info: Mapping[str, Any] = field(default_factory=dict)
-    """Free-form auxiliary information a caller may attach to a site. The
-    bundled sources leave it empty, and the kernel does not consume it."""
+    info: Mapping[str, Any] | None = None
+    """Free-form auxiliary information a caller may attach to a site, an empty
+    mapping when ``None`` is passed. The bundled sources leave it empty, and
+    the kernel does not consume it."""
 
     unphased: "frozenset[str]" = frozenset()
     """The individuals whose call at this site the source read as unphased.
@@ -119,8 +133,13 @@ class Site:
     a haploid call in a diploid file. The kernel reads them as missing, and
     the writers leave their slots out of the call."""
 
+    def __post_init__(self) -> None:
+        """Store an empty mapping for an ``info`` passed as ``None``."""
+        if self.info is None:
+            object.__setattr__(self, "info", {})
+
     @classmethod
-    def monomorphic(
+    def _monomorphic(
         cls,
         base: str,
         samples: Iterable[str],
@@ -136,7 +155,7 @@ class Site:
         that yields a record per genome position, polymorphic and monomorphic
         alike). The aggregation path of EST-SFS-style ML fitting takes
         monomorphic counts through
-        :meth:`BaseComposition.project_sites_to_configs` as deterministic
+        :meth:`BaseComposition._project_sites_to_configs` as deterministic
         boundary configurations.
 
         :param base: The single observed allele (must be in the substitution
@@ -161,11 +180,11 @@ class Site:
         )
 
     @property
-    def has_representable_allele(self) -> bool:
+    def _has_representable_allele(self) -> bool:
         """Whether any allele here is one the kernel can score.
 
         ``False`` where every allele is a no-call or lies outside
-        :data:`ancestree.STATES`, so every tip is marginalised and the
+        ``ancestree.STATES``, so every tip is marginalised and the
         posterior is the prior alone.
         """
         return any(
@@ -173,19 +192,19 @@ class Site:
         )
 
     @property
-    def has_unrepresentable_allele(self) -> bool:
+    def _has_unrepresentable_allele(self) -> bool:
         """Whether any allele here is neither a state nor a no-call.
 
         An indel, ``*``, ``<DEL>`` or any other spelling outside both
-        :data:`ancestree.STATES` and :data:`ancestree.MISSING_ALLELES`.
+        ``ancestree.STATES`` and ``ancestree.MISSING_ALLELES``.
         """
         return any(Site._is_unrepresentable(a) for a in self.alleles)
 
-    def n_unrepresentable_tips(self) -> int:
+    def _n_unrepresentable_tips(self) -> int:
         """Count tips observed at an allele outside the alphabet.
 
         :return: Number of :attr:`tip_alleles` entries holding an allele that
-            is neither in :data:`ancestree.STATES` nor a no-call. The kernel
+            is neither in ``ancestree.STATES`` nor a no-call. The kernel
             marginalises each of them as it marginalises a missing tip.
         """
         return sum(1 for a in self.tip_alleles.values() if Site._is_unrepresentable(a))
@@ -194,7 +213,7 @@ class Site:
         """Count canonical (A/C/G/T) tip alleles among the given samples.
 
         Skips samples with missing tip alleles or alleles outside the
-        :data:`ancestree.STATES` alphabet (``N``, gaps, indels).
+        ``ancestree.STATES`` alphabet (``N``, gaps, indels).
         Used by the ingroup weights to derive ingroup SFS counts, though it is not
         ingroup-specific: any sample subset may be passed.
 
@@ -206,13 +225,13 @@ class Site:
         for sid, a in self.tip_alleles.items():
             if not _named(sid, wanted):
                 continue
-            a = Site.canonical(a)
+            a = Site._canonical(a)
             if a is None:
                 continue
             counts[a] += 1
         return counts
 
-    def restricted_to(self, names: "Collection[str]") -> "Site":
+    def _restricted_to(self, names: "Collection[str]") -> "Site":
         """This site with only the tips in ``names``.
 
         :param names: Tip ids to keep.
@@ -434,7 +453,7 @@ class BaseComposition:
     """Per-data base composition statistics for the inference layer.
 
     Carries composition, Ts/Tv and per-base count information only, over the
-    fixed A/C/G/T alphabet ordered as :data:`ancestree.STATES`. The modelling parameters
+    fixed A/C/G/T alphabet ordered as ``ancestree.STATES``. The modelling parameters
     (the mutation rate ``mu``, the target-region length ``n_target_sites``) are set on
     the :class:`~ancestree.inference.Inference` constructors, so one instance serves
     both orchestrators on the same
@@ -450,11 +469,16 @@ class BaseComposition:
                                       tree=tree, n_target_sites=L)
         arg = anc.ARGBasedInference(ts, model,
                                    base_composition=bc, mu=1.25e-8)
+
+    :param counts: Per-nucleotide counts over the whole target region,
+        polymorphic sites included.
+    :param n_ts: Transition count over the polymorphic sites.
+    :param n_tv: Transversion count over the polymorphic sites.
     """
 
     counts: Mapping[str, int]
     """Per-nucleotide non-negative counts over the whole target region,
-    polymorphic sites included. All four :data:`~ancestree.STATES` keys must
+    polymorphic sites included. All four ``ancestree.STATES`` keys must
     be present (use ``0`` for unobserved bases). The weights the
     :class:`~ancestree.inference.FixedTreeInference` monomorphic-site term
     multiplies the diagonal transition probability by come from
@@ -474,7 +498,7 @@ class BaseComposition:
     """Optional: polymorphic-site transversion count cached at
     :meth:`from_polymorphic_sites` time so :attr:`kappa_estimate` is free."""
 
-    _pi_cache: Any = field(default=None, repr=False, compare=False)
+    _pi_cache: Any = field(default=None, init=False, repr=False, compare=False)
     """Empirical ``π`` precomputed from polymorphic site data (set by
     :meth:`from_polymorphic_sites`). When present it takes precedence over the
     :attr:`counts`-derived ``π``, so the empirical composition is available
@@ -483,7 +507,7 @@ class BaseComposition:
     :meta private:
     """
 
-    _pi_is_ascertained: bool = field(default=False, repr=False, compare=False)
+    _pi_is_ascertained: bool = field(default=False, init=False, repr=False, compare=False)
     """Whether :attr:`pi` was tallied over variant sites alone, where a base's
     share is weighted by how often it mutates.
 
@@ -673,7 +697,7 @@ class BaseComposition:
 
         :param n_polymorphic: Number of polymorphic sites in the region.
         :return: Per-base monomorphic-site counts keyed by
-            :data:`ancestree.STATES`.
+            ``ancestree.STATES``.
         :raises ValueError: If the region holds fewer sites than
             ``n_polymorphic``.
         """
@@ -782,7 +806,7 @@ class BaseComposition:
             # Per-tip base tally (used only to derive empirical pi).
             site_alleles: set[str] = set()
             for allele in site.tip_alleles.values():
-                allele = Site.canonical(allele)
+                allele = Site._canonical(allele)
                 if allele is None:
                     continue
                 pi_counts[allele] += 1
@@ -803,15 +827,13 @@ class BaseComposition:
             pi = np.maximum(pi, 1e-6)
             pi /= pi.sum()
             pi_cache = pi
-        return cls(
-            counts={b: 0 for b in STATES},
-            n_ts=n_ts, n_tv=n_tv,
-            _pi_cache=pi_cache,
-            _pi_is_ascertained=True,
-        )
+        composition = cls(counts={b: 0 for b in STATES}, n_ts=n_ts, n_tv=n_tv)
+        object.__setattr__(composition, "_pi_cache", pi_cache)
+        object.__setattr__(composition, "_pi_is_ascertained", True)
+        return composition
 
     @classmethod
-    def require(
+    def _require(
         cls,
         bc: "BaseComposition | None",
         *,
@@ -837,7 +859,7 @@ class BaseComposition:
             )
         return bc
 
-    def project_sites_to_configs(
+    def _project_sites_to_configs(
         self,
         sites: Iterable[Site],
         ingroup_samples: Sequence[str],
@@ -982,7 +1004,7 @@ class BaseComposition:
         :param outgroup_samples: Outgroup sample ids in canonical order.
         :param subsample_size: Target sub-sample size for the AFS projection.
         :return: ``(synthetic_sites, weights)`` as documented on
-            :meth:`project_sites_to_configs`.
+            :meth:`_project_sites_to_configs`.
         """
         ingroup_samples = list(ingroup_samples)
         outgroup_samples = list(outgroup_samples)
@@ -1395,7 +1417,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
         """A record's alleles upper-cased, and the site alleles among them.
 
         A record is a SNP when its reference allele is one of
-        :data:`~ancestree.STATES` and so is at least one alternate allele, or
+        ``ancestree.STATES`` and so is at least one alternate allele, or
         it carries none. Its other alternates, such as an indel, ``*`` or a
         symbolic allele, stay in the site, and the tips holding one are
         marginalised.
@@ -1640,7 +1662,7 @@ class _PanelSites(SiteSource):
     def __iter__(self) -> Iterator[Site]:
         """Yield each site of the source restricted to the panel."""
         for site in self._source:
-            yield site.restricted_to(self._names)
+            yield site._restricted_to(self._names)
 
     def samples(self) -> list[str]:
         """The panel, in panel order."""

@@ -343,7 +343,7 @@ class TestFreeParams:
 
     def test_set_free_params_updates_kappa(self):
         m = HKY(kappa=2.0, fit_kappa=True)
-        m.set_free_params({"kappa": 5.0})
+        m._set_free_params({"kappa": 5.0})
         assert m.kappa == 5.0
 
 

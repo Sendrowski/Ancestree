@@ -125,35 +125,35 @@ class TestAlleleCategories:
 
     def test_n_is_a_no_call_and_not_unrepresentable(self):
         s = self._site(("N", "C"), {"a": "N", "b": "C"})
-        assert not s.has_unrepresentable_allele
-        assert s.n_unrepresentable_tips() == 0
+        assert not s._has_unrepresentable_allele
+        assert s._n_unrepresentable_tips() == 0
 
     def test_lowercase_n_is_a_no_call_too(self):
         s = self._site(("n", "C"), {"a": "n", "b": "C"})
-        assert not s.has_unrepresentable_allele
+        assert not s._has_unrepresentable_allele
 
     @pytest.mark.parametrize("allele", [None, "", ".", "N"])
     def test_every_no_call_spelling_is_a_no_call(self, allele):
         s = self._site(("A",), {"a": allele, "b": "A"})
-        assert s.n_unrepresentable_tips() == 0
+        assert s._n_unrepresentable_tips() == 0
 
     @pytest.mark.parametrize("allele", ["AT", "*", "<DEL>"])
     def test_an_allele_outside_the_alphabet_is_unrepresentable(self, allele):
         s = self._site(("A", allele), {"a": "A", "b": allele})
-        assert s.has_unrepresentable_allele
-        assert s.n_unrepresentable_tips() == 1
+        assert s._has_unrepresentable_allele
+        assert s._n_unrepresentable_tips() == 1
 
     def test_a_site_with_one_acgt_allele_is_representable(self):
-        assert self._site(("N", "C"), {"a": "N", "b": "C"}).has_representable_allele
-        assert self._site(("AT", "C"), {"a": "AT", "b": "C"}).has_representable_allele
+        assert self._site(("N", "C"), {"a": "N", "b": "C"})._has_representable_allele
+        assert self._site(("AT", "C"), {"a": "AT", "b": "C"})._has_representable_allele
 
     def test_a_site_with_no_acgt_allele_is_not_representable(self):
         assert not self._site(
-            ("AT", "ATT"), {"a": "AT", "b": "ATT"}).has_representable_allele
-        assert not self._site(("N", "."), {"a": "N", "b": "."}).has_representable_allele
+            ("AT", "ATT"), {"a": "AT", "b": "ATT"})._has_representable_allele
+        assert not self._site(("N", "."), {"a": "N", "b": "."})._has_representable_allele
 
     def test_soft_masked_alleles_stay_representable(self):
-        assert self._site(("a", "c"), {"a": "a", "b": "c"}).has_representable_allele
+        assert self._site(("a", "c"), {"a": "a", "b": "c"})._has_representable_allele
 
 
 class TestBaseCompositionEdges:

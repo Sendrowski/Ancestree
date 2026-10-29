@@ -315,7 +315,7 @@ class TestPanelRootPlacement:
         the deepest outgroup, so a reading that ignores the ingroup's own
         depth sits half of it too high."""
         ladder = _two_outgroup_tree()
-        ladder.ingroup_depth = 0.04
+        ladder._ingroup_depth = 0.04
         assert ladder._backbone_limit == pytest.approx(0.28)
         anchor, tau = ladder.at_focal(FocalNode("panel_root")).placement
         assert anchor == ladder.tip_for_sample("o2")
@@ -323,7 +323,7 @@ class TestPanelRootPlacement:
 
     def test_panel_root_stays_at_or_above_the_deepest_join(self):
         ladder = _two_outgroup_tree()
-        ladder.ingroup_depth = 0.9
+        ladder._ingroup_depth = 0.9
         assert ladder._backbone_limit == pytest.approx(0.1)
 
 

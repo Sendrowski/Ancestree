@@ -418,7 +418,7 @@ class Likelihood(ReprMixin):
                 # traversal and a bare tip marginalises out via its all-ones row.
                 continue
             for b in range(B):
-                a = Site.canonical(tip_alleles_by_site[b].get(sample))
+                a = Site._canonical(tip_alleles_by_site[b].get(sample))
                 if a is None:
                     continue  # missing → all-ones row
                 # one-hot at the observed allele

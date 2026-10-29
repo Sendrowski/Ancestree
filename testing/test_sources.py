@@ -246,12 +246,12 @@ class TestNoCallAlleleSpellings:
 
     def test_an_n_tip_is_not_counted_as_unrepresentable(self):
         site = list(TskitSource(_n_allele_ts()))[0]
-        assert not site.has_unrepresentable_allele
-        assert site.n_unrepresentable_tips() == 0
+        assert not site._has_unrepresentable_allele
+        assert site._n_unrepresentable_tips() == 0
 
     def test_an_n_ancestral_state_still_leaves_the_site_callable(self):
         """The derived ``C`` is readable, so the site is annotated as usual."""
-        assert list(TskitSource(_n_allele_ts()))[0].has_representable_allele
+        assert list(TskitSource(_n_allele_ts()))[0]._has_representable_allele
 
 
 class TestTskitSource:

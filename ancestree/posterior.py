@@ -40,6 +40,9 @@ class Posterior:
     Vectorised access::
 
         posterior.values                 # ndarray for numpy ops
+
+    :param alleles: Allele identifiers, parallel to ``values``.
+    :param values: Posterior probability of each allele, summing to 1.
     """
 
     alleles: tuple[str, ...]
@@ -87,7 +90,11 @@ class Posterior:
         return len(self.alleles)
 
     def __contains__(self, allele: object) -> bool:
-        """``True`` if ``allele`` is in the model's alphabet."""
+        """``True`` if ``allele`` is in the model's alphabet.
+
+        :param allele: The allele to look up.
+        :return: Whether ``allele`` is one of :attr:`alleles`.
+        """
         return allele in self.alleles
 
     def items(self) -> Iterator[tuple[str, float]]:
@@ -188,7 +195,7 @@ class Grade:
                 panel_samples=panel_samples,
                 sample_map=sample_map,
             )
-        truth = self.truth_mapping(truth)
+        truth = self._truth_mapping(truth)
         accepts = getattr(filter, "accepts", filter)
         n = hits = 0
         brier = 0.0
@@ -223,7 +230,7 @@ class Grade:
         return hash(tuple(self))
 
     @staticmethod
-    def truth_mapping(
+    def _truth_mapping(
         truth: "Mapping[int, str] | Iterable[tuple[int, str]] | tskit.TreeSequence",
     ) -> dict[int, str]:
         """``{position: allele}`` from any of the accepted truth forms.
@@ -232,14 +239,14 @@ class Grade:
             or a :class:`tskit.TreeSequence`, whose site ancestral states are
             the alleles at the ARG root.
         :return: The mapping, positions as integers, a tree sequence's
-            rounded (:meth:`Site.tskit_pos() <ancestree.sites.Site.tskit_pos>`).
+            rounded to the nearest integer.
         """
         import tskit
 
         from ancestree.sites import Site
 
         if isinstance(truth, tskit.TreeSequence):
-            return {Site.tskit_pos(s.position, truth.sequence_length):
+            return {Site._tskit_pos(s.position, truth.sequence_length):
                     s.ancestral_state for s in truth.sites()}
         if isinstance(truth, Mapping):
             return {int(k): v for k, v in truth.items()}
@@ -258,8 +265,7 @@ class Grade:
         """The true allele at a focal node, per site of a tree sequence.
 
         ``ts`` is restricted to the panel and the point located on each local
-        tree as an inference does both
-        (:meth:`FocalNode.locate() <ancestree.focal.FocalNode.locate>`). The
+        tree as an inference does both. The
         allele there is the ancestral state with every mutation above the
         point applied. Where an inference reads at the tree's own root, so
         does the truth, taking the ARG-root state on a tree with several
@@ -310,7 +316,7 @@ class Grade:
             sites = list(tree.sites())
             if not sites:
                 continue
-            point = focal.locate(tree, nodes)
+            point = focal._locate(tree, nodes)
             for site in sites:
                 if point is not None:
                     allele = Grade._allele_at(tree, site, int(point.node),
@@ -319,7 +325,7 @@ class Grade:
                     allele = Grade._allele_at(tree, site, int(tree.root), 0.0)
                 else:
                     allele = site.ancestral_state
-                out[Site.tskit_pos(site.position, ts.sequence_length)] = allele
+                out[Site._tskit_pos(site.position, ts.sequence_length)] = allele
         return out
 
     @staticmethod
@@ -364,6 +370,13 @@ class InferenceSummary:
     descriptive: the site count, the MAP-allele histogram, the spread of MAP
     confidences, and the mean per-site posterior entropy. It draws no
     thresholds and prescribes no filtering.
+
+    :param n_sites: Number of sites the pass emitted.
+    :param map_alleles: Count of sites per MAP allele.
+    :param mean_max_prob: Mean MAP probability over all sites.
+    :param max_prob_quantiles: Quantiles of the per-site MAP probability.
+    :param mean_entropy_bits: Mean Shannon entropy of the per-site posterior,
+        in bits.
     """
 
     #: Number of sites the pass emitted.

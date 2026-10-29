@@ -77,7 +77,15 @@ class Provenance(dict):
 
 @dataclasses.dataclass(frozen=True)
 class Annotation:
-    """One site's ancestral-allele assignment, as read back from an annotated output."""
+    """One site's ancestral-allele assignment, as read back from an annotated output.
+
+    :param pos: Position, in the source's own coordinates.
+    :param aa: MAP ancestral allele, or ``None`` where the site is unannotated.
+    :param aa_prob: Posterior probability of ``aa``, or ``None``.
+    :param chrom: Contig label, or ``None`` for a tree sequence.
+    :param alleles: The site's alleles.
+    :param posterior: Probability of each of the four states, or ``None``.
+    """
 
     #: Position, in the source's own coordinates.
     pos: int
@@ -446,7 +454,7 @@ class Reader(ReprMixin):
             )
             called = site.ancestral_state not in ("", ".")
             yield Annotation(
-                pos=Site.tskit_pos(site.position, ts.sequence_length),
+                pos=Site._tskit_pos(site.position, ts.sequence_length),
                 aa=block.get("map_allele") if called else None,
                 aa_prob=block.get("max_prob"),
                 chrom=None if chrom is None else str(chrom),

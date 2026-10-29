@@ -120,7 +120,7 @@ def test_gtr_does_not_mutate_caller_rates_array():
 
     r = np.ones(6, dtype=float)
     m = GTR(rates=r, fit_rates=True)
-    m.set_free_params({"rate_AC": 5.0})
+    m._set_free_params({"rate_AC": 5.0})
     # The model's own buffer reflects the update...
     assert m.rates[0] == 5.0
     # ...but the caller's array is untouched.
@@ -306,7 +306,7 @@ class TestFittedModelPickling:
 
     def test_hky_pickle_roundtrip_bit_identical(self):
         m = HKY(kappa=2.0, fit_kappa=True)
-        m.set_free_params({"kappa": 3.3})  # "fit" the model
+        m._set_free_params({"kappa": 3.3})  # "fit" the model
         m.transition_probs(0.37, pi=PI)
         clone = pickle.loads(pickle.dumps(m))
         assert clone.kappa == m.kappa
@@ -319,11 +319,11 @@ class TestFittedModelPickling:
 
     def test_gtr_pickle_roundtrip_bit_identical(self):
         m = GTR(rates=[0.5, 1.2, 0.8, 1.0, 0.9, 1.1], fit_rates=True)
-        m.set_free_params({"rate_AC": 0.7, "rate_GT": 1.4})  # "fit" the model
+        m._set_free_params({"rate_AC": 0.7, "rate_GT": 1.4})  # "fit" the model
         m.transition_probs(0.21, pi=PI)
         clone = pickle.loads(pickle.dumps(m))
         np.testing.assert_array_equal(clone.rates, m.rates)
-        assert clone.fit_mask == m.fit_mask
+        assert clone._fit_mask == m._fit_mask
         t_scalar = 0.61
         t_arr = np.array([0.02, 0.21, 0.9])
         for t in (t_scalar, t_arr):
@@ -469,7 +469,7 @@ class TestModelValidation:
     def test_hky_set_free_params_rejects_nonpositive_kappa(self):
         m = HKY(fit_kappa=True)
         with pytest.raises(ValueError, match="kappa must be positive"):
-            m.set_free_params({"kappa": -0.5})
+            m._set_free_params({"kappa": -0.5})
 
     def test_gtr_fit_rates_wrong_length(self):
         with pytest.raises(ValueError, match="length 6"):
@@ -494,41 +494,41 @@ class TestWarnIfBoundsHit:
         m = K2(fit_kappa=True, kappa_bounds=(0.5, 5.0))
         m.kappa = 0.5
         with caplog.at_level(logging.WARNING):
-            m.warn_if_bounds_hit()
+            m._warn_if_bounds_hit()
         assert "lower bound" in caplog.text
         caplog.clear()
         m.kappa = 5.0
         with caplog.at_level(logging.WARNING):
-            m.warn_if_bounds_hit()
+            m._warn_if_bounds_hit()
         assert "upper bound" in caplog.text
 
     def test_hky_kappa_lower_and_upper_bound(self, caplog):
         m = HKY(fit_kappa=True, kappa_bounds=(0.5, 5.0))
         m.kappa = 0.5
         with caplog.at_level(logging.WARNING):
-            m.warn_if_bounds_hit()
+            m._warn_if_bounds_hit()
         assert "lower bound" in caplog.text
         caplog.clear()
         m.kappa = 5.0
         with caplog.at_level(logging.WARNING):
-            m.warn_if_bounds_hit()
+            m._warn_if_bounds_hit()
         assert "upper bound" in caplog.text
 
     def test_gtr_rate_lower_and_upper_bound(self, caplog):
         m = GTR(fit_rates=True, rate_bounds=(0.5, 5.0))
         m.rates[0] = 0.5
         with caplog.at_level(logging.WARNING):
-            m.warn_if_bounds_hit()
+            m._warn_if_bounds_hit()
         assert "lower bound" in caplog.text
         caplog.clear()
         m.rates[0] = 5.0
         with caplog.at_level(logging.WARNING):
-            m.warn_if_bounds_hit()
+            m._warn_if_bounds_hit()
         assert "upper bound" in caplog.text
 
     def test_no_warning_when_not_fitting(self, caplog):
         # With the fit flags off, warn_if_bounds_hit short-circuits (no warning).
         with caplog.at_level(logging.WARNING):
-            K2().warn_if_bounds_hit()
-            HKY().warn_if_bounds_hit()
+            K2()._warn_if_bounds_hit()
+            HKY()._warn_if_bounds_hit()
         assert not caplog.records

@@ -39,12 +39,16 @@ themselves.
 .. autoclass:: ancestree.trees.Tree
 
 .. autoclass:: ancestree.trees.TskitLocalTree
+   :show-inheritance:
 
 .. autoclass:: ancestree.trees.FixedTree
+   :show-inheritance:
 
 .. autoclass:: ancestree.trees.OutgroupLadderTree
+   :show-inheritance:
 
 .. autoclass:: ancestree.trees.RerootedTree
+   :show-inheritance:
 
 .. autoclass:: ancestree.focal.FocalNode
 

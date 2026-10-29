@@ -177,42 +177,42 @@ class TestBaseComposition:
         assert np.isfinite(logp).all(), f"non-finite log-prior: {logp.tolist()}"
 
 
-# --------------------------------------------------------- BaseComposition.require
+# --------------------------------------------------------- BaseComposition._require
 
 
 class TestBaseCompositionRequire:
     def test_passes_through(self):
         bc = BaseComposition.from_counts(A=1, C=1, G=1, T=1)
-        assert BaseComposition.require(bc) is bc
+        assert BaseComposition._require(bc) is bc
 
     def test_raises_on_none(self):
         with pytest.raises(ValueError, match="requires a BaseComposition"):
-            BaseComposition.require(None)
+            BaseComposition._require(None)
 
     def test_error_mentions_no_counts_placeholder(self):
         with pytest.raises(ValueError, match=r"\.no_counts\(\)"):
-            BaseComposition.require(None)
+            BaseComposition._require(None)
 
     def test_no_counts_satisfies_require(self):
         bc = _no_counts()
-        assert BaseComposition.require(bc) is bc
+        assert BaseComposition._require(bc) is bc
 
     def test_custom_context_label(self):
         with pytest.raises(ValueError, match="my custom mode"):
-            BaseComposition.require(None, context="my custom mode")
+            BaseComposition._require(None, context="my custom mode")
 
 
-# ---------------------------------------------------------------- Site.monomorphic
+# ---------------------------------------------------------------- Site._monomorphic
 
 
 class TestSiteMonomorphic:
     def test_construction(self):
-        s = Site.monomorphic(base="A", samples=["s1", "s2", "s3"])
+        s = Site._monomorphic(base="A", samples=["s1", "s2", "s3"])
         assert s.alleles == ("A",)
         assert s.tip_alleles == {"s1": "A", "s2": "A", "s3": "A"}
 
     def test_passes_through_optional_metadata(self):
-        s = Site.monomorphic(
+        s = Site._monomorphic(
             base="C", samples=["s1"], chrom="chr1", pos=42,
             info={"src": "test"},
         )
@@ -305,7 +305,7 @@ class TestConfigWeightsCountEachSiteOnce:
 
     def test_the_weights_sum_to_the_region_size(self):
         bc = BaseComposition.from_counts(A=250, C=250, G=250, T=250)
-        _, weights = bc.project_sites_to_configs(
+        _, weights = bc._project_sites_to_configs(
             self._sites(), self.ING, self.OUT, 4)
         assert float(weights.sum()) == pytest.approx(float(bc.n_total))
 

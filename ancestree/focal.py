@@ -40,7 +40,14 @@ ANCHORS: tuple[str, ...] = ("ingroup_mrca", "panel_root")
 
 @dataclass(frozen=True)
 class ResolvedFocal:
-    """A focal node resolved against one tree."""
+    """A focal node resolved against one tree.
+
+    :param node: Node id in that tree.
+    :param tau: Distance above ``node`` along the edge into it, in the tree's
+        own branch units.
+    :param ingroup_is_monophyletic: Whether the anchor node subtends exactly
+        the ingroup, or ``None`` without an ingroup.
+    """
 
     #: Node id in that tree.
     node: int
@@ -174,7 +181,7 @@ class FocalNode:
             entry["focal_depth"] = float(self.depth)
         return entry
 
-    def describe(self) -> str:
+    def _describe(self) -> str:
         """The anchor and its placement as one log-ready phrase.
 
         :return: The quoted anchor name, followed by ``(fraction=0.5)`` and
@@ -187,7 +194,7 @@ class FocalNode:
         anchor = f'"{self.anchor}"'
         return f"{anchor} ({placement})" if placement else anchor
 
-    def locate(
+    def _locate(
         self, tree, ingroup_nodes: "Sequence[int] | np.ndarray | None" = None,
     ) -> "ResolvedFocal | None":
         """The point a run reads its posterior at on one :class:`tskit.Tree`.
@@ -200,14 +207,14 @@ class FocalNode:
             spans several roots. A single ingroup sample resolves to its own
             tip.
         """
-        if self.is_root or FocalNode.spans_roots(tree, ingroup_nodes):
+        if self.is_root or FocalNode._spans_roots(tree, ingroup_nodes):
             return None
         ranks = {int(n): i for i, n in enumerate(tree.postorder())}
         return self.resolve(tree, ingroup_nodes=ingroup_nodes,
                             postorder_rank=ranks)
 
     @staticmethod
-    def spans_roots(tree, ingroup_nodes) -> bool:
+    def _spans_roots(tree, ingroup_nodes) -> bool:
         """Whether the ingroup has no common ancestor in ``tree``.
 
         :param tree: The :class:`tskit.Tree` to search.

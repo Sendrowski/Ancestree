@@ -123,7 +123,7 @@ class FocalTreePlot:
         height = max(depth.values()) or 1.0
         return {n: (x[n], height - depth[n]) for n in order}
 
-    def focal_point(self) -> "tuple[float, float]":
+    def _focal_point(self) -> "tuple[float, float]":
         """Coordinates of the focal position on the drawn tree.
 
         A position part-way along a branch is placed on that branch, so the
@@ -159,7 +159,7 @@ class FocalTreePlot:
             return int(mrca) if mrca is not None else int(self.canvas.root)
         # The MRCA of the ingroup tips: the deepest node every one of them
         # descends from, found by intersecting their root-ward paths. A single
-        # ingroup sample is its own MRCA, as in FocalNode.locate().
+        # ingroup sample is its own MRCA, as in FocalNode._locate().
         paths = []
         for tip in tips:
             path, node = [], tip
@@ -242,7 +242,7 @@ class FocalTreePlot:
                         textcoords="offset points", ha="center", va="top",
                         fontsize=8)
 
-        fx, fy = self.focal_point()
+        fx, fy = self._focal_point()
         ax.plot([fx], [fy], "o", color=FOCAL_COLOUR, ms=10,
                 markeredgecolor="white", markeredgewidth=0.8, zorder=4)
         if label:

@@ -74,7 +74,6 @@ add_module_names = False
 autodoc_default_options = {
     "members": True,
     "inherited-members": True,
-    "show-inheritance": True,
     "member-order": "bysource",
     "special-members": "__iter__,__len__,__getitem__,__contains__",
     "private-members": False,

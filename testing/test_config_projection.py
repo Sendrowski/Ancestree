@@ -1,4 +1,4 @@
-"""Tests for :meth:`BaseComposition.project_sites_to_configs`.
+"""Tests for :meth:`BaseComposition._project_sites_to_configs`.
 
 Directly exercises the AFS-histogram projection kernel on small, hand-built
 site sets, asserting the returned ``(config, weight)`` cells match values
@@ -57,7 +57,7 @@ def test_single_biallelic_site_hypergeometric_projection():
     bc = BaseComposition.no_counts()
     site = Site("1", 1, ("A", "G"),
                 {"i0": "A", "i1": "A", "i2": "G", "i3": "G", "o0": "A"})
-    configs, weights = bc.project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
+    configs, weights = bc._project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
 
     expected = {
         ((0, 0, 2, 0), ("A",)): 1 / 6,
@@ -82,7 +82,7 @@ def test_two_biallelic_sites_share_and_sum_configs():
               {"i0": "A", "i1": "A", "i2": "G", "i3": "G", "o0": "A"})
     s2 = Site("1", 2, ("A", "G"),
               {"i0": "A", "i1": "A", "i2": "A", "i3": "G", "o0": "A"})
-    configs, weights = bc.project_sites_to_configs([s1, s2], INGROUP, OUTGROUP, 2)
+    configs, weights = bc._project_sites_to_configs([s1, s2], INGROUP, OUTGROUP, 2)
 
     expected = {
         ((0, 0, 2, 0), ("A",)): 1 / 6,
@@ -98,7 +98,7 @@ def test_full_projection_when_subsample_equals_called():
     bc = BaseComposition.no_counts()
     site = Site("1", 1, ("A", "G"),
                 {"i0": "A", "i1": "A", "i2": "G", "i3": "G", "o0": "A"})
-    configs, weights = bc.project_sites_to_configs([site], INGROUP, OUTGROUP, 4)
+    configs, weights = bc._project_sites_to_configs([site], INGROUP, OUTGROUP, 4)
 
     expected = {((2, 0, 2, 0), ("A",)): 1.0}
     _assert_cells(_cells(configs, weights, INGROUP[:4], OUTGROUP), expected)
@@ -112,7 +112,7 @@ def test_monomorphic_counts_project_to_boundary_config():
     pattern and weight equal to the raw count.
     """
     bc = BaseComposition.from_counts(A=5)
-    configs, weights = bc.project_sites_to_configs([], INGROUP, OUTGROUP, 2)
+    configs, weights = bc._project_sites_to_configs([], INGROUP, OUTGROUP, 2)
 
     expected = {((2, 0, 0, 0), ("A",)): 5.0}
     _assert_cells(_cells(configs, weights, INGROUP[:2], OUTGROUP), expected)
@@ -123,7 +123,7 @@ def test_under_target_called_count_groups_on_full_afs():
     bc = BaseComposition.no_counts()
     # Only one ingroup tip called. The rest missing.
     site = Site("1", 1, ("A",), {"i0": "A", "o0": "C"})
-    configs, weights = bc.project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
+    configs, weights = bc._project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
 
     expected = {((1, 0, 0, 0), ("C",)): 1.0}
     _assert_cells(_cells(configs, weights, INGROUP[:2], OUTGROUP), expected)
@@ -133,7 +133,7 @@ def test_no_called_ingroup_groups_on_outgroup_only():
     """No called ingroup info -> zero-AFS marker keyed on outgroup pattern."""
     bc = BaseComposition.no_counts()
     site = Site("1", 1, ("A",), {"o0": "C"})
-    configs, weights = bc.project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
+    configs, weights = bc._project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
 
     expected = {((0, 0, 0, 0), ("C",)): 1.0}
     _assert_cells(_cells(configs, weights, INGROUP[:2], OUTGROUP), expected)
@@ -144,7 +144,7 @@ def test_multiallelic_site_is_skipped():
     bc = BaseComposition.no_counts()
     site = Site("1", 1, ("A", "C", "G"),
                 {"i0": "A", "i1": "C", "i2": "G", "i3": "A", "o0": "A"})
-    configs, weights = bc.project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
+    configs, weights = bc._project_sites_to_configs([site], INGROUP, OUTGROUP, 2)
 
     assert configs == []
     assert weights.shape == (0,)
@@ -161,4 +161,4 @@ def test_subsample_size_below_one_raises(bad):
     """
     bc = BaseComposition.no_counts()
     with pytest.raises(ValueError, match=r"subsample_size must be >= 1"):
-        bc.project_sites_to_configs([], INGROUP, OUTGROUP, bad)
+        bc._project_sites_to_configs([], INGROUP, OUTGROUP, bad)

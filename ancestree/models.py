@@ -42,7 +42,7 @@ class SubstitutionModel(ReprMixin):
     branch lengths via :attr:`Tree.time_scale <ancestree.trees.Tree.time_scale>`.
     """
 
-    #: The model alphabet, :data:`~ancestree.STATES`.
+    #: The model alphabet, ``ancestree.STATES``.
     states: tuple[str, ...] = STATES
     #: Number of states, ``len(states)``.
     n_states: int = 4
@@ -185,7 +185,7 @@ class SubstitutionModel(ReprMixin):
         """
         return {}
 
-    def set_free_params(self, values: dict[str, float]) -> None:
+    def _set_free_params(self, values: dict[str, float]) -> None:
         """Update the free parameters from the optimiser's solution.
 
         Default: no-op. Override in subclasses with non-trivial
@@ -195,7 +195,7 @@ class SubstitutionModel(ReprMixin):
             :attr:`free_params`) to the new value.
         """
 
-    def warn_if_bounds_hit(self) -> None:
+    def _warn_if_bounds_hit(self) -> None:
         """Log a warning (via the class logger) if any MLE-fit parameter has
         landed on its bounds, a common symptom of model misspecification or
         insufficient data. Called by
@@ -332,8 +332,13 @@ class _KappaMixin:
 
         def _warn_bound(self, name: str, value: float, bounds: tuple[float, float], bounds_arg: str) -> None: ...
 
+    #: Transition / transversion ratio, the fitted value after a fit that
+    #: estimates it.
     kappa: float
+    #: Whether :meth:`FixedTreeInference.fit() <ancestree.inference.FixedTreeInference.fit>`
+    #: estimates :attr:`kappa`.
     fit_kappa: bool
+    #: ``(lo, hi)`` box the ML fit of :attr:`kappa` searches within.
     kappa_bounds: tuple[float, float]
 
     #: Index pairs of the transitions A↔G and C↔T (A=0, C=1, G=2, T=3), the
@@ -382,7 +387,7 @@ class _KappaMixin:
             return {"kappa": (self.kappa, self.kappa_bounds)}
         return {}
 
-    def set_free_params(self, values: dict[str, float]) -> None:
+    def _set_free_params(self, values: dict[str, float]) -> None:
         """Update ``kappa`` if provided.
 
         :raises ValueError: If ``kappa`` is not strictly positive.
@@ -393,7 +398,7 @@ class _KappaMixin:
                 raise ValueError(f"kappa must be positive, got {new_kappa}")
             self.kappa = new_kappa
 
-    def warn_if_bounds_hit(self) -> None:
+    def _warn_if_bounds_hit(self) -> None:
         """Warn if MLE-fit ``kappa`` landed within 2% of ``kappa_bounds``."""
         if not self.fit_kappa:
             return
@@ -420,7 +425,12 @@ class _PiModel(SubstitutionModel):
     def stationary(
         self, *, pi: "Sequence[float] | np.ndarray | None" = None,
     ) -> np.ndarray:
-        """Return the supplied ``π`` (uniform default when ``pi`` is ``None``)."""
+        """Return the supplied ``π`` (uniform default when ``pi`` is ``None``).
+
+        :param pi: Length-``n_states`` stationary frequencies, or ``None`` for
+            uniform.
+        :return: Copy of the validated frequencies.
+        """
         pi_arr, _ = self._resolve_pi(pi)
         return pi_arr.copy()
 
@@ -654,10 +664,8 @@ class GTR(_PiModel):
     #: The six exchangeability rates, in :attr:`RATE_NAMES` order.
     rates: np.ndarray
 
-    fit_mask: tuple[bool, ...]
-    """Per-rate fit flag in :attr:`RATE_NAMES` order, resolved at construction
-    from ``fit_rates`` / ``fixed_rates``. ``True`` entries are exposed to the
-    optimiser via :attr:`free_params`."""
+    # Per-rate fit flag in RATE_NAMES order, from fit_rates / fixed_rates.
+    _fit_mask: tuple[bool, ...]
 
     #: ``(lower, upper)`` bounds applied to every fitted rate.
     rate_bounds: tuple[float, float]
@@ -717,21 +725,21 @@ class GTR(_PiModel):
             # pinned explicitly and some other rate is free.
             if "rate_AG" not in fixed_rates and any(mask):
                 mask[1] = False
-            self.fit_mask = tuple(mask)
+            self._fit_mask = tuple(mask)
         elif isinstance(fit_rates, bool):
             # Fit every rate except the reference (rate_AG, index 1) so the
             # overall rate scale stays identified by the branch lengths.
             mask = [bool(fit_rates)] * 6
             if fit_rates:
                 mask[1] = False
-            self.fit_mask = tuple(mask)
+            self._fit_mask = tuple(mask)
         else:
             mask_arr = list(fit_rates)
             if len(mask_arr) != 6:
                 raise ValueError(
                     f"fit_rates as a Sequence must be length 6; got {len(mask_arr)}"
                 )
-            self.fit_mask = tuple(bool(b) for b in mask_arr)
+            self._fit_mask = tuple(bool(b) for b in mask_arr)
         if rate_bounds[0] <= 0 or rate_bounds[1] <= rate_bounds[0]:
             raise ValueError(
                 f"rate_bounds must be (lo > 0, hi > lo); got {rate_bounds}"
@@ -820,10 +828,10 @@ class GTR(_PiModel):
         """Free rates exposed to the joint MLE. Names from :attr:`GTR.RATE_NAMES`."""
         return {
             self.RATE_NAMES[i]: (float(self.rates[i]), self.rate_bounds)
-            for i in range(6) if self.fit_mask[i]
+            for i in range(6) if self._fit_mask[i]
         }
 
-    def set_free_params(self, values: dict[str, float]) -> None:
+    def _set_free_params(self, values: dict[str, float]) -> None:
         """Update rate entries from the optimiser.
 
         Entries absent from ``values`` are left untouched.
@@ -837,10 +845,10 @@ class GTR(_PiModel):
                     raise ValueError(f"{name} must be positive, got {v}")
                 self.rates[i] = v
 
-    def warn_if_bounds_hit(self) -> None:
+    def _warn_if_bounds_hit(self) -> None:
         """Warn if any MLE-fit rate landed within 2% of ``rate_bounds``."""
         for i, name in enumerate(self.RATE_NAMES):
-            if self.fit_mask[i]:
+            if self._fit_mask[i]:
                 self._warn_bound(
                     name, float(self.rates[i]), self.rate_bounds, "rate_bounds",
                 )

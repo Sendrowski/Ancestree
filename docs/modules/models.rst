@@ -19,6 +19,7 @@ Substitution models
 .. autoclass:: ancestree.models.SubstitutionModel
 
 .. autoclass:: ancestree.models.JC69
+   :show-inheritance:
 
 .. autoclass:: ancestree.models.K2
 
