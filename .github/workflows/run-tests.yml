@@ -1,5 +1,5 @@
 # Install dependencies with uv and run the (non-slow) test suite with coverage on Linux, macOS and
-# Windows with Python 3.11, and on Linux with 3.12 to 3.14, on every push / PR to main.
+# Windows with Python 3.11, and on Linux with 3.12 to 3.14, on every push / PR to main or dev.
 # For more information see:
 # https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
@@ -7,10 +7,10 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths-ignore: ['docs/**', '**.md', '**.rst']
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths-ignore: ['docs/**', '**.md', '**.rst']
   workflow_dispatch:
 
