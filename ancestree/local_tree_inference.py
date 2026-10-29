@@ -1012,8 +1012,8 @@ class LocalTreeInference(Inference):
         as one segment. One contiguous segment is processed at a time, so
         peak memory tracks the segment span. Contigs are independent
         segments, and a contig longer than ``chunk_size`` is sliced into
-        cores of that size. A chunked and an unchunked pass agree closely,
-        not exactly. Requires sites in sorted genomic order.
+        cores of that size. Each segment calibrates the HMM on its own sites.
+        Requires sites in sorted genomic order.
     :param halo: Overlap (bp int / string, or ``"auto"``) added on the
         contig-interior side of each chunk slice and then discarded, so the
         HMM decorrelates from the cut before any emitted site. ``"auto"`` uses

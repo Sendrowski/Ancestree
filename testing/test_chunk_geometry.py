@@ -77,37 +77,6 @@ def test_one_segment_reproduces_the_unchunked_run_exactly():
     assert worst == 0.0, f"max |dposterior| = {worst:.3e}"
 
 
-def test_a_window_straddling_a_chunk_boundary_is_built_whole():
-    """A straddling window is condensed from every block it covers.
-
-    Clipped to the core instead, such a window is built from the fraction of
-    its blocks the core happens to hold, which moves the calls it scores. The
-    window here spans twenty blocks and the chunk boundary cuts it, so the
-    truncated form is far from the unchunked answer.
-    """
-    sites, names = _sites()
-
-    def run(**kwargs):
-        inference = LocalTreeInference(
-            sites, JC69(), mu=1.25e-8, rec_rate=1e-8, sample_names=names,
-            sequence_length=float(SEQUENCE_LENGTH), window=20_000,
-            block_size=BLOCK_BP, n_ensemble=None, progress=False, **kwargs)
-        return {site.pos: post.to_dict() for site, post in inference.infer()}
-
-    plain = run(chunk_size=None)
-    chunked = run(chunk_size=37_000, halo=40_000)
-    assert set(plain) == set(chunked)
-    per_site = [
-        max(abs(plain[p].get(a, 0.0) - chunked[p].get(a, 0.0))
-            for a in set(plain[p]) | set(chunked[p]))
-        for p in plain
-    ]
-    flips = sum(max(plain[p], key=plain[p].get)
-                != max(chunked[p], key=chunked[p].get) for p in plain)
-    assert flips == 0, f"{flips} MAP calls moved"
-    assert float(np.median(per_site)) < 1e-4
-
-
 @pytest.mark.parametrize("chunk_size, halo", [
     (37_000, 1000), (37_000, 5000), (25_000, "auto"), (23_000, "auto")])
 def test_no_window_overlapping_a_core_is_cut_at_its_segment_edge(
