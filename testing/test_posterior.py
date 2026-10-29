@@ -123,15 +123,12 @@ def test_a_tree_sequence_truth_is_keyed_on_the_vcf_position():
     Truncated keys left 22 of these 48 sites unmatched."""
     import io
 
-    import msprime
+    import tskit
 
     from ancestree.posterior import Grade
+    from testing._helpers import CONTINUOUS_TREES
 
-    ts = msprime.sim_ancestry(5, sequence_length=10_000, recombination_rate=1e-8,
-                              population_size=1e4, random_seed=3,
-                              discrete_genome=False)
-    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=4,
-                               model=msprime.JC69(), discrete_genome=False)
+    ts = tskit.load(CONTINUOUS_TREES)
     buf = io.StringIO()
     ts.write_vcf(buf)
     vcf_pos = [int(line.split("\t")[1]) for line in buf.getvalue().splitlines()

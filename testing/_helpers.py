@@ -26,6 +26,11 @@ QUICKSTART_TREES = str(PANELS / "quickstart.trees")
 QUICKSTART_VCF = str(PANELS / "quickstart.vcf.gz")
 DEMO_TREES = str(PANELS / "demo.trees")
 DEMO_VCF = str(PANELS / "demo.vcf.gz")
+#: A continuous-genome JC69 tree sequence of 5 diploids over 10 kb, committed
+#: because msprime places its sites differently on arm64 macOS and x86-64
+#: Linux. ``fixtures/simulated/generate.py`` rebuilds it.
+CONTINUOUS_TREES = str(Path(__file__).resolve().parent / "fixtures"
+                       / "simulated" / "continuous_genome.trees")
 
 
 def canonical_alleles(alleles) -> tuple[str, ...]:

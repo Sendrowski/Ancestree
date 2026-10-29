@@ -23,7 +23,8 @@ from ancestree.sites import Site
 from ancestree.sources import TskitSource
 from ancestree.trees import TskitLocalTree
 from ancestree.writers import TskitWriter, VCFWriter
-from testing._helpers import DEMO_TREES, QUICKSTART_TREES, post, toy_sites
+from testing._helpers import (CONTINUOUS_TREES, DEMO_TREES, QUICKSTART_TREES,
+                              post, toy_sites)
 
 #: The quickstart panel's ingroup and outgroup, leaving i4, i5 and o1 in neither.
 ING = ["i0", "i1", "i2", "i3"]
@@ -1896,11 +1897,7 @@ def test_vcf_positioned_posteriors_annotate_a_continuous_genome(tmp_path):
     import dataclasses
     import io
 
-    ts = msprime.sim_ancestry(5, sequence_length=10_000, recombination_rate=1e-8,
-                              population_size=1e4, random_seed=3,
-                              discrete_genome=False)
-    ts = msprime.sim_mutations(ts, rate=5e-8, random_seed=4,
-                               model=msprime.JC69(), discrete_genome=False)
+    ts = tskit.load(CONTINUOUS_TREES)
     buf = io.StringIO()
     ts.write_vcf(buf)
     vcf_pos = [int(line.split("\t")[1]) for line in buf.getvalue().splitlines()

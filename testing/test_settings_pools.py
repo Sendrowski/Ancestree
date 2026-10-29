@@ -66,8 +66,10 @@ class TestCanFork:
         with caplog.at_level(logging.WARNING, logger=log.name):
             ok = _ForkPool._can_fork(log, "trees", 4)
         assert isinstance(ok, bool)
+        refusals = ("Ignoring the parallelization request",
+                    "The 'fork' start method is unavailable")
         warned = [r for r in caplog.records
-                  if "Ignoring the parallelization request" in r.getMessage()]
+                  if r.getMessage().startswith(refusals)]
         assert bool(warned) is (not ok)
 
     def test_the_refusal_names_the_units_it_would_have_spread(

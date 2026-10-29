@@ -9,6 +9,8 @@ the block, window, chunk and halo geometry is exercised at every edge: a
 halo-only core, a core whose segment holds no site, site-free stretches at
 both ends of a contig, a site at ``POS == L``, and a contig of three sites.
 """
+from pathlib import Path
+
 import msprime
 import numpy as np
 import pytest
@@ -18,13 +20,16 @@ from ancestree.sites import Site
 from ancestree.trees import TskitLocalTree
 from testing._helpers import write_vcz
 
+#: The simulated panel, committed because msprime draws it differently on
+#: arm64 macOS and x86-64 Linux. ``generate.py`` beside it rebuilds it.
+PANEL = (Path(__file__).parent / "fixtures" / "simulated"
+         / "geometry_rows.npz")
 MU = 3e-8
 REC = 1e-8
 #: Header length of contig 1, far longer than the data.
 HEADER = 400_000
 #: Genome position the simulated region starts at.
 OFFSET = 250_000
-SIM_LENGTH = 80_000
 #: Stretch the gapped panel drops. Under CHUNK and HALO it leaves the core
 #: [280 kb, 290 kb) with no site in its segment, beside halo-only cores.
 GAP = (268_000, 301_000)
@@ -45,18 +50,12 @@ N_ENSEMBLE = 4
 
 def _simulated_rows():
     """Biallelic ``(pos, alleles, haplotype genotypes)`` on contig 1."""
-    ts = msprime.sim_ancestry(
-        N_IND, ploidy=2, sequence_length=SIM_LENGTH, recombination_rate=REC,
-        population_size=1e4, random_seed=11)
-    ts = msprime.sim_mutations(ts, rate=MU, random_seed=11)
-    rows = []
-    for variant in ts.variants():
-        alleles = variant.alleles
-        if len(alleles) != 2 or any(a not in "ACGT" for a in alleles):
-            continue
-        rows.append((OFFSET + int(variant.site.position),
-                     tuple(alleles), np.asarray(variant.genotypes)))
-    return rows
+    panel = np.load(PANEL)
+    assert panel["genotypes"].shape[1] == 2 * N_IND
+    return [(OFFSET + int(pos), tuple(alleles), g.astype(np.int32))
+            for pos, alleles, g in zip(panel["position"],
+                                       panel["alleles"].tolist(),
+                                       panel["genotypes"])]
 
 
 def _contig_2_rows():

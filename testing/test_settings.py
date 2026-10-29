@@ -17,6 +17,12 @@ from ancestree.trees import OutgroupLadderTree
 
 from testing._helpers import no_counts
 
+#: A fork pool opens only where the platform offers the ``fork`` start
+#: method, so elsewhere every fit runs on a pool of one.
+NEEDS_FORK = pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="the 'fork' start method is unavailable")
+
 
 @pytest.fixture(autouse=True)
 def restore_settings():
@@ -98,6 +104,7 @@ class TestKillSwitchReachesTheFit:
         inf.fit()
         assert sizes == [1]
 
+    @NEEDS_FORK
     def test_pool_used_when_switch_defers(self, monkeypatch):
         """Without the switch, an explicit request still reaches the pool."""
         inf = _fittable(parallelize=True)
@@ -105,6 +112,7 @@ class TestKillSwitchReachesTheFit:
         inf.fit()
         assert sizes == [2]
 
+    @NEEDS_FORK
     def test_the_switch_parallelises_an_unrequested_fit(self, monkeypatch):
         """``True`` enables the pool where the caller did not ask for it."""
         inf = _fittable()

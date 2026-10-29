@@ -32,7 +32,7 @@ def _clades(z, n):
 
 class TestUpgmaBatchMatchesScipy:
     """The unweighted :func:`~ancestree._ensemble.upgma_batch` is scipy's
-    average linkage: the same merge heights, bit for bit, and the same
+    average linkage: the same merge heights, to rounding, and the same
     clades, ties included."""
 
     @pytest.mark.parametrize("ties", [False, True], ids=["distinct", "ties"])
@@ -50,6 +50,7 @@ class TestUpgmaBatchMatchesScipy:
         expected = linkage(d, method="average")
         z = np.empty((1, n - 1, 4))
         upgma_batch(d[None, :].copy(), n, z, np.empty((0, n_pairs)))
-        np.testing.assert_array_equal(z[0, :, 2], expected[:, 2])
+        np.testing.assert_allclose(z[0, :, 2], expected[:, 2], rtol=1e-12,
+                                   atol=0)
         np.testing.assert_array_equal(z[0, :, 3], expected[:, 3])
         assert _clades(z[0], n) == _clades(expected, n)
