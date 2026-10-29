@@ -428,9 +428,8 @@ class TestCyVCF2Source:
 
 
 def test_a_filtered_haploid_call_keeps_its_phase_flag(tmp_path):
-    """Haploid calls of a sample-filtered record keep the phase flag
-    ``genotypes`` reports. In cyvcf2 0.34 ``genotype.array()`` reports the
-    last one unphased, so decoding from the array marks it unphased."""
+    """Haploid calls of a sample-filtered record are never read as unphased,
+    whichever phase flag the cyvcf2 build reports for them."""
     path = write_vcf(tmp_path / "hemi.vcf", [
         ("1", 5, "A", "G", ".", ["1|0", "1|0", "0|0", "0", "0"]),
         ("1", 9, "A", "G", ".", ["1|0", "1|0", ".", "0", "0"])],

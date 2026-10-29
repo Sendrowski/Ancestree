@@ -1484,7 +1484,7 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
             for name, row, phased in zip(names, genotypes, flags):
                 width = len(row) - row.count(_FILL)
                 order = None
-                if read_phase and not phased:
+                if read_phase and not phased and width > 1:
                     unphased.add(name)
                     order = self._phase_order(
                         name, pos, (a for a in row if a >= 0), width)
