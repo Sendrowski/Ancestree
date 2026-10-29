@@ -1,0 +1,3 @@
+mode                            sites  MAP agreement  mean Brier
+fixed-tree                     13,999          99.5%      0.0088
+local-tree                     13,999          99.4%      0.0103

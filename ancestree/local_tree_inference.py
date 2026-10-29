@@ -711,7 +711,7 @@ class LocalTreeBuilder(ReprMixin):
     @property
     def axis_length(self) -> float:
         """Length of the tree sequence's axis, which holds every base of the
-        region: :attr:`sequence_length` plus :attr:`position_base`."""
+        region: ``sequence_length`` plus ``position_base``."""
         return self.geometry.axis_length
 
     def _genotype_matrix(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:

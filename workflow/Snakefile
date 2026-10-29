@@ -2173,6 +2173,24 @@ rule docs_msl_data:
         "scripts/build_docs_msl.py"
 
 
+rule docs_msl_model:
+    """HKY parameters the human docs example uses, estimated over its own
+    region of chr1:95-100 Mb."""
+    input:
+        npz = f"{DATA}/epo_panel_chr1_93750000_100M.npz",
+        meta = f"{DATA}/epo_panel_chr1_93750000_100M_meta.json",
+        alignment = expand(
+            f"{DATA}/epo_alignment_chr1_{{part}}.npz", part=EPO_CHR1_PARTS),
+    output:
+        json = f"{DATA}/docs_msl_model.json",
+    params:
+        region = (95_000_000, 100_000_000),
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/estimate_docs_msl_model.py"
+
+
 rule quickstart_trees:
     """The small two-subclade ARG with two outgroups that the quickstart
     notebook loads."""

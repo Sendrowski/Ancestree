@@ -13,7 +13,6 @@ jobs:
           pypi_token: ${{ secrets.PYPI_TEST_TOKEN }}
           repository_name: "testpypi"
           repository_url: "https://test.pypi.org/legacy/"
-          # The dev group pins packages that need Python 3.11, which the
-          # package's own range does not require, so the action's install
-          # step resolves the runtime dependencies only.
+          # The build needs only the runtime dependencies, so the action's
+          # install step leaves out the dev group.
           poetry_install_options: "--without dev"

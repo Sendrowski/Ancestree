@@ -1,3 +1,11 @@
-mode, focal node                sites  MAP agreement  mean Brier
-fixed-tree, human-chimpanzee   13,999          99.5%      0.0088
-local-tree, ingroup MRCA       13,999          98.0%      0.0353
+INFO:ancestree.FixedTreeInference: Using 10 ingroup sample(s): HG03052, HG03054, HG03055, HG03057, HG03058, HG03060, HG03061, HG03063, HG03064, HG03066
+INFO:ancestree.FixedTreeInference: Using 6 outgroup sample(s): chimpanzee_h0, gorilla_h0, orangutan_h0, gibbon_h0, rhesus_h0, mouse_lemur_h0
+INFO:ancestree.FixedTreeInference: Inferring the ancestral allele on the fitted outgroup ladder, streaming the sites
+FixedTreeInference: 843513 sites [--:--, --sites/s]
+INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.967 on 100000 polymorphic sites; largest disagreement at SFS bin 3 (0.960); SFS bin 0 (0.967) (leading 100,000-site sample)
+INFO:ancestree.FixedTreeInference: Focal node: reported at "ingroup_mrca" (coalescences=1)
+INFO:ancestree.LocalTreeInference: Inferring local trees from genotypes (29 samples, window=8snp)
+INFO:ancestree.LocalTreeInference: Using 20 ingroup sample(s): HG03052_h0, HG03052_h1, HG03054_h0, HG03054_h1, HG03055_h0, HG03055_h1, HG03057_h0, HG03057_h1, HG03058_h0, HG03058_h1, HG03060_h0, HG03060_h1, HG03061_h0, HG03061_h1, HG03063_h0, HG03063_h1, HG03064_h0, HG03064_h1, HG03066_h0, HG03066_h1
+INFO:ancestree.LocalTreeInference: Using 9 outgroup sample(s): chimpanzee_h0, bonobo_h0, gorilla_h0, orangutan_h0, gibbon_h0, rhesus_h0, cynomolgus_h0, vervet_h0, mouse_lemur_h0
+LocalTreeInference: 1 segments [--:--, --segments/s]
+INFO:ancestree.LocalTreeInference: Focal node: reported at "ingroup_mrca" (coalescences=1)

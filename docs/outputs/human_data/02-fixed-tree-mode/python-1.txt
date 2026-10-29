@@ -1,11 +1,5 @@
 INFO:ancestree.CyVCF2Source: Reading variants from msl.vcf.gz (38 haplotype samples)
 INFO:ancestree.FixedTreeInference: Fitting 11 branch rate(s) by ML over the config histogram.
-INFO:ancestree.FixedTreeInference: L-BFGS-B converged in 17 iterations (marginal log-likelihood -9725036.0406)
-INFO:ancestree.FixedTreeInference: MLE branch rates: K0=5.0389e-03, K1=5.8016e-03, K2=1.4816e-03, K3=7.2223e-03, K4=7.3906e-03, K5=1.4778e-02, K6=2.0932e-03, K7=1.6678e-02, K8=9.8671e-03, K9=2.9731e-02, K10=1.3331e-01
-INFO:ancestree.FixedTreeInference: Ingroup MRCA → outgroup divergences: chimpanzee_h0=1.0841e-02, gorilla_h0=1.3743e-02, orangutan_h0=2.8689e-02, gibbon_h0=3.2682e-02, rhesus_h0=5.5602e-02, mouse_lemur_h0=1.5918e-01
-INFO:ancestree.FixedTreeInference: Using 10 ingroup sample(s): HG03052, HG03054, HG03055, HG03057, HG03058, HG03060, HG03061, HG03063, HG03064, HG03066
-INFO:ancestree.FixedTreeInference: Using 6 outgroup sample(s): chimpanzee_h0, gorilla_h0, orangutan_h0, gibbon_h0, rhesus_h0, mouse_lemur_h0
-INFO:ancestree.FixedTreeInference: Inferring the ancestral allele on the fitted outgroup ladder, streaming the sites
-FixedTreeInference: 843513 sites [--:--, --sites/s]
-INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.967 on 100000 polymorphic sites; largest disagreement at SFS bin 3 (0.960); SFS bin 0 (0.967) (leading 100,000-site sample)
-INFO:ancestree.FixedTreeInference: Focal node: reported at "ingroup_mrca" (coalescences=1)
+INFO:ancestree.FixedTreeInference: L-BFGS-B converged in 17 iterations (marginal log-likelihood -9711622.6462)
+INFO:ancestree.FixedTreeInference: MLE branch rates: K0=5.0326e-03, K1=5.7940e-03, K2=1.4792e-03, K3=7.2133e-03, K4=7.3821e-03, K5=1.4760e-02, K6=2.0907e-03, K7=1.6657e-02, K8=9.8517e-03, K9=2.9701e-02, K10=1.3322e-01
+INFO:ancestree.FixedTreeInference: Ingroup MRCA → outgroup divergences: chimpanzee_h0=1.0827e-02, gorilla_h0=1.3725e-02, orangutan_h0=2.8654e-02, gibbon_h0=3.2641e-02, rhesus_h0=5.5538e-02, mouse_lemur_h0=1.5906e-01
