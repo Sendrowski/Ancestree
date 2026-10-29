@@ -1,9 +1,16 @@
 Changelog
 =========
 
-[Unreleased]
-^^^^^^^^^^^^
+[0.3.0] - 2026-10-29
+^^^^^^^^^^^^^^^^^^^^
+- Added support for species trees through :class:`~ancestree.trees.FixedTree`, with ``--tree`` replacing ``--species-tree``.
+- ARG and local-tree mode score each site at the mutation rate of its position, and local-tree mode handles missing calls per pair.
+- Each contig takes its own sequence length, and BED and bedGraph maps are read onto 1-based VCF positions.
+- Records mixing a SNP with an indel and haploid samples padded to diploid are accepted.
+- ``Site.is_called`` and the transition-matrix cache of :class:`~ancestree.models.SubstitutionModel` are removed.
 - Support Python 3.14.
+- Parallel runs fail promptly when a worker process dies.
+- Assorted fixes to I/O, documentation and error messages.
 
 [0.2.0] - 2026-09-30
 ^^^^^^^^^^^^^^^^^^^^
