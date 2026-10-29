@@ -60,14 +60,13 @@ class TestSFSUtilsCompatibility:
         )
         assert vcf == trees
 
-    def test_probability_field_is_the_expected_name(self):
-        """sfsutils' probabilistic polarisation reads the tag Ancestree writes."""
-        import inspect
-
-        defaults = inspect.signature(sfsutils.Parser.__init__).parameters
-        assert defaults["info_ancestral"].default == "AA"
-        assert defaults["info_ancestral_prob"].default == "AA_prob"
-        assert defaults["info_ancestral_post"].default == "AA_post"
+    def test_probability_field_is_the_expected_name(self, annotated, small_ts):
+        """sfsutils' probabilistic polarisation reads the tags Ancestree writes."""
+        parser = sfsutils.Parser(source=str(annotated / "a.vcf.gz"),
+                                 n=small_ts.num_samples)
+        assert parser.info_ancestral == "AA"
+        assert parser.info_ancestral_prob == "AA_prob"
+        assert parser.info_ancestral_post == "AA_post"
 
 
 class TestPosteriorAndConfidenceGiveOneSpectrum:
