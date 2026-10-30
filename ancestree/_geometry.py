@@ -717,7 +717,8 @@ class ContigGeometry(ReprMixin):
 
         :param window: The window spec.
         :param block_size: The block spec, or ``None`` for the default.
-        :param n_sites: Sites the density is taken over.
+        :param n_sites: Sites carrying more than one allele, over which the
+            density is taken.
         :param span_bp: Span the density is taken over.
         :return: ``(requested, block, window)``, the window rounded up to a
             whole number of blocks, at least one. Two ``"<N>snp"`` specs give
@@ -798,7 +799,7 @@ class Segmentation(ReprMixin):
             cur = None
             p0 = last = 0
             for s in sites:
-                n_sites += 1
+                n_sites += len(s.alleles) > 1
                 if s.chrom != cur:
                     if cur is not None:
                         span += last - p0 + 1

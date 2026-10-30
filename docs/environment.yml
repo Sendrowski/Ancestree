@@ -38,6 +38,7 @@ dependencies:
   - matplotlib>=3.7
   - cyvcf2>=0.30
   - numba>=0.59
+  - pandas>=2.0
   - zarr>=3
   - pip
   - pip:

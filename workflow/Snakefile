@@ -2202,6 +2202,54 @@ rule quickstart_trees:
         "scripts/simulate_quickstart.py"
 
 
+rule docs_alignment:
+    """The species alignment of the sequence-alignments docs page, with the
+    tree sequence holding its true mutations."""
+    output:
+        fasta = "docs/_static/alignment.fa.gz",
+        trees = "docs/_static/alignment.trees",
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/simulate_docs_alignment.py"
+
+
+rule docs_alignment_iqtree:
+    """IQ-TREE's marginal ancestral-state reconstruction of the docs alignment
+    under JC69, on the species-tree topology with its branch lengths fitted."""
+    input:
+        fasta = "docs/_static/alignment.fa.gz",
+    output:
+        state = f"{RESULTS}/docs/iqtree/alignment.state",
+        treefile = f"{RESULTS}/docs/iqtree/alignment.treefile",
+    params:
+        prefix = f"{RESULTS}/docs/iqtree/alignment",
+        topology = "((W,X),Y,Z);",
+    conda:
+        "envs/iqtree.yml"
+    shell:
+        "echo '{params.topology}' > {params.prefix}.species.nwk && "
+        "iqtree3 -s {input.fasta} -te {params.prefix}.species.nwk -m JC -asr "
+        "-o Z -seed 1 -nt 1 --prefix {params.prefix} -redo -quiet"
+
+
+rule docs_alignment_iqtree_state:
+    """The rows of the IQ-TREE reconstruction at the (W,X) node, and IQ-TREE's
+    tree file, which the docs page reads."""
+    input:
+        state = rules.docs_alignment_iqtree.output.state,
+        treefile = rules.docs_alignment_iqtree.output.treefile,
+    output:
+        state = "docs/_static/alignment.state.gz",
+        treefile = "docs/_static/alignment.treefile",
+    params:
+        clade = ["W", "X"],
+    conda:
+        "envs/bench.yml"
+    script:
+        "scripts/extract_docs_iqtree_state.py"
+
+
 rule simulate_epo_scenario:
     """One replicate of the simulation matched to the EPO comparison."""
     output:

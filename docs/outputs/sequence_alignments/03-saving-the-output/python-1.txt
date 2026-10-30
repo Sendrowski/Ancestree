@@ -1,0 +1,2 @@
+INFO:ancestree.FastaWriter: Wrote the ancestral sequence of 100,000 site(s) on 1 contig(s) to ancestor.fa
+INFO:ancestree.TsvWriter: Wrote 100,000 site(s) to ancestor.tsv.gz

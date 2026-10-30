@@ -3,22 +3,26 @@
 One subcommand per inference mode:
 
 - ``ancestree fixed-tree``: :class:`~ancestree.inference.FixedTreeInference`
-  on a VCF / VCZ, fitting branch rates on the outgroup-ladder tree or scoring
-  a given dated Newick tree.
+  on a VCF / VCZ or FASTA alignments, fitting branch rates on the
+  outgroup-ladder tree or scoring a given Newick tree.
 - ``ancestree arg``: :class:`~ancestree.inference.ARGBasedInference` on a
   tskit ``.trees`` file.
 - ``ancestree local-tree``:
-  :class:`~ancestree.local_tree_inference.LocalTreeInference` on a VCF / VCZ,
-  inferring the local trees from the genotypes.
+  :class:`~ancestree.local_tree_inference.LocalTreeInference` on a VCF / VCZ
+  or FASTA alignments, inferring the local trees from the genotypes.
 
-The output format follows the ``--out`` extension: ``.vcf``, ``.vcf.gz``,
+The output format follows each ``--out`` extension: ``.vcf``, ``.vcf.gz``,
 ``.vcf.bgz`` and ``.bcf`` go to
 :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`, ``.vcz``
-to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`, and
-``.trees`` (``arg`` and ``local-tree`` only) to the mode's ``to_arg`` writer.
-An output annotates the input when the input is a VCF or a local VCF Zarr
-store of its format, and is otherwise written from the sites. Every output
-carries an ``ancestree`` provenance record.
+to :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`,
+``.trees`` (``arg`` and ``local-tree`` only) to the mode's ``to_arg`` writer,
+a FASTA suffix to :meth:`Inference.to_fasta()
+<ancestree.inference.Inference.to_fasta>` and ``.tsv`` to
+:meth:`Inference.to_tsv() <ancestree.inference.Inference.to_tsv>`, each
+optionally gzip-compressed. Several ``--out`` paths write one run to each. An
+output annotates the input when the input is a VCF or a local VCF Zarr store
+of its format, and is otherwise written from the sites. Every output but
+FASTA carries an ``ancestree`` provenance record.
 """
 from __future__ import annotations
 
@@ -27,13 +31,16 @@ import inspect
 import logging
 import os
 import sys
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from ancestree import STATES, __version__
 from ancestree.settings import Settings
 from ancestree.focal import FocalNode
 from ancestree.sites import _is_zarr_store, _path_format, _replaceable_store
 from ancestree._cyvcf2 import import_cyvcf2
+
+if TYPE_CHECKING:
+    from ancestree.sources import AlignmentSource
 
 __all__ = ["main", "build_parser", "run"]
 
@@ -183,11 +190,11 @@ def _build_model(name: str, *, fit_kappa: bool, fit_rates: bool, kappa: float | 
     )
 
 
-def _empirical_composition(vcf: str, max_sites: int | None,
+def _empirical_composition(source, max_sites: int | None,
                            sample_filter: "Sequence[str] | None" = None):
-    """Derive the base composition from the input variants.
+    """Derive the base composition from the input sites.
 
-    :param vcf: VCF / BCF / VCZ path to read.
+    :param source: VCF / BCF / VCZ path, or a site source, to read.
     :param max_sites: Cap on the sites tallied. ``None`` reads all of them.
     :param sample_filter: Individuals the run reads, or ``None`` for all.
     :return: A :class:`~ancestree.sites.BaseComposition` carrying empirical
@@ -197,7 +204,7 @@ def _empirical_composition(vcf: str, max_sites: int | None,
     """
     from ancestree.sites import BaseComposition, SiteSource
 
-    source = SiteSource.resolve(vcf, sample_filter=sample_filter)
+    source = SiteSource.resolve(source, sample_filter=sample_filter)
     return BaseComposition.from_polymorphic_sites(source, max_sites=max_sites)
 
 
@@ -344,13 +351,15 @@ def build_parser() -> argparse.ArgumentParser:
     output_parent.add_argument(
         "--no-posterior", action="store_true",
         help="Omit the per-state posterior from the output (the AA_post INFO "
-             "field, the variant_AA_post array, or the tree-sequence site "
-             "metadata). The MAP allele and its probability are still written.",
+             "field, the variant_AA_post array, the tree-sequence site "
+             "metadata, or the A, C, G and T columns of a TSV). The MAP "
+             "allele and its probability are still written.",
     )
     output_parent.add_argument(
         "--min-confidence", type=_probability, default=None, metavar="P",
         help="Leave a site unassigned when its MAP posterior probability is "
-             "below P. The posterior itself is still written where it is "
+             "below P, which a FASTA output writes as the MAP base in lower "
+             "case. The posterior itself is still written where it is "
              "requested. Default: assign every site.",
     )
     output_parent.add_argument(
@@ -359,11 +368,12 @@ def build_parser() -> argparse.ArgumentParser:
              "the input.",
     )
 
-    # Flags a VCF-reading subcommand shares.
+    # Flags a subcommand reading a VCF or an alignment shares.
     panel_parent = argparse.ArgumentParser(add_help=False)
     panel_parent.add_argument(
         "--samples", type=_split_csv, default=None,
-        help="Comma-separated subset of VCF samples to read (default: all).",
+        help="Comma-separated subset of the input's samples to read "
+             "(default: all).",
     )
 
     # Flags a subcommand scoring a genealogy shares.
@@ -375,11 +385,14 @@ def build_parser() -> argparse.ArgumentParser:
              "great ape), with a warning.",
     )
     genealogy_parent.add_argument(
-        "--out", required=True,
-        help="Output path. The format is inferred from the extension: "
-             "'.vcf', '.vcf.gz', '.vcf.bgz' and '.bcf' write an annotated "
-             "VCF, '.vcz' an annotated VCF Zarr store and '.trees' an "
-             "annotated tskit tree sequence.",
+        "--out", required=True, nargs="+", metavar="OUT",
+        help="Output path(s), each written from the same run. The format is "
+             "inferred from the extension: '.vcf', '.vcf.gz', '.vcf.bgz' and "
+             "'.bcf' write an annotated VCF, '.vcz' an annotated VCF Zarr "
+             "store, '.trees' an annotated tskit tree sequence, '.fa' or "
+             "'.fasta' the ancestral sequence of each contig and '.tsv' one "
+             "row per site with its posterior, the last two optionally "
+             "'.gz'-compressed.",
     )
 
     _add_fixed_tree_parser(
@@ -432,6 +445,27 @@ def _add_model_args(p: argparse.ArgumentParser, *, fit_flags: bool = True,
             help="GTR only: fit the six exchangeability rates jointly.",
         )
     return composition
+
+
+def _add_input_args(p: argparse.ArgumentParser, *, vcf_help: str) -> None:
+    """Add the input flags: ``--vcf`` or ``--alignment``, and ``--reference``.
+
+    :param p: Subcommand parser to extend.
+    :param vcf_help: Help text of ``--vcf``.
+    """
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--vcf", help=vcf_help)
+    g.add_argument(
+        "--alignment", nargs="+", metavar="FASTA",
+        help="Aligned FASTA file(s), plain or gzip-compressed, each one "
+             "contig named after its file. Every sequence is one haploid "
+             "sample and every column a site.",
+    )
+    p.add_argument(
+        "--reference", default=None, metavar="SAMPLE",
+        help="With --alignment: the sample whose ungapped sequence gives the "
+             "positions, in place of the alignment columns.",
+    )
 
 
 def _add_focal_anchor(p: argparse.ArgumentParser) -> None:
@@ -524,13 +558,13 @@ def _add_fixed_tree_parser(
     p = sub.add_parser(
         "fixed-tree",
         parents=parents or [],
-        help="EST-SFS-style: ML-fit a fixed outgroup-ladder tree on a VCF, "
-             "or score a dated Newick tree as given.",
+        help="EST-SFS-style: ML-fit a fixed outgroup-ladder tree, or score "
+             "a Newick tree as given.",
         description=(
             "ML-fit branch rates on an OutgroupLadderTree built from "
-            "--outgroups, or take a dated --tree as given, then write "
+            "--outgroups, or take a --tree as given, then write "
             "per-site posteriors at the focal node, the ingroup MRCA by "
-            "default, as an annotated VCF or VCF Zarr store."
+            "default, to each --out path."
         ),
     )
     _add_focal_anchor(p)
@@ -554,14 +588,12 @@ def _add_fixed_tree_parser(
             "(sample plane with --tree)."
         ),
     )
-    p.add_argument(
-        "--vcf", required=True,
-        help="Input VCF / VCF.GZ / BCF / VCZ store with the polymorphic "
-             "sites, or a .trees file whose genotypes are read.",
-    )
+    _add_input_args(
+        p, vcf_help="Input VCF / VCF.GZ / BCF / VCZ store with the polymorphic "
+                    "sites, or a .trees file whose genotypes are read.")
     p.add_argument(
         "--tree", default=None,
-        help="Dated Newick used as given for every site, with branch lengths "
+        help="Newick used as given for every site, with branch lengths "
              "in expected substitutions per site. Every leaf is a tip named "
              "as its sample, nothing is fitted, and --ingroup only names the "
              "tips whose most recent common ancestor the posterior is "
@@ -572,7 +604,7 @@ def _add_fixed_tree_parser(
         "--ingroup", type=_split_csv,
         help=(
             "Comma-separated ingroup sample ids "
-            "(must match VCF sample columns and Newick leaves). Defaults to "
+            "(must match the input's samples and Newick leaves). Defaults to "
             "every sample whose individual is not named in --outgroups."
         ),
     )
@@ -580,7 +612,8 @@ def _add_fixed_tree_parser(
         "--outgroups", type=_split_csv,
         help=(
             "Comma-separated outgroup sample ids, closest-first "
-            "(must match VCF and Newick names). Required without --tree."
+            "(must match the input's and Newick names). Required without "
+            "--tree."
         ),
     )
     composition = _add_model_args(p)
@@ -644,9 +677,12 @@ def _add_fixed_tree_parser(
              "min(n_starts, CPU count), as in the Python API.",
     )
     p.add_argument(
-        "--out", required=True,
-        help="Output VCF (.vcf, .vcf.gz, .vcf.bgz, .bcf) or VCF Zarr store "
-             "(.vcz).",
+        "--out", required=True, nargs="+", metavar="OUT",
+        help="Output path(s), each written from the same run: a VCF (.vcf, "
+             ".vcf.gz, .vcf.bgz, .bcf), a VCF Zarr store (.vcz), the "
+             "ancestral sequence of each contig (.fa, .fasta) or one row per "
+             "site with its posterior (.tsv), the last two optionally "
+             "'.gz'-compressed.",
     )
     p.add_argument(
         "--template-vcf", default=None,
@@ -725,12 +761,11 @@ def _add_local_tree_parser(
             "outgroups and no input ARG are required."
         ),
     )
-    p.add_argument(
-        "--vcf", required=True,
-        help="Input VCF / VCF.GZ / BCF / VCZ store of the panel genotypes, "
-             "or a .trees file whose genotypes are read and whose genealogy "
-             "is ignored (the `arg` subcommand scores it).",
-    )
+    _add_input_args(
+        p, vcf_help="Input VCF / VCF.GZ / BCF / VCZ store of the panel "
+                    "genotypes, or a .trees file whose genotypes are read and "
+                    "whose genealogy is ignored (the `arg` subcommand scores "
+                    "it).")
     p.add_argument(
         "--ploidy", type=int, default=None,
         help=("Haplotypes per sample. Read from the first called genotype "
@@ -876,61 +911,106 @@ def _add_local_tree_parser(
     p.set_defaults(handler=_run_local_tree)
 
 
-def _out_format(args, command: str, allowed: "tuple[str, ...]") -> str:
-    """The output format ``--out`` names, refused before the run when the
-    subcommand cannot write it.
+def _out_formats(args, command: str,
+                 allowed: "tuple[str, ...]") -> "list[tuple[str, str]]":
+    """The output format each ``--out`` path names, refused before the run
+    when the subcommand cannot write it.
 
     :param args: Parsed argparse namespace, read for ``out`` and
         ``no_posterior``.
     :param command: The subcommand, named in the error.
     :param allowed: Formats the subcommand accepts, named in the error.
-    :return: One of ``"vcf"``, ``"vcz"`` and ``"trees"``.
-    :raises SystemExit: If ``--out`` has an unsupported extension, names
-        a store path holding something other than a Zarr store, or names a
-        ``.bcf`` file without ``--no-posterior``.
+    :return: ``(path, format)`` per path, the format one of ``"vcf"``,
+        ``"vcz"``, ``"trees"``, ``"fasta"`` and ``"tsv"``.
+    :raises SystemExit: If an ``--out`` path has an unsupported extension,
+        names a store path holding something other than a Zarr store, or
+        names a ``.bcf`` file without ``--no-posterior``.
     """
-    out_format = _path_format(args.out)
-    if out_format not in allowed:
-        suffixes = {"vcf": ".vcf, .vcf.gz, .vcf.bgz, .bcf",
-                    "vcz": ".vcz", "trees": ".trees"}
-        parts = [suffixes[f] for f in allowed]
-        named = ", ".join(parts[:-1]) + f" or {parts[-1]}"
-        hint = ("" if out_format != "trees" else
-                " The .trees format is only valid under the `arg` and "
-                "`local-tree` subcommands.")
-        raise SystemExit(
-            f"{command} --out must end with {named} (got {args.out!r}).{hint}")
-    if out_format == "vcz" and not _replaceable_store(args.out):
-        raise SystemExit(
-            f"{command} --out {args.out!r} exists and is not a Zarr store, so "
-            f"it is not replaced. Write to a new path.")
-    if str(args.out).lower().endswith(".bcf") and not args.no_posterior:
-        raise SystemExit(
-            f"{command} --out {args.out!r}: BCF cannot carry the AA_post "
-            f"posterior. Pass --no-posterior, or write .vcf or .vcf.gz.")
-    return out_format
+    suffixes = {"vcf": ".vcf, .vcf.gz, .vcf.bgz, .bcf", "vcz": ".vcz",
+                "trees": ".trees", "fasta": ".fa, .fasta", "tsv": ".tsv"}
+    outputs = []
+    for out in args.out:
+        out_format = _path_format(out)
+        if out_format not in allowed:
+            parts = [suffixes[f] for f in allowed]
+            named = ", ".join(parts[:-1]) + f" or {parts[-1]}"
+            hint = ("" if out_format != "trees" else
+                    " The .trees format is only valid under the `arg` and "
+                    "`local-tree` subcommands.")
+            raise SystemExit(
+                f"{command} --out must end with {named} (got {out!r}).{hint}")
+        if out_format == "vcz" and not _replaceable_store(out):
+            raise SystemExit(
+                f"{command} --out {out!r} exists and is not a Zarr store, so "
+                f"it is not replaced. Write to a new path.")
+        if str(out).lower().endswith(".bcf") and not args.no_posterior:
+            raise SystemExit(
+                f"{command} --out {out!r}: BCF cannot carry the AA_post "
+                f"posterior. Pass --no-posterior, or write .vcf or .vcf.gz.")
+        outputs.append((out, out_format))
+    return outputs
 
 
-def _write_output(inference, args, out_format: str, **kwargs) -> int:
-    """Write the annotated output in ``out_format``.
+def _write_output(inference, args, outputs: "list[tuple[str, str]]",
+                  **kwargs) -> int:
+    """Write the annotated output to every path, from one pass over the sites.
 
     :param inference: The inference to write from.
-    :param args: Parsed argparse namespace, read for ``out`` and the shared
-        output flags.
-    :param out_format: The format :func:`_out_format` resolved.
+    :param args: Parsed argparse namespace, read for the shared output flags.
+    :param outputs: ``(path, format)`` per output, as :func:`_out_formats`
+        resolved them.
     :param kwargs: Extra keyword arguments for a VCF output.
     :return: Process exit code (0 on success).
     """
+    # Several outputs share one stored run.
+    posteriors = list(inference.infer()) if len(outputs) > 1 else None
     common = dict(store_posterior=not args.no_posterior,
-                  min_confidence=args.min_confidence,
-                  restrict_samples=args.restrict_samples)
-    if out_format == "trees":
-        inference.to_arg(args.out, **common)
-    elif out_format == "vcz":
-        inference.to_zarr(args.out, **common)
-    else:
-        inference.to_vcf(args.out, **common, **kwargs)
+                  min_confidence=args.min_confidence, posteriors=posteriors)
+    annotated = dict(common, restrict_samples=args.restrict_samples)
+    for out, out_format in outputs:
+        if out_format == "trees":
+            inference.to_arg(out, **annotated)
+        elif out_format == "vcz":
+            inference.to_zarr(out, **annotated)
+        elif out_format == "fasta":
+            inference.to_fasta(out, min_confidence=args.min_confidence,
+                               posteriors=posteriors)
+        elif out_format == "tsv":
+            inference.to_tsv(out, **common)
+        else:
+            inference.to_vcf(out, **annotated, **kwargs)
     return 0
+
+
+def _input_source(
+    args,
+) -> "tuple[str | AlignmentSource, Sequence[str] | None]":
+    """The input a subcommand reads, and the sample filter left to apply.
+
+    :param args: Parsed argparse namespace, read for ``vcf``, ``alignment``,
+        ``reference`` and ``samples``.
+    :return: ``(source, sample_filter)``: the ``--vcf`` path with the
+        ``--samples`` filter, or an
+        :class:`~ancestree.sources.AlignmentSource` over the ``--alignment``
+        files, which applies the filter itself.
+    :raises SystemExit: If ``--reference`` is given without ``--alignment``,
+        or a genotype flag with it.
+    """
+    alignment = getattr(args, "alignment", None)
+    reference = getattr(args, "reference", None)
+    if not alignment:
+        if reference is not None:
+            raise SystemExit("--reference requires --alignment")
+        return args.vcf, args.samples or None
+    given = [flag for flag in ("ploidy", "phased")
+             if getattr(args, flag, None) is not None]
+    if given:
+        raise SystemExit(
+            f"--{given[0]} does not apply to --alignment, whose every "
+            f"sequence is one haploid sample")
+    from ancestree.sources import AlignmentSource
+    return AlignmentSource(alignment, reference=reference,
+                           sample_filter=args.samples or None), None
 
 
 # ---------------------------------------------------------------------------- handlers
@@ -957,14 +1037,15 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         ("max_calibration_sites", not args.empirical_composition,
          "without --empirical-composition"),
     ])
-    out_format = _out_format(args, "fixed-tree", ("vcf", "vcz"))
+    outputs = _out_formats(args, "fixed-tree", ("vcf", "vcz", "fasta", "tsv"))
+    source, sample_filter = _input_source(args)
     from ancestree.inference import FixedTreeInference
     from ancestree.trees import FixedTree, Tree
 
     ingroup = args.ingroup
     if ingroup is None and args.outgroups:
         ingroup = FixedTreeInference.default_ingroup(
-            args.vcf, args.outgroups, sample_filter=args.samples or None)
+            source, args.outgroups, sample_filter=sample_filter)
 
     # A supplied Newick is used verbatim. Otherwise --outgroups is taken as
     # closest-first and the rates are fitted.
@@ -974,16 +1055,16 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
             tree = FixedTree.from_newick(fh.read().strip())
 
     template_vcf = args.template_vcf
-    if out_format == "vcz" and template_vcf is not None:
+    if template_vcf is not None and all(f != "vcf" for _, f in outputs):
         _log.warning(
-            "fixed-tree: --template-vcf is ignored for a .vcz --out"
+            "fixed-tree: --template-vcf is ignored without a VCF --out"
         )
 
     base_composition = args.base_composition
     args_kappa = None
     if args.empirical_composition:
         base_composition = _empirical_composition(
-            args.vcf, args.max_calibration_sites, args.samples or None)
+            source, args.max_calibration_sites, sample_filter)
         pi = ", ".join(f"{x:.3f}" for x in base_composition.pi)
         _log.info(
             "Empirical base composition pi = (%s), kappa = %.3f",
@@ -1009,12 +1090,12 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
     prior = _build_prior(args.prior, model=model)
 
     inference = FixedTreeInference(
-        args.vcf,
+        source,
         model=model,
         tree=tree,
         ingroup_samples=ingroup,
         outgroup_samples=args.outgroups,
-        sample_filter=(args.samples or None),
+        sample_filter=sample_filter,
         baseline_check=args.baseline_check,
         focal=_build_focal(args),
         fit_required=args.tree is None,
@@ -1028,9 +1109,9 @@ def _run_fixed_tree(args: argparse.Namespace) -> int:
         n_workers=args.n_workers,
     )
     if args.tree is None:
-        inference.fit()  # ML branch rates. Skipped when a dated tree is given
+        inference.fit()  # ML branch rates. Skipped when a tree is given
 
-    return _write_output(inference, args, out_format, input_vcf=template_vcf)
+    return _write_output(inference, args, outputs, input_vcf=template_vcf)
 
 
 def _run_arg(args: argparse.Namespace) -> int:
@@ -1040,7 +1121,8 @@ def _run_arg(args: argparse.Namespace) -> int:
     :return: Process exit code (0 on success).
     :raises SystemExit: If ``--out`` has an unsupported extension.
     """
-    out_format = _out_format(args, "arg", ("vcf", "vcz", "trees"))
+    outputs = _out_formats(
+        args, "arg", ("vcf", "vcz", "trees", "fasta", "tsv"))
     from ancestree.inference import ARGBasedInference
 
     model = _build_model(args.model, fit_kappa=False, fit_rates=False)
@@ -1063,7 +1145,7 @@ def _run_arg(args: argparse.Namespace) -> int:
         outgroup_samples=args.outgroups,
     )
 
-    return _write_output(inference, args, out_format)
+    return _write_output(inference, args, outputs)
 
 
 def _input_contigs(path: str) -> "list[str] | None":
@@ -1116,16 +1198,22 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         ("ensemble_seed", no_ens, "with --no-ensemble"),
         ("member_chunk", no_ens, "with --no-ensemble"),
     ])
-    out_format = _out_format(args, "local-tree", ("vcf", "vcz", "trees"))
+    outputs = _out_formats(
+        args, "local-tree", ("vcf", "vcz", "trees", "fasta", "tsv"))
+    source, sample_filter = _input_source(args)
     single = [flag for flag, given in (
-        ("a .trees --out", out_format == "trees"),
+        ("a .trees --out", any(f == "trees" for _, f in outputs)),
         ("--out-trees", bool(getattr(args, "out_trees", None))),
         ("--chrom", getattr(args, "chrom", None) is not None)) if given]
-    contigs = _input_contigs(str(args.vcf)) if single else None
+    contigs = None
+    if single:
+        contigs = (_input_contigs(source) if isinstance(source, str)
+                   else list(source.contig_lengths()))
     if contigs is not None and len(contigs) > 1:
+        named = source if isinstance(source, str) else " ".join(args.alignment)
         raise SystemExit(
             f"local-tree: {' and '.join(single)} need a single-contig input, "
-            f"but {args.vcf} holds records on {len(contigs)} contigs "
+            f"but {named} holds records on {len(contigs)} contigs "
             f"({', '.join(contigs[:5])}). Split the input by contig.")
     from ancestree.local_tree_inference import LocalTreeInference
 
@@ -1136,9 +1224,9 @@ def _run_local_tree(args: argparse.Namespace) -> int:
     focal = _build_focal(args)
 
     inference = LocalTreeInference(
-        args.vcf, model,
+        source, model,
         base_composition=args.base_composition,
-        sample_filter=args.samples or None,
+        sample_filter=sample_filter,
         ploidy=args.ploidy,
         phased=args.phased,
         phase_seed=args.phase_seed,
@@ -1178,7 +1266,7 @@ def _run_local_tree(args: argparse.Namespace) -> int:
         inference.point_tree_sequence().dump(args.out_trees)
         _log.info("Wrote the reconstructed local trees to %s",
                   args.out_trees)
-    return _write_output(inference, args, out_format)
+    return _write_output(inference, args, outputs)
 
 
 # ---------------------------------------------------------------------------- entry point

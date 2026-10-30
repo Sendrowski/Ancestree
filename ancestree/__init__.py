@@ -111,7 +111,9 @@ from ancestree.priors import (
     NoIngroupWeight,
     StationaryPrior,
 )
-from ancestree.sources import CyVCF2Source, TskitSource, VcfZarrSource
+from ancestree.sources import (
+    AlignmentSource, CyVCF2Source, TskitSource, VcfZarrSource,
+)
 from ancestree.inference import (
     ARGBasedInference,
     FixedTreeInference,
@@ -126,7 +128,9 @@ from ancestree.local_tree_inference import (
 )
 from ancestree.plotting import FocalSweep, FocalTreePlot
 from ancestree.readers import Annotation, Annotations, Provenance, Reader
-from ancestree.writers import TskitWriter, VCFWriter, Writer, ZarrWriter
+from ancestree.writers import (
+    FastaWriter, TskitWriter, TsvWriter, VCFWriter, Writer, ZarrWriter,
+)
 
 __all__ = [
     "__version__",
@@ -169,6 +173,7 @@ __all__ = [
     "TskitSource",
     "CyVCF2Source",
     "VcfZarrSource",
+    "AlignmentSource",
     "Inference",
     "ARGBasedInference",
     "FixedTreeInference",
@@ -185,4 +190,6 @@ __all__ = [
     "VCFWriter",
     "TskitWriter",
     "ZarrWriter",
+    "FastaWriter",
+    "TsvWriter",
 ]

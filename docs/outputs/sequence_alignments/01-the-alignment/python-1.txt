@@ -1,0 +1,1 @@
+INFO:ancestree.AlignmentSource: Reading 1 alignment(s) of 4 samples (100,000 columns)

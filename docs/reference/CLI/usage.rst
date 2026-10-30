@@ -4,9 +4,14 @@ CLI Usage
 =========
 
 ``ancestree`` provides a command-line interface that wraps the three
-inference modes, for annotating a VCF or a ``.trees`` file without writing
-any Python. It is registered as the ``ancestree`` console script when the
-package is installed.
+inference modes, for annotating a VCF, a FASTA alignment or a ``.trees`` file
+without writing any Python. It is registered as the ``ancestree`` console
+script when the package is installed. The ``fixed-tree`` and ``local-tree``
+subcommands read aligned FASTA files with ``--alignment`` in place of
+``--vcf``, every column a site and every sequence a haploid sample (see
+:doc:`../Python/sequence_alignments`). Each ``--out`` path takes its format
+from its extension, ``.fa`` and ``.tsv`` included, and several paths write
+one run to each.
 
 Getting help
 ------------
@@ -112,7 +117,7 @@ individual is not named in ``--outgroups``, so naming one haplotype of an
 outgroup individual withholds that individual entirely. Pass it explicitly
 to use a subset of the panel.
 
-Passing ``--tree`` instead supplies a dated Newick that is used as given
+Passing ``--tree`` instead supplies a Newick tree that is used as given
 for every site, as a :class:`~ancestree.trees.FixedTree`: every leaf is a
 tip named as its sample, branch lengths are in expected substitutions per
 site, and nothing is fitted. This is the mode for a species tree with one

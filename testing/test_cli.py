@@ -120,7 +120,7 @@ class TestParser:
         assert ns.ingroup_weight == "kingman"
         assert ns.prior == "composition"
         assert ns.n_target_sites == 100000
-        assert ns.out == "annot.vcf.gz"
+        assert ns.out == ["annot.vcf.gz"]
         # Defaults, which mirror FixedTreeInference's own: the fit is serial
         # unless --parallelize is given, and the worker count is then resolved
         # by the API as min(n_starts, CPU count).
@@ -145,7 +145,7 @@ class TestParser:
         assert ns.command == "arg"
         # nargs="+": a posterior sample of genealogies is several paths.
         assert ns.trees == ["x.trees"]
-        assert ns.out == "annot.vcf.gz"
+        assert ns.out == ["annot.vcf.gz"]
         assert ns.model == "JC69"
         assert ns.prior == "composition"
         # Unset at the CLI layer: ARGBasedInference supplies the fallback rate
@@ -700,7 +700,7 @@ class TestFixedTreeHandler:
             ])
         assert code == 0
         messages = [r.getMessage() for r in caplog.records]
-        assert any("--template-vcf is ignored for a .vcz --out" in m
+        assert any("--template-vcf is ignored without a VCF --out" in m
                    for m in messages)
         assert any(m == f"Wrote {len(alleles):,} annotated sites to {out}"
                    for m in messages)
@@ -1086,7 +1086,7 @@ class TestProvenanceNamesTheCompositionItUsed:
 
 
 def _args(**kw):
-    base = dict(out="out.vcf", vcf="in.vcf", chunk_size=None,
+    base = dict(out=["out.vcf"], vcf="in.vcf", chunk_size=None,
                 sequence_length=1000.0, out_trees=False)
     base.update(kw)
     return argparse.Namespace(**base)
@@ -1095,7 +1095,7 @@ def _args(**kw):
 class TestLocalTreeDispatchGuards:
     def test_bad_output_extension(self):
         with pytest.raises(SystemExit, match="must end with"):
-            _run_local_tree(_args(out="result.txt"))
+            _run_local_tree(_args(out=["result.txt"]))
 
     def test_n_workers_is_honoured_without_chunking(self, tmp_path, caplog):
         """An unchunked ensemble run fans its per-contig segments across the

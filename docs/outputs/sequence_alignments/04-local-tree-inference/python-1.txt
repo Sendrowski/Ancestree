@@ -1,0 +1,7 @@
+INFO:ancestree.AlignmentSource: Reading 1 alignment(s) of 4 samples (100,000 columns)
+INFO:ancestree.LocalTreeInference: Inferring local trees from genotypes (4 samples, window=8snp)
+INFO:ancestree.LocalTreeInference: Using 2 ingroup sample(s): W, X
+INFO:ancestree.LocalTreeInference: Using 2 outgroup sample(s): Y, Z
+LocalTreeInference: 1 segments [--:--, --segments/s]
+INFO:ancestree.LocalTreeInference: 98532 site(s) are monomorphic within the ingroup and were reported at the ingroup MRCA, where the ingroup's own allele is the answer.
+INFO:ancestree.LocalTreeInference: Focal node: reported at "ingroup_mrca"

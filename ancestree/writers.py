@@ -1,8 +1,9 @@
-"""Output writers for annotated VCF, VCF Zarr and tskit ``.trees`` files.
+"""Output writers for annotated VCF, VCF Zarr, tskit ``.trees``, FASTA and TSV files.
 
-All three consume the ``(Site, Posterior)`` pairs that
-:meth:`Inference.infer() <ancestree.inference.Inference.infer>` yields, and record the MAP
-ancestral allele together with its posterior probability:
+All five consume the ``(Site, Posterior)`` pairs that
+:meth:`Inference.infer() <ancestree.inference.Inference.infer>` yields, and
+record the MAP ancestral allele, all but FASTA together with its posterior
+probability:
 
 - :class:`~ancestree.writers.VCFWriter` copies an input VCF and adds ``AA``,
   ``AA_prob`` and ``AA_post`` INFO fields. Variants with no matching posterior
@@ -14,6 +15,10 @@ ancestral allele together with its posterior probability:
 - :class:`~ancestree.writers.ZarrWriter` annotates a copy of a ``.vcz`` store
   with ``variant_AA``, ``variant_AA_prob`` and ``variant_AA_post`` arrays.
   Without an input store it writes one variant per site.
+- :class:`~ancestree.writers.FastaWriter` writes the ancestral sequence of
+  each contig as one FASTA record, upper case where confident.
+- :class:`~ancestree.writers.TsvWriter` writes one tab-separated row per site
+  with the MAP allele, its probability and the posterior.
 
 An optional ``info`` dict naming the prior, substitution model and fitted
 parameters is recorded once per run. An optional ``provenance`` dict is
@@ -53,6 +58,8 @@ AA_POST_FIELD = "AA_post"
 PROVENANCE_HEADER = "ancestree_provenance"
 #: The VCF header line the provenance record is written on.
 VCF_PROVENANCE_MARKER = f"##{PROVENANCE_HEADER}="
+#: The comment line a TSV output carries the provenance record on.
+TSV_PROVENANCE_MARKER = f"#{PROVENANCE_HEADER}="
 METADATA_KEY = "ancestree"
 #: The INFO fields ancestree writes, keyed by ID. The VCF writer emits them as
 #: ``##INFO`` header lines, the Zarr writer as per-array ``description`` attributes.
@@ -262,6 +269,25 @@ class Writer(ReprMixin, ABC):
                 os.unlink(staged)
             raise
 
+    @staticmethod
+    def _informative(site: Site) -> bool:
+        """Whether the site carries an allele and a tip the model can read.
+
+        :param site: The site the posterior was scored at.
+        :return: ``False`` where no MAP allele is written for the site.
+        """
+        return site._has_representable_allele and not (
+            site.tip_alleles
+            and not any(map(Site._canonical, site.tip_alleles.values())))
+
+    def _confident(self, max_prob: float) -> bool:
+        """Whether a MAP probability reaches ``min_confidence``.
+
+        :param max_prob: The probability of the MAP allele.
+        :return: ``True`` without a threshold.
+        """
+        return self._min_confidence is None or max_prob >= self._min_confidence
+
     def _call(self, site: Site, posterior: Posterior) -> tuple[str, float]:
         """The MAP allele to write, and its probability.
 
@@ -272,11 +298,7 @@ class Writer(ReprMixin, ABC):
             carries no allele or tip the model can read.
         """
         max_prob = float(posterior.max_prob)
-        if not site._has_representable_allele or (
-                site.tip_alleles
-                and not any(map(Site._canonical, site.tip_alleles.values()))):
-            return self.AA_UNKNOWN, max_prob
-        if self._min_confidence is not None and max_prob < self._min_confidence:
+        if not self._informative(site) or not self._confident(max_prob):
             return self.AA_UNKNOWN, max_prob
         return str(posterior.map_allele), max_prob
 
@@ -1889,3 +1911,201 @@ class ZarrWriter(Writer):
             for a, b in zip(starts, [*starts[1:], c.size]):
                 rows.append((k, c[a], p[a], p[b - 1], end[a:b].max(), b - a))
         return np.asarray(rows, dtype=np.int32).reshape(-1, 6)
+
+
+class FastaWriter(Writer):
+    """Write the MAP ancestral sequence of every contig as one FASTA record.
+
+    A record is named after its contig and spans it, from its first base to
+    its length, or to its last site where no length is known. Each site
+    carries its MAP allele, in lower case where its probability falls below
+    ``min_confidence``, the convention of the Ensembl ancestral-sequence
+    files. ``N`` fills a position without a site and a site no tip informs.
+    Records follow the order of the contigs' first sites, then any contig
+    holding none, and wrap at :attr:`LINE_WIDTH` characters. A ``.gz``
+    extension writes gzip-compressed FASTA.
+
+    FASTA carries neither the per-state posterior nor the provenance record,
+    which a :class:`~ancestree.writers.TsvWriter` output written beside it
+    keeps.
+
+    :param output_fasta: Destination path.
+    :param min_confidence: Optional minimum
+        :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
+        below which the MAP allele is written in lower case. ``None``
+        (default) writes every allele in upper case.
+    :param contig_lengths: Length of each contig, or ``None``.
+    :param position_base: Coordinate of a contig's first base in
+        :attr:`Site.pos <ancestree.sites.Site.pos>`: ``1`` for VCF, VCF Zarr
+        and FASTA sources, ``0`` for tree sequences.
+    """
+
+    #: Characters per sequence line.
+    LINE_WIDTH = 60
+
+    def __init__(
+        self,
+        output_fasta: str | os.PathLike,
+        *,
+        min_confidence: float | None = None,
+        contig_lengths: "Mapping[str, int] | None" = None,
+        position_base: int = 1,
+    ) -> None:
+        """Record the destination, the threshold and the contig lengths."""
+        super().__init__(output_fasta, min_confidence,
+                         contig_lengths=contig_lengths)
+        self._position_base = int(position_base)
+
+    def write(
+        self,
+        posteriors: Iterable[tuple[Site, Posterior]],
+        *,
+        store_posterior: bool = True,
+        info: Mapping[str, object] | None = None,
+        provenance: Mapping[str, object] | None = None,
+    ) -> int:
+        """Write one record per contig.
+
+        :param posteriors: Iterable of ``(Site, Posterior)`` pairs, the sites
+            of each contig contiguous in the stream.
+        :param store_posterior: Unused, as FASTA holds one base per position.
+        :param info: Unused, as FASTA holds no metadata.
+        :param provenance: Unused, as FASTA holds no metadata.
+        :return: Number of sites written.
+        :raises ValueError: If the sites of a contig are interrupted by those
+            of another, or a site lies before the contig's first base.
+        """
+        import gzip
+
+        base = self._position_base
+        opener = gzip.open if self._output.lower().endswith(".gz") else open
+        written: dict[str, None] = {}
+        n_sites = 0
+        chrom: "str | None" = None
+        sequence = bytearray()
+        with self._staged(self._output) as staged, opener(staged, "wb") as out:
+            def flush(contig: str, seq: "bytearray") -> None:
+                """Write one record and mark its contig done."""
+                out.write(f">{contig}\n".encode())
+                for i in range(0, len(seq), self.LINE_WIDTH):
+                    out.write(bytes(seq[i:i + self.LINE_WIDTH]) + b"\n")
+                written[contig] = None
+
+            for site, posterior in posteriors:
+                contig = str(site.chrom)
+                if contig != chrom:
+                    if chrom is not None:
+                        flush(chrom, sequence)
+                    if contig in written:
+                        raise ValueError(
+                            f"the sites of contig {contig!r} are interrupted "
+                            f"by those of {chrom!r}, so its record cannot be "
+                            f"written in one piece. Sort the sites by contig.")
+                    chrom = contig
+                    sequence = bytearray(
+                        b"N" * self._contig_lengths.get(contig, 0))
+                index = int(site.pos) - base
+                if index < 0:
+                    raise ValueError(
+                        f"the site at {contig}:{site.pos} lies before the "
+                        f"contig's first base, position {base}.")
+                if index >= len(sequence):
+                    sequence.extend(b"N" * (index + 1 - len(sequence)))
+                n_sites += 1
+                if not self._informative(site):
+                    continue
+                allele = str(posterior.map_allele)
+                if not self._confident(float(posterior.max_prob)):
+                    allele = allele.lower()
+                sequence[index] = ord(allele)
+            if chrom is not None:
+                flush(chrom, sequence)
+            for contig, length in self._contig_lengths.items():
+                if contig not in written:
+                    flush(contig, bytearray(b"N" * length))
+        self._log.info("Wrote the ancestral sequence of %s site(s) on %d "
+                       "contig(s) to %s", f"{n_sites:,}", len(written),
+                       self._output)
+        return n_sites
+
+
+class TsvWriter(Writer):
+    """Write one tab-separated row per site.
+
+    The columns are ``chrom``, ``pos``, ``AA`` (the MAP allele, ``.`` below
+    ``min_confidence`` or where no tip informs the site), ``AA_prob`` (its
+    probability) and, with ``store_posterior``, the posterior over ``A``,
+    ``C``, ``G`` and ``T``, one row per site as in an IQ-TREE ``.state``
+    table, which :class:`~ancestree.readers.Reader` reads alike.
+    The header row is preceded by ``#``-prefixed lines carrying the
+    provenance record and the ``info`` dict as JSON, so
+    ``pandas.read_csv(path, sep="\\t", comment="#")`` reads the table. A
+    ``.gz`` extension writes gzip-compressed text.
+
+    :param output_tsv: Destination path.
+    :param min_confidence: Optional minimum
+        :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
+        required to commit to a MAP allele. ``None`` (default) disables the
+        check.
+    """
+
+    #: The comment-line prefix of the run's ``info`` dict.
+    INFO_MARKER = "#ancestree_info="
+
+    def __init__(
+        self,
+        output_tsv: str | os.PathLike,
+        *,
+        min_confidence: float | None = None,
+    ) -> None:
+        """Record the destination and the threshold."""
+        super().__init__(output_tsv, min_confidence)
+
+    def write(
+        self,
+        posteriors: Iterable[tuple[Site, Posterior]],
+        *,
+        store_posterior: bool = True,
+        info: Mapping[str, object] | None = None,
+        provenance: Mapping[str, object] | None = None,
+    ) -> int:
+        """Write the table.
+
+        :param posteriors: Iterable of ``(Site, Posterior)`` pairs, one row
+            each.
+        :param store_posterior: Add the ``A``, ``C``, ``G`` and ``T`` columns.
+        :param info: Optional run-level constants, written as JSON on a
+            ``#ancestree_info=`` line.
+        :param provenance: Optional structured run record, written as JSON on
+            a ``#ancestree_provenance=`` line once every row is known.
+        :return: Number of rows written.
+        """
+        import gzip
+
+        n_rows = 0
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as body:
+            for site, posterior in posteriors:
+                allele, max_prob = self._call(site, posterior)
+                cells = [str(site.chrom), str(int(site.pos)), allele,
+                         f"{max_prob:.17g}"]
+                if store_posterior:
+                    cells += [f"{v:.17g}"
+                              for v in self._posterior_vector(posterior)]
+                body.write("\t".join(cells) + "\n")
+                n_rows += 1
+            body.seek(0)
+            opener = gzip.open if self._output.lower().endswith(".gz") else open
+            with self._staged(self._output) as staged, opener(
+                    staged, "wt", encoding="utf-8") as out:
+                if provenance:
+                    out.write(TSV_PROVENANCE_MARKER + json.dumps(
+                        provenance, separators=(",", ":"), default=str) + "\n")
+                if info:
+                    out.write(self.INFO_MARKER + json.dumps(
+                        info, separators=(",", ":"), default=str) + "\n")
+                out.write("\t".join(["chrom", "pos", "AA", AA_PROB_FIELD,
+                                      *(STATES if store_posterior else ())])
+                          + "\n")
+                shutil.copyfileobj(body, out)
+        self._log.info("Wrote %s site(s) to %s", f"{n_rows:,}", self._output)
+        return n_rows

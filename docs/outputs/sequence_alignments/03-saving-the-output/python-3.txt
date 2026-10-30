@@ -1,0 +1,4 @@
+chrom      pos  AA       A       C       G       T
+alignment    1  T   0.0000  0.0000  0.0000  1.0000
+alignment    2  G   0.0000  0.0000  1.0000  0.0000
+alignment    3  C   0.0000  1.0000  0.0000  0.0000

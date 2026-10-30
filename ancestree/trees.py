@@ -450,7 +450,7 @@ class TskitLocalTree(Tree):
             ) from exc
         import tskit
 
-        forest = _newick.loads(newick_str)
+        forest = _newick.loads(newick_str.strip())
         if len(forest) != 1:
             raise ValueError(
                 f"TskitLocalTree.from_newick expected a single rooted "
@@ -1147,7 +1147,7 @@ class OutgroupLadderTree(Tree):
                 "non-empty (the topology requires ≥1 outgroup)."
             )
 
-        forest = _newick.loads(newick_str)
+        forest = _newick.loads(newick_str.strip())
         if len(forest) != 1:
             raise ValueError(
                 f"Newick string must contain exactly one tree; got {len(forest)}"

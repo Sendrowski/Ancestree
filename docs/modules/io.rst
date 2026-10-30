@@ -9,9 +9,12 @@ which is the whole of what the likelihood kernel asks of the data. A
 :class:`~ancestree.sites.SiteSource` produces them, one implementation per store
 format, each yielding sites in file order and reporting the panel it found:
 :class:`~ancestree.sources.TskitSource`,
-:class:`~ancestree.sources.CyVCF2Source` and
-:class:`~ancestree.sources.VcfZarrSource`. Only the :mod:`tskit` path is needed
-for a bare install, and the VCF and Zarr backends are imported on first use.
+:class:`~ancestree.sources.CyVCF2Source`,
+:class:`~ancestree.sources.VcfZarrSource` and
+:class:`~ancestree.sources.AlignmentSource`, the last reading every column of
+aligned FASTA files, one haploid sample per sequence. Only the :mod:`tskit` and
+FASTA paths are needed for a bare install, and the VCF and Zarr backends are
+imported on first use.
 Every haplotype is a separate tip, so a diploid sample ``S`` appears as ``S_h0``
 and ``S_h1``. Either a haplotype name or the individual's own name may be given
 when naming ingroup and outgroup samples, an individual standing for all of its
@@ -27,6 +30,9 @@ its records. Where it is not, they write one record per site, carrying the
 site's alleles and the genotypes of the panel.
 :class:`~ancestree.writers.TskitWriter` writes the input tree sequence in
 ARG mode and the plug-in local trees in local-tree mode.
+:class:`~ancestree.writers.FastaWriter` writes the ancestral sequence of each
+contig as one FASTA record, and :class:`~ancestree.writers.TsvWriter` one
+tab-separated row per site with its MAP allele and posterior.
 
 :class:`~ancestree.readers.Reader` reads an annotated file back, dispatching on
 the path's suffix to recover the per-site annotations, as
@@ -45,10 +51,13 @@ the path's suffix to recover the per-site annotations, as
    ~ancestree.sources.TskitSource
    ~ancestree.sources.CyVCF2Source
    ~ancestree.sources.VcfZarrSource
+   ~ancestree.sources.AlignmentSource
    ~ancestree.writers.Writer
    ~ancestree.writers.VCFWriter
    ~ancestree.writers.TskitWriter
    ~ancestree.writers.ZarrWriter
+   ~ancestree.writers.FastaWriter
+   ~ancestree.writers.TsvWriter
    ~ancestree.readers.Reader
    ~ancestree.readers.Provenance
    ~ancestree.readers.Annotation
@@ -72,6 +81,9 @@ the path's suffix to recover the per-site annotations, as
 .. autoclass:: ancestree.sources.VcfZarrSource
    :show-inheritance:
 
+.. autoclass:: ancestree.sources.AlignmentSource
+   :show-inheritance:
+
 .. autoclass:: ancestree.writers.Writer
 
 .. autoclass:: ancestree.writers.VCFWriter
@@ -81,6 +93,12 @@ the path's suffix to recover the per-site annotations, as
    :show-inheritance:
 
 .. autoclass:: ancestree.writers.ZarrWriter
+   :show-inheritance:
+
+.. autoclass:: ancestree.writers.FastaWriter
+   :show-inheritance:
+
+.. autoclass:: ancestree.writers.TsvWriter
    :show-inheritance:
 
 .. autoclass:: ancestree.readers.Reader

@@ -1,0 +1,8 @@
+# IQ-TREE, the phylogenetic reference the sequence-alignments docs page grades
+# ancestree against.
+name: ancestree-iqtree
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - iqtree=3.1.4

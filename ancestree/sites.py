@@ -27,6 +27,8 @@ _NONE: "frozenset[str]" = frozenset()
 #: The allele index of a slot past a call's own ploidy, as ``call_genotype``
 #: and htslib fill it.
 _FILL = -2
+#: Suffixes naming a FASTA file, each optionally followed by ``.gz``.
+FASTA_SUFFIXES = (".fa", ".fasta", ".fas", ".fna")
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,8 +250,8 @@ def _path_format(path: "str | os.PathLike") -> "str | None":
     A URL's query and fragment are ignored.
 
     :param path: A file path or URL.
-    :return: ``"trees"``, ``"vcz"`` or ``"vcf"``, or ``None`` for any other
-        suffix.
+    :return: ``"trees"``, ``"vcz"``, ``"vcf"``, ``"fasta"`` or ``"tsv"``, or
+        ``None`` for any other suffix.
     """
     from urllib.parse import urlsplit
 
@@ -265,6 +267,10 @@ def _path_format(path: "str | os.PathLike") -> "str | None":
         return "vcz"
     if text.endswith((".vcf", ".vcf.gz", ".vcf.bgz", ".bcf")):
         return "vcf"
+    if text.removesuffix(".gz").endswith(FASTA_SUFFIXES):
+        return "fasta"
+    if text.removesuffix(".gz").endswith((".tsv", ".state")):
+        return "tsv"
     return None
 
 
@@ -786,7 +792,9 @@ class BaseComposition:
         A tally over variant sites alone is not the stationary distribution,
         since a base's share is weighted by how readily it mutates. Pass a
         whole-region composition (:meth:`from_fasta`, :meth:`from_counts`)
-        where the stationary vector of a base-frequency model is wanted.
+        where the stationary vector of a base-frequency model is wanted, or a
+        source carrying every site, such as
+        :class:`~ancestree.sources.AlignmentSource`, whose tally is one.
 
         :param sites: :class:`~ancestree.sites.Site` records, possibly lazy.
         :param max_sites: Optional cap on the number of sites consumed.
@@ -829,7 +837,8 @@ class BaseComposition:
             pi_cache = pi
         composition = cls(counts={b: 0 for b in STATES}, n_ts=n_ts, n_tv=n_tv)
         object.__setattr__(composition, "_pi_cache", pi_cache)
-        object.__setattr__(composition, "_pi_is_ascertained", True)
+        object.__setattr__(composition, "_pi_is_ascertained",
+                           not getattr(sites, "all_sites", False))
         return composition
 
     @classmethod
@@ -1244,10 +1253,13 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
     #: Whether the genotypes are taken as phased, ``None`` to read each
     #: call's flag.
     _phased: "bool | None" = None
-    #: The format of the input the source reads: ``"vcf"``, ``"vcz"`` or
-    #: ``"trees"``, ``None`` for sites held in memory and the filters
-    #: wrapping a source.
+    #: The format of the input the source reads: ``"vcf"``, ``"vcz"``,
+    #: ``"trees"`` or ``"fasta"``, ``None`` for sites held in memory and the
+    #: filters wrapping a source.
     format: "str | None" = None
+    #: Whether the source yields every site of its contigs, monomorphic ones
+    #: included, so no monomorphic-site count needs to be supplied.
+    all_sites: bool = False
     _path: "str | None" = None
     #: Whether the unphased-genotype notice has been emitted.
     _noted_unphased: bool = False
@@ -1326,28 +1338,34 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
           materialised as a list.
         - ``str`` / ``os.PathLike`` ending in ``.trees`` →
           :class:`~ancestree.sources.TskitSource`, ``.vcz`` →
-          :class:`~ancestree.sources.VcfZarrSource`. Else
-          :class:`~ancestree.sources.CyVCF2Source`.
+          :class:`~ancestree.sources.VcfZarrSource`, a FASTA suffix
+          (``.fa``, ``.fasta``, ``.fas``, ``.fna``, optionally ``.gz``) →
+          :class:`~ancestree.sources.AlignmentSource`. Else
+          :class:`~ancestree.sources.CyVCF2Source`. A list of FASTA paths is
+          one :class:`~ancestree.sources.AlignmentSource` over all of them.
         - :class:`tskit.TreeSequence` → wrapped in
           :class:`~ancestree.sources.TskitSource`.
 
         :param source: A :class:`~ancestree.sites.SiteSource`, a path
-            (VCF / BCF / VCZ / ``.trees``), a :class:`tskit.TreeSequence`, or a
-            iterable of :class:`~ancestree.sites.Site`.
-        :param sample_filter: Forwarded to the VCF / VCZ source.
-        :param chrom_filter: Forwarded to the VCF / VCZ source.
+            (VCF / BCF / VCZ / ``.trees`` / FASTA), a list of FASTA paths, a
+            :class:`tskit.TreeSequence`, or an iterable of
+            :class:`~ancestree.sites.Site`.
+        :param sample_filter: Forwarded to the VCF / VCZ / FASTA source.
+        :param chrom_filter: Forwarded to the VCF / VCZ / FASTA source.
         :param ploidy: Forwarded to :class:`~ancestree.sources.CyVCF2Source`.
         :param phased: Forwarded to the VCF / VCZ source.
         :param phase_seed: Forwarded to the VCF / VCZ source.
         :return: A re-iterable site source.
         :raises TypeError: If ``source``'s type is not recognised.
         :raises ValueError: If a reader argument is given for a tree sequence
-            or a pre-built source, which carry their own panel and contigs, or
-            if a directory holds no Zarr store.
+            or a pre-built source, which carry their own panel and contigs, a
+            ploidy or phase argument for a FASTA alignment, whose sequences are
+            haploid, or if a directory holds no Zarr store.
         """
         import tskit
 
-        from ancestree.sources import CyVCF2Source, TskitSource, VcfZarrSource
+        from ancestree.sources import (AlignmentSource, CyVCF2Source,
+                                       TskitSource, VcfZarrSource)
 
         filters = {k: v for k, v in (
             ("sample_filter", sample_filter), ("chrom_filter", chrom_filter),
@@ -1355,6 +1373,18 @@ class SiteSource(ReprMixin, ABC, Iterable[Site]):
             ("phase_seed", phase_seed)) if v is not None}
         is_path = isinstance(source, (str, os.PathLike))
         fmt = _path_format(source) if is_path else None
+        if fmt == "fasta" or (
+                isinstance(source, (list, tuple)) and source
+                and isinstance(source[0], (str, os.PathLike))
+                and all(_path_format(p) == "fasta" for p in source)):
+            unsupported = [k for k in filters
+                           if k not in ("sample_filter", "chrom_filter")]
+            if unsupported:
+                raise ValueError(
+                    f"{', '.join(unsupported)} cannot be applied to a FASTA "
+                    f"alignment, whose every sequence is one haploid sample.")
+            return AlignmentSource(source, sample_filter=sample_filter,
+                                   chrom_filter=chrom_filter)
         if fmt == "trees" or isinstance(source, tskit.TreeSequence):
             cls._refuse_unsupported_filters("a tree sequence", **filters)
             return TskitSource(tskit.load(source) if is_path else source)

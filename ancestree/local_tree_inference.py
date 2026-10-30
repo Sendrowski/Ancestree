@@ -708,8 +708,9 @@ class LocalTreeBuilder(ReprMixin):
             pos = self.sites.pos
             extent = (float(pos[-1] - pos[0] + 1) if len(pos)
                       else float(sequence_length))
+            n_snps = sum(len(alleles) > 1 for alleles in self.sites.alleles)
             _, block, window_bp = ContigGeometry.resolve_widths(
-                window, block_size, len(pos), extent)
+                window, block_size, n_snps, extent)
             geometry = BuildGeometry(
                 sequence_length, block=block, window=window_bp,
                 position_base=position_base,
@@ -1248,7 +1249,8 @@ class LocalTreeInference(Inference):
             if sequence_length is not None:
                 self._length_source = {
                     "trees": "the tree sequence", "vcf": "the VCF header",
-                    "vcz": "the VCF Zarr store"}[source.format]
+                    "vcz": "the VCF Zarr store",
+                    "fasta": "the alignment"}[source.format]
         # A partial base is a whole one, on both paths.
         self._declared_length = (
             {c: math.ceil(v) for c, v in sequence_length.items()}

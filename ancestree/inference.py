@@ -222,7 +222,11 @@ class Inference(ReprMixin, ABC):
             )
         n_mono = tally.ingroup_monomorphic
         if n_mono:
-            self._log.warning(
+            # Expected of a source carrying every site, most of them fixed.
+            report = (self._log.info
+                      if getattr(self._input_source, "all_sites", False)
+                      else self._log.warning)
+            report(
                 "%d site(s) are monomorphic within the ingroup and were "
                 "reported at the ingroup MRCA, where the ingroup's own allele "
                 "is the answer.", n_mono,
@@ -1310,6 +1314,73 @@ class Inference(ReprMixin, ABC):
             provenance=provenance, store_posterior=store_posterior,
         )
 
+    def to_fasta(
+        self,
+        output_fasta: str | os.PathLike,
+        *,
+        min_confidence: float | None = None,
+        posteriors: "Iterable[tuple[Site, Posterior]] | None" = None,
+    ) -> int:
+        """Write the MAP ancestral sequence of every contig as one FASTA record.
+
+        Feeds the posteriors to :class:`~ancestree.writers.FastaWriter`, which
+        writes each contig over its length as the input declares it, ``N``
+        where no site informs a position. FASTA holds neither the posterior nor
+        the provenance, which :meth:`to_tsv` writes.
+
+        :param output_fasta: Destination path, gzip-compressed for ``.gz``.
+        :param min_confidence: Sites with
+            :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
+            below this are written in lower case. ``None`` (default) writes
+            every site in upper case.
+        :param posteriors: Stored ``(Site, Posterior)`` pairs to write, as
+            :meth:`infer` yields them. ``None`` (default) runs :meth:`infer`.
+        :return: Number of sites written.
+        """
+        from ancestree.writers import FastaWriter
+        return FastaWriter(
+            output_fasta, min_confidence=min_confidence,
+            contig_lengths=self._contig_lengths(),
+            position_base=getattr(self._input_source, "position_base", 0),
+        ).write(self._posteriors_for_writing(posteriors))
+
+    def to_tsv(
+        self,
+        output_tsv: str | os.PathLike,
+        *,
+        info: Mapping[str, object] | None = None,
+        provenance: Mapping[str, object] | None = None,
+        min_confidence: float | None = None,
+        store_posterior: bool = True,
+        posteriors: "Iterable[tuple[Site, Posterior]] | None" = None,
+    ) -> int:
+        """Write one tab-separated row per site with the MAP allele, its
+        probability and the posterior.
+
+        Feeds the posteriors to :class:`~ancestree.writers.TsvWriter` (see
+        that writer for the columns).
+
+        :param output_tsv: Destination path, gzip-compressed for ``.gz``.
+        :param info: Optional run-level constants, written on a comment line.
+        :param provenance: Structured provenance, written on a comment line.
+            Defaults to :meth:`provenance`. Pass ``{}`` to suppress.
+        :param min_confidence: Sites with
+            :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
+            below this get ``AA = "."``. ``None`` (default) disables the check.
+        :param store_posterior: When ``True`` (default), also write the
+            ``A``, ``C``, ``G`` and ``T`` posterior columns.
+        :param posteriors: Stored ``(Site, Posterior)`` pairs to write, as
+            :meth:`infer` yields them. ``None`` (default) runs :meth:`infer`.
+        :return: Number of rows written.
+        """
+        from ancestree.writers import TsvWriter
+        supplied, provenance = provenance, self._resolve_provenance(
+            provenance, min_confidence)
+        return TsvWriter(output_tsv, min_confidence=min_confidence).write(
+            self._completing(self._posteriors_for_writing(posteriors),
+                             provenance, supplied),
+            store_posterior=store_posterior, info=info, provenance=provenance)
+
     def _posteriors_for_writing(self, posteriors):
         """``posteriors`` as given, or a fresh :meth:`infer` stream, fitting
         first as :meth:`summary` and :meth:`grade` do."""
@@ -2333,7 +2404,9 @@ class FixedTreeInference(Inference):
         are ``round(pi × (n_target_sites − n_polymorphic))``.
     :param n_target_sites: Total target-region length, from which the
         monomorphic weights are derived. Required when
-        ``base_composition.counts`` is all-zero and a fit runs. The derived
+        ``base_composition.counts`` is all-zero and a fit runs, unless the
+        source yields every site itself, as
+        :class:`~ancestree.sources.AlignmentSource` does. The derived
         monomorphic sites count as called at every tip, so an outgroup missing
         at a fraction :math:`m` of the variant sites has its divergence fitted
         about :math:`(1 - m)` times too small, which an all-sites input avoids.
@@ -2717,11 +2790,13 @@ class FixedTreeInference(Inference):
         (projected ingroup AFS, outgroup pattern), monomorphic sites included
         as boundary configs, with each config's ingroup-weight row.
 
-        :raises ValueError: If the composition carries no monomorphic-site
-            calibration, or covers fewer sites than are polymorphic.
+        :raises ValueError: If neither the composition nor a source carrying
+            every site supplies the monomorphic-site calibration, or the
+            composition covers fewer sites than are polymorphic.
         """
         bc = self.base_composition
-        if bc.n_total == 0:
+        all_sites = getattr(self._input_source, "all_sites", False)
+        if bc.n_total == 0 and not all_sites:
             raise ValueError(
                 "FixedTreeInference requires monomorphic-site calibration "
                 "for the branch-rate fit. Supply ``n_target_sites=L`` "

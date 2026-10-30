@@ -1,9 +1,9 @@
-"""Reading sites from tskit, VCF and VCF Zarr.
+"""Reading sites from tskit, VCF, VCF Zarr and FASTA alignments.
 
 Each source yields :class:`~ancestree.sites.Site` records in file order and
-reports the sample names it found. Only the tskit path is needed for a bare
-install. The VCF and Zarr backends are imported on first use, so their
-dependencies are optional.
+reports the sample names it found. Only the tskit and FASTA paths are needed
+for a bare install. The VCF and Zarr backends are imported on first use, so
+their dependencies are optional.
 
 Sample names and ploidy: every haplotype is a separate tip, so a diploid
 sample ``S`` in a VCF or VCZ store appears as two samples, ``S_h0`` and
@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ancestree.sites import Site, SiteSource
+from ancestree import STATE_INDEX, STATES
+from ancestree.sites import FASTA_SUFFIXES, Site, SiteSource
 from ancestree.writers import (
     ZARR_ALLELE_FIELD,
     ZARR_CONTIG_FIELD,
@@ -505,3 +506,193 @@ class VcfZarrSource(SiteSource):
         """Open the VCZ root group."""
         import zarr
         return zarr.open(self._path, mode="r")
+
+
+class AlignmentSource(SiteSource):
+    """Iterate the columns of aligned FASTA files as :class:`~ancestree.sites.Site` records.
+
+    Each file holds one alignment, read as one contig named after the file:
+    its name without the directory, a trailing ``.gz`` and the FASTA suffix.
+    Each record is one haploid sample, named by the first word of its header,
+    so a sample absent from a file is missing at every column of it. ``A``,
+    ``C``, ``G`` and ``T`` are read in either case, and any other character,
+    such as a gap, ``N`` or an IUPAC ambiguity code, as missing data. A column
+    carrying none of the four bases is skipped. Monomorphic columns are
+    yielded like any other, so the source carries every site of its contigs.
+
+    Positions are 1-based alignment columns, or with ``reference`` the 1-based
+    positions along that sample's ungapped sequence, the columns where it
+    carries a gap (``-`` or ``.``) being skipped and its base listed first
+    among the alleles of each site.
+
+    .. code-block:: python
+
+        import ancestree as anc
+
+        source = anc.AlignmentSource(["chr1.fa", "chr2.fa"], reference="human")
+        source.contig_lengths()  # {'chr1': ..., 'chr2': ...}
+
+    :param paths: An aligned FASTA file, plain or gzip-compressed, or a
+        sequence of them, one per contig.
+    :param reference: Sample whose ungapped sequence gives the positions, or
+        ``None`` (default) for the alignment columns.
+    :param sample_filter: Samples to keep, in the given order. ``None``
+        (default) keeps every sample in first-seen order.
+    :param chrom_filter: Contig to restrict iteration to.
+    :raises ValueError: If a file holds no record, records of unequal length
+        or one sample twice, two files share a contig name, ``reference`` is
+        absent from a file, or ``chrom_filter`` names no file.
+    :raises KeyError: If ``sample_filter`` names a sample no file holds.
+    """
+
+    position_base = 1
+    format = "fasta"
+    all_sites = True
+    #: Alignment characters read as a gap of the reference.
+    GAPS = b"-."
+
+    @property
+    def _repr_params(self) -> dict[str, object]:
+        """Fields shown by :meth:`__repr__`."""
+        return {"contigs": list(self._lengths), "n_samples": len(self._samples_list)}
+
+    def __init__(
+        self,
+        paths: "str | os.PathLike | Sequence[str | os.PathLike]",
+        *,
+        reference: str | None = None,
+        sample_filter: Sequence[str] | None = None,
+        chrom_filter: str | None = None,
+    ) -> None:
+        """Read every file once for its samples and length. Defer iteration."""
+        if isinstance(paths, (str, os.PathLike)):
+            paths = [paths]
+        self._paths: dict[str, str] = {}
+        for path in map(str, paths):
+            contig = self.contig_name(path)
+            if contig in self._paths:
+                raise ValueError(
+                    f"{path} and {self._paths[contig]} both name contig "
+                    f"{contig!r}. Rename one of them.")
+            self._paths[contig] = path
+        if chrom_filter is not None:
+            if chrom_filter not in self._paths:
+                raise ValueError(
+                    f"chrom_filter {chrom_filter!r} names no alignment. The "
+                    f"contigs are {list(self._paths)}.")
+            self._paths = {chrom_filter: self._paths[chrom_filter]}
+        self._path = next(iter(self._paths.values()))
+        self._reference = reference
+        names: dict[str, None] = {}
+        self._lengths: dict[str, int] = {}
+        for contig, path in self._paths.items():
+            records = self._read(path)
+            names.update(dict.fromkeys(records))
+            sequence = records[reference] if reference is not None else None
+            self._lengths[contig] = (
+                len(next(iter(records.values()))) if sequence is None
+                else len(sequence) - sum(sequence.count(g) for g in self.GAPS))
+        if sample_filter is None:
+            self._samples_list = list(names)
+        else:
+            self._samples_list = list(sample_filter)
+            self._check_sample_filter(self._samples_list, list(names),
+                                      ", ".join(self._paths.values()))
+        self._log.info(
+            "Reading %d alignment(s) of %d samples (%s columns)",
+            len(self._paths), len(self._samples_list),
+            f"{sum(self._lengths.values()):,}")
+
+    @staticmethod
+    def contig_name(path: "str | os.PathLike") -> str:
+        """The contig an alignment file is read as.
+
+        :param path: The FASTA path.
+        :return: Its file name without a trailing ``.gz`` and FASTA suffix.
+        """
+        name = os.path.basename(str(path))
+        name = name[:-3] if name.lower().endswith(".gz") else name
+        for suffix in FASTA_SUFFIXES:
+            if name.lower().endswith(suffix):
+                return name[:-len(suffix)]
+        return name
+
+    def _read(self, path: str) -> "dict[str, bytes]":
+        """The records of one aligned FASTA file.
+
+        :param path: The file, plain or gzip-compressed.
+        :return: ``{sample: sequence}`` in file order.
+        :raises ValueError: If the file holds no record, a sample twice,
+            records of unequal length, or no ``reference`` record.
+        """
+        import gzip
+
+        opener = gzip.open if path.lower().endswith(".gz") else open
+        records: dict[str, list[bytes]] = {}
+        current: "list[bytes] | None" = None
+        with opener(path, "rb") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(b">"):
+                    fields = line[1:].split(None, 1)
+                    name = fields[0].decode() if fields else ""
+                    if name in records:
+                        raise ValueError(f"{path} holds sample {name!r} twice")
+                    current = records[name] = []
+                elif line and current is not None:
+                    current.append(line)
+        if not records:
+            raise ValueError(f"{path} holds no FASTA record")
+        sequences = {name: b"".join(parts) for name, parts in records.items()}
+        lengths = {len(seq) for seq in sequences.values()}
+        if len(lengths) > 1:
+            raise ValueError(
+                f"{path} is not aligned: its records have lengths "
+                f"{sorted(lengths)}")
+        if self._reference is not None and self._reference not in sequences:
+            raise ValueError(
+                f"reference {self._reference!r} is not a record of {path}")
+        return sequences
+
+    def contig_lengths(self) -> dict[str, int]:
+        """The length of each contig: its column count, or the reference's
+        ungapped length.
+
+        :return: ``{contig: length}``.
+        """
+        return dict(self._lengths)
+
+    def __iter__(self) -> Iterator[Site]:
+        """Yield one :class:`~ancestree.sites.Site` per column carrying a base."""
+        lut = np.full(256, -1, dtype=np.int8)
+        for state, index in STATE_INDEX.items():
+            lut[ord(state)] = lut[ord(state.lower())] = index
+        names = self._samples_list
+        for contig, path in self._paths.items():
+            records = self._read(path)
+            width = len(next(iter(records.values())))
+            codes = np.full((len(names), width), -1, dtype=np.int8)
+            for row, name in enumerate(names):
+                if name in records:
+                    codes[row] = lut[np.frombuffer(records[name], np.uint8)]
+            columns = np.arange(width)
+            ref_codes = None
+            if self._reference is not None:
+                ref = np.frombuffer(records[self._reference], np.uint8)
+                gaps = np.frombuffer(self.GAPS, np.uint8)
+                columns = columns[~np.isin(ref, gaps)]
+                ref_codes = lut[ref]
+            for pos, column in enumerate(columns, start=1):
+                calls = codes[:, column]
+                called = calls[calls >= 0]
+                if not called.size:
+                    continue
+                order = dict.fromkeys(called.tolist())
+                if ref_codes is not None and ref_codes[column] >= 0:
+                    order = {int(ref_codes[column]): None, **order}
+                yield Site(
+                    chrom=contig, pos=pos,
+                    alleles=tuple(STATES[c] for c in order),
+                    tip_alleles={name: STATES[c] if c >= 0 else None
+                                 for name, c in zip(names, calls.tolist())},
+                )

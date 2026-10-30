@@ -1,0 +1,6 @@
+INFO:ancestree.AlignmentSource: Reading 1 alignment(s) of 4 samples (100,000 columns)
+INFO:ancestree.FixedTreeInference: Using 2 ingroup sample(s): W, X
+INFO:ancestree.FixedTreeInference: Inferring the ancestral allele on the fixed tree, streaming the sites
+FixedTreeInference: 100000 sites [--:--, --sites/s]
+INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) skipped: no outgroups designated for the comparator rule.
+INFO:ancestree.FixedTreeInference: Focal node: reported at "ingroup_mrca"

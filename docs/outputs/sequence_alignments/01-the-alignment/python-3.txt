@@ -1,0 +1,1 @@
+Site(chrom='alignment', pos=1, alleles=('T',), tip_alleles={'W': 'T', 'X': 'T', 'Y': 'T', 'Z': 'T'}, local_tree_handle=None, info={}, unphased=frozenset(), padded=frozenset())

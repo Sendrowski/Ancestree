@@ -46,8 +46,8 @@ Three inference modes:
   with no input ARG.
 
 ``ancestree`` supports VCF (|cyvcf2|),
-`VCF-Zarr <https://github.com/sgkit-dev/vcf-zarr-spec>`_ and ARG
-(:mod:`tskit`) files, both for reading and for writing.
+`VCF-Zarr <https://github.com/sgkit-dev/vcf-zarr-spec>`_, ARG
+(:mod:`tskit`) and FASTA alignment files, both for reading and for writing.
 
 .. toctree::
    :caption: User Guide
@@ -61,6 +61,7 @@ Three inference modes:
    reference/Python/focal_node
    reference/Python/substitution_models
    reference/Python/io
+   reference/Python/sequence_alignments
    reference/Python/human_data
 
 .. toctree::

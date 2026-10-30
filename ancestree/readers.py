@@ -1,6 +1,6 @@
 """Reading annotated output back: the inverse of :mod:`ancestree.writers`.
 
-:class:`~ancestree.readers.Reader` opens any of the three annotated formats a
+:class:`~ancestree.readers.Reader` opens any of the five annotated formats a
 run can write, dispatching on the path's suffix, and exposes what was recorded:
 
 - :meth:`Reader.annotations() <ancestree.readers.Reader.annotations>` yields the
@@ -28,6 +28,7 @@ from ancestree.writers import (
     ZARR_ALLELE_FIELD,
     ZARR_CONTIG_FIELD,
     ZARR_POSITION_FIELD,
+    TSV_PROVENANCE_MARKER,
     AA_POST_FIELD,
     AA_PROB_FIELD,
     METADATA_KEY,
@@ -196,10 +197,19 @@ class Reader(ReprMixin):
 
     :param path: An output written by
         :meth:`Inference.to_vcf() <ancestree.inference.Inference.to_vcf>`,
-        :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>` or
-        :meth:`Inference.to_arg() <ancestree.inference.Inference.to_arg>`.
+        :meth:`Inference.to_zarr() <ancestree.inference.Inference.to_zarr>`,
+        :meth:`Inference.to_arg() <ancestree.inference.Inference.to_arg>`,
+        :meth:`Inference.to_fasta() <ancestree.inference.Inference.to_fasta>` or
+        :meth:`Inference.to_tsv() <ancestree.inference.Inference.to_tsv>`, or
+        an IQ-TREE ``.state`` table of ancestral-state probabilities holding
+        the rows of one node, read as a TSV.
     :raises FileNotFoundError: If ``path`` does not exist.
     """
+
+    #: The column of an IQ-TREE ``.state`` table each TSV column is read
+    #: from.
+    _IQTREE_COLUMNS = {"Site": "pos", "State": "AA",
+                       **{f"p_{s}": s for s in STATES}}
 
     def __init__(self, path: str | os.PathLike):
         self._path = str(path)
@@ -216,8 +226,10 @@ class Reader(ReprMixin):
         """Read the provenance record the run wrote.
 
         Reads the last ``##ancestree_provenance`` header line of a VCF / BCF,
-        the ``ancestree_provenance`` root attribute of a VCF Zarr store, or the
-        most recent ``ancestree`` row of a tree sequence's provenance table.
+        the ``ancestree_provenance`` root attribute of a VCF Zarr store, the
+        most recent ``ancestree`` row of a tree sequence's provenance table, or
+        the ``#ancestree_provenance`` comment line of a TSV. A FASTA output
+        carries none.
         Re-annotating an output appends to the VCF header and the tree
         sequence's table, so each format is read newest first and reports the
         run that produced the assignments in the file.
@@ -248,7 +260,15 @@ class Reader(ReprMixin):
                         return Provenance(record.get("parameters") or {})
                 elif software == "ancestree":
                     return Provenance(record)
-        else:
+        elif self.format == "tsv":
+            with self._open_text() as f:
+                for line in f:
+                    if not line.startswith("#"):
+                        break
+                    if line.startswith(TSV_PROVENANCE_MARKER):
+                        return Provenance(json.loads(
+                            line[len(TSV_PROVENANCE_MARKER):]))
+        elif self.format == "vcf":
             cyvcf2 = import_cyvcf2()
 
             marker = VCF_PROVENANCE_MARKER
@@ -358,8 +378,9 @@ class Reader(ReprMixin):
         """Yield the per-site ancestral-allele assignments, in the file's own order.
 
         Reads the ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` fields of a
-        VCF / BCF, the ``variant_AA*`` arrays of a VCF Zarr store, or the
-        ``site.metadata['ancestree']`` block of a tree sequence. Sites the
+        VCF / BCF, the ``variant_AA*`` arrays of a VCF Zarr store, the
+        ``site.metadata['ancestree']`` block of a tree sequence, the rows of a
+        TSV, or the bases of a FASTA record other than ``N``. Sites the
         writer left unannotated come back with
         :attr:`Annotation.aa <ancestree.readers.Annotation.aa>` at ``None``.
 
@@ -371,8 +392,78 @@ class Reader(ReprMixin):
             yield from self._zarr_annotations(limit)
         elif self.format == "trees":
             yield from self._tskit_annotations(limit)
+        elif self.format == "tsv":
+            yield from self._tsv_annotations(limit)
+        elif self.format == "fasta":
+            yield from self._fasta_annotations(limit)
         else:
             yield from self._vcf_annotations(limit)
+
+    def _open_text(self):
+        """Open a TSV or FASTA output as text, decompressing a ``.gz`` one."""
+        import gzip
+
+        if self._path.lower().endswith(".gz"):
+            return gzip.open(self._path, "rt", encoding="utf-8")
+        return open(self._path, encoding="utf-8")
+
+    def _tsv_annotations(self, limit: int | None) -> Iterator[Annotation]:
+        """Per-site assignments from the rows of a TSV output, or of an
+        IQ-TREE ``.state`` table holding the rows of a single node."""
+        with self._open_text() as f:
+            lines = (line.rstrip("\n") for line in f
+                     if not line.startswith("#"))
+            columns = [self._IQTREE_COLUMNS.get(c, c)
+                       for c in next(lines, "").split("\t")]
+            states = [s for s in STATES if s in columns]
+            node = None
+            for n, line in enumerate(lines):
+                if limit is not None and n >= limit:
+                    return
+                row = dict(zip(columns, line.split("\t")))
+                if node is not None and row["Node"] != node:
+                    raise ValueError(
+                        f"{self._path} holds the rows of nodes {node} and "
+                        f"{row['Node']}. Keep the rows of one node to read it.")
+                node = row.get("Node")
+                posterior = ({s: float(row[s]) for s in states}
+                             if len(states) == len(STATES) else None)
+                yield Annotation(
+                    pos=int(row["pos"]),
+                    aa=None if row["AA"] == "." else row["AA"],
+                    aa_prob=(self._as_prob(row[AA_PROB_FIELD])
+                             if AA_PROB_FIELD in row else
+                             None if posterior is None
+                             else posterior.get(row["AA"])),
+                    chrom=row.get("chrom"),
+                    posterior=posterior,
+                )
+
+    def _fasta_annotations(self, limit: int | None) -> Iterator[Annotation]:
+        """Per-site assignments from the records of a FASTA output, one per
+        base other than ``N``, at 1-based positions along the record.
+
+        A lower-case base, written below ``min_confidence``, reads back as
+        unannotated.
+        """
+        n = 0
+        with self._open_text() as f:
+            chrom, pos = None, 0
+            for line in f:
+                line = line.strip()
+                if line.startswith(">"):
+                    chrom, pos = line[1:].split(None, 1)[0], 0
+                    continue
+                for base in line:
+                    pos += 1
+                    if base in "Nn":
+                        continue
+                    if limit is not None and n >= limit:
+                        return
+                    n += 1
+                    yield Annotation(
+                        pos=pos, aa=base if base.isupper() else None,
+                        aa_prob=None, chrom=chrom)
 
     def _vcf_annotations(self, limit: int | None) -> Iterator[Annotation]:
         """Per-site assignments from the ``AA`` / ``AA_prob`` / ``AA_post`` ``INFO`` fields."""
