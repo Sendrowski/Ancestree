@@ -888,55 +888,6 @@ class TestSourceDispatch:
             FixedTreeInference(123, JC69())
 
 
-# ------------------------------------------------------------- baseline-check SFS bin
-
-
-class TestBaselineCheckSFSBins:
-    """``baseline_check=True`` log includes the per-SFS-bin disagreement tail."""
-
-    def test_logs_largest_disagreement_at_sfs_bin(self, caplog):
-        """Sites spanning multiple folded-SFS bins should produce the
-        ``largest disagreement at SFS bin`` substring in the INFO line
-        (covers ``inference.py`` lines 1856-1868).
-        """
-        ingroup = [f"i{k}" for k in range(4)]  # n=4 → bins 0, 1, 2 possible
-        outgroup = ["o1", "o2"]
-        tree = OutgroupLadderTree(ingroup, outgroup)
-        tree.set_params(np.array([0.0, 0.025, 0.025]))
-        # Mix of singletons (bin 1) and doubletons (bin 2) so per_bin_total
-        # has >= 2 distinct entries.
-        sites = []
-        # Singletons (bin 1): one ingroup carries the minor allele.
-        for k in range(3):
-            sites.append(Site(
-                chrom="1", pos=k + 1, alleles=("A", "T"),
-                tip_alleles={
-                    "i0": "A", "i1": "A", "i2": "A", "i3": "T",
-                    "o1": "A", "o2": "A",
-                },
-            ))
-        # Doubletons (bin 2): two ingroup carry the minor allele.
-        for k in range(3):
-            sites.append(Site(
-                chrom="1", pos=10 + k, alleles=("A", "T"),
-                tip_alleles={
-                    "i0": "A", "i1": "A", "i2": "T", "i3": "T",
-                    "o1": "A", "o2": "A",
-                },
-            ))
-        inf = FixedTreeInference(
-            sites, JC69(), _no_counts(), tree=tree,
-            fit_required=False, baseline_check=True,
-            progress=False, n_starts=1, parallelize=False,
-        )
-        with caplog.at_level(logging.INFO, logger="ancestree.inference"):
-            list(inf.infer())
-        text = caplog.text
-        assert "largest disagreement at SFS bin" in text, (
-            f"expected per-SFS-bin tail in INFO log; got:\n{text}"
-        )
-
-
 class TestNoOutgroupMonomorphic:
     """No-outgroup mode: monoallelic ingroup -> point mass on observed allele."""
 

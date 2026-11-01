@@ -570,26 +570,16 @@ class Inference(ReprMixin, ABC):
     def _summarise_baseline_agreement(
         real: "Iterable[tuple[Site, Posterior]]",
         baseline: "Iterable[tuple[Site, Posterior]]",
-        *,
-        ingroup_samples: Sequence[str] | None,
     ) -> str | None:
-        """Build the one-line baseline-agreement INFO log message.
-
-        Reports the MAP-agreement fraction over the sites carrying more than
-        one allele and, with ``ingroup_samples``, the agreement per folded-SFS
-        bin and the two lowest bins.
+        """Build the one-line baseline-agreement INFO log message, the
+        MAP-agreement fraction over the sites carrying more than one allele.
 
         :param real: ``(Site, Posterior)`` pairs from the real inference.
         :param baseline: ``(Site, Posterior)`` pairs from the baseline.
-        :param ingroup_samples: Ingroup ids for the folded-SFS bins. ``None``
-            or empty omits the per-bin breakdown.
         :return: A formatted log line, or ``None`` if no comparable
             sites were observed.
         """
         n_total = n_agree = 0
-        per_bin_total: dict[int, int] = {}
-        per_bin_agree: dict[int, int] = {}
-        ingroup = list(ingroup_samples or [])
         for (site_r, post_r), (site_b, post_b) in zip(real, baseline):
             if site_r is not site_b and (
                 site_r.chrom != site_b.chrom or int(site_r.pos) != int(site_b.pos)
@@ -598,36 +588,11 @@ class Inference(ReprMixin, ABC):
             if len(site_r.alleles) < 2:
                 continue
             n_total += 1
-            agree = int(post_r.map_allele == post_b.map_allele)
-            n_agree += agree
-            if ingroup:
-                counts = site_r.count_alleles(ingroup)
-                n_obs = sum(counts.values())
-                if n_obs >= 2:
-                    minor = min(counts.values()) if len(counts) > 1 else 0
-                    bin_j = min(minor, n_obs - minor)
-                    per_bin_total[bin_j] = per_bin_total.get(bin_j, 0) + 1
-                    per_bin_agree[bin_j] = per_bin_agree.get(bin_j, 0) + agree
+            n_agree += int(post_r.map_allele == post_b.map_allele)
         if n_total == 0:
             return None
-        overall = n_agree / n_total
-        msg = (
-            f"baseline (MajorityOutgroupInference) MAP agreement: "
-            f"{overall:.3f} on {n_total} polymorphic sites"
-        )
-        if per_bin_total:
-            rates = sorted(
-                (
-                    (bin_j, per_bin_agree[bin_j] / per_bin_total[bin_j])
-                    for bin_j in per_bin_total
-                ),
-                key=lambda pair: pair[1],
-            )
-            tail = "; ".join(
-                f"SFS bin {bin_j} ({rate:.3f})" for bin_j, rate in rates[:2]
-            )
-            msg += f"; largest disagreement at {tail}"
-        return msg
+        return (f"baseline (MajorityOutgroupInference) MAP agreement: "
+                f"{n_agree / n_total:.3f} on {n_total} polymorphic sites")
 
     #: When set, :meth:`infer` runs a
     #: :class:`~ancestree.inference.MajorityOutgroupInference` comparison
@@ -803,10 +768,7 @@ class Inference(ReprMixin, ABC):
         baseline = MajorityOutgroupInference(
             sites_only, outgroups, model=self.model, for_comparison_only=True,
         )
-        msg = self._summarise_baseline_agreement(
-            real_pairs, baseline.infer(),
-            ingroup_samples=self._resolved_ingroup,
-        )
+        msg = self._summarise_baseline_agreement(real_pairs, baseline.infer())
         if msg is not None:
             if truncated:
                 msg += f" (leading {len(sites_only):,}-site sample)"
@@ -1481,8 +1443,7 @@ class ARGBasedInference(Inference):
         dropped from the tree sequence, or refused where ``sample_map`` names
         them. With only outgroups named, so are the other haplotypes of an
         outgroup individual.
-    :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
-        baseline comparison by folded-SFS bin, and defines the ingroup whose
+    :param ingroup_samples: Sample ids making up the ingroup, whose
         MRCA ``focal="ingroup_mrca"`` reports at. Defaults to the panel
         samples whose individual is not an outgroup.
     :param focal: Node to report the posterior at, as a

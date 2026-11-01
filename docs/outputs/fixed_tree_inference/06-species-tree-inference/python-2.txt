@@ -4,5 +4,5 @@ INFO:ancestree.FixedTreeInference: Using 2 ingroup sample(s): A, B
 INFO:ancestree.FixedTreeInference: Using 3 outgroup sample(s): E, C, D
 INFO:ancestree.FixedTreeInference: Inferring the ancestral allele on the fixed tree, streaming the sites
 FixedTreeInference: 1795 sites [--:--, --sites/s]
-INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.779 on 1795 polymorphic sites; largest disagreement at SFS bin 0 (0.751); SFS bin 1 (0.991)
+INFO:ancestree.FixedTreeInference: baseline (MajorityOutgroupInference) MAP agreement: 0.779 on 1795 polymorphic sites
 INFO:ancestree.FixedTreeInference: Focal node: reported at "ingroup_mrca"

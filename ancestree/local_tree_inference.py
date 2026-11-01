@@ -1057,8 +1057,7 @@ class LocalTreeInference(Inference):
         dropped before the local trees are inferred, or refused where
         ``sample_names`` names them. With only outgroups named, so are the
         other haplotypes of an outgroup individual.
-    :param ingroup_samples: Sample ids making up the ingroup. Stratifies the
-        baseline comparison by folded-SFS bin, and defines the ingroup whose
+    :param ingroup_samples: Sample ids making up the ingroup, whose
         MRCA ``focal="ingroup_mrca"`` reports at. Defaults to the panel
         samples whose individual is not an outgroup.
     :param focal: Node to report the posterior at, forwarded to the underlying
