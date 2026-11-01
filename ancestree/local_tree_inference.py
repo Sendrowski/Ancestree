@@ -232,24 +232,27 @@ class PairwiseCoalescentHMM(ReprMixin):
         cols = np.flatnonzero(grid_cols)
 
         # Effective counts over the grid columns, built a chunk of pairs at a
-        # time. The prior mean averages over the blocks the pair is called in.
+        # time. The prior mean is the pair's differences over its exposure,
+        # the called fraction times the emission scale summed over the blocks.
         # Column-major, the layout a column selection gives, so each pair's
         # blocks are summed in order.
         eff = np.empty((n_pairs, cols.size), dtype=np.float64, order="F")
         own = np.empty(n_pairs, dtype=np.float64)
         n_seen = np.full(n_pairs, cols.size, dtype=np.int64)
+        scale = np.ones(cols.size) if es is None else es[cols]
         for a, b in row_chunks(n_pairs, cols.size):
             e = counts[a:b, cols].astype(np.float64)
-            if es is not None:
-                e /= es[cols]
+            differences = e.sum(axis=1)
+            e /= scale
             if called is None:
-                own[a:b] = e.mean(axis=1)
+                own[a:b] = differences / scale.sum()
             else:
                 cf = called[a:b, cols] / block_sites[cols]
                 seen = cf > _ACCESS_FRAC_FLOOR
                 e /= np.where(seen, cf, 1.0)
                 n_seen[a:b] = seen.sum(axis=1)
-                own[a:b] = (e * seen).sum(axis=1) / np.maximum(n_seen[a:b], 1)
+                exposure = cf @ scale
+                own[a:b] = differences / np.where(exposure > 0, exposure, 1.0)
             eff[a:b] = e
         per_block_rate = 2.0 * self.mu * self.block_size
         t_bar = np.where(n_seen > 0, own, np.nan) / per_block_rate
