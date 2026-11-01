@@ -9,7 +9,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.015513316898767174
+   "mean_brier": 0.015513603737436278
   },
   {
    "mode": "local_tree",
@@ -18,7 +18,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.015513316898767174
+   "mean_brier": 0.015513603737436278
   },
   {
    "mode": "local_tree",
@@ -27,7 +27,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.04881136437407371
+   "mean_brier": 0.048811777536753885
   },
   {
    "mode": "local_tree",
@@ -36,7 +36,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 5.21838866222944e-13
+   "mean_brier": 5.217073530145612e-13
   },
   {
    "mode": "local_tree",
@@ -45,7 +45,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 5.21838866222944e-13
+   "mean_brier": 5.217073530145612e-13
   },
   {
    "mode": "local_tree",
@@ -54,7 +54,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 5.21838866222944e-13
+   "mean_brier": 5.217073530145612e-13
   },
   {
    "mode": "local_tree",
@@ -63,7 +63,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.000223952587601579
+   "mean_brier": 0.00022395258829035862
   },
   {
    "mode": "local_tree",
@@ -72,7 +72,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.000223952587601579
+   "mean_brier": 0.00022395258829035862
   },
   {
    "mode": "local_tree",
@@ -81,7 +81,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.9999819531499965
+   "mean_brier": 1.99998195584695
   },
   {
    "mode": "local_tree",
@@ -90,7 +90,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.013108772016448778
+   "mean_brier": 0.013109011169686496
   },
   {
    "mode": "local_tree",
@@ -99,7 +99,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.012653168326646447
+   "mean_brier": 0.012653376350104394
   },
   {
    "mode": "local_tree",
@@ -108,7 +108,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.044441619423271524
+   "mean_brier": 0.04444195974770846
   },
   {
    "mode": "local_tree",
@@ -117,7 +117,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 4.448934568913939e-05
+   "mean_brier": 4.448921303631361e-05
   },
   {
    "mode": "local_tree",
@@ -126,7 +126,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 4.031332389455845e-06
+   "mean_brier": 4.031242903449793e-06
   },
   {
    "mode": "local_tree",
@@ -135,7 +135,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 4.031332389455845e-06
+   "mean_brier": 4.031242903449793e-06
   },
   {
    "mode": "local_tree",
@@ -144,7 +144,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.04441465655233985
+   "mean_brier": 0.044414627078258155
   },
   {
    "mode": "local_tree",
@@ -153,7 +153,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.005357645586061107
+   "mean_brier": 0.005357514251196842
   },
   {
    "mode": "local_tree",
@@ -162,7 +162,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.930526059927003
+   "mean_brier": 1.9305262986799872
   },
   {
    "mode": "local_tree",
@@ -171,7 +171,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.011190278716245132
+   "mean_brier": 0.011190470196694516
   },
   {
    "mode": "local_tree",
@@ -180,7 +180,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.010644206183305093
+   "mean_brier": 0.010644337825096115
   },
   {
    "mode": "local_tree",
@@ -189,7 +189,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.04092297522387898
+   "mean_brier": 0.04092324518030132
   },
   {
    "mode": "local_tree",
@@ -198,7 +198,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 5.7712849455552054e-05
+   "mean_brier": 5.771284601761411e-05
   },
   {
    "mode": "local_tree",
@@ -207,7 +207,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 1.612120696903182e-05
+   "mean_brier": 1.6120849746405715e-05
   },
   {
    "mode": "local_tree",
@@ -216,7 +216,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 1.612120696903182e-05
+   "mean_brier": 1.6120849746405715e-05
   },
   {
    "mode": "local_tree",
@@ -225,7 +225,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.0772575405486637
+   "mean_brier": 0.07725749835507117
   },
   {
    "mode": "local_tree",
@@ -234,7 +234,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.0202664784978868
+   "mean_brier": 0.02026623359215856
   },
   {
    "mode": "local_tree",
@@ -243,7 +243,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.8708216591624185
+   "mean_brier": 1.8708220978915284
   },
   {
    "mode": "local_tree",
@@ -252,7 +252,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.008592323021349192
+   "mean_brier": 0.008592444844698642
   },
   {
    "mode": "local_tree",
@@ -261,7 +261,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.009457947872220528
+   "mean_brier": 0.009458008982679551
   },
   {
    "mode": "local_tree",
@@ -270,7 +270,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.03809326310029474
+   "mean_brier": 0.03809348328622325
   },
   {
    "mode": "local_tree",
@@ -279,7 +279,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 9.164177756934184e-05
+   "mean_brier": 9.164205124551804e-05
   },
   {
    "mode": "local_tree",
@@ -288,7 +288,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 3.627458969229655e-05
+   "mean_brier": 3.627378427670304e-05
   },
   {
    "mode": "local_tree",
@@ -297,7 +297,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 3.627458969229655e-05
+   "mean_brier": 3.627378427670304e-05
   },
   {
    "mode": "local_tree",
@@ -306,7 +306,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.09801245608028412
+   "mean_brier": 0.09801232556555609
   },
   {
    "mode": "local_tree",
@@ -315,7 +315,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.04457620110002752
+   "mean_brier": 0.044575633340093276
   },
   {
    "mode": "local_tree",
@@ -324,7 +324,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.818396062524367
+   "mean_brier": 1.8183967729668153
   },
   {
    "mode": "local_tree",
@@ -333,7 +333,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.006909135172853907
+   "mean_brier": 0.006909256941588703
   },
   {
    "mode": "local_tree",
@@ -342,7 +342,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.008473331023384425
+   "mean_brier": 0.008473387463174832
   },
   {
    "mode": "local_tree",
@@ -351,7 +351,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.03548565977999708
+   "mean_brier": 0.03548585086940028
   },
   {
    "mode": "local_tree",
@@ -360,7 +360,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00011554569011995064
+   "mean_brier": 0.00011554569465698781
   },
   {
    "mode": "local_tree",
@@ -369,7 +369,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 6.122507594832025e-05
+   "mean_brier": 6.122490280729468e-05
   },
   {
    "mode": "local_tree",
@@ -378,7 +378,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 6.122507594832025e-05
+   "mean_brier": 6.122490280729468e-05
   },
   {
    "mode": "local_tree",
@@ -387,7 +387,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.10686451811915257
+   "mean_brier": 0.10686442237768129
   },
   {
    "mode": "local_tree",
@@ -396,7 +396,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.07774197455341261
+   "mean_brier": 0.07774122108353061
   },
   {
    "mode": "local_tree",
@@ -405,7 +405,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.771349925576063
+   "mean_brier": 1.7713508398064814
   },
   {
    "mode": "local_tree",
@@ -414,7 +414,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.006177475926287939
+   "mean_brier": 0.006177531407543303
   },
   {
    "mode": "local_tree",
@@ -423,7 +423,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.00826946245724466
+   "mean_brier": 0.008269445674741563
   },
   {
    "mode": "local_tree",
@@ -432,7 +432,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.033721206703128136
+   "mean_brier": 0.03372131706857015
   },
   {
    "mode": "local_tree",
@@ -441,7 +441,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0001308052772046621
+   "mean_brier": 0.00013080547277603707
   },
   {
    "mode": "local_tree",
@@ -450,7 +450,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 7.586620732899072e-05
+   "mean_brier": 7.586666544327242e-05
   },
   {
    "mode": "local_tree",
@@ -459,7 +459,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 7.586620732899072e-05
+   "mean_brier": 7.586666544327242e-05
   },
   {
    "mode": "local_tree",
@@ -468,7 +468,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.11101133748260432
+   "mean_brier": 0.11101112512627771
   },
   {
    "mode": "local_tree",
@@ -477,7 +477,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.11762143542617197
+   "mean_brier": 0.11762048242083163
   },
   {
    "mode": "local_tree",
@@ -486,7 +486,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.726875595239225
+   "mean_brier": 1.7268766298570546
   },
   {
    "mode": "local_tree",
@@ -495,7 +495,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.00480741860452194
+   "mean_brier": 0.004807456118635305
   },
   {
    "mode": "local_tree",
@@ -504,7 +504,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.008479187619365183
+   "mean_brier": 0.00847915628407302
   },
   {
    "mode": "local_tree",
@@ -513,7 +513,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.032478105650852816
+   "mean_brier": 0.03247817384528026
   },
   {
    "mode": "local_tree",
@@ -522,7 +522,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0001656939668338425
+   "mean_brier": 0.00016569609781487773
   },
   {
    "mode": "local_tree",
@@ -531,7 +531,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 9.128650731641622e-05
+   "mean_brier": 9.128675311657905e-05
   },
   {
    "mode": "local_tree",
@@ -540,7 +540,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 9.128650731641622e-05
+   "mean_brier": 9.128675311657905e-05
   },
   {
    "mode": "local_tree",
@@ -549,7 +549,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.10966884249496596
+   "mean_brier": 0.10966877557513878
   },
   {
    "mode": "local_tree",
@@ -558,7 +558,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.16281309216794237
+   "mean_brier": 0.1628120873915868
   },
   {
    "mode": "local_tree",
@@ -567,7 +567,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.6832523227016838
+   "mean_brier": 1.6832534683958231
   },
   {
    "mode": "local_tree",
@@ -576,7 +576,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0034975740883721744
+   "mean_brier": 0.003497624730005937
   },
   {
    "mode": "local_tree",
@@ -585,7 +585,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.008578370094778442
+   "mean_brier": 0.008578356464909374
   },
   {
    "mode": "local_tree",
@@ -594,7 +594,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.03130514855842324
+   "mean_brier": 0.03130523577973974
   },
   {
    "mode": "local_tree",
@@ -603,7 +603,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00017001176067885259
+   "mean_brier": 0.00017001283088709934
   },
   {
    "mode": "local_tree",
@@ -612,7 +612,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.00012920468381786204
+   "mean_brier": 0.0001292027238710806
   },
   {
    "mode": "local_tree",
@@ -621,7 +621,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.00012920468381786204
+   "mean_brier": 0.0001292027238710806
   },
   {
    "mode": "local_tree",
@@ -630,7 +630,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.10766431471680937
+   "mean_brier": 0.10766423338768613
   },
   {
    "mode": "local_tree",
@@ -639,7 +639,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.2114167235503462
+   "mean_brier": 0.21141568035933953
   },
   {
    "mode": "local_tree",
@@ -648,7 +648,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.6389367735637825
+   "mean_brier": 1.638937956295226
   },
   {
    "mode": "local_tree",
@@ -657,7 +657,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.003128797548809064
+   "mean_brier": 0.003128846520569176
   },
   {
    "mode": "local_tree",
@@ -666,7 +666,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.009015427399626425
+   "mean_brier": 0.009015379494755787
   },
   {
    "mode": "local_tree",
@@ -675,7 +675,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.030022295492838393
+   "mean_brier": 0.03002239231246269
   },
   {
    "mode": "local_tree",
@@ -684,7 +684,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00018349177389539778
+   "mean_brier": 0.0001834925299163534
   },
   {
    "mode": "local_tree",
@@ -693,7 +693,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.00016214851287349823
+   "mean_brier": 0.00016214770477742646
   },
   {
    "mode": "local_tree",
@@ -702,7 +702,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.00016214851287349823
+   "mean_brier": 0.00016214770477742646
   },
   {
    "mode": "local_tree",
@@ -711,7 +711,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.11454693557862865
+   "mean_brier": 0.11454691686921019
   },
   {
    "mode": "local_tree",
@@ -720,7 +720,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.26247469991024225
+   "mean_brier": 0.2624737206805146
   },
   {
    "mode": "local_tree",
@@ -729,7 +729,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.5925235768019348
+   "mean_brier": 1.592524722531036
   },
   {
    "mode": "local_tree",
@@ -738,7 +738,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0029012011447420156
+   "mean_brier": 0.002901249467529711
   },
   {
    "mode": "local_tree",
@@ -747,7 +747,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.00948790908156268
+   "mean_brier": 0.00948788296924214
   },
   {
    "mode": "local_tree",
@@ -756,7 +756,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.02871295867202446
+   "mean_brier": 0.028713036319191258
   },
   {
    "mode": "local_tree",
@@ -765,7 +765,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00017078504544132037
+   "mean_brier": 0.00017078567261229614
   },
   {
    "mode": "local_tree",
@@ -774,7 +774,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.00019660008242480785
+   "mean_brier": 0.00019659882709284344
   },
   {
    "mode": "local_tree",
@@ -783,7 +783,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.00019660008242480785
+   "mean_brier": 0.00019659882709284344
   },
   {
    "mode": "local_tree",
@@ -792,7 +792,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.12031623635798018
+   "mean_brier": 0.12031623982328525
   },
   {
    "mode": "local_tree",
@@ -801,7 +801,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.3150535656754887
+   "mean_brier": 0.31505266648713776
   },
   {
    "mode": "local_tree",
@@ -810,7 +810,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.5437596537850737
+   "mean_brier": 1.5437607497361192
   },
   {
    "mode": "local_tree",
@@ -819,7 +819,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0026587766266413593
+   "mean_brier": 0.002658810212823532
   },
   {
    "mode": "local_tree",
@@ -828,7 +828,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.00996452896337056
+   "mean_brier": 0.00996449990025781
   },
   {
    "mode": "local_tree",
@@ -837,7 +837,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.027447167898974837
+   "mean_brier": 0.027447243006993385
   },
   {
    "mode": "local_tree",
@@ -846,7 +846,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0002143276796548942
+   "mean_brier": 0.00021432765074506753
   },
   {
    "mode": "local_tree",
@@ -855,7 +855,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0002362415144269974
+   "mean_brier": 0.00023624072681586054
   },
   {
    "mode": "local_tree",
@@ -864,7 +864,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0002362415144269974
+   "mean_brier": 0.00023624072681586054
   },
   {
    "mode": "local_tree",
@@ -873,7 +873,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.12699496990215667
+   "mean_brier": 0.1269951113547812
   },
   {
    "mode": "local_tree",
@@ -882,7 +882,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.36625133393892373
+   "mean_brier": 0.3662506645467707
   },
   {
    "mode": "local_tree",
@@ -891,7 +891,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.4949409966809273
+   "mean_brier": 1.494941971211436
   },
   {
    "mode": "local_tree",
@@ -900,7 +900,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0028326218748255276
+   "mean_brier": 0.002832655058870738
   },
   {
    "mode": "local_tree",
@@ -909,7 +909,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.010729524291418777
+   "mean_brier": 0.01072946709212002
   },
   {
    "mode": "local_tree",
@@ -918,7 +918,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.026083720072181422
+   "mean_brier": 0.026083784316862875
   },
   {
    "mode": "local_tree",
@@ -927,7 +927,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0002338666228262705
+   "mean_brier": 0.0002338665878801375
   },
   {
    "mode": "local_tree",
@@ -936,7 +936,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.00028573322119713064
+   "mean_brier": 0.00028573337609114833
   },
   {
    "mode": "local_tree",
@@ -945,7 +945,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.00028573322119713064
+   "mean_brier": 0.00028573337609114833
   },
   {
    "mode": "local_tree",
@@ -954,7 +954,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.13574605270658635
+   "mean_brier": 0.1357461070171939
   },
   {
    "mode": "local_tree",
@@ -963,7 +963,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.4172217371965845
+   "mean_brier": 0.417221206662962
   },
   {
    "mode": "local_tree",
@@ -972,7 +972,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.4439479577212326
+   "mean_brier": 1.4439487488816447
   },
   {
    "mode": "local_tree",
@@ -981,7 +981,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0030362669141600312
+   "mean_brier": 0.003036307769229989
   },
   {
    "mode": "local_tree",
@@ -990,7 +990,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.011733083263045953
+   "mean_brier": 0.011733048917621999
   },
   {
    "mode": "local_tree",
@@ -999,7 +999,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.025152623075120183
+   "mean_brier": 0.025152693405277534
   },
   {
    "mode": "local_tree",
@@ -1008,7 +1008,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00027444988617204727
+   "mean_brier": 0.0002744493355029503
   },
   {
    "mode": "local_tree",
@@ -1017,7 +1017,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0003420084254267747
+   "mean_brier": 0.00034200783703916044
   },
   {
    "mode": "local_tree",
@@ -1026,7 +1026,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0003420084254267747
+   "mean_brier": 0.00034200783703916044
   },
   {
    "mode": "local_tree",
@@ -1035,7 +1035,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.14327347021691245
+   "mean_brier": 0.1432734519268746
   },
   {
    "mode": "local_tree",
@@ -1044,7 +1044,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.4683651143118361
+   "mean_brier": 0.4683646989246968
   },
   {
    "mode": "local_tree",
@@ -1053,7 +1053,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.3916288565438266
+   "mean_brier": 1.391629424188249
   },
   {
    "mode": "local_tree",
@@ -1062,7 +1062,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0027763464360237807
+   "mean_brier": 0.0027763578868641634
   },
   {
    "mode": "local_tree",
@@ -1071,7 +1071,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.012571606142833786
+   "mean_brier": 0.012571555859095666
   },
   {
    "mode": "local_tree",
@@ -1080,7 +1080,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.0243028128398081
+   "mean_brier": 0.02430287417451318
   },
   {
    "mode": "local_tree",
@@ -1089,7 +1089,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0003401548028634173
+   "mean_brier": 0.00034015389661523946
   },
   {
    "mode": "local_tree",
@@ -1098,7 +1098,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0003812203083016915
+   "mean_brier": 0.0003812205588989164
   },
   {
    "mode": "local_tree",
@@ -1107,7 +1107,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0003812203083016915
+   "mean_brier": 0.0003812205588989164
   },
   {
    "mode": "local_tree",
@@ -1116,7 +1116,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.14714804023882538
+   "mean_brier": 0.1471435974802752
   },
   {
    "mode": "local_tree",
@@ -1125,7 +1125,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.5205151772160469
+   "mean_brier": 0.5205152193297028
   },
   {
    "mode": "local_tree",
@@ -1134,7 +1134,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.3359794787329822
+   "mean_brier": 1.3359755887293936
   },
   {
    "mode": "local_tree",
@@ -1143,7 +1143,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.00201737725126892
+   "mean_brier": 0.0020174014403570575
   },
   {
    "mode": "local_tree",
@@ -1152,7 +1152,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.013487157336411853
+   "mean_brier": 0.013487106054382898
   },
   {
    "mode": "local_tree",
@@ -1161,7 +1161,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.023278743491703918
+   "mean_brier": 0.023278797057017114
   },
   {
    "mode": "local_tree",
@@ -1170,7 +1170,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.000326536937177422
+   "mean_brier": 0.0003265357397750127
   },
   {
    "mode": "local_tree",
@@ -1179,7 +1179,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.00042220416260703686
+   "mean_brier": 0.0004222052374509061
   },
   {
    "mode": "local_tree",
@@ -1188,7 +1188,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.00042220416260703686
+   "mean_brier": 0.0004222052374509061
   },
   {
    "mode": "local_tree",
@@ -1197,7 +1197,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.1588922173284725
+   "mean_brier": 0.15888092968973244
   },
   {
    "mode": "local_tree",
@@ -1206,7 +1206,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.5719468421328839
+   "mean_brier": 0.5719494969938296
   },
   {
    "mode": "local_tree",
@@ -1215,7 +1215,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.279996852597219
+   "mean_brier": 1.2799860321479581
   },
   {
    "mode": "local_tree",
@@ -1224,7 +1224,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0020264665820987674
+   "mean_brier": 0.002026514716065066
   },
   {
    "mode": "local_tree",
@@ -1233,7 +1233,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.014151632366073372
+   "mean_brier": 0.014151620981114475
   },
   {
    "mode": "local_tree",
@@ -1242,7 +1242,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.02220691128503494
+   "mean_brier": 0.02220695344919913
   },
   {
    "mode": "local_tree",
@@ -1251,7 +1251,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0003698152620495007
+   "mean_brier": 0.00036981375239496624
   },
   {
    "mode": "local_tree",
@@ -1260,7 +1260,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.00045456618833783084
+   "mean_brier": 0.00045456700338452293
   },
   {
    "mode": "local_tree",
@@ -1269,7 +1269,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.00045456618833783084
+   "mean_brier": 0.00045456700338452293
   },
   {
    "mode": "local_tree",
@@ -1278,7 +1278,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.16687450934948056
+   "mean_brier": 0.16685874990346264
   },
   {
    "mode": "local_tree",
@@ -1287,7 +1287,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.6232617098620686
+   "mean_brier": 0.6232693382743505
   },
   {
    "mode": "local_tree",
@@ -1296,7 +1296,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.2226866938053789
+   "mean_brier": 1.2226711091511469
   },
   {
    "mode": "local_tree",
@@ -1305,7 +1305,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0018590819922490159
+   "mean_brier": 0.0018591133745196567
   },
   {
    "mode": "local_tree",
@@ -1314,7 +1314,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.014667148155420457
+   "mean_brier": 0.014667115901846507
   },
   {
    "mode": "local_tree",
@@ -1323,7 +1323,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.021085977942526944
+   "mean_brier": 0.02108604304851081
   },
   {
    "mode": "local_tree",
@@ -1332,7 +1332,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00042936737873929356
+   "mean_brier": 0.0004293654350067706
   },
   {
    "mode": "local_tree",
@@ -1341,7 +1341,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0004726628449543003
+   "mean_brier": 0.0004726632835258473
   },
   {
    "mode": "local_tree",
@@ -1350,7 +1350,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0004726628449543003
+   "mean_brier": 0.0004726632835258473
   },
   {
    "mode": "local_tree",
@@ -1359,7 +1359,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.17766665969275064
+   "mean_brier": 0.17764860476988684
   },
   {
    "mode": "local_tree",
@@ -1368,7 +1368,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.6750107290543669
+   "mean_brier": 0.6750256507254474
   },
   {
    "mode": "local_tree",
@@ -1377,7 +1377,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.1670638741511008
+   "mean_brier": 1.1670459285813646
   },
   {
    "mode": "local_tree",
@@ -1386,7 +1386,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0017210338636256366
+   "mean_brier": 0.0017210404441482133
   },
   {
    "mode": "local_tree",
@@ -1395,7 +1395,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.015338791201310159
+   "mean_brier": 0.01533873552945629
   },
   {
    "mode": "local_tree",
@@ -1404,7 +1404,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.020207625562004394
+   "mean_brier": 0.02020765979494144
   },
   {
    "mode": "local_tree",
@@ -1413,7 +1413,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.00045967851000552597
+   "mean_brier": 0.0004596771439440379
   },
   {
    "mode": "local_tree",
@@ -1422,7 +1422,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0004902370053437586
+   "mean_brier": 0.0004902365952633408
   },
   {
    "mode": "local_tree",
@@ -1431,7 +1431,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0004902370053437586
+   "mean_brier": 0.0004902365952633408
   },
   {
    "mode": "local_tree",
@@ -1440,7 +1440,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.18537126614249108
+   "mean_brier": 0.18535359256147496
   },
   {
    "mode": "local_tree",
@@ -1449,7 +1449,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.7261292858353734
+   "mean_brier": 0.7261541065637114
   },
   {
    "mode": "local_tree",
@@ -1458,7 +1458,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.1112999577878468
+   "mean_brier": 1.1112823832118313
   },
   {
    "mode": "local_tree",
@@ -1467,7 +1467,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.002131341634626651
+   "mean_brier": 0.0021313213006972664
   },
   {
    "mode": "local_tree",
@@ -1476,7 +1476,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.01659773084909772
+   "mean_brier": 0.01659771431704981
   },
   {
    "mode": "local_tree",
@@ -1485,7 +1485,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.019208585265561694
+   "mean_brier": 0.019208595339505342
   },
   {
    "mode": "local_tree",
@@ -1494,7 +1494,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0004026994279388239
+   "mean_brier": 0.00040269830145479195
   },
   {
    "mode": "local_tree",
@@ -1503,7 +1503,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.000516472258854989
+   "mean_brier": 0.0005164717413233942
   },
   {
    "mode": "local_tree",
@@ -1512,7 +1512,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.000516472258854989
+   "mean_brier": 0.0005164717413233942
   },
   {
    "mode": "local_tree",
@@ -1521,7 +1521,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.18965455133908496
+   "mean_brier": 0.18963962319128627
   },
   {
    "mode": "local_tree",
@@ -1530,7 +1530,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.7773615448925948
+   "mean_brier": 0.7773987096372004
   },
   {
    "mode": "local_tree",
@@ -1539,7 +1539,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.0558438330780389
+   "mean_brier": 1.0558289522370694
   },
   {
    "mode": "local_tree",
@@ -1548,7 +1548,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0020822859016814414
+   "mean_brier": 0.0020822646379673564
   },
   {
    "mode": "local_tree",
@@ -1557,7 +1557,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.017316689134420773
+   "mean_brier": 0.017316659516891122
   },
   {
    "mode": "local_tree",
@@ -1566,7 +1566,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.01867442495538227
+   "mean_brier": 0.018674424216127007
   },
   {
    "mode": "local_tree",
@@ -1575,7 +1575,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0004960972750946267
+   "mean_brier": 0.0004960961110897705
   },
   {
    "mode": "local_tree",
@@ -1584,7 +1584,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0005551002796134753
+   "mean_brier": 0.0005550991972275816
   },
   {
    "mode": "local_tree",
@@ -1593,7 +1593,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0005551002796134753
+   "mean_brier": 0.0005550991972275816
   },
   {
    "mode": "local_tree",
@@ -1602,7 +1602,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.19481293313314946
+   "mean_brier": 0.19480307322096008
   },
   {
    "mode": "local_tree",
@@ -1611,7 +1611,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.8278824848330658
+   "mean_brier": 0.8279344836487258
   },
   {
    "mode": "local_tree",
@@ -1620,7 +1620,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 1.0024993077390207
+   "mean_brier": 1.0024894181361008
   },
   {
    "mode": "local_tree",
@@ -1629,7 +1629,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0025557594655271423
+   "mean_brier": 0.0025557295506790645
   },
   {
    "mode": "local_tree",
@@ -1638,7 +1638,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.018080540992846325
+   "mean_brier": 0.01808051394515242
   },
   {
    "mode": "local_tree",
@@ -1647,7 +1647,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.018013601041804873
+   "mean_brier": 0.018013598806397527
   },
   {
    "mode": "local_tree",
@@ -1656,7 +1656,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0005472856648607566
+   "mean_brier": 0.0005472863108290802
   },
   {
    "mode": "local_tree",
@@ -1665,7 +1665,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0005932097201450399
+   "mean_brier": 0.0005932110216097236
   },
   {
    "mode": "local_tree",
@@ -1674,7 +1674,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0005932097201450399
+   "mean_brier": 0.0005932110216097236
   },
   {
    "mode": "local_tree",
@@ -1683,7 +1683,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20180432645645738
+   "mean_brier": 0.20180018930411767
   },
   {
    "mode": "local_tree",
@@ -1692,7 +1692,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.8775647891769028
+   "mean_brier": 0.8776021026937226
   },
   {
    "mode": "local_tree",
@@ -1701,7 +1701,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.949435709023788
+   "mean_brier": 0.9494315720752406
   },
   {
    "mode": "local_tree",
@@ -1710,7 +1710,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0031323455285208928
+   "mean_brier": 0.003132307697919877
   },
   {
    "mode": "local_tree",
@@ -1719,7 +1719,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.019067653687027564
+   "mean_brier": 0.019067614967078983
   },
   {
    "mode": "local_tree",
@@ -1728,7 +1728,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.01692946123890738
+   "mean_brier": 0.016929456708951098
   },
   {
    "mode": "local_tree",
@@ -1737,7 +1737,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0006567274846740284
+   "mean_brier": 0.0006567250502231277
   },
   {
    "mode": "local_tree",
@@ -1746,7 +1746,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0006931228484492664
+   "mean_brier": 0.0006931217879888149
   },
   {
    "mode": "local_tree",
@@ -1755,7 +1755,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0006931228484492664
+   "mean_brier": 0.0006931217879888149
   },
   {
    "mode": "local_tree",
@@ -1764,7 +1764,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20835787453200635
+   "mean_brier": 0.20835670707894377
   },
   {
    "mode": "local_tree",
@@ -1773,7 +1773,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.9269866449347869
+   "mean_brier": 0.9270027391489669
   },
   {
    "mode": "local_tree",
@@ -1782,7 +1782,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.8981093328527359
+   "mean_brier": 0.8981081266109116
   },
   {
    "mode": "local_tree",
@@ -1791,7 +1791,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.004382731512535565
+   "mean_brier": 0.0043826649612217486
   },
   {
    "mode": "local_tree",
@@ -1800,7 +1800,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.020149233122270724
+   "mean_brier": 0.020149192608264543
   },
   {
    "mode": "local_tree",
@@ -1809,7 +1809,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.016087507933794296
+   "mean_brier": 0.016087520187100322
   },
   {
    "mode": "local_tree",
@@ -1818,7 +1818,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0007808885503450024
+   "mean_brier": 0.0007808858746843344
   },
   {
    "mode": "local_tree",
@@ -1827,7 +1827,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0008284713581569931
+   "mean_brier": 0.0008284686309572258
   },
   {
    "mode": "local_tree",
@@ -1836,7 +1836,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0008284713581569931
+   "mean_brier": 0.0008284686309572258
   },
   {
    "mode": "local_tree",
@@ -1845,7 +1845,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20931034289193942
+   "mean_brier": 0.20930966496401457
   },
   {
    "mode": "local_tree",
@@ -1854,7 +1854,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 0.9772433662361963
+   "mean_brier": 0.9772437486979505
   },
   {
    "mode": "local_tree",
@@ -1863,7 +1863,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.8486226588064972
+   "mean_brier": 0.8486220973882768
   },
   {
    "mode": "local_tree",
@@ -1872,7 +1872,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.004257653676594333
+   "mean_brier": 0.00425755336243995
   },
   {
    "mode": "local_tree",
@@ -1881,7 +1881,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.020918051548052975
+   "mean_brier": 0.020918034001272113
   },
   {
    "mode": "local_tree",
@@ -1890,7 +1890,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.01510804958989295
+   "mean_brier": 0.015108016058769394
   },
   {
    "mode": "local_tree",
@@ -1899,7 +1899,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0010168110843637944
+   "mean_brier": 0.0010168070017402566
   },
   {
    "mode": "local_tree",
@@ -1908,7 +1908,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0009933091340754464
+   "mean_brier": 0.000993306519459587
   },
   {
    "mode": "local_tree",
@@ -1917,7 +1917,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0009933091340754464
+   "mean_brier": 0.000993306519459587
   },
   {
    "mode": "local_tree",
@@ -1926,7 +1926,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20902892951349042
+   "mean_brier": 0.20902824188822147
   },
   {
    "mode": "local_tree",
@@ -1935,7 +1935,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.0245646018343828
+   "mean_brier": 1.024565071517014
   },
   {
    "mode": "local_tree",
@@ -1944,7 +1944,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.8029031517053576
+   "mean_brier": 0.8029025564188754
   },
   {
    "mode": "local_tree",
@@ -1953,7 +1953,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.004531959630505331
+   "mean_brier": 0.004531949679495483
   },
   {
    "mode": "local_tree",
@@ -1962,7 +1962,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.021948161338766654
+   "mean_brier": 0.02194823213649455
   },
   {
    "mode": "local_tree",
@@ -1971,7 +1971,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.014120167075642103
+   "mean_brier": 0.014120115676919993
   },
   {
    "mode": "local_tree",
@@ -1980,7 +1980,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0011902667687546538
+   "mean_brier": 0.001190261370201045
   },
   {
    "mode": "local_tree",
@@ -1989,7 +1989,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0011855474436749886
+   "mean_brier": 0.0011855424589175662
   },
   {
    "mode": "local_tree",
@@ -1998,7 +1998,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0011855474436749886
+   "mean_brier": 0.0011855424589175662
   },
   {
    "mode": "local_tree",
@@ -2007,7 +2007,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20866828499293308
+   "mean_brier": 0.20866758921890097
   },
   {
    "mode": "local_tree",
@@ -2016,7 +2016,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.0709741147468121
+   "mean_brier": 1.0709746604377315
   },
   {
    "mode": "local_tree",
@@ -2025,7 +2025,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.7595952860641699
+   "mean_brier": 0.7595947090837969
   },
   {
    "mode": "local_tree",
@@ -2034,7 +2034,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0048347802843424935
+   "mean_brier": 0.004834776293529044
   },
   {
    "mode": "local_tree",
@@ -2043,7 +2043,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.02256140577558631
+   "mean_brier": 0.02256144964831621
   },
   {
    "mode": "local_tree",
@@ -2052,7 +2052,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.013691056782829007
+   "mean_brier": 0.013691007848555276
   },
   {
    "mode": "local_tree",
@@ -2061,7 +2061,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0014040552656249179
+   "mean_brier": 0.0014040509501662042
   },
   {
    "mode": "local_tree",
@@ -2070,7 +2070,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0014472279307211617
+   "mean_brier": 0.001447223685769281
   },
   {
    "mode": "local_tree",
@@ -2079,7 +2079,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0014472279307211617
+   "mean_brier": 0.001447223685769281
   },
   {
    "mode": "local_tree",
@@ -2088,7 +2088,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.21070433592044582
+   "mean_brier": 0.21070378333458228
   },
   {
    "mode": "local_tree",
@@ -2097,7 +2097,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.1136017244638463
+   "mean_brier": 1.1136021919098311
   },
   {
    "mode": "local_tree",
@@ -2106,7 +2106,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.7200683477354589
+   "mean_brier": 0.7200678426372531
   },
   {
    "mode": "local_tree",
@@ -2115,7 +2115,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.005244092653734158
+   "mean_brier": 0.00524401166223736
   },
   {
    "mode": "local_tree",
@@ -2124,7 +2124,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.02293991038561941
+   "mean_brier": 0.02293995628454039
   },
   {
    "mode": "local_tree",
@@ -2133,7 +2133,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.013153001680091416
+   "mean_brier": 0.01315293301825389
   },
   {
    "mode": "local_tree",
@@ -2142,7 +2142,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0018111096080356032
+   "mean_brier": 0.0018111025669721081
   },
   {
    "mode": "local_tree",
@@ -2151,7 +2151,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0017989567778552314
+   "mean_brier": 0.0017989505643445673
   },
   {
    "mode": "local_tree",
@@ -2160,7 +2160,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0017989567778552314
+   "mean_brier": 0.0017989505643445673
   },
   {
    "mode": "local_tree",
@@ -2169,7 +2169,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20921634451625348
+   "mean_brier": 0.20921565633610836
   },
   {
    "mode": "local_tree",
@@ -2178,7 +2178,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.152285169537395
+   "mean_brier": 1.1522855296559218
   },
   {
    "mode": "local_tree",
@@ -2187,7 +2187,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.6830024734566911
+   "mean_brier": 0.6830018879353299
   },
   {
    "mode": "local_tree",
@@ -2196,7 +2196,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.005747983425016211
+   "mean_brier": 0.005747936777499787
   },
   {
    "mode": "local_tree",
@@ -2205,7 +2205,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.023528669088191907
+   "mean_brier": 0.023528708956073997
   },
   {
    "mode": "local_tree",
@@ -2214,7 +2214,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.012466550156033011
+   "mean_brier": 0.012466513808064985
   },
   {
    "mode": "local_tree",
@@ -2223,7 +2223,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0022617964526378954
+   "mean_brier": 0.002261787162136985
   },
   {
    "mode": "local_tree",
@@ -2232,7 +2232,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0022594346228645727
+   "mean_brier": 0.002259426279570743
   },
   {
    "mode": "local_tree",
@@ -2241,7 +2241,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0022594346228645727
+   "mean_brier": 0.002259426279570743
   },
   {
    "mode": "local_tree",
@@ -2250,7 +2250,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.2052719733603708
+   "mean_brier": 0.20527134230924893
   },
   {
    "mode": "local_tree",
@@ -2259,7 +2259,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.1886211631438983
+   "mean_brier": 1.1886215058475502
   },
   {
    "mode": "local_tree",
@@ -2268,7 +2268,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.648070255956772
+   "mean_brier": 0.6480697355154149
   },
   {
    "mode": "local_tree",
@@ -2277,7 +2277,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.006202588985031855
+   "mean_brier": 0.006202546383750391
   },
   {
    "mode": "local_tree",
@@ -2286,7 +2286,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.02415716221134934
+   "mean_brier": 0.024157190582271386
   },
   {
    "mode": "local_tree",
@@ -2295,7 +2295,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.01195759310826365
+   "mean_brier": 0.011957559284279454
   },
   {
    "mode": "local_tree",
@@ -2304,7 +2304,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.002817563070265974
+   "mean_brier": 0.0028175523004836194
   },
   {
    "mode": "local_tree",
@@ -2313,7 +2313,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0028146354771903847
+   "mean_brier": 0.0028146256740448805
   },
   {
    "mode": "local_tree",
@@ -2322,7 +2322,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0028146354771903847
+   "mean_brier": 0.0028146256740448805
   },
   {
    "mode": "local_tree",
@@ -2331,7 +2331,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20384929150245273
+   "mean_brier": 0.2038487517701293
   },
   {
    "mode": "local_tree",
@@ -2340,7 +2340,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.2214337852323986
+   "mean_brier": 1.22143407819065
   },
   {
    "mode": "local_tree",
@@ -2349,7 +2349,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.6167897619663772
+   "mean_brier": 0.616789342317159
   },
   {
    "mode": "local_tree",
@@ -2358,7 +2358,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.005902054698361681
+   "mean_brier": 0.005902017363674742
   },
   {
    "mode": "local_tree",
@@ -2367,7 +2367,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.024527410447390083
+   "mean_brier": 0.024527446384389338
   },
   {
    "mode": "local_tree",
@@ -2376,7 +2376,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.011523364671463074
+   "mean_brier": 0.01152333306667303
   },
   {
    "mode": "local_tree",
@@ -2385,7 +2385,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0033999130511313696
+   "mean_brier": 0.003399902197972528
   },
   {
    "mode": "local_tree",
@@ -2394,7 +2394,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0034721580115635634
+   "mean_brier": 0.00347214804331722
   },
   {
    "mode": "local_tree",
@@ -2403,7 +2403,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0034721580115635634
+   "mean_brier": 0.00347214804331722
   },
   {
    "mode": "local_tree",
@@ -2412,7 +2412,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.20727274420676414
+   "mean_brier": 0.20727220646538047
   },
   {
    "mode": "local_tree",
@@ -2421,7 +2421,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.2507420767977702
+   "mean_brier": 1.2507423364936283
   },
   {
    "mode": "local_tree",
@@ -2430,7 +2430,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.5882987106204075
+   "mean_brier": 0.5882982513656362
   },
   {
    "mode": "local_tree",
@@ -2439,7 +2439,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.00572356672353063
+   "mean_brier": 0.00572353557490467
   },
   {
    "mode": "local_tree",
@@ -2448,7 +2448,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.0248897835451252
+   "mean_brier": 0.024889827847360393
   },
   {
    "mode": "local_tree",
@@ -2457,7 +2457,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.011121494464391882
+   "mean_brier": 0.01112146685924214
   },
   {
    "mode": "local_tree",
@@ -2466,7 +2466,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.004178695269664637
+   "mean_brier": 0.004178683143102402
   },
   {
    "mode": "local_tree",
@@ -2475,7 +2475,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.004249935861979596
+   "mean_brier": 0.004249924100266236
   },
   {
    "mode": "local_tree",
@@ -2484,7 +2484,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.004249935861979596
+   "mean_brier": 0.004249924100266236
   },
   {
    "mode": "local_tree",
@@ -2493,7 +2493,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.212413184130116
+   "mean_brier": 0.21241259450739505
   },
   {
    "mode": "local_tree",
@@ -2502,7 +2502,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.2759272176418803
+   "mean_brier": 1.275927504513161
   },
   {
    "mode": "local_tree",
@@ -2511,7 +2511,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.5614545252489179
+   "mean_brier": 0.5614540151493554
   },
   {
    "mode": "local_tree",
@@ -2520,7 +2520,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.005480826607170876
+   "mean_brier": 0.005480790913550885
   },
   {
    "mode": "local_tree",
@@ -2529,7 +2529,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.02528351930011504
+   "mean_brier": 0.025283561931262005
   },
   {
    "mode": "local_tree",
@@ -2538,7 +2538,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.01073643708593806
+   "mean_brier": 0.010736404473337152
   },
   {
    "mode": "local_tree",
@@ -2547,7 +2547,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.0051152798080415845
+   "mean_brier": 0.005115266484813056
   },
   {
    "mode": "local_tree",
@@ -2556,7 +2556,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.005190080107794217
+   "mean_brier": 0.00519006687004507
   },
   {
    "mode": "local_tree",
@@ -2565,7 +2565,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.005190080107794217
+   "mean_brier": 0.00519006687004507
   },
   {
    "mode": "local_tree",
@@ -2574,7 +2574,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.217396610099594
+   "mean_brier": 0.2173960576784528
   },
   {
    "mode": "local_tree",
@@ -2583,7 +2583,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.2991644665027478
+   "mean_brier": 1.2991648238345388
   },
   {
    "mode": "local_tree",
@@ -2592,7 +2592,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.5353291627141478
+   "mean_brier": 0.5353287236797548
   },
   {
    "mode": "local_tree",
@@ -2601,7 +2601,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.005280036376176956
+   "mean_brier": 0.005280002873441718
   },
   {
    "mode": "local_tree",
@@ -2610,7 +2610,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.025720742642386867
+   "mean_brier": 0.025720789438930775
   },
   {
    "mode": "local_tree",
@@ -2619,7 +2619,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.010391979553918696
+   "mean_brier": 0.010391951582754395
   },
   {
    "mode": "local_tree",
@@ -2628,7 +2628,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.006238331006968064
+   "mean_brier": 0.0062383202569453395
   },
   {
    "mode": "local_tree",
@@ -2637,7 +2637,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.0062930748091982085
+   "mean_brier": 0.0062930641371182205
   },
   {
    "mode": "local_tree",
@@ -2646,7 +2646,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.0062930748091982085
+   "mean_brier": 0.0062930641371182205
   },
   {
    "mode": "local_tree",
@@ -2655,7 +2655,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.21986322639587338
+   "mean_brier": 0.2198626574301152
   },
   {
    "mode": "local_tree",
@@ -2664,7 +2664,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.3203333487871312
+   "mean_brier": 1.3203336723755528
   },
   {
    "mode": "local_tree",
@@ -2673,7 +2673,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.5106519336418064
+   "mean_brier": 0.5106515117414896
   },
   {
    "mode": "local_tree",
@@ -2682,7 +2682,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.00504553793303156
+   "mean_brier": 0.0050454843152071965
   },
   {
    "mode": "local_tree",
@@ -2691,7 +2691,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.02618702712909998
+   "mean_brier": 0.026187073436647414
   },
   {
    "mode": "local_tree",
@@ -2700,7 +2700,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.010062833019549978
+   "mean_brier": 0.010062784568671431
   },
   {
    "mode": "local_tree",
@@ -2709,7 +2709,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.007535073281731346
+   "mean_brier": 0.007535063770286872
   },
   {
    "mode": "local_tree",
@@ -2718,7 +2718,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.007611705285511849
+   "mean_brier": 0.0076116958351815905
   },
   {
    "mode": "local_tree",
@@ -2727,7 +2727,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.007611705285511849
+   "mean_brier": 0.0076116958351815905
   },
   {
    "mode": "local_tree",
@@ -2736,7 +2736,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.2235423286098227
+   "mean_brier": 0.22354182530999223
   },
   {
    "mode": "local_tree",
@@ -2745,7 +2745,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.3394705778095335
+   "mean_brier": 1.3394709669779903
   },
   {
    "mode": "local_tree",
@@ -2754,7 +2754,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.48771274135703646
+   "mean_brier": 0.4877123988974375
   },
   {
    "mode": "local_tree",
@@ -2763,7 +2763,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.005393949293436855
+   "mean_brier": 0.00539390332105482
   },
   {
    "mode": "local_tree",
@@ -2772,7 +2772,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.026569954801808317
+   "mean_brier": 0.026570007857052404
   },
   {
    "mode": "local_tree",
@@ -2781,7 +2781,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.009695778110688518
+   "mean_brier": 0.009695738371511265
   },
   {
    "mode": "local_tree",
@@ -2790,7 +2790,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.009101426449783108
+   "mean_brier": 0.009101419023598489
   },
   {
    "mode": "local_tree",
@@ -2799,7 +2799,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.009157828266775107
+   "mean_brier": 0.009157820882086259
   },
   {
    "mode": "local_tree",
@@ -2808,7 +2808,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.009157828266775107
+   "mean_brier": 0.009157820882086259
   },
   {
    "mode": "local_tree",
@@ -2817,7 +2817,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.23456552043506027
+   "mean_brier": 0.23456498275463947
   },
   {
    "mode": "local_tree",
@@ -2826,7 +2826,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.3570252707971442
+   "mean_brier": 1.3570257294468764
   },
   {
    "mode": "local_tree",
@@ -2835,7 +2835,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.4657145296115952
+   "mean_brier": 0.4657141657631307
   },
   {
    "mode": "local_tree",
@@ -2844,7 +2844,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.006082785582600268
+   "mean_brier": 0.00608275369261974
   },
   {
    "mode": "local_tree",
@@ -2853,7 +2853,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.026973160102031615
+   "mean_brier": 0.02697321190293732
   },
   {
    "mode": "local_tree",
@@ -2862,7 +2862,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.009368437385707083
+   "mean_brier": 0.009368407678530411
   },
   {
    "mode": "local_tree",
@@ -2871,7 +2871,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.01084916711144879
+   "mean_brier": 0.010849160472796071
   },
   {
    "mode": "local_tree",
@@ -2880,7 +2880,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.010927761941401352
+   "mean_brier": 0.010927756205639566
   },
   {
    "mode": "local_tree",
@@ -2889,7 +2889,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.010927761941401352
+   "mean_brier": 0.010927756205639566
   },
   {
    "mode": "local_tree",
@@ -2898,7 +2898,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.2531013679795704
+   "mean_brier": 0.2531008755906563
   },
   {
    "mode": "local_tree",
@@ -2907,7 +2907,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.373220259216961
+   "mean_brier": 1.3732207211517025
   },
   {
    "mode": "local_tree",
@@ -2916,7 +2916,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.44463625519377054
+   "mean_brier": 0.44463590597147795
   },
   {
    "mode": "local_tree",
@@ -2925,7 +2925,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.006219575637296788
+   "mean_brier": 0.006219540018918873
   },
   {
    "mode": "local_tree",
@@ -2934,7 +2934,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.027392957696165957
+   "mean_brier": 0.027393002966108103
   },
   {
    "mode": "local_tree",
@@ -2943,7 +2943,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.00906177269728965
+   "mean_brier": 0.00906174051416989
   },
   {
    "mode": "local_tree",
@@ -2952,7 +2952,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.012960249934929011
+   "mean_brier": 0.012960244045995868
   },
   {
    "mode": "local_tree",
@@ -2961,7 +2961,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.012943341760499239
+   "mean_brier": 0.012943336632143086
   },
   {
    "mode": "local_tree",
@@ -2970,7 +2970,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.012943341760499239
+   "mean_brier": 0.012943336632143086
   },
   {
    "mode": "local_tree",
@@ -2979,7 +2979,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.27086931656381685
+   "mean_brier": 0.27086880892406434
   },
   {
    "mode": "local_tree",
@@ -2988,7 +2988,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.3882471867391166
+   "mean_brier": 1.3882476972307096
   },
   {
    "mode": "local_tree",
@@ -2997,7 +2997,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.4241721599392851
+   "mean_brier": 0.4241718075664756
   },
   {
    "mode": "local_tree",
@@ -3006,7 +3006,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.006811930889682029
+   "mean_brier": 0.006811900662728846
   },
   {
    "mode": "local_tree",
@@ -3015,7 +3015,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.027867207250123226
+   "mean_brier": 0.027867250538216093
   },
   {
    "mode": "local_tree",
@@ -3024,7 +3024,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.008777294504022789
+   "mean_brier": 0.008777267126075777
   },
   {
    "mode": "local_tree",
@@ -3033,7 +3033,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.015199683448076524
+   "mean_brier": 0.015199684374679933
   },
   {
    "mode": "local_tree",
@@ -3042,7 +3042,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.01523911493957188
+   "mean_brier": 0.015239115859753424
   },
   {
    "mode": "local_tree",
@@ -3051,7 +3051,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.01523911493957188
+   "mean_brier": 0.015239115859753424
   },
   {
    "mode": "local_tree",
@@ -3060,7 +3060,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.2930235240258209
+   "mean_brier": 0.29302313366930527
   },
   {
    "mode": "local_tree",
@@ -3069,7 +3069,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.4027239674159544
+   "mean_brier": 1.4027244735752904
   },
   {
    "mode": "local_tree",
@@ -3078,7 +3078,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.4043670608213283
+   "mean_brier": 0.4043667889408549
   },
   {
    "mode": "local_tree",
@@ -3087,7 +3087,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0066369336540485525
+   "mean_brier": 0.006636907961891576
   },
   {
    "mode": "local_tree",
@@ -3096,7 +3096,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.0284173417359973
+   "mean_brier": 0.0284173811641668
   },
   {
    "mode": "local_tree",
@@ -3105,7 +3105,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.008559418182418718
+   "mean_brier": 0.008559395093603773
   },
   {
    "mode": "local_tree",
@@ -3114,7 +3114,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.01784767064627479
+   "mean_brier": 0.01784767886517424
   },
   {
    "mode": "local_tree",
@@ -3123,7 +3123,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.017848546625173774
+   "mean_brier": 0.017848554843835452
   },
   {
    "mode": "local_tree",
@@ -3132,7 +3132,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.017848546625173774
+   "mean_brier": 0.017848554843835452
   },
   {
    "mode": "local_tree",
@@ -3141,7 +3141,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.314057942078338
+   "mean_brier": 0.31405760033141256
   },
   {
    "mode": "local_tree",
@@ -3150,7 +3150,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.416827513305571
+   "mean_brier": 1.4168280217823273
   },
   {
    "mode": "local_tree",
@@ -3159,7 +3159,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.3849693788163689
+   "mean_brier": 0.3849691076021401
   },
   {
    "mode": "local_tree",
@@ -3168,7 +3168,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.0074936942067386
+   "mean_brier": 0.007493673668761425
   },
   {
    "mode": "local_tree",
@@ -3177,7 +3177,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.02901658123681414
+   "mean_brier": 0.029016603417335255
   },
   {
    "mode": "local_tree",
@@ -3186,7 +3186,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.008416429297114543
+   "mean_brier": 0.008416410729579986
   },
   {
    "mode": "local_tree",
@@ -3195,7 +3195,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.020791848803385447
+   "mean_brier": 0.020791863307161585
   },
   {
    "mode": "local_tree",
@@ -3204,7 +3204,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.020792704736855776
+   "mean_brier": 0.020792719240377924
   },
   {
    "mode": "local_tree",
@@ -3213,7 +3213,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.020792704736855776
+   "mean_brier": 0.020792719240377924
   },
   {
    "mode": "local_tree",
@@ -3222,7 +3222,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.33186870418393943
+   "mean_brier": 0.33186844344754624
   },
   {
    "mode": "local_tree",
@@ -3231,7 +3231,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.4310267637820726
+   "mean_brier": 1.4310272695629271
   },
   {
    "mode": "local_tree",
@@ -3240,7 +3240,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.36607669691836864
+   "mean_brier": 0.36607647471988747
   },
   {
    "mode": "local_tree",
@@ -3249,7 +3249,7 @@
    "site_class": "polymorphic",
    "grading": "moving",
    "n_sites": 5351,
-   "mean_brier": 0.008331294971498699
+   "mean_brier": 0.008331278640534756
   },
   {
    "mode": "local_tree",
@@ -3258,7 +3258,7 @@
    "site_class": "polymorphic",
    "grading": "at_mrca",
    "n_sites": 5351,
-   "mean_brier": 0.029530847618070257
+   "mean_brier": 0.029530876940131165
   },
   {
    "mode": "local_tree",
@@ -3267,7 +3267,7 @@
    "site_class": "polymorphic",
    "grading": "at_root",
    "n_sites": 5351,
-   "mean_brier": 0.008331294971498699
+   "mean_brier": 0.008331278640534756
   },
   {
    "mode": "local_tree",
@@ -3276,7 +3276,7 @@
    "site_class": "fixed_ancestral",
    "grading": "moving",
    "n_sites": 94905,
-   "mean_brier": 0.024093355453669404
+   "mean_brier": 0.024093378383949485
   },
   {
    "mode": "local_tree",
@@ -3285,7 +3285,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_mrca",
    "n_sites": 94905,
-   "mean_brier": 0.024093355453669404
+   "mean_brier": 0.024093378383949485
   },
   {
    "mode": "local_tree",
@@ -3294,7 +3294,7 @@
    "site_class": "fixed_ancestral",
    "grading": "at_root",
    "n_sites": 94905,
-   "mean_brier": 0.024093355453669404
+   "mean_brier": 0.024093378383949485
   },
   {
    "mode": "local_tree",
@@ -3303,7 +3303,7 @@
    "site_class": "fixed_derived",
    "grading": "moving",
    "n_sites": 17860,
-   "mean_brier": 0.348089621766234
+   "mean_brier": 0.34808943812613863
   },
   {
    "mode": "local_tree",
@@ -3312,7 +3312,7 @@
    "site_class": "fixed_derived",
    "grading": "at_mrca",
    "n_sites": 17860,
-   "mean_brier": 1.4451377509154648
+   "mean_brier": 1.4451382621637723
   },
   {
    "mode": "local_tree",
@@ -3321,7 +3321,7 @@
    "site_class": "fixed_derived",
    "grading": "at_root",
    "n_sites": 17860,
-   "mean_brier": 0.348089621766234
+   "mean_brier": 0.34808943812613863
   }
  ]
 }
