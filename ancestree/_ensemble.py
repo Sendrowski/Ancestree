@@ -33,6 +33,9 @@ _WEIGHT_FLOOR = 1e-9
 #: Float64 bytes a pair-by-block reduction holds per chunk of rows, which
 #: bounds its scratch to a fraction of the ``(P, K)`` count array.
 ROW_CHUNK_BYTES = 32 * 2**20
+#: Sites of one window the ensemble's Felsenstein pass scores at once, which
+#: bounds its per-thread scratch to about ``SITE_BATCH x (3n + 1) x 32`` bytes.
+SITE_BATCH = 1024
 
 
 # --------------------------------------------------------------- UPGMA
@@ -552,52 +555,58 @@ def score_ensemble(branch_t, lam, V, Vinv, pidx, poi,
         B = row_off[w + 1] - b0
         if B == 0:
             continue
-        seed = np.ones((n_samp, B, S), np.float64)
-        for b in range(B):
-            row = row_idx[b0 + b]
-            for s in range(n_samp):
-                st = tip_states[row, s]
-                if st >= 0:
-                    for k in range(S):
-                        seed[s, b, k] = 0.0
-                    seed[s, b, st] = 1.0
-        partials = np.empty((nslot, B, S), np.float64)
-        scale_log = np.empty(B, np.float64)
-        combined = np.empty((B, S), np.float64)
+        # The window's sites are scored SITE_BATCH at a time, which bounds the
+        # scratch of a window holding every column of an alignment.
+        nb_max = min(B, SITE_BATCH)
+        seed = np.empty((n_samp, nb_max, S), np.float64)
+        partials = np.empty((nslot, nb_max, S), np.float64)
+        scale_log = np.empty(nb_max, np.float64)
+        combined = np.empty((nb_max, S), np.float64)
         log_row = np.empty(S, np.float64)
         Pw = np.empty((nslot, S, S), np.float64)  # this window's edges only
         ev = np.empty(S, np.float64)
-        for m in range(M):
-            for d in range(nslot):
-                t = branch_t[m, w, d]
-                for k in range(S):
-                    ev[k] = np.expm1(lam[k] * t)
-                for i in range(S):
-                    for j in range(S):
-                        acc = 1.0 if i == j else 0.0
-                        for k in range(S):
-                            acc += V[i, k] * ev[k] * Vinv[k, j]
-                        # exp(Q·t) is non-negative. Clip reconstruction
-                        # rounding as the batched path does.
-                        Pw[d, i, j] = acc if acc > 0.0 else 0.0
-            for d in range(nslot):
-                for b in range(B):
+        for c0 in range(0, B, nb_max):
+            nb = min(nb_max, B - c0)
+            for b in range(nb):
+                row = row_idx[b0 + c0 + b]
+                for s in range(n_samp):
+                    st = tip_states[row, s]
+                    for k in range(S):
+                        seed[s, b, k] = 1.0 if st < 0 else 0.0
+                    if st >= 0:
+                        seed[s, b, st] = 1.0
+            for m in range(M):
+                for d in range(nslot):
+                    t = branch_t[m, w, d]
+                    for k in range(S):
+                        ev[k] = np.expm1(lam[k] * t)
+                    for i in range(S):
+                        for j in range(S):
+                            acc = 1.0 if i == j else 0.0
+                            for k in range(S):
+                                acc += V[i, k] * ev[k] * Vinv[k, j]
+                            # exp(Q·t) is non-negative. Clip reconstruction
+                            # rounding as the batched path does.
+                            Pw[d, i, j] = acc if acc > 0.0 else 0.0
+                for d in range(nslot):
+                    for b in range(nb):
+                        for s in range(S):
+                            partials[d, b, s] = 1.0
+                for s in range(n_samp):
+                    d = sample_dense[m, w, s]
+                    if d >= 0:
+                        for b in range(nb):
+                            for k in range(S):
+                                partials[d, b, k] = seed[s, b, k]
+                r = root[m, w]
+                postorder_core(nb, S, r, poi[m, w], cofs[m, w], cflat[m, w],
+                               Pw, pidx[m, w], 0, partials,
+                               scale_log, combined, log_row)
+                for b in range(nb):
+                    row = row_idx[b0 + c0 + b]
                     for s in range(S):
-                        partials[d, b, s] = 1.0
-            for s in range(n_samp):
-                d = sample_dense[m, w, s]
-                if d >= 0:
-                    for b in range(B):
-                        for k in range(S):
-                            partials[d, b, k] = seed[s, b, k]
-            r = root[m, w]
-            postorder_core(B, S, r, poi[m, w], cofs[m, w], cflat[m, w],
-                           Pw, pidx[m, w], 0, partials,
-                           scale_log, combined, log_row)
-            for b in range(B):
-                row = row_idx[b0 + b]
-                for s in range(S):
-                    out[m, row, s] = np.log(partials[r, b, s]) + scale_log[b]
+                        out[m, row, s] = (np.log(partials[r, b, s])
+                                          + scale_log[b])
 
 
 # ------------------------------------------------------------------ HMM
@@ -1304,6 +1313,8 @@ class SegmentEnsemble:
         out = np.empty((chunk, self.n_sites, S_STATES))
         path = self._draw_paths(chunk)
         cond = np.empty((chunk, self._w_block, self.alpha_ck.shape[0]))
+        term = np.empty_like(acc)
+        chunk_sum = np.empty_like(acc)
         for start in range(0, n_members, chunk):
             self._paths_into(path, chunk, start, seed)
             res = self._score_chunk(path, fraction, n_coal, out, arrays,
@@ -1311,7 +1322,15 @@ class SegmentEnsemble:
             top = res.max(axis=(0, 2))
             new = np.maximum(ref, top)
             acc *= np.exp(ref - new)[:, None]
-            acc += np.exp(res - new[None, :, None]).sum(axis=0)
+            # Member by member, in the order a sum over the members adds
+            # them, so no (chunk, n_sites, 4) temporary is formed.
+            for k, member in enumerate(res):
+                np.exp(np.subtract(member, new[:, None], out=term), out=term)
+                if k:
+                    chunk_sum += term
+                else:
+                    chunk_sum[:] = term
+            acc += chunk_sum
             ref = new
         total = acc.sum(axis=1, keepdims=True)
         good = total[:, 0] > 0

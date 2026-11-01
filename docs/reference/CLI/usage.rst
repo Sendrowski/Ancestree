@@ -76,7 +76,8 @@ inferred (pre-annotation) local-tree sequence.
    The pairwise-coalescent HMM is :math:`O(n^2)` in the number of
    haplotypes :math:`n`, and its TMRCA matrix grows with the region length.
    The subcommand therefore processes the genome in chunks internally:
-   ``--chunk-size`` sets the chunk length (10 Mb by default, ``none``
+   ``--chunk-size`` sets the chunk length (at most 10 Mb and a million sites
+   by default, ``none``
    builds each contig as one segment), ``--halo`` sets the overlap
    discarded at chunk boundaries, and ``--n-workers`` fans whole segments
    across a process pool. A single invocation covers a whole chromosome.

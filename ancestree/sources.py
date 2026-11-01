@@ -555,6 +555,11 @@ class AlignmentSource(SiteSource):
     all_sites = True
     #: Alignment characters read as a gap of the reference.
     GAPS = b"-."
+    #: Codes of a gap and of any other character that is no base, the bases
+    #: taking their index in ``ancestree.STATES``.
+    _GAP, _OTHER = -2, -1
+    #: Columns gathered across the samples at once while iterating.
+    _COLUMN_BLOCK = 65_536
 
     @property
     def _repr_params(self) -> dict[str, object]:
@@ -596,7 +601,7 @@ class AlignmentSource(SiteSource):
             sequence = records[reference] if reference is not None else None
             self._lengths[contig] = (
                 len(next(iter(records.values()))) if sequence is None
-                else len(sequence) - sum(sequence.count(g) for g in self.GAPS))
+                else int(np.count_nonzero(sequence != self._GAP)))
         if sample_filter is None:
             self._samples_list = list(names)
         else:
@@ -622,48 +627,59 @@ class AlignmentSource(SiteSource):
                 return name[:-len(suffix)]
         return name
 
-    def _read(self, path: str) -> "dict[str, bytes]":
-        """The records of one aligned FASTA file.
+    def _read(self, path: str) -> "dict[str, np.ndarray]":
+        """The records of one aligned FASTA file, each encoded as it is read.
 
         :param path: The file, plain or gzip-compressed.
-        :return: ``{sample: sequence}`` in file order.
+        :return: ``{sample: codes}`` in file order, ``codes`` an int8 array
+            holding each column's base index, :attr:`_GAP` or :attr:`_OTHER`.
         :raises ValueError: If the file holds no record, sequence before its
             first header, a record without a name, a sample twice, records
             of unequal length, or no ``reference`` record.
         """
         import gzip
 
+        lut = np.full(256, self._OTHER, dtype=np.int8)
+        for state, index in STATE_INDEX.items():
+            lut[ord(state)] = lut[ord(state.lower())] = index
+        for gap in self.GAPS:
+            lut[gap] = self._GAP
         opener = gzip.open if path.lower().endswith(".gz") else open
-        records: dict[str, list[bytes]] = {}
-        current: "list[bytes] | None" = None
+        records: dict[str, np.ndarray] = {}
+        name: "str | None" = None
+        parts: list[bytes] = []
         with opener(path, "rb") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith(b">"):
+                    if name is not None:
+                        records[name] = lut[np.frombuffer(b"".join(parts),
+                                                          np.uint8)]
+                        parts.clear()
                     fields = line[1:].split(None, 1)
                     if not fields:
                         raise ValueError(f"{path} holds a record without a name")
                     name = fields[0].decode()
                     if name in records:
                         raise ValueError(f"{path} holds sample {name!r} twice")
-                    current = records[name] = []
                 elif line:
-                    if current is None:
+                    if name is None:
                         raise ValueError(
                             f"{path} holds sequence before its first '>' header")
-                    current.append(b"".join(line.split()))
+                    parts.append(b"".join(line.split()))
+        if name is not None:
+            records[name] = lut[np.frombuffer(b"".join(parts), np.uint8)]
         if not records:
             raise ValueError(f"{path} holds no FASTA record")
-        sequences = {name: b"".join(parts) for name, parts in records.items()}
-        lengths = {len(seq) for seq in sequences.values()}
+        lengths = {len(codes) for codes in records.values()}
         if len(lengths) > 1:
             raise ValueError(
                 f"{path} is not aligned: its records have lengths "
                 f"{sorted(lengths)}")
-        if self._reference is not None and self._reference not in sequences:
+        if self._reference is not None and self._reference not in records:
             raise ValueError(
                 f"reference {self._reference!r} is not a record of {path}")
-        return sequences
+        return records
 
     def contig_lengths(self) -> dict[str, int]:
         """The length of each contig: its column count, or the reference's
@@ -675,35 +691,34 @@ class AlignmentSource(SiteSource):
 
     def __iter__(self) -> Iterator[Site]:
         """Yield one :class:`~ancestree.sites.Site` per column carrying a base."""
-        lut = np.full(256, -1, dtype=np.int8)
-        for state, index in STATE_INDEX.items():
-            lut[ord(state)] = lut[ord(state.lower())] = index
         names = self._samples_list
         for contig, path in self._paths.items():
             records = self._read(path)
             width = len(next(iter(records.values())))
-            codes = np.full((len(names), width), -1, dtype=np.int8)
-            for row, name in enumerate(names):
-                if name in records:
-                    codes[row] = lut[np.frombuffer(records[name], np.uint8)]
-            columns = np.arange(width)
-            ref_codes = None
-            if self._reference is not None:
-                ref = np.frombuffer(records[self._reference], np.uint8)
-                gaps = np.frombuffer(self.GAPS, np.uint8)
-                columns = columns[~np.isin(ref, gaps)]
-                ref_codes = lut[ref]
-            for pos, column in enumerate(columns, start=1):
-                calls = codes[:, column]
-                called = calls[calls >= 0]
-                if not called.size:
-                    continue
-                order = dict.fromkeys(called.tolist())
-                if ref_codes is not None and ref_codes[column] >= 0:
-                    order = {int(ref_codes[column]): None, **order}
-                yield Site(
-                    chrom=contig, pos=pos,
-                    alleles=tuple(STATES[c] for c in order),
-                    tip_alleles={name: STATES[c] if c >= 0 else None
-                                 for name, c in zip(names, calls.tolist())},
-                )
+            ref = records.get(self._reference) if self._reference else None
+            pos = 0
+            for c0 in range(0, width, self._COLUMN_BLOCK):
+                c1 = min(width, c0 + self._COLUMN_BLOCK)
+                block = np.full((len(names), c1 - c0), self._OTHER, np.int8)
+                for row, name in enumerate(names):
+                    if name in records:
+                        block[row] = records[name][c0:c1]
+                for column in range(c1 - c0):
+                    ref_code = None if ref is None else int(ref[c0 + column])
+                    if ref_code == self._GAP:
+                        continue
+                    pos += 1
+                    calls = block[:, column]
+                    called = calls[calls >= 0]
+                    if not called.size:
+                        continue
+                    order = dict.fromkeys(called.tolist())
+                    if ref_code is not None and ref_code >= 0:
+                        order = {ref_code: None, **order}
+                    yield Site(
+                        chrom=contig, pos=pos,
+                        alleles=tuple(STATES[c] for c in order),
+                        tip_alleles={name: STATES[c] if c >= 0 else None
+                                     for name, c in zip(names,
+                                                        calls.tolist())},
+                    )

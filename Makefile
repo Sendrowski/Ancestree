@@ -3,7 +3,7 @@
 #   make manuscript     build the manuscript PDF (tectonic)
 #   make benchmark      regenerate reports via snakemake, then assert them
 #   make test           fast unit tests only
-#   make test-all       fast unit tests + slow benchmark assertions
+#   make test-all       fast unit tests + slow benchmark and memory assertions
 #   make test-full      every test (slow + not), incl. zarr / SLiM / numba paths
 #   make docs           build HTML docs (delegates to docs/Makefile)
 #
@@ -61,7 +61,7 @@ help:
 	@echo "  make manuscript-diff  # latexdiff vs the ensemble baseline"
 	@echo "  make benchmark        # figures, then pytest -m slow"
 	@echo "  make test             # fast unit tests (via srun where SLURM is present)"
-	@echo "  make test-all         # unit + slow benchmark assertions"
+	@echo "  make test-all         # unit + slow benchmark and memory assertions"
 	@echo "  make test-full        # entire suite, zero skips (needs dev-ancestree env)"
 	@echo "  make typecheck        # mypy over the published annotations"
 	@echo "  make docs             # build HTML docs"
@@ -100,7 +100,7 @@ typecheck:
 
 test-all:
 	$(PYTEST)
-	$(PYTEST) -m slow testing/test_benchmarks.py
+	$(PYTEST) -m slow testing/test_benchmarks.py testing/test_memory_scaling.py
 
 # Whole suite with no dependency skips. The report-gated benchmark tests still
 # need `make benchmark` to have run first.

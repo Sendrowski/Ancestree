@@ -53,6 +53,7 @@ from ancestree.sites import (
     PolymorphicSiteFilter,
     Site,
     SiteSource,
+    SiteTable,
 )
 from ancestree.trees import (
     OutgroupLadderTree, Tree, TskitLocalTree,
@@ -454,6 +455,8 @@ class Inference(ReprMixin, ABC):
         ingroup = self._resolved_ingroup
         if not ingroup:
             return _Tally()
+        if isinstance(sites, SiteTable):
+            return _Tally(ingroup_monomorphic=sites._n_monomorphic(ingroup))
         if counts is None:
             counts = (site.count_alleles(ingroup) for site in sites)
         return _Tally(ingroup_monomorphic=sum(
@@ -469,6 +472,10 @@ class Inference(ReprMixin, ABC):
         :return: The tally, ``unrepresentable_sites`` and
             ``unrepresentable_tips`` set.
         """
+        if isinstance(sites, SiteTable):
+            n_sites, n_tips = sites._unrepresentable()
+            return _Tally(unrepresentable_sites=n_sites,
+                          unrepresentable_tips=n_tips)
         n_sites = n_tips = 0
         for site in sites:
             n = site._n_unrepresentable_tips()

@@ -29,6 +29,12 @@ _DEFAULT_BLOCK_SNPS = 4
 #: become noise-dominated. The resolution warning fires.
 _MIN_SNPS_PER_BLOCK = 2.0
 
+#: Longest core of ``chunk="auto"``, in bp.
+_AUTO_CHUNK_BP = 10_000_000
+
+#: Most sites a core of ``chunk="auto"`` holds, at the input's average density.
+_AUTO_CHUNK_SITES = 1_000_000
+
 #: Smallest emission scale a block may carry. Zero would make the emission
 #: monotone in the coalescent rate, sending any block with a difference to
 #: the deepest time bin.
@@ -750,9 +756,12 @@ class Segmentation(ReprMixin):
     window and to the block width.
 
     :param sites: The sites, re-iterable, in sorted order within each contig.
+    :param sample_names: Haplotype order of the segments' columns.
     :param window: The window spec.
     :param block_size: The block spec, or ``None`` for the default.
-    :param chunk: Core width in bp, or ``None`` for one core per contig.
+    :param chunk: Core width in bp, ``"auto"`` for one capped at
+        ``_AUTO_CHUNK_BP`` and ``_AUTO_CHUNK_SITES`` sites, or ``None`` for
+        one core per contig.
     :param halo: Overlap in bp or ``"auto"``, read only with ``chunk``.
     :param declared: The declared lengths: a ``{contig: L}`` mapping, one ``L``
         for every contig, or ``None``.
@@ -773,13 +782,14 @@ class Segmentation(ReprMixin):
         return {"block": self.block, "window": self.window,
                 "chunk": self.chunk, "halo": self.halo}
 
-    def __init__(self, sites, *, window, block_size, chunk, halo, declared,
-                 length_source, position_base: int, maps, mu: float,
-                 rec_rate: float, ingroup, log) -> None:
+    def __init__(self, sites, *, sample_names, window, block_size, chunk,
+                 halo, declared, length_source, position_base: int, maps,
+                 mu: float, rec_rate: float, ingroup, log) -> None:
         from collections import Counter
         from collections.abc import Mapping
 
         self.sites = sites
+        self.sample_names = tuple(sample_names)
         self.declared = declared
         self.length_source = length_source
         self.position_base = int(position_base)
@@ -791,14 +801,15 @@ class Segmentation(ReprMixin):
         self._read_all = False
         need_halo = chunk is not None and halo == "auto"
         per_contig = declared is None or isinstance(declared, Mapping)
-        n_sites = span = 0
+        n_sites = n_records = span = 0
         pairdiff = 0.0
-        if (per_contig or need_halo or block_size is None
+        if (per_contig or need_halo or chunk == "auto" or block_size is None
                 or _snp_count(window, name="window") is not None
                 or isinstance(block_size, str)):
             cur = None
             p0 = last = 0
             for s in sites:
+                n_records += 1
                 n_sites += len(s.alleles) > 1
                 if s.chrom != cur:
                     if cur is not None:
@@ -821,6 +832,9 @@ class Segmentation(ReprMixin):
             window, block_size, n_sites, span)
         #: Block width in bp.
         self.block = block
+        if chunk == "auto":
+            chunk = (_AUTO_CHUNK_BP if not n_records else min(
+                _AUTO_CHUNK_BP, int(_AUTO_CHUNK_SITES * span / n_records)))
         if chunk is not None and chunk < block:
             log.warning(
                 "The chunk size of %d bp is narrower than the resolved block "
@@ -940,28 +954,29 @@ class Segmentation(ReprMixin):
     def units(self):
         """Stream the sites once, yielding ``(sites, geometry)`` per core of
         :meth:`ContigGeometry.cores`, a core possibly holding no site:
-        ``sites`` of the core's segment and its
+        ``sites`` of the core's segment, as a
+        :class:`~ancestree.sites.SiteTable`, and its
         :meth:`ContigGeometry.segment`. At most about ``chunk + 2·halo`` bp of
-        sites are buffered.
+        sites are buffered, in columns.
 
         :return: Iterator of ``(sites, geometry)``.
         :raises ValueError: If a site lies off its contig's axis, out of
             order or at another site's position, or if a contig's sites resume
             after another contig's.
         """
+        from ancestree.sites import _SiteBuffer
+
         halo = self.halo
 
         def unit(contig, buf, core_lo, core_hi, data):
             """One work unit: the core plus its halo, from the segment's
             origin on the block grid."""
             geometry = contig.segment(core_lo, core_hi, data)
-            seg = [s for s in buf
-                   if geometry.origin <= s.pos < core_hi + halo]
-            return seg, geometry
+            return buf.table(geometry.origin, core_hi + halo), geometry
 
         cur = contig = None
         done: set = set()
-        buf: list = []
+        buf = _SiteBuffer(self.sample_names)
         core_lo = 0
         first = last = -1
         for s in self.sites:
@@ -975,7 +990,8 @@ class Segmentation(ReprMixin):
                     done.add(cur)
                     for lo, hi in contig.cores(core_lo):
                         yield unit(contig, buf, lo, hi, (first, last + 1))
-                cur, buf, core_lo, first = s.chrom, [], 0, s.pos
+                cur, core_lo, first = s.chrom, 0, s.pos
+                buf = _SiteBuffer(self.sample_names)
                 last = s.pos
                 contig = self.contig(cur)
                 contig.check_callable(self.mu, (
@@ -987,7 +1003,7 @@ class Segmentation(ReprMixin):
                 raise ValueError(
                     "LocalTreeInference requires sorted sites; saw "
                     f"{s.chrom}:{s.pos} after {s.chrom}:{last}")
-            if buf and buf[-1].pos == s.pos:
+            if len(buf) and buf.pos[-1] == s.pos:
                 raise ValueError(
                     f"two sites lie at {s.chrom}:{s.pos}; LocalTreeInference "
                     f"takes one record per position. Merge or drop the "
@@ -1001,12 +1017,7 @@ class Segmentation(ReprMixin):
                            (first, np.inf))
                 core_lo += cs
                 # Drop sites before the next segment's origin.
-                cut = contig.origin(core_lo)
-                k = 0
-                while k < len(buf) and buf[k].pos < cut:
-                    k += 1
-                if k:
-                    del buf[:k]
+                buf.drop_before(contig.origin(core_lo))
         if contig is not None:
             for lo, hi in contig.cores(core_lo):
                 yield unit(contig, buf, lo, hi, (first, last + 1))

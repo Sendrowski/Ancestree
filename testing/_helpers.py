@@ -9,6 +9,8 @@ from __future__ import annotations
 import glob
 import gzip
 import os
+import resource
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,13 @@ import tskit
 from ancestree import BaseComposition
 from ancestree.posterior import Posterior
 from ancestree.sites import Site
+
+
+def peak_rss_mb() -> float:
+    """This process's peak resident set size in MB, ``ru_maxrss`` being in
+    bytes on macOS and in KiB elsewhere."""
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / (2 ** 20 if sys.platform == "darwin" else 2 ** 10)
 
 
 #: Committed msprime panels shared by several test modules: the quickstart

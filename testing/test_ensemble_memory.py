@@ -13,13 +13,12 @@ because numpy allocates outside the Python allocator and ``tracemalloc`` would
 not see the arrays that matter.
 """
 import multiprocessing as mp
-import sys
 
 import numpy as np
 import pytest
 
 from ancestree._ensemble import MAX_SCRATCH_BYTES, _window_block
-from testing._helpers import ts_sites
+from testing._helpers import peak_rss_mb, ts_sites
 
 #: Generous beside the ~256 MB scratch bound, but far below the multi-GB the
 #: unbounded scratch would reach.
@@ -55,8 +54,6 @@ def _one_run(window, n_ensemble, n_sites, q):
     span: at the reference rate this asked for 160 kb and yielded 178 sites,
     far too few for the scratch to be visible above the ~150 MB import floor.
     """
-    import resource
-
     import msprime
     from ancestree import JC69, LocalTreeInference
 
@@ -85,8 +82,7 @@ def _one_run(window, n_ensemble, n_sites, q):
     # high-water mark across every child ever spawned, so a delta there reads
     # zero for any run that stays below an earlier one -- and the assertion
     # would pass without measuring anything.
-    peak_kib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    q.put((scored, peak_kib, n_windows))
+    q.put((scored, peak_rss_mb(), n_windows))
 
 
 def _peak_rss_mb(window, n_ensemble, n_sites):
@@ -95,11 +91,11 @@ def _peak_rss_mb(window, n_ensemble, n_sites):
     q = ctx.Queue()  # already-imported arrays are not inherited
     proc = ctx.Process(target=_one_run, args=(window, n_ensemble, n_sites, q))
     proc.start()
-    scored, peak_kib, n_windows = q.get(timeout=900)
+    scored, peak, n_windows = q.get(timeout=900)
     proc.join()
     assert proc.exitcode == 0, f"child exited {proc.exitcode}"
     assert scored > 0
-    return peak_kib / 1024.0, n_windows  # ru_maxrss is KiB on Linux
+    return peak, n_windows
 
 
 def test_block_size_shrinks_as_the_ensemble_grows():
@@ -134,7 +130,6 @@ def test_block_size_is_capped_by_the_window_count():
     assert _window_block(10, 8, 20, 190) == 10
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="ru_maxrss units are Linux")
 def test_peak_memory_stays_within_budget():
     """A gross ceiling on the peak memory of a realistic run.
 

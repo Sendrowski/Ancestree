@@ -1068,29 +1068,36 @@ class BaseComposition:
 
 
 class SiteTable:
-    """Columnar store of polymorphic sites, list-like over :class:`~ancestree.sites.Site`.
+    """Columnar store of sites, list-like over :class:`~ancestree.sites.Site`.
 
     Holds positions, contig ids, tree handles, an index into the distinct
-    unphased and padded sets and a ``(n_sites, n_hap) int8``
-    genotype matrix indexed through the global ``STATE_INDEX``.
+    unphased and padded sets, a ``(n_sites, n_hap) int8`` genotype matrix
+    indexed through the global ``STATE_INDEX``, and each tip's allele as an
+    index into the site's own alleles, so a site is rebuilt as it was added.
 
     Supports ``len``, iteration, indexing, slicing and truthiness, rebuilding
-    a :class:`~ancestree.sites.Site` only when one is asked for. ``info`` is not stored.
+    a :class:`~ancestree.sites.Site` only when one is asked for.
 
     :param sample_names: Haplotype order the genotype columns follow.
     """
 
-    __slots__ = ("sample_names", "pos", "genotypes", "alleles", "chrom_of",
-                 "_chrom_names", "handle", "unphased_index",
-                 "_unphased_sets", "padded_index", "_padded_sets")
+    __slots__ = ("sample_names", "pos", "genotypes", "codes", "alleles",
+                 "tip_states", "infos", "chrom_of", "_chrom_names", "handle",
+                 "unphased_index", "_unphased_sets", "padded_index",
+                 "_padded_sets")
 
-    def __init__(self, sample_names, pos, genotypes, alleles, chrom_of,
-                 chrom_names, handle, unphased_index, unphased_sets,
-                 padded_index, padded_sets):
+    def __init__(self, sample_names, pos, genotypes, codes, alleles,
+                 tip_states, infos, chrom_of, chrom_names, handle,
+                 unphased_index, unphased_sets, padded_index, padded_sets):
         self.sample_names = tuple(sample_names)
         self.pos = pos
         self.genotypes = genotypes
+        #: Each tip's allele as an index into ``tip_states``, ``-1`` missing.
+        self.codes = codes
         self.alleles = alleles
+        #: Per site, its alleles followed by any tip allele outside them.
+        self.tip_states = tip_states
+        self.infos = infos
         self.chrom_of = chrom_of
         self._chrom_names = chrom_names
         self.handle = handle
@@ -1103,77 +1110,24 @@ class SiteTable:
     def from_sites(cls, sites, sample_names=None):
         """Build streaming from any iterable of :class:`~ancestree.sites.Site`.
 
-        The input is consumed one site at a time and the genotype buffer grows
-        by doubling, so a generator input is never materialised.
+        The input is consumed one site at a time and the arrays grow by
+        doubling, so a generator input is never materialised.
 
         :param sites: Iterable of :class:`~ancestree.sites.Site`.
         :param sample_names: Haplotype order. Taken from the first site's
             ``tip_alleles`` when omitted.
         :return: A :class:`~ancestree.sites.SiteTable`.
         """
-        import numpy as np
-        from ancestree import STATE_INDEX
-
         it = iter(sites)
         first = next(it, None)
-        if first is None:
-            names = tuple(sample_names or ())
-            return cls(names, np.empty(0, np.int64),
-                       np.empty((0, len(names)), np.int8), [],
-                       np.empty(0, np.int32), [], np.empty(0, np.float64),
-                       np.empty(0, np.int32), [], np.empty(0, np.int32), [])
-        names = tuple(sample_names) if sample_names is not None \
-            else tuple(first.tip_alleles)
-        n_hap = len(names)
-        cap = 1024
-        pos = np.empty(cap, np.int64)
-        handle = np.full(cap, np.nan, np.float64)
-        unphased_index = np.empty(cap, np.int32)
-        distinct_unphased: dict = {}
-        padded_index = np.empty(cap, np.int32)
-        distinct_padded: dict = {}
-        chrom_of = np.empty(cap, np.int32)
-        g = np.full((cap, n_hap), -1, np.int8)
-        alleles, chrom_names, chrom_id = [], [], {}
-        n = 0
-        for site in _chain_one(first, it):
-            if n == cap:  # double, so the build is linear
-                cap *= 2
-                pos = np.resize(pos, cap)
-                handle = np.resize(handle, cap)
-                unphased_index = np.resize(unphased_index, cap)
-                padded_index = np.resize(padded_index, cap)
-                chrom_of = np.resize(chrom_of, cap)
-                grown = np.full((cap, n_hap), -1, np.int8)
-                grown[:n] = g[:n]
-                g = grown
-            c = str(site.chrom)
-            ci = chrom_id.get(c)
-            if ci is None:
-                ci = chrom_id[c] = len(chrom_names)
-                chrom_names.append(c)
-            chrom_of[n] = ci
-            pos[n] = int(site.pos)
-            h = site.local_tree_handle
-            handle[n] = np.nan if h is None else float(h)
-            unphased_index[n] = distinct_unphased.setdefault(
-                site.unphased, len(distinct_unphased))
-            padded_index[n] = distinct_padded.setdefault(
-                site.padded, len(distinct_padded))
-            alleles.append(tuple(
-                (a.upper() if a is not None else a) for a in site.alleles))
-            ta = site.tip_alleles
-            row = g[n]
-            row[:] = -1
-            for hi, name in enumerate(names):
-                a = ta.get(name)
-                if a is not None:
-                    row[hi] = STATE_INDEX.get(a.upper(), -1)
-            n += 1
-        return cls(names, pos[:n].copy(), g[:n].copy(), alleles,
-                   chrom_of[:n].copy(), chrom_names, handle[:n].copy(),
-                   unphased_index[:n].copy(), list(distinct_unphased),
-                   padded_index[:n].copy(), list(distinct_padded))
+        names = (sample_names if sample_names is not None
+                 else () if first is None else first.tip_alleles)
+        buffer = _SiteBuffer(names)
+        if first is not None:
+            buffer.append(first)
+        for site in it:
+            buffer.append(site)
+        return buffer.table()
 
     def __len__(self):
         return len(self.pos)
@@ -1183,25 +1137,27 @@ class SiteTable:
 
     def _site(self, i):
         """Rebuild site ``i`` as a :class:`~ancestree.sites.Site`."""
-        from ancestree import STATES
-        row = self.genotypes[i]
-        tip = {name: (STATES[row[hi]] if row[hi] >= 0 else None)
-               for hi, name in enumerate(self.sample_names)}
+        states = self.tip_states[i]
+        tip = {name: (states[c] if c >= 0 else None)
+               for name, c in zip(self.sample_names, self.codes[i].tolist())}
         h = self.handle[i]
         return Site(chrom=self._chrom_names[self.chrom_of[i]],
                     pos=int(self.pos[i]), alleles=self.alleles[i],
                     tip_alleles=tip,
                     local_tree_handle=None if h != h else float(h),
+                    info=self.infos[i],
                     unphased=self._unphased_sets[self.unphased_index[i]],
                     padded=self._padded_sets[self.padded_index[i]])
 
     def __getitem__(self, i):
         if isinstance(i, slice):
             return SiteTable(self.sample_names, self.pos[i], self.genotypes[i],
-                             self.alleles[i], self.chrom_of[i],
-                             self._chrom_names, self.handle[i],
-                             self.unphased_index[i], self._unphased_sets,
-                             self.padded_index[i], self._padded_sets)
+                             self.codes[i], self.alleles[i],
+                             self.tip_states[i], self.infos[i],
+                             self.chrom_of[i], self._chrom_names,
+                             self.handle[i], self.unphased_index[i],
+                             self._unphased_sets, self.padded_index[i],
+                             self._padded_sets)
         if i < 0:
             i += len(self)
         return self._site(i)
@@ -1210,10 +1166,178 @@ class SiteTable:
         for i in range(len(self)):
             yield self._site(i)
 
+    def shifted(self, offset: float) -> "SiteTable":
+        """This table with ``offset`` added to every position, truncated to
+        an integer.
+
+        :param offset: Added to every position.
+        :return: A table sharing every column but the positions.
+        """
+        table = self[:]
+        table.pos = (self.pos + offset).astype(np.int64)
+        return table
+
     @property
     def chroms(self):
         """The distinct contig names present, without rebuilding any site."""
         return set(self._chrom_names)
+
+    def _n_monomorphic(self, names: "Collection[str]") -> int:
+        """Number of sites whose tips in ``names`` carry exactly one model
+        state, as :meth:`Site.count_alleles` counts them.
+
+        :param names: Sample names, each a haplotype id or an individual.
+        :return: The count.
+        """
+        columns = [i for i, name in enumerate(self.sample_names)
+                   if _named(name, names)]
+        g = self.genotypes[:, columns]
+        present = g >= 0
+        low = np.min(np.where(present, g, 127), axis=1, initial=127)
+        high = np.max(np.where(present, g, -1), axis=1, initial=-1)
+        return int(np.count_nonzero((high >= 0) & (low == high)))
+
+    def _unrepresentable(self) -> "tuple[int, int]":
+        """The sites and tips holding an allele outside both the model states
+        and the no-calls, as :meth:`Site._n_unrepresentable_tips` and
+        :attr:`Site._has_unrepresentable_allele` count them.
+
+        :return: ``(n_sites, n_tips)``.
+        """
+        flags: dict = {}
+        n_sites = n_tips = 0
+        for i, (alleles, states) in enumerate(zip(self.alleles,
+                                                  self.tip_states)):
+            key = (id(alleles), id(states))
+            if key not in flags:
+                mask = np.array([Site._is_unrepresentable(a) for a in states])
+                flags[key] = (any(map(Site._is_unrepresentable, alleles)),
+                              mask if mask.any() else None)
+            allele, mask = flags[key]
+            n = 0
+            if mask is not None:
+                codes = self.codes[i]
+                n = int(mask[codes[codes >= 0]].sum())
+            n_tips += n
+            n_sites += bool(n or allele)
+        return n_sites, n_tips
+
+
+class _SiteBuffer:
+    """A :class:`~ancestree.sites.SiteTable` filled one site at a time, whose
+    leading sites can be dropped.
+
+    :param sample_names: Haplotype order the columns follow.
+    """
+
+    def __init__(self, sample_names) -> None:
+        self.sample_names = tuple(sample_names)
+        self._n = 0
+        self._pos = np.empty(0, np.int64)
+        self._handle = np.empty(0, np.float64)
+        self._unphased_index = np.empty(0, np.int32)
+        self._padded_index = np.empty(0, np.int32)
+        self._chrom_of = np.empty(0, np.int32)
+        self._g = np.empty((0, len(self.sample_names)), np.int8)
+        self._codes = np.empty((0, len(self.sample_names)), np.int8)
+        self._alleles: list = []
+        self._tip_states: list = []
+        self._infos: list = []
+        self._unphased: dict = {}
+        self._padded: dict = {}
+        self._chrom_id: dict = {}
+        self._tuples: dict = {}
+
+    def __len__(self) -> int:
+        return self._n
+
+    @property
+    def pos(self) -> np.ndarray:
+        """The positions held, in order."""
+        return self._pos[:self._n]
+
+    def _grow(self) -> None:
+        """Double the capacity, so filling is linear."""
+        cap = max(1024, 2 * len(self._pos))
+        for name in ("_pos", "_handle", "_unphased_index", "_padded_index",
+                     "_chrom_of", "_g", "_codes"):
+            old = getattr(self, name)
+            new = np.empty((cap, *old.shape[1:]), old.dtype)
+            new[:self._n] = old[:self._n]
+            setattr(self, name, new)
+
+    def append(self, site: Site) -> None:
+        """Add one site after those held.
+
+        :param site: The site.
+        """
+        from ancestree import STATE_INDEX
+
+        if self._n == len(self._pos):
+            self._grow()
+        n = self._n
+        chrom = str(site.chrom)
+        self._chrom_of[n] = self._chrom_id.setdefault(chrom, len(self._chrom_id))
+        self._pos[n] = int(site.pos)
+        h = site.local_tree_handle
+        self._handle[n] = np.nan if h is None else float(h)
+        self._unphased_index[n] = self._unphased.setdefault(
+            site.unphased, len(self._unphased))
+        self._padded_index[n] = self._padded.setdefault(
+            site.padded, len(self._padded))
+        alleles = tuple(site.alleles)
+        states = list(alleles)
+        g, codes = self._g[n], self._codes[n]
+        ta = site.tip_alleles
+        for hi, name in enumerate(self.sample_names):
+            a = ta.get(name)
+            if a is None:
+                g[hi] = codes[hi] = -1
+                continue
+            g[hi] = STATE_INDEX.get(a.upper(), -1)
+            if a not in states:
+                states.append(a)
+            codes[hi] = states.index(a)
+        self._alleles.append(self._tuples.setdefault(alleles, alleles))
+        tip_states = tuple(states)
+        self._tip_states.append(self._tuples.setdefault(tip_states, tip_states))
+        self._infos.append(site.info or None)
+        self._n += 1
+
+    def drop_before(self, pos: int) -> None:
+        """Drop the sites held before ``pos``.
+
+        :param pos: First position kept.
+        """
+        k = int(np.searchsorted(self.pos, pos))
+        if not k:
+            return
+        m = self._n - k
+        for name in ("_pos", "_handle", "_unphased_index", "_padded_index",
+                     "_chrom_of", "_g", "_codes"):
+            column = getattr(self, name)
+            column[:m] = column[k:self._n]
+        for column in (self._alleles, self._tip_states, self._infos):
+            del column[:k]
+        self._n = m
+
+    def table(self, lo: int = 0, hi: "int | None" = None) -> SiteTable:
+        """The sites held at positions ``[lo, hi)``, as a table of their own.
+
+        :param lo: First position.
+        :param hi: End position, ``None`` for every site from ``lo``.
+        :return: A :class:`~ancestree.sites.SiteTable` with its own arrays.
+        """
+        i = int(np.searchsorted(self.pos, lo))
+        j = self._n if hi is None else int(np.searchsorted(self.pos, hi))
+        return SiteTable(
+            self.sample_names, self._pos[i:j].copy(), self._g[i:j].copy(),
+            self._codes[i:j].copy(), self._alleles[i:j],
+            self._tip_states[i:j], self._infos[i:j],
+            self._chrom_of[i:j].copy(), list(self._chrom_id),
+            self._handle[i:j].copy(), self._unphased_index[i:j].copy(),
+            list(self._unphased), self._padded_index[i:j].copy(),
+            list(self._padded))
 
 
 def _interned(names: "set[str]", seen: "dict") -> "frozenset[str]":
@@ -1227,12 +1351,6 @@ def _interned(names: "set[str]", seen: "dict") -> "frozenset[str]":
         return _NONE
     key = frozenset(names)
     return seen.setdefault(key, key)
-
-
-def _chain_one(first, rest):
-    """Yield ``first``, then every item of ``rest``."""
-    yield first
-    yield from rest
 
 
 class SiteSource(ReprMixin, ABC, Iterable[Site]):

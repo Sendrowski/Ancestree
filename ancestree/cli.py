@@ -69,12 +69,14 @@ def _chunk_size(value: str):
     """Parse ``--chunk-size``, with ``none`` opting out of chunking.
 
     :param value: Raw flag value.
-    :return: ``None`` for ``none`` / ``off``, else the value for the
-        constructor to resolve.
+    :return: ``None`` for ``none`` / ``off``, else the value, ``auto``
+        included, for the constructor to resolve.
     :raises argparse.ArgumentTypeError: On anything that is not a width.
     """
     if value.strip().lower() in ("none", "off"):
         return None
+    if value.strip().lower() == "auto":
+        return "auto"
     from ancestree.local_tree_inference import _parse_bp
 
     try:
@@ -803,8 +805,9 @@ def _add_local_tree_parser(
         help=("Process the genome in chunks of this size (bp int or '5mb') to "
               "bound memory and enable parallelism: contigs are independent and "
               "long contigs are sliced with a halo overlap. The input is "
-              "streamed and must be position-sorted. Pass 'none' to build "
-              "each contig as one segment. Default: %(default)s."),
+              "streamed and must be position-sorted. 'auto' caps a chunk at "
+              "10 Mb and a million sites. Pass 'none' to build each contig as "
+              "one segment. Default: %(default)s."),
     )
     p.add_argument(
         "--halo", default=_lib_default(LocalTreeInference, "halo"),

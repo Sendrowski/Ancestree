@@ -26,7 +26,7 @@ import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import cached_property
-from itertools import combinations, compress
+from itertools import combinations
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -1010,7 +1010,8 @@ class LocalTreeInference(Inference):
     :param chunk_size: Segment span (bp int or ``"5mb"``-style string), raised
         to the resolved block width when narrower, which shifts the posteriors
         as any change of segmentation does, or ``None`` to build each contig
-        as one segment. One contiguous segment is processed at a time, so
+        as one segment. ``"auto"`` (default) caps a segment at 10 Mb and a
+        million sites. One contiguous segment is processed at a time, so
         peak memory tracks the segment span. Contigs are independent
         segments, and a contig longer than ``chunk_size`` is sliced into
         cores of that size. Each segment calibrates the HMM on its own sites.
@@ -1153,7 +1154,7 @@ class LocalTreeInference(Inference):
         base_composition: BaseComposition | None = None,
         progress: bool = True,
         n_workers: int = 1,
-        chunk_size: "int | str | None" = "10mb",
+        chunk_size: "int | str | None" = "auto",
         halo: "int | str" = "auto",
         n_ensemble: "int | None" = 64,
         ensemble_seed: int = 0,
@@ -1288,8 +1289,9 @@ class LocalTreeInference(Inference):
         # spec is reported without a streaming pre-pass. A "<N>snp" spec
         # resolves against the real density later.
         ContigGeometry.resolve_widths(window, block_size, 1, 1.0)
-        self._chunk_size = (None if chunk_size is None
-                            else _parse_bp(chunk_size, name="chunk_size"))
+        self._chunk_size = (
+            chunk_size if chunk_size is None or chunk_size == "auto"
+            else _parse_bp(chunk_size, name="chunk_size"))
         auto_halo = isinstance(halo, str) and halo.strip().lower() == "auto"
         if chunk_size is not None and not auto_halo:
             _parse_bp(halo, name="halo")
@@ -1386,7 +1388,7 @@ class LocalTreeInference(Inference):
         :return: The :class:`~ancestree._geometry.Segmentation`.
         """
         return Segmentation(
-            self._source, window=self.window, block_size=self.block_size,
+            self._source, sample_names=self.sample_names, window=self.window, block_size=self.block_size,
             chunk=self._chunk_size, halo=self._halo,
             declared=self._declared_length, length_source=self._length_source,
             position_base=self._position_base, maps=self._maps_on, mu=self.mu,
@@ -1474,8 +1476,7 @@ class LocalTreeInference(Inference):
         """
         origin = geometry.origin
         builder = LocalTreeBuilder(
-            [replace(s, pos=int(s.pos - origin)) for s in sites] if origin
-            else sites,
+            sites.shifted(-origin) if origin else sites,
             mu=self.mu, rec_rate=self.rec_rate,
             sample_names=self.sample_names, n_time_bins=self.n_time_bins,
             time_grid=self.time_grid, validate_coverage=False,
@@ -1489,28 +1490,26 @@ class LocalTreeInference(Inference):
 
         :param work_unit: One ``(sites, geometry)`` of
             :meth:`Segmentation.units() <ancestree._geometry.Segmentation.units>`.
-        :return: ``(rows, tally)``: ``(site, posterior values)`` per core site,
-            in order, and the segment's diagnostic
+        :return: ``((core, posteriors), tally)``: the core sites as a
+            :class:`~ancestree.sites.SiteTable`, their ``(n_sites, S)``
+            posterior values in order, and the segment's diagnostic
             :class:`~ancestree.inference._Tally`.
         """
         seg, geometry = work_unit
-        core_lo, core_hi = geometry.genome_core
-        keep = np.fromiter((core_lo <= s.pos < core_hi for s in seg), bool,
-                           len(seg))
-        core = list(compress(seg, keep))
+        keep = slice(*np.searchsorted(seg.pos, geometry.genome_core))
+        core = seg[keep]
         segment = self._segment_builder(*work_unit)
         if self.n_ensemble is not None:
             from ancestree._ensemble import SegmentEnsemble
             ens = SegmentEnsemble(
                 segment, self.model, len(self.sample_names),
                 self._ingroup_indices(), pi=self._pi(),
-                segment=(geometry.contig, core_lo))
+                segment=(geometry.contig, geometry.genome_core[0]))
             frac, n_coal = self._ensemble_placement()
             post = ens.posterior(frac, self.n_ensemble, n_coal=n_coal,
                                  member_chunk=self.member_chunk,
                                  seed=self.ensemble_seed)
             post, n_bad = self._weight_by_prior(post[keep], core)
-            rows = list(zip(core, post))
             # The per-tree counts have no single value over the n_ensemble
             # trees of a window, so they are not reported.
             tally = _Tally(uniform_fallback=int(
@@ -1540,21 +1539,27 @@ class LocalTreeInference(Inference):
                     order[np.searchsorted(positions[order], ts.sites_position)],
                     [column[arg._node_to_sample[int(u)]]
                      for u in arg.ts.samples()])]
-            # Paired by position in the segment's frame (pos - origin). A site
-            # absent from the baked tree sequence scores at the prior.
-            scored = {int(ts_site.pos): np.asarray(post.values)
-                      for ts_site, post in arg.infer()}
+            # Paired by position in the segment's frame. A site absent from
+            # the baked tree sequence scores at the prior.
+            frame = core.shifted(-origin).pos
             n_states = len(self.model.states)
-            flat = np.full((1, n_states), 1.0 / n_states)
-            rows = [(site, scored.get(int(site.pos - origin))) for site in core]
-            rows = [(site, self._weight_by_prior(flat, [site])[0][0]
-                     if values is None else values) for site, values in rows]
+            post = np.empty((len(core), n_states))
+            scored = np.zeros(len(core), bool)
+            for ts_site, ts_post in arg.infer():
+                k = int(np.searchsorted(frame, int(ts_site.pos)))
+                if k < len(frame) and frame[k] == int(ts_site.pos):
+                    post[k], scored[k] = ts_post.values, True
+            unscored = np.flatnonzero(~scored)
+            if unscored.size:
+                post[unscored] = self._weight_by_prior(
+                    np.full((unscored.size, n_states), 1.0 / n_states),
+                    [core[k] for k in unscored])[0]
             # The per-site counts are tallied over the core rows the segment
             # emits, never the halo.
             tally = replace(arg._tally, ingroup_monomorphic=0,
                             unrepresentable_sites=0, unrepresentable_tips=0)
-        return rows, (tally + self._count_ingroup_monomorphic(core)
-                      + self._count_unrepresentable(core))
+        return (core, post), (tally + self._count_ingroup_monomorphic(core)
+                              + self._count_unrepresentable(core))
 
     def _weight_by_prior(self, post, sites):
         """Multiply marginalised likelihoods by the root prior and renormalise.
@@ -1655,18 +1660,17 @@ class LocalTreeInference(Inference):
         states = self.model.states
         pool = _ForkPool(Settings._resolve_n_workers(self.n_workers),
                          self._log, "genomic segments")
-        for seg_out, tally in pool.map(self._process_segment, units):
+        for (core, post), tally in pool.map(self._process_segment, units):
             self._tally += tally
-            for orig, values in seg_out:
-                yield orig, Posterior(alleles=states, values=values)
+            for i, values in enumerate(post):
+                yield core[i], Posterior(alleles=states, values=values)
 
     def _segments_with_bar(self):
         """The segment work-units, under a progress bar when requested."""
         # A segment holding no site in its core has no posterior to report.
         segmentation = self.segmentation
         segments = (wu for wu in segmentation.units()
-                    if any(wu[1].genome_core[0] <= site.pos
-                           < wu[1].genome_core[1] for site in wu[0]))
+                    if np.ptp(np.searchsorted(wu[0].pos, wu[1].genome_core)))
         if not self.progress:
             return segments
         end, chunk = self._declared_length, segmentation.chunk
