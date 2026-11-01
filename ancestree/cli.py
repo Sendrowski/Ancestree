@@ -647,8 +647,9 @@ def _add_fixed_tree_parser(
         "--n-target-sites", type=int, default=None,
         help=(
             "Genome length L for monomorphic-site calibration, required for "
-            "the branch-rate MLE unless --base-composition supplies per-base "
-            "counts. The monomorphic sites count as called in every outgroup, "
+            "the branch-rate MLE of a VCF unless --base-composition supplies "
+            "per-base counts, and refused with --alignment, whose columns "
+            "calibrate the fit themselves. The monomorphic sites count as called in every outgroup, "
             "so an outgroup missing at a fraction m of the variants has its "
             "divergence fitted about (1 - m) times too small, which an "
             "all-sites input avoids."
@@ -753,7 +754,7 @@ def _add_local_tree_parser(
     p = sub.add_parser(
         "local-tree",
         parents=parents or [],
-        help="VCF-only: infer per-window local trees from genotypes, then infer ancestral alleles.",
+        help="Infer per-window local trees from genotypes, then infer ancestral alleles.",
         description=(
             "Infer a dated local tree per genomic window from genotypes alone "
             "(pairwise-coalescent HMM + per-window UPGMA) and write per-site "
@@ -788,11 +789,13 @@ def _add_local_tree_parser(
     p.add_argument(
         "--sequence-length", type=float, default=None,
         help=("Region length L in bp, one value for every contig, which the "
-              "local-tree windows tile as [0, L). For VCF / VCZ input the axis "
-              "covers positions 1..L, that is [0, L+1). Under --chunk-size it "
-              "lays one window grid over a contig and not one per segment. "
+              "local-tree windows tile as [0, L). For VCF, VCZ and alignment "
+              "input the axis covers positions 1..L, that is [0, L+1). Under "
+              "--chunk-size it lays one window grid over a contig and not one "
+              "per segment. "
               "Default: each contig's length in the VCF header or VCZ store, "
-              "and a contig without one is tiled to its last site."),
+              "or the alignment's length, and a contig without one is tiled "
+              "to its last site."),
     )
     p.add_argument(
         "--chunk-size", type=_chunk_size,
@@ -923,11 +926,17 @@ def _out_formats(args, command: str,
     :return: ``(path, format)`` per path, the format one of ``"vcf"``,
         ``"vcz"``, ``"trees"``, ``"fasta"`` and ``"tsv"``.
     :raises SystemExit: If an ``--out`` path has an unsupported extension,
-        names a store path holding something other than a Zarr store, or
-        names a ``.bcf`` file without ``--no-posterior``.
+        is given twice, names a store path holding something other than a
+        Zarr store, or names a ``.bcf`` file without ``--no-posterior``.
     """
-    suffixes = {"vcf": ".vcf, .vcf.gz, .vcf.bgz, .bcf", "vcz": ".vcz",
-                "trees": ".trees", "fasta": ".fa, .fasta", "tsv": ".tsv"}
+    suffixes = {"vcf": ".vcf, .vcf.gz, .vcf.bgz, .bcf", "vcz": ".vcz, .zarr",
+                "trees": ".trees",
+                "fasta": ".fa, .fasta, .fas, .fna (each optionally .gz)",
+                "tsv": ".tsv, .tsv.gz"}
+    paths = [os.path.normpath(out) for out in args.out]
+    repeated = sorted({out for out in paths if paths.count(out) > 1})
+    if repeated:
+        raise SystemExit(f"{command} --out names {repeated[0]!r} twice.")
     outputs = []
     for out in args.out:
         out_format = _path_format(out)
@@ -1002,11 +1011,12 @@ def _input_source(
         if reference is not None:
             raise SystemExit("--reference requires --alignment")
         return args.vcf, args.samples or None
-    given = [flag for flag in ("ploidy", "phased")
+    given = [flag for flag in ("ploidy", "phased", "phase_seed")
              if getattr(args, flag, None) is not None]
     if given:
+        flag = given[0].replace("_", "-")
         raise SystemExit(
-            f"--{given[0]} does not apply to --alignment, whose every "
+            f"--{flag} does not apply to --alignment, whose every "
             f"sequence is one haploid sample")
     from ancestree.sources import AlignmentSource
     return AlignmentSource(alignment, reference=reference,

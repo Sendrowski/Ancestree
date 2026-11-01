@@ -278,7 +278,8 @@ class CyVCF2Source(SiteSource):
         return self._ploidy
 
     def contig_lengths(self) -> dict[str, int]:
-        """The length of each contig the VCF header declares with one.
+        """The length of each contig the VCF header declares, or only of
+        ``chrom_filter`` when it is set.
 
         :return: ``{contig: length}``.
         """
@@ -294,7 +295,8 @@ class CyVCF2Source(SiteSource):
         lengths = {}
         for fields in re.findall(r"^##contig=<(.*)>$", header, re.MULTILINE):
             entry = dict(f.split("=", 1) for f in fields.split(",") if "=" in f)
-            if "ID" in entry and entry.get("length", "").isdigit():
+            if ("ID" in entry and entry.get("length", "").isdigit()
+                    and self._chrom_filter in (None, entry["ID"])):
                 lengths[entry["ID"]] = int(entry["length"])
         return lengths
 
@@ -492,15 +494,18 @@ class VcfZarrSource(SiteSource):
 
     def contig_lengths(self) -> dict[str, int]:
         """The length of each contig the store records one for, a
-        non-positive ``contig_length`` meaning none.
+        non-positive ``contig_length`` meaning none, or only of
+        ``chrom_filter`` when it is set.
 
         :return: ``{contig: length}``, empty without ``contig_length``.
         """
         root = self._open_root()
         if "contig_length" not in root:
             return {}
-        return {SiteSource._decode(c): int(n) for c, n in
-                zip(root["contig_id"][:], root["contig_length"][:]) if n > 0}
+        lengths = {SiteSource._decode(c): int(n) for c, n in
+                   zip(root["contig_id"][:], root["contig_length"][:]) if n > 0}
+        return {c: n for c, n in lengths.items()
+                if self._chrom_filter in (None, c)}
 
     def _open_root(self):
         """Open the VCZ root group."""
@@ -622,8 +627,9 @@ class AlignmentSource(SiteSource):
 
         :param path: The file, plain or gzip-compressed.
         :return: ``{sample: sequence}`` in file order.
-        :raises ValueError: If the file holds no record, a sample twice,
-            records of unequal length, or no ``reference`` record.
+        :raises ValueError: If the file holds no record, sequence before its
+            first header, a record without a name, a sample twice, records
+            of unequal length, or no ``reference`` record.
         """
         import gzip
 
@@ -635,12 +641,17 @@ class AlignmentSource(SiteSource):
                 line = line.strip()
                 if line.startswith(b">"):
                     fields = line[1:].split(None, 1)
-                    name = fields[0].decode() if fields else ""
+                    if not fields:
+                        raise ValueError(f"{path} holds a record without a name")
+                    name = fields[0].decode()
                     if name in records:
                         raise ValueError(f"{path} holds sample {name!r} twice")
                     current = records[name] = []
-                elif line and current is not None:
-                    current.append(line)
+                elif line:
+                    if current is None:
+                        raise ValueError(
+                            f"{path} holds sequence before its first '>' header")
+                    current.append(b"".join(line.split()))
         if not records:
             raise ValueError(f"{path} holds no FASTA record")
         sequences = {name: b"".join(parts) for name, parts in records.items()}

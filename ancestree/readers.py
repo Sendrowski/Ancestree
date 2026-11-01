@@ -185,7 +185,8 @@ class Annotations(list):
 class Reader(ReprMixin):
     """Read the assignments and provenance back out of an annotated output.
 
-    The format is resolved from the path's suffix.
+    The format is resolved from the path's suffix. FASTA positions are read
+    1-based, so one written from a tree sequence reads back shifted by one.
 
     .. code-block:: python
 
@@ -356,7 +357,8 @@ class Reader(ReprMixin):
                 elif a.aa is not None:
                     values = [1.0 if s == a.aa else 0.0 for s in STATES]
                 else:
-                    n_blanked += a.aa_prob is not None
+                    # A lower-case FASTA base is one blanked without a posterior.
+                    n_blanked += a.aa_prob is not None or self.format == "fasta"
                     continue
                 site = Site(chrom=a.chrom or "", pos=a.pos,
                             alleles=tuple(a.alleles), tip_alleles={})
@@ -412,9 +414,16 @@ class Reader(ReprMixin):
         IQ-TREE ``.state`` table holding the rows of a single node."""
         with self._open_text() as f:
             lines = (line.rstrip("\n") for line in f
-                     if not line.startswith("#"))
-            columns = [self._IQTREE_COLUMNS.get(c, c)
-                       for c in next(lines, "").split("\t")]
+                     if line.strip() and not line.startswith("#"))
+            header = next(lines, "").split("\t")
+            other = [c for c in header
+                     if c.startswith("p_") and c not in self._IQTREE_COLUMNS]
+            if other:
+                raise ValueError(
+                    f"{self._path} is no nucleotide reconstruction, holding "
+                    f"the column {other[0]}. Only the states "
+                    f"{', '.join(STATES)} are read.")
+            columns = [self._IQTREE_COLUMNS.get(c, c) for c in header]
             states = [s for s in STATES if s in columns]
             node = None
             for n, line in enumerate(lines):

@@ -370,13 +370,21 @@ class TestBaselineMemoryGate:
 
 def test_baseline_agreement_refuses_misaligned_streams():
     """Streams whose sites differ in position cannot be compared."""
-    real = [(Site(chrom="1", pos=1, alleles=("A",), tip_alleles={}), post("A", 0.9))]
-    baseline = [(Site(chrom="1", pos=2, alleles=("A",), tip_alleles={}), post("A", 0.9))]
+    real = [(Site(chrom="1", pos=1, alleles=("A", "C"), tip_alleles={}), post("A", 0.9))]
+    baseline = [(Site(chrom="1", pos=2, alleles=("A", "C"), tip_alleles={}), post("A", 0.9))]
     assert Inference._summarise_baseline_agreement(
         real, baseline, ingroup_samples=None) is None
-    aligned = [(Site(chrom="1", pos=1, alleles=("A",), tip_alleles={}), post("A", 0.9))]
+    aligned = [(Site(chrom="1", pos=1, alleles=("A", "C"), tip_alleles={}), post("A", 0.9))]
     assert "1.000 on 1" in Inference._summarise_baseline_agreement(
         real, aligned, ingroup_samples=None)
+
+
+def test_baseline_agreement_counts_polymorphic_sites_only():
+    """A monomorphic site, as an alignment column, is no comparison."""
+    pairs = [(Site(chrom="1", pos=i, alleles=alleles, tip_alleles={}),
+              post("A", 0.9)) for i, alleles in enumerate([("A",), ("A", "C")])]
+    assert "1.000 on 1 polymorphic" in Inference._summarise_baseline_agreement(
+        pairs, pairs, ingroup_samples=None)
 
 
 def test_the_majority_outgroup_rule_writes_its_named_samples(tmp_path):

@@ -9,9 +9,7 @@ without writing any Python. It is registered as the ``ancestree`` console
 script when the package is installed. The ``fixed-tree`` and ``local-tree``
 subcommands read aligned FASTA files with ``--alignment`` in place of
 ``--vcf``, every column a site and every sequence a haploid sample (see
-:doc:`../Python/sequence_alignments`). Each ``--out`` path takes its format
-from its extension, ``.fa`` and ``.tsv`` included, and several paths write
-one run to each.
+:doc:`../Python/sequence_alignments`).
 
 Getting help
 ------------
@@ -111,7 +109,8 @@ Fixed-tree mode
 
 ML-fits the branch rates of an
 :class:`~ancestree.trees.OutgroupLadderTree` against the polymorphic
-sites in ``--vcf``. The ladder is built from ``--outgroups``, read
+sites in ``--vcf``, calibrated by ``--n-target-sites``, or against every
+column of ``--alignment``. The ladder is built from ``--outgroups``, read
 closest outgroup first. ``--ingroup`` defaults to every haplotype whose
 individual is not named in ``--outgroups``, so naming one haplotype of an
 outgroup individual withholds that individual entirely. Pass it explicitly
@@ -122,7 +121,7 @@ for every site, as a :class:`~ancestree.trees.FixedTree`: every leaf is a
 tip named as its sample, branch lengths are in expected substitutions per
 site, and nothing is fitted. This is the mode for a species tree with one
 sequence per species. No ingroup population is involved, ``--outgroups``
-is optional, and ``--ingroup`` only names the tips whose most recent common
+defaults to the tips outside ``--ingroup``, and ``--ingroup`` only names the tips whose most recent common
 ancestor the posterior is reported at (see
 :doc:`../Python/fixed_tree_inference`).
 
@@ -142,11 +141,14 @@ Flags
 Output and logging
 ------------------
 
-The output format follows the ``--out`` extension: ``.vcf``, ``.vcf.gz``,
-``.vcf.bgz`` or ``.bcf`` writes an annotated VCF, ``.vcz`` a VCF Zarr store and ``.trees`` a
-tree sequence, the formats described in :doc:`../Python/io`. ``fixed-tree``
-does not write ``.trees``. An output annotates the input when the input is a
-VCF or a local VCF Zarr store of its format. Otherwise each site is written as
+The output format follows each ``--out`` extension: ``.vcf``, ``.vcf.gz``,
+``.vcf.bgz`` or ``.bcf`` writes an annotated VCF, ``.vcz`` a VCF Zarr store,
+``.trees`` a tree sequence, ``.fa`` or ``.fasta`` the MAP ancestral sequence
+as FASTA and ``.tsv`` one row per site with the full posterior, a ``.gz``
+suffix compressing the last two (see :doc:`../Python/io`). Several ``--out``
+paths write one run to each. ``fixed-tree`` does not write ``.trees``. A VCF
+or VCF Zarr output annotates the input when the input is a VCF or a local VCF
+Zarr store of its format. Otherwise each site is written as
 one record, holding the panel. VCF input and output need the ``[vcf]`` extra, VCF
 Zarr the ``[zarr]`` extra, ``--tree`` the ``[newick]`` extra, and
 ``--recombination-map`` and ``--mutation-map`` the ``[maps]`` extra (see

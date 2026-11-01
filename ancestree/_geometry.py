@@ -166,7 +166,7 @@ def _check_on_axis(positions, axis: float) -> None:
             f"{bad.size} site position(s) lie outside the axis [0, {axis:g}) "
             f"of the declared region, e.g. {bad[:5].tolist()}. The region's "
             f"bases lie below sequence_length plus the source's position "
-            f"base (1 for VCF / VCF-Zarr, 0 otherwise). Pass a "
+            f"base (1 for VCF, VCF-Zarr and FASTA, 0 otherwise). Pass a "
             f"sequence_length that contains every site, or restrict the "
             f"sites to the region.")
 

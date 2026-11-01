@@ -38,7 +38,8 @@ from ancestree._maps import _ZERO_RATE_FLOOR, site_rates
 from ancestree._repr import ReprMixin
 from ancestree.sites import (
     _NEITHER, _SIBLING, _as_tips, _by_individual, _individual_of, _named,
-    _refuse_duplicates, _refuse_overlap, _resolve_panel, _unlabelled,
+    _PanelSites, _refuse_duplicates, _refuse_overlap, _resolve_panel,
+    _unlabelled,
 )
 from ancestree.readers import Provenance
 from ancestree.focal import FocalNode
@@ -574,9 +575,9 @@ class Inference(ReprMixin, ABC):
     ) -> str | None:
         """Build the one-line baseline-agreement INFO log message.
 
-        Reports the overall MAP-agreement fraction and, with
-        ``ingroup_samples``, the agreement per folded-SFS bin and the two
-        lowest bins.
+        Reports the MAP-agreement fraction over the sites carrying more than
+        one allele and, with ``ingroup_samples``, the agreement per folded-SFS
+        bin and the two lowest bins.
 
         :param real: ``(Site, Posterior)`` pairs from the real inference.
         :param baseline: ``(Site, Posterior)`` pairs from the baseline.
@@ -594,6 +595,8 @@ class Inference(ReprMixin, ABC):
                 site_r.chrom != site_b.chrom or int(site_r.pos) != int(site_b.pos)
             ):
                 return None
+            if len(site_r.alleles) < 2:
+                continue
             n_total += 1
             agree = int(post_r.map_allele == post_b.map_allele)
             n_agree += agree
@@ -2561,6 +2564,11 @@ class FixedTreeInference(Inference):
             source, sample_filter=sample_filter,
             chrom_filter=chrom_filter, ploidy=ploidy,
         )
+        if n_target_sites is not None and getattr(sites, "all_sites", False):
+            raise ValueError(
+                "FixedTreeInference: n_target_sites calibrates a source of "
+                "variant sites, while this source yields every site and so "
+                "calibrates the fit itself. Leave n_target_sites out.")
         #: The sites, re-iterated by every pass: the resolved source when
         #: streaming, else a list.
         self.sites: "SiteSource | Sequence[Site]" = (
@@ -2614,10 +2622,19 @@ class FixedTreeInference(Inference):
                     f"FixedTreeInference: sample(s) {unknown} are not tips "
                     f"of the tree, whose tips are {sorted(tips)}."
                 )
-            self._resolved_outgroups = tuple(outgroup_samples or ())
             self._resolved_ingroup = (
                 tuple(ingroup_samples) if ingroup_samples
-                else tuple(self._ingroup_of(tips, self._resolved_outgroups)))
+                else tuple(self._ingroup_of(tips, outgroup_samples or ())))
+            self._resolved_outgroups = (
+                tuple(outgroup_samples) if outgroup_samples is not None
+                else tuple(t for t in tips if t not in self._resolved_ingroup))
+            off_tree = set(self._panel) - set(tips)
+            if off_tree:
+                self._log.info("Ignoring %d sample(s) that are not tips of "
+                               "the tree", len(off_tree))
+                self.sites = (
+                    _PanelSites(self.sites, tips) if stream
+                    else [site._restricted_to(tips) for site in self.sites])
         else:
             self._check_filter_labelled(sample_filter, ingroup_samples,
                                         outgroup_samples)

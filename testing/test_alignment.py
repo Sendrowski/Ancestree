@@ -17,6 +17,18 @@ from testing._helpers import QUICKSTART_TREES
 
 INGROUP = [f"i{i}" for i in range(6)]
 OUTGROUP = ["o0", "o1"]
+#: Three haploid samples and an outgroup on two contigs, the second filtered
+#: out in the tests that read it.
+VCF = """##fileformat=VCFv4.2
+##contig=<ID=1,length=10>
+##contig=<ID=2,length=8>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ta\tb\tc\to
+1\t3\t.\tA\tC\t.\tPASS\t.\tGT\t0\t0\t1\t1
+1\t7\t.\tG\tT\t.\tPASS\t.\tGT\t1\t0\t0\t0
+2\t2\t.\tT\tA\t.\tPASS\t.\tGT\t0\t1\t0\t0
+"""
+TREE = "((a:0.1,b:0.1):0.05,c:0.1,o:0.3);"
 
 
 def _write_fasta(path, records, width=None):
@@ -98,6 +110,28 @@ class TestAlignmentSource:
         _write_fasta(path, records)
         with pytest.raises(ValueError, match=match):
             anc.AlignmentSource(path, **kwargs)
+
+    @pytest.mark.parametrize("text, match", [
+        ("AC\n>a\nAC\n", "before its first"),
+        (">\nAC\n", "without a name"),
+    ])
+    def test_unheaded_sequence_raises(self, tmp_path, text, match):
+        path = tmp_path / "x.fa"
+        path.write_text(text)
+        with pytest.raises(ValueError, match=match):
+            anc.AlignmentSource(path)
+
+    def test_spaces_within_a_sequence_line_are_dropped(self, tmp_path):
+        path = tmp_path / "x"
+        path.write_text(">a\nA C G\n>b\nATG\n")
+        source = anc.AlignmentSource(path)
+        assert source.contig_lengths() == {"x": 3}
+        assert [s.tip_alleles["a"] for s in source] == ["A", "C", "G"]
+
+    def test_chrom_filter_naming_no_file_raises(self, tmp_path):
+        _write_fasta(tmp_path / "x.fa", {"a": "A"})
+        with pytest.raises(ValueError, match="names no alignment"):
+            anc.AlignmentSource(tmp_path / "x.fa", chrom_filter="y")
 
     def test_a_sample_named_twice_raises(self, tmp_path):
         path = tmp_path / "x.fa"
@@ -191,6 +225,42 @@ class TestInference:
         for pos, values in thin_post.items():
             np.testing.assert_allclose(full_post[pos], values, atol=1e-10)
 
+    def test_target_site_count_is_refused(self, quickstart_fasta):
+        """The columns calibrate the fit, so a second calibration would
+        rescale the branch rates."""
+        with pytest.raises(ValueError, match="n_target_sites"):
+            anc.FixedTreeInference(
+                quickstart_fasta, anc.JC69(), ingroup_samples=INGROUP,
+                outgroup_samples=OUTGROUP, n_target_sites=10)
+
+    def test_given_tree_scores_its_tips_only(self, tmp_path):
+        """A record off the tree informs no site, and the tips outside the
+        ingroup are the outgroups."""
+        path = tmp_path / "x.fa"
+        _write_fasta(path, {"a": "GN", "b": "GN", "c": "AN", "o": "GN",
+                            "extra": "GT"})
+        inf = anc.FixedTreeInference(
+            path, anc.JC69(), tree=anc.FixedTree.from_newick(TREE),
+            ingroup_samples=["a", "b"], progress=False)
+        assert inf._resolved_outgroups == ("c", "o")
+        out = tmp_path / "anc.fa"
+        inf.to_fasta(out)
+        assert out.read_text() == ">x\nGN\n"
+
+    def test_window_counts_sites_carrying_two_alleles(self, quickstart):
+        """Monomorphic records, as an all-sites VCF holds, leave the
+        SNP-sized window unchanged."""
+        sites = list(anc.TskitSource(quickstart[0]))
+        padded = [*sites, *(anc.Site(chrom=s.chrom, pos=s.pos + 1,
+                                     alleles=("A",), tip_alleles={})
+                            for s in sites if s.pos + 1 < 50_000)]
+        padded.sort(key=lambda s: s.pos)
+        kwargs = dict(mu=5e-8, rec_rate=1e-8, window="8snp",
+                      sequence_length=50_000, ingroup_samples=INGROUP,
+                      sample_names=INGROUP + OUTGROUP, progress=False)
+        assert (anc.LocalTreeInference(padded, **kwargs).segmentation.window
+                == anc.LocalTreeInference(sites, **kwargs).segmentation.window)
+
     def test_monomorphic_ingroup_sites_are_not_a_warning(
             self, quickstart_fasta, caplog):
         with caplog.at_level(logging.INFO, logger="ancestree"):
@@ -248,6 +318,55 @@ class TestFastaWriter:
         anc.FastaWriter(out, position_base=0).write(
             _posteriors([("x", 0, "G", 1.0)]))
         assert out.read_text() == ">x\nG\n"
+        with pytest.raises(ValueError, match="before the contig"):
+            anc.FastaWriter(out).write(_posteriors([("x", 0, "G", 1.0)]))
+
+    @pytest.mark.parametrize("chrom", ["", "chr 1"])
+    def test_unwritable_contig_name_raises(self, tmp_path, chrom):
+        with pytest.raises(ValueError, match="whitespace"):
+            anc.FastaWriter(tmp_path / "anc.fa").write(
+                _posteriors([(chrom, 1, "G", 1.0)]))
+
+    def test_vcf_run_fills_its_contig_at_the_vcf_positions(self, tmp_path):
+        """Only the filtered contig is written, over its declared length."""
+        vcf = tmp_path / "x.vcf"
+        vcf.write_text(VCF)
+        inf = anc.FixedTreeInference(
+            str(vcf), anc.JC69(), tree=anc.FixedTree.from_newick(TREE),
+            ingroup_samples=["a", "b"], chrom_filter="1", progress=False)
+        posteriors = list(inf.infer())
+        out = tmp_path / "anc.fa"
+        inf.to_fasta(out, posteriors=posteriors)
+        lines = out.read_text().splitlines()
+        assert lines[0] == ">1" and len(lines[1]) == 10
+        assert [lines[1][s.pos - 1] for s, _ in posteriors] == [
+            p.map_allele for _, p in posteriors]
+
+    def test_tree_sequence_run_reads_back_one_to_the_right(self, quickstart,
+                                                          tmp_path):
+        ts = quickstart[0]
+        inf = anc.FixedTreeInference(
+            anc.TskitSource(ts), anc.JC69(),
+            tree=anc.FixedTree.from_tskit_tree(ts.first()),
+            ingroup_samples=INGROUP, progress=False)
+        posteriors = list(inf.infer())
+        out = tmp_path / "anc.fa"
+        inf.to_fasta(out, posteriors=posteriors)
+        read = {a.pos: a.aa for a in anc.Reader(out).annotations()}
+        assert {s.pos + 1: p.map_allele for s, p in posteriors} == read
+
+    def test_grading_counts_the_lower_case_bases_skipped(self, tmp_path,
+                                                         caplog):
+        out = tmp_path / "anc.fa"
+        anc.FastaWriter(out, min_confidence=0.9).write(
+            _posteriors([("x", 1, "A", 0.99), ("x", 2, "C", 0.6)]))
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            grade = anc.Reader(out).grade({1: "A", 2: "C"})
+        assert grade.n_sites == 1
+        assert "1 of 2 records skipped" in caplog.text
+        assert len(list(anc.Reader(out).annotations(limit=1))) == 1
+        with pytest.raises(ValueError, match="provenance"):
+            anc.Reader(out).provenance()
 
 
 class TestTsv:
@@ -282,9 +401,23 @@ class TestTsv:
         grade = anc.Reader(out).grade({1: "C"})
         assert grade.n_sites == 1 and grade.map_recovery == 1.0
         with out.open("a") as f:
-            f.write("Node1\t1\tA\t1\t0\t0\t0\n")
+            f.write("\nNode1\t1\tA\t1\t0\t0\t0\n")
+        assert len(list(anc.Reader(out).annotations(limit=1))) == 1
         with pytest.raises(ValueError, match="one node"):
             list(anc.Reader(out).annotations())
+
+    def test_refuses_a_protein_state_table(self, tmp_path):
+        out = tmp_path / "run.state"
+        out.write_text("Node\tSite\tState\tp_A\tp_C\tp_D\tp_G\tp_T\n"
+                       "Node2\t1\tD\t0\t0\t1\t0\t0\n")
+        with pytest.raises(ValueError, match="p_D"):
+            list(anc.Reader(out).annotations())
+
+    def test_without_provenance_raises(self, tmp_path):
+        out = tmp_path / "anc.tsv"
+        out.write_text("chrom\tpos\tAA\tAA_prob\nx\t1\tA\t1\n")
+        with pytest.raises(ValueError, match="provenance"):
+            anc.Reader(out).provenance()
 
 
 class TestCli:
@@ -312,10 +445,46 @@ class TestCli:
              "--ingroup", ",".join(INGROUP), "--out", str(out)])
         assert list(anc.Reader(out).annotations())[0].chrom == "chr1"
 
-    @pytest.mark.parametrize("flags, match", [
-        (["--vcf", "x.vcf", "--reference", "a"], "requires --alignment"),
-        (["--alignment", "x.fa", "--ploidy", "2"], "does not apply"),
+    def test_several_outputs_match_one_output_each(self, quickstart_fasta,
+                                                   tmp_path):
+        """One run writes every --out path, each as a run of its own would."""
+        args = ["local-tree", "--alignment", quickstart_fasta, "--mu", "5e-8",
+                "--rec-rate", "1e-8", "--no-ensemble",
+                "--ingroup", ",".join(INGROUP)]
+        outs = [tmp_path / name for name in ("all.vcf", "all.vcz", "all.trees",
+                                             "all.tsv", "all.fa")]
+        run([*args, "--out", *map(str, outs)])
+        run([*args, "--out", str(tmp_path / "one.tsv")])
+        expected = [(a.pos, a.aa) for a in
+                    anc.Reader(tmp_path / "one.tsv").annotations()]
+        for out in outs[:2] + outs[3:]:
+            assert [(a.pos, a.aa) for a in
+                    anc.Reader(out).annotations()] == expected, out
+        assert tskit.load(outs[2]).num_sites
+
+    @pytest.mark.parametrize("command, flags, match", [
+        ("local-tree", ["--vcf", "x.vcf", "--reference", "a"],
+         "requires --alignment"),
+        ("fixed-tree", ["--vcf", "x.vcf", "--tree", "t.nwk",
+                        "--reference", "a"],
+         "requires --alignment"),
+        ("local-tree", ["--alignment", "x.fa", "--ploidy", "2"],
+         "--ploidy does not apply"),
+        ("local-tree", ["--alignment", "x.fa", "--phased"],
+         "--phased does not apply"),
+        ("local-tree", ["--alignment", "x.fa", "--phase-seed", "3"],
+         "--phase-seed does not apply"),
     ])
-    def test_misplaced_flags_exit(self, flags, match, tmp_path):
+    def test_misplaced_flags_exit(self, command, flags, match, tmp_path):
         with pytest.raises(SystemExit, match=match):
-            run(["local-tree", *flags, "--out", str(tmp_path / "o.vcf")])
+            run([command, *flags, "--out", str(tmp_path / "o.vcf")])
+
+    @pytest.mark.parametrize("outs, match", [
+        (["o.tsv", "./o.tsv"], "twice"),
+        (["o.tsv", "o.txt"], r"\.fna \(each optionally \.gz\)"),
+    ])
+    def test_out_paths_are_checked_before_the_run(self, outs, match,
+                                                  tmp_path):
+        with pytest.raises(SystemExit, match=match):
+            run(["local-tree", "--alignment", "x.fa",
+                 "--out", *(str(tmp_path / o) for o in outs)])

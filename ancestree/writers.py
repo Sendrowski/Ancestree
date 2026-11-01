@@ -1973,7 +1973,8 @@ class FastaWriter(Writer):
         :param provenance: Unused, as FASTA holds no metadata.
         :return: Number of sites written.
         :raises ValueError: If the sites of a contig are interrupted by those
-            of another, or a site lies before the contig's first base.
+            of another, a contig name is empty or holds whitespace, or a site
+            lies before the contig's first base.
         """
         import gzip
 
@@ -2001,6 +2002,12 @@ class FastaWriter(Writer):
                             f"the sites of contig {contig!r} are interrupted "
                             f"by those of {chrom!r}, so its record cannot be "
                             f"written in one piece. Sort the sites by contig.")
+                    if contig.split() != [contig]:
+                        raise ValueError(
+                            f"the contig name {contig!r} is empty or holds "
+                            f"whitespace, which a FASTA header cannot carry. "
+                            f"Name the contig, for example through the "
+                            f"inference's chrom.")
                     chrom = contig
                     sequence = bytearray(
                         b"N" * self._contig_lengths.get(contig, 0))
