@@ -1077,7 +1077,9 @@ class TskitWriter(Writer):
         """Rebuild the mutations of every site whose ancestral state changed.
 
         Every sample decodes to the allele it carried in the input, including
-        at a sub-threshold site with a blank state.
+        at a sub-threshold site with a blank state. Where the input carries
+        mutation times, a rebuilt mutation sits halfway along its branch and
+        every other mutation keeps its time.
 
         :param tables: The table collection being written, with its sites
             rewritten.
@@ -1124,17 +1126,25 @@ class TskitWriter(Writer):
                 tables.mutations.add_row(
                     site=site_id, node=mutation.node,
                     derived_state=mutation.derived_state,
-                    time=tskit.UNKNOWN_TIME,
+                    time=(self._branch_midpoint(tree, mutation.node)
+                          if had_times else tskit.UNKNOWN_TIME),
                 )
         tables.sort()
-        # tskit requires mutation times all known or all unknown, so every
-        # mutation time is recomputed from the topology.
         tables.build_index()
-        if had_times:
-            tables.compute_mutation_times()
-            tables.sort()
-            tables.build_index()
         tables.compute_mutation_parents()
+
+    def _branch_midpoint(self, tree, node: int) -> float:
+        """The time halfway along the branch above ``node``, or the node's own
+        time above a root.
+
+        :param tree: The tree holding the branch.
+        :param node: The branch's lower node.
+        :return: The time, in the tree sequence's units.
+        """
+        times = self._ts.nodes_time
+        parent = tree.parent(node)
+        return float(times[node] if parent < 0
+                     else (times[node] + times[parent]) / 2)
 
     @staticmethod
     def _metadata_dict(meta: object) -> "dict | None":
