@@ -1770,26 +1770,21 @@ def test_mutation_map_emit_scale_tracks_local_rate():
     assert escale[0] == pytest.approx(1.0, rel=0.05)  # reference flank
 
 
-def test_mutation_map_uniform_matches_constant():
-    """A uniform RateMap at rate == mu reproduces the no-map build.
-
-    Asserted on the PLUG-IN path, where it is a statement about the arithmetic
-    and holds to machine precision. The ensemble cannot be held to it: a
-    uniform map divides the counts by a scale that is 1.0 only to within 1e-14,
-    and that perturbation is enough to move a drawn genealogy across a sampling
-    boundary, which changes the posterior by far more than the perturbation.
-    Requiring exactness there would only be satisfiable by having the ensemble
-    ignore the map in its calibration, which is precisely the bug that let
-    accessibility and mutation maps reach the emission but not the time grid.
-    """
+@pytest.mark.parametrize("n_ensemble", [None, 8])
+@pytest.mark.parametrize("seed", [6, 11])
+def test_mutation_map_uniform_matches_constant(n_ensemble, seed):
+    """A uniform RateMap at rate == mu reproduces the no-map build, on the
+    plug-in tree and over the ensemble draws alike."""
     from ancestree import JC69
-    a, names = toy_sites(range(0, 5000, 25), seed=6)
+    a, names = toy_sites(range(0, 5000, 25), seed=seed)
     L = 5000
-    kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names, n_ensemble=None,
-              sequence_length=L, window=300, block_size=50, progress=False)
+    kw = dict(mu=1.25e-8, rec_rate=1e-8, sample_names=names,
+              n_ensemble=n_ensemble, sequence_length=L, window=300,
+              block_size=50, progress=False)
     base = list(LocalTreeInference(a, JC69(), **kw).infer())
     mm = msprime.RateMap(position=[0, L], rate=[1.25e-8])
     mapped = list(LocalTreeInference(a, JC69(), mutation_map=mm, **kw).infer())
+    assert len(base) == len(mapped)
     for (_, pb), (_, pm) in zip(base, mapped):
         np.testing.assert_allclose(pb.values, pm.values, rtol=1e-9, atol=1e-12)
 

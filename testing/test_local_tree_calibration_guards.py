@@ -195,6 +195,27 @@ def test_calibrate_gives_a_never_called_pair_the_median_prior_mean(caplog):
                for r in caplog.records)
 
 
+@pytest.mark.parametrize("called, emit_scale, expected", [
+    # 1 + 4 differences over 0.2 + 1.0 called, not (1/0.2 + 4/1) / 2 = 4.5.
+    ([[2.0, 10.0]], None, 5 / 1.2),
+    # 1 + 4 differences over 0.5 + 1.0 exposure, not (1/0.5 + 4/1) / 2 = 3.
+    ([[10.0, 10.0]], [0.5, 1.0], 5 / 1.5),
+])
+def test_the_prior_mean_pools_differences_over_exposure(called, emit_scale,
+                                                         expected):
+    """Unequal exposure across blocks: the prior mean is the pair's summed
+    differences over its summed exposure. Averaging the per-block ratios
+    instead gave a sparsely called block the weight of a full one, which
+    put the prior mean of a sparsely called haplotype's pairs 7 to 25% deep."""
+    hmm = PairwiseCoalescentHMM(2, mu=1e-3, rec_rate=REC, block_size=10)
+    t_bar = hmm._calibrate(
+        np.array([[1, 4]]), called=np.array(called),
+        block_sites=np.array([10.0, 10.0]),
+        emit_scale=None if emit_scale is None else np.array(emit_scale))[-1]
+    np.testing.assert_allclose(
+        t_bar[0], expected / (2.0 * hmm.mu * hmm.block_size))
+
+
 def test_calibrate_with_every_pair_blind_falls_back_to_the_grid_mean(caplog):
     """With no pair called anywhere the mean of the grid representatives is used."""
     hmm = PairwiseCoalescentHMM(2, mu=1e-3, rec_rate=REC, block_size=10,

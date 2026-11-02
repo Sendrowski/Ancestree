@@ -1170,13 +1170,27 @@ class TestFocalProvenance:
     def test_counts_are_withheld_until_the_walk_finishes(self):
         # A streaming writer emits its header first, so reading the counters
         # then would report zero non-monophyletic trees whatever the truth.
-        inference = self._inference(focal="ingroup_mrca")
+        ts = _two_population_ts()
+        names, ingroup, outgroup = TestInferenceWiring._panel(ts)
+        # An outgroup sample in the ingroup leaves it non-monophyletic in
+        # some trees.
+        ingroup, outgroup = ingroup + outgroup[:1], outgroup[1:]
+        inference = anc.ARGBasedInference(
+            ts, JC69(), mu=1.25e-8,
+            sample_map={v: k for k, v in names.items()}, progress=False,
+            ingroup_samples=ingroup, outgroup_samples=outgroup,
+            focal="ingroup_mrca")
         before = inference.provenance()["parameters"]
         assert "n_trees_ingroup_non_monophyletic" not in before
 
         list(inference.infer())
         after = inference.provenance()["parameters"]
-        assert after["n_trees_ingroup_non_monophyletic"] >= 0
+        nodes = [node for node, name in names.items() if name in ingroup]
+        expected = sum(
+            1 for tree in ts.trees() if tree.num_sites
+            and tree.num_samples(tree.mrca(*nodes)) > len(nodes))
+        assert expected > 0
+        assert after["n_trees_ingroup_non_monophyletic"] == expected
         assert after["n_segments_without_ingroup_mrca"] == 0
 
     def test_the_root_focal_records_only_its_name(self):

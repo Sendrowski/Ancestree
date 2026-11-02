@@ -132,3 +132,36 @@ def test_the_deepened_grid_extends_the_builders_own():
     edges = namespace["_deepen_floor"](builder, 10.0)
     assert edges[-1] == own[-1]
     assert edges[0] == max(own[0] / 10.0, 10.0)
+
+
+def test_the_baselines_get_an_ne_that_does_not_track_the_outgroup_count():
+    """SINGER and Relate are handed the ingroup's own effective size.
+
+    Estimated over the whole panel it rises with the outgroup count, because
+    the outgroups' divergence enters the diversity, so the coalescent prior of
+    the two tools that take one would move along the axis the comparison
+    reads, and only for them.
+    """
+    import types
+
+    import msprime
+
+    import _robustness_common as rc
+
+    demography = msprime.Demography()
+    for name in ("I", "O", "A"):
+        demography.add_population(name=name, initial_size=1e4)
+    demography.add_population_split(time=2e5, derived=["I", "O"],
+                                    ancestral="A")
+    ts = msprime.sim_ancestry({"I": 10, "O": 3}, ploidy=1,
+                              demography=demography, sequence_length=1e5,
+                              recombination_rate=1e-8, random_seed=1)
+    ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+    scenario = types.SimpleNamespace(
+        ingroup_names=[f"i{k}" for k in range(10)], mu=1e-8)
+    values = [rc.Scenario._ingroup_ne(
+        scenario, ts.simplify(samples=list(range(10 + n_out))))
+        for n_out in (0, 1, 3)]
+    assert max(values) == pytest.approx(min(values), rel=1e-9), values
+    panel_ne = float(ts.diversity(mode="site")) / (4 * 1e-8)
+    assert panel_ne > 2 * values[0]
