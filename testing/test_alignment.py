@@ -225,6 +225,37 @@ class TestInference:
         for pos, values in thin_post.items():
             np.testing.assert_allclose(full_post[pos], values, atol=1e-10)
 
+    def test_a_composition_adds_no_monomorphic_sites(self, quickstart_fasta):
+        """The columns are the monomorphic sites, so a composition's counts
+        must not be added to them, which shrank every fitted rate."""
+        kwargs = dict(ingroup_samples=INGROUP, outgroup_samples=OUTGROUP,
+                      progress=False, n_starts=2)
+        plain = anc.FixedTreeInference(quickstart_fasta, anc.JC69(), **kwargs)
+        counted = anc.FixedTreeInference(
+            quickstart_fasta, anc.JC69(),
+            base_composition=anc.BaseComposition.from_counts(
+                **dict.fromkeys("ACGT", 10**6)),
+            **kwargs)
+        np.testing.assert_allclose(list(counted.fit().values()),
+                                   list(plain.fit().values()), rtol=1e-9)
+
+    def test_target_site_count_overrides_a_composition(self, quickstart,
+                                                       caplog):
+        """A composition counting a larger region, such as a chromosome
+        FASTA, gives way to the explicit target length, with a warning."""
+        sites = anc.TskitSource(quickstart[0])
+        kwargs = dict(ingroup_samples=INGROUP, outgroup_samples=OUTGROUP,
+                      progress=False, n_starts=2, n_target_sites=50_000)
+        plain = anc.FixedTreeInference(sites, anc.JC69(), **kwargs)
+        with caplog.at_level(logging.WARNING, logger="ancestree"):
+            counted = anc.FixedTreeInference(
+                sites, anc.JC69(), base_composition=(
+                    anc.BaseComposition.from_counts(
+                        **dict.fromkeys("ACGT", 10**6))), **kwargs)
+        assert "uses n_target_sites" in caplog.text
+        np.testing.assert_allclose(list(counted.fit().values()),
+                                   list(plain.fit().values()), rtol=1e-9)
+
     def test_target_site_count_is_refused(self, quickstart_fasta):
         """The columns calibrate the fit, so a second calibration would
         rescale the branch rates."""

@@ -2372,9 +2372,11 @@ class FixedTreeInference(Inference):
     :param base_composition: Monomorphic-site composition. With all-zero
         ``counts`` (:meth:`BaseComposition.no_counts() <ancestree.sites.BaseComposition.no_counts>`),
         ``n_target_sites`` is required and the per-base monomorphic weights
-        are ``round(pi × (n_target_sites − n_polymorphic))``.
+        are ``round(pi × (n_target_sites − n_polymorphic))``. A source
+        yielding every site, such as an alignment, takes only its ``pi``.
     :param n_target_sites: Total target-region length, from which the
-        monomorphic weights are derived. Required when
+        monomorphic weights are derived, over any count
+        ``base_composition`` carries. Required when
         ``base_composition.counts`` is all-zero and a fit runs, unless the
         source yields every site itself, as
         :class:`~ancestree.sources.AlignmentSource` does. The derived
@@ -2621,14 +2623,27 @@ class FixedTreeInference(Inference):
             self.subsample_size = self._resolve_subsample_size(
                 ingroup_weight, subsample_size,
             )
-        # A composition without per-base counts takes them from n_target_sites
-        # as round(pi x n_target), keeping its empirical pi.
-        if actual_bc.n_total == 0 and n_target_sites is not None:
+        # n_target_sites sets the region's size as round(pi x n_target), over
+        # any other count the composition carries. A source yielding every
+        # site supplies its own monomorphic sites, so it takes only the pi.
+        if n_target_sites is not None and actual_bc.n_total != n_target_sites:
+            if actual_bc.n_total:
+                self._log.warning(
+                    "base_composition counts %s sites but n_target_sites is "
+                    "%s, so the fit uses n_target_sites with the "
+                    "composition's base frequencies.",
+                    f"{actual_bc.n_total:,}", f"{int(n_target_sites):,}")
             arr = BaseComposition._largest_remainder(
                 actual_bc.pi, int(n_target_sites),
             )
             actual_bc = dataclasses.replace(
                 actual_bc, counts=dict(zip(STATES, [int(x) for x in arr])))
+        elif actual_bc.n_total and getattr(sites, "all_sites", False):
+            self._log.info(
+                "The source yields every site, so base_composition supplies "
+                "only its base frequencies.")
+            actual_bc = dataclasses.replace(
+                actual_bc, counts=dict.fromkeys(STATES, 0))
         self.base_composition = actual_bc
         tree = self.tree
         self.bounds = bounds
