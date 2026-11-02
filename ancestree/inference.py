@@ -1264,8 +1264,9 @@ class Inference(ReprMixin, ABC):
             :meth:`infer` yields them. ``None`` (default) runs :meth:`infer`.
         :param min_confidence: Sites with
             :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
-            below this get an empty ``ancestral_state``, the tskit convention
-            for an unannotated site. ``None`` (default) disables the check.
+            below this keep their input ``ancestral_state``, flagged
+            ``"confident": false`` in their ``ancestree`` metadata block.
+            ``None`` (default) disables the check.
         :param restrict_samples: Write only the samples the inference used,
             the ingroup and outgroups. ``False`` (default) writes every sample
             of the tree sequence.

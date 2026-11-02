@@ -214,8 +214,7 @@ class Writer(ReprMixin, ABC):
 
 
     #: Written in place of the MAP allele when its probability is below
-    #: ``min_confidence``. ``TskitWriter`` overrides it with tskit's own
-    #: unannotated marker.
+    #: ``min_confidence``.
     AA_UNKNOWN = "."
 
     def __init__(
@@ -1027,12 +1026,10 @@ class TskitWriter(Writer):
     :param output_path: Where to write the annotated ``.trees`` file.
     :param min_confidence: Optional minimum
         :attr:`Posterior.max_prob <ancestree.posterior.Posterior.max_prob>`
-        required to commit to a MAP allele. When a site's MAP probability
-        falls below this threshold, ``ancestral_state`` is written as the
-        empty string ``""`` (the tskit convention for "not annotated")
-        in place of the MAP allele. The posterior block (under
-        ``site.metadata['ancestree']``) is still written with the full
-        sub-threshold distribution. ``None`` (default) disables the check.
+        required to commit to a MAP allele. A site below it keeps its input
+        ``ancestral_state``, and its ``site.metadata['ancestree']`` block,
+        which holds the full posterior as at every site, records
+        ``"confident": false``. ``None`` (default) disables the check.
     :raises ImportError: If ``tskit`` is not installed.
     :raises ValueError: If the sites metadata schema cannot take the
         ``ancestree`` block.
@@ -1069,17 +1066,12 @@ class TskitWriter(Writer):
             },
         }
 
-
-    #: tskit's own "not annotated" marker, in place of the VCF ``.``.
-    AA_UNKNOWN = ""
-
     def _repolarise(self, tables, repolarised: dict) -> None:
         """Rebuild the mutations of every site whose ancestral state changed.
 
-        Every sample decodes to the allele it carried in the input, including
-        at a sub-threshold site with a blank state. Where the input carries
-        mutation times, a rebuilt mutation sits halfway along its branch and
-        every other mutation keeps its time.
+        Every sample decodes to the allele it carried in the input. Where the
+        input carries mutation times, a rebuilt mutation sits halfway along
+        its branch and every other mutation keeps its time.
 
         :param tables: The table collection being written, with its sites
             rewritten.
@@ -1318,10 +1310,14 @@ class TskitWriter(Writer):
 
             site, site_posterior = scored
             state_to_write, max_prob = self._call(site, site_posterior)
+            confident = state_to_write != self.AA_UNKNOWN
+            if not confident:
+                state_to_write = site_obj.ancestral_state
             map_a = str(site_posterior.map_allele)
             extra: dict = {
                 "map_allele": map_a,
                 "max_prob": max_prob,
+                "confident": confident,
             }
             if store_posterior:
                 extra["posterior"] = site_posterior.to_dict()

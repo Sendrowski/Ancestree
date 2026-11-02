@@ -762,8 +762,9 @@ class TestMinConfidence:
             assert aa in {"A", "C", "G", "T"}
             assert aa != "."
 
-    def test_tskit_writes_empty_string_when_below_threshold(self, hap_ts, tmp_path):
-        """Uniform posterior → ``ancestral_state == ""`` (tskit "not annotated")."""
+    def test_tskit_keeps_the_input_state_below_threshold(self, hap_ts, tmp_path):
+        """A uniform posterior keeps the input ancestral state, a base every
+        haplotype decodes against, and flags the site as not confident."""
         out_ts = tmp_path / "low_conf.trees"
         sites = list(TskitSource(hap_ts))
         pairs = _uniform_posteriors(sites)
@@ -772,10 +773,11 @@ class TestMinConfidence:
 
         import tskit
         new_ts = tskit.load(str(out_ts))
-        for site in new_ts.sites():
-            assert site.ancestral_state == ""
-            # Posterior block is still written.
-            assert "ancestree" in site.metadata
+        for site, before in zip(new_ts.sites(), hap_ts.sites()):
+            assert site.ancestral_state == before.ancestral_state
+            assert site.metadata["ancestree"]["confident"] is False
+            assert "posterior" in site.metadata["ancestree"]
+        assert all(a.aa is None for a in anc.Reader(out_ts).annotations())
 
     def test_tskit_writes_map_when_above_threshold(self, hap_ts, tmp_path):
         """Strongly biased posterior → MAP allele lands in ``ancestral_state``."""
@@ -1003,8 +1005,9 @@ class TestSubThresholdSitesKeepTheirGenotypes:
         annotated = tskit.load(str(out))
         assert self._alleles(annotated) == self._alleles(hap_ts)
 
-    def test_the_blank_marker_is_still_written(self, hap_ts, tmp_path):
-        """The uncalled marker stays in the ancestral state, where readers expect it."""
+    def test_a_site_below_threshold_keeps_a_base(self, hap_ts, tmp_path):
+        """No site is left with an empty ancestral state, which a downstream
+        reader such as sfsutils takes as no allele and drops."""
         import tskit
         import ancestree as anc
 
@@ -1013,8 +1016,10 @@ class TestSubThresholdSitesKeepTheirGenotypes:
             out, min_confidence=1.1,
         )
         annotated = tskit.load(str(out))
-        assert all(site.ancestral_state == "" for site in annotated.sites())
-        assert all("ancestree" in site.metadata for site in annotated.sites())
+        assert all(site.ancestral_state in "ACGT" and site.ancestral_state
+                   for site in annotated.sites())
+        assert not any(site.metadata["ancestree"]["confident"]
+                       for site in annotated.sites())
 
 
 def _unrepresentable_site_ts() -> tskit.TreeSequence:
@@ -1079,9 +1084,9 @@ class TestSiteWithNoReadableAlleleIsNotCalled:
         anc.Inference.from_arg(
             _unrepresentable_site_ts(), anc.JC69(), mu=1e-8, progress=False,
         ).to_arg(out)
-        states = [s.ancestral_state for s in tskit.load(str(out)).sites()]
-        assert states[0] == "T"
-        assert states[1] == ""
+        sites = list(tskit.load(str(out)).sites())
+        assert [s.ancestral_state for s in sites] == ["T", "AT"]
+        assert sites[1].metadata["ancestree"]["confident"] is False
 
 
 class TestRestrictSamples:

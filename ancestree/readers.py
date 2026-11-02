@@ -552,14 +552,15 @@ class Reader(ReprMixin):
                 m.derived_state for m in site.mutations
                 if m.derived_state != site.ancestral_state
             )
-            called = site.ancestral_state not in ("", ".")
+            # A block without the flag marks a site below min_confidence by
+            # an empty ancestral state, which is no allele.
+            confident = block.get(
+                "confident", site.ancestral_state not in ("", "."))
             yield Annotation(
                 pos=Site._tskit_pos(site.position, ts.sequence_length),
-                aa=block.get("map_allele") if called else None,
+                aa=block.get("map_allele") if confident else None,
                 aa_prob=block.get("max_prob"),
                 chrom=None if chrom is None else str(chrom),
-                # A site blanked by min_confidence carries an empty
-                # ancestral state, which is a marker, not an allele.
                 alleles=tuple(
                     a for a in (site.ancestral_state, *derived) if a),
                 posterior=block.get("posterior"),
