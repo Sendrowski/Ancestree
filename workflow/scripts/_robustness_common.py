@@ -671,7 +671,7 @@ class Scenario:
                     continue  # fixed-tree call not orientable on this site
                 sd.add_site(v.site.position, v.genotypes, al,
                             ancestral_allele=al.index(anc))
-        its = tsinfer.infer(sd, recombination_rate=1e-8).simplify()
+        its = tsinfer.infer(sd, recombination_rate=self.rec_rate).simplify()
         its, mu_use = _date_tsinfer(its, self.mu)
         return [its], offset, time.perf_counter() - t0, mu_use
 

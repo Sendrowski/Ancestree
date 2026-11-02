@@ -349,13 +349,9 @@ rule msl_runtime_report:
         fixed_tree = f"{DATA}/msl_vcf_chr1_full_stream_meta.json",
         arg = f"{DATA}/msl_arg_chr1full_streaming_meta.json",
         polarbear = f"{DATA}/rerun_polarbear_meta.json",
+        estsfs = f"{DATA}/rerun_estsfs_meta.json",
         # The measured PolarBEAR call count the coverage column reports.
         agreement = f"{REPORTS}/msl_agreement_matrix.json",
-    params:
-        # Not an input: declaring it would pull the 43-minute est-sfs rerun
-        # into the DAG. With the meta absent, the archived run's total is
-        # carried by the script alongside the site count it belongs to.
-        estsfs = f"{DATA}/rerun_estsfs_meta.json",
     output:
         json = f"{REPORTS}/msl_runtime.json",
     conda:

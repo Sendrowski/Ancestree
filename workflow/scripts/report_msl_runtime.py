@@ -1,9 +1,10 @@
 """Collect the MSL chr1 coverage and serial runtime of every method.
 
-Every row is the serial cost of annotating the panel: for a sharded run that
-is the sum of the shards' own wall times, not the observed elapsed time, so
-the tools are compared on one definition. A method whose meta is absent
-reports a null for whichever of the two figures the meta carries.
+Every row is the serial cost of the tool's own inference, input conversion
+by the benchmark excluded: for a sharded run that is the sum of the shards'
+own wall times, not the observed elapsed time, so the tools are compared on
+one definition. A method whose meta is absent reports a null for whichever of
+the two figures the meta carries.
 """
 import json
 import os
@@ -14,7 +15,7 @@ try:
     ARG = snakemake.input.arg  # type: ignore[name-defined]
     POLARBEAR = snakemake.input.polarbear  # type: ignore[name-defined]
     AGREEMENT = snakemake.input.agreement  # type: ignore[name-defined]
-    ESTSFS = snakemake.params.estsfs  # type: ignore[name-defined]
+    ESTSFS = snakemake.input.estsfs  # type: ignore[name-defined]
     OUT = snakemake.output.json  # type: ignore[name-defined]
 except NameError:
     DATA = "results/data"
@@ -29,11 +30,6 @@ except NameError:
 #: Sites the published EST-SFS call set covers, from the archive the
 #: comparison reads. It is biallelic-only and needs both outgroups called.
 ESTSFS_SITES = 985_038
-
-#: Wall-clock total of the archived EST-SFS re-run, in seconds, known to the
-#: tenth of a minute the table reports. Its meta is not an input, so the
-#: measured total is carried alongside the site count it belongs to.
-ESTSFS_TOTAL_SECONDS = 42.8 * 60
 
 
 def _load(path):
@@ -69,8 +65,7 @@ rows = [
      "seconds": polarbear and polarbear["timings_seconds"]["total"]},
     {"method": "estsfs",
      "sites": ESTSFS_SITES,
-     "seconds": (estsfs["timings_seconds"]["total"] if estsfs
-                 else ESTSFS_TOTAL_SECONDS)},
+     "seconds": estsfs and estsfs["timings_seconds"]["stage2_binary"]},
 ]
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
