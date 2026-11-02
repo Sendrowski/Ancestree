@@ -261,9 +261,9 @@ class PairwiseCoalescentHMM(ReprMixin):
         lam = 2.0 * self.mu * self.block_size * t_rep
         log_lam = np.log(np.clip(lam, 1e-300, None))
         r = np.exp(-2.0 * self.rec_rate * self.block_size * t_rep)
-        # A pair never called alongside itself has no average of its own; its
-        # counts are all zero, so the plain mean would pin it at the grid
-        # floor and make it the first UPGMA merge in every window.
+        # A pair never called alongside itself has no estimate of its own, and
+        # its all-zero counts would pin it at the grid floor and make it the
+        # first UPGMA merge in every window.
         blind = ~np.isfinite(t_bar)
         if blind.any():
             fallback = (float(np.median(t_bar[~blind])) if (~blind).any()

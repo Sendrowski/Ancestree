@@ -1067,11 +1067,9 @@ class TskitWriter(Writer):
         }
 
     def _repolarise(self, tables, repolarised: dict) -> None:
-        """Rebuild the mutations of every site whose ancestral state changed.
-
-        Every sample decodes to the allele it carried in the input. Where the
-        input carries mutation times, a rebuilt mutation sits halfway along
-        its branch and every other mutation keeps its time.
+        """Rebuild the mutations of every site whose ancestral state changed,
+        each sample keeping its input allele. A rebuilt mutation sits halfway
+        along its branch where the input carries mutation times.
 
         :param tables: The table collection being written, with its sites
             rewritten.

@@ -3590,8 +3590,8 @@ class FixedTreeInference(Inference):
     def _base_composition_kind(self) -> str:
         """How the root prior's base composition was supplied.
 
-        ``n_target_sites`` yields a composition that is uniform over the
-        states, which is not the empirical composition of any sequence.
+        ``n_target_sites`` alone yields a composition that is uniform over
+        the states, which is not the empirical composition of any sequence.
 
         :return: ``"empirical"``, ``"uniform"`` or ``"none"``.
         """
