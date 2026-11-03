@@ -44,6 +44,17 @@ class TestIndividualNamesMatchHaplotypes:
         """Naming one haplotype counts that one only."""
         assert sum(self._site().count_alleles(["i0_h0"]).values()) == 1
 
+    def test_counts_follow_each_sites_own_tips(self):
+        """The tips a name list resolves to are cached per tip layout, so
+        sites with other tips under the same names count their own."""
+        names = ["i0", "i1"]
+        other = Site(chrom="1", pos=2, alleles=("A", "G"),
+                     tip_alleles={"i1_h0": "g", "i2_h0": "A"})
+        assert self._site().count_alleles(names) == Counter(A=3, C=1)
+        assert other.count_alleles(names) == Counter(G=1)
+        assert other.count_alleles(["i3"]) == Counter()
+        assert self._site().count_alleles(names) == Counter(A=3, C=1)
+
 
 class TestColumnarRoundTripKeepsMissingTips:
     """A rebuilt site keeps a key for every haplotype in the panel.

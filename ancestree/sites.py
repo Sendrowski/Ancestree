@@ -6,6 +6,7 @@ the local tree the inference orchestrator resolves later.
 """
 import hashlib
 import math
+import operator
 import os
 from abc import ABC, abstractmethod
 import re
@@ -29,6 +30,8 @@ _NONE: "frozenset[str]" = frozenset()
 _FILL = -2
 #: Suffixes naming a FASTA file, each optionally followed by ``.gz``.
 FASTA_SUFFIXES = (".fa", ".fasta", ".fas", ".fna")
+#: Entries :func:`_tip_getter` caches before starting over.
+_TIP_GETTERS_MAX = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,16 +225,9 @@ class Site:
         :param samples: Sample identifiers to count over.
         :return: ``Counter`` mapping allele → observed count.
         """
-        counts: Counter = Counter()
-        wanted = set(samples)
-        for sid, a in self.tip_alleles.items():
-            if not _named(sid, wanted):
-                continue
-            a = Site._canonical(a)
-            if a is None:
-                continue
-            counts[a] += 1
-        return counts
+        tips = self.tip_alleles
+        return _canonical_counts(
+            _tip_getter(tuple(tips), tuple(samples))(tips))
 
     def _restricted_to(self, names: "Collection[str]") -> "Site":
         """This site with only the tips in ``names``.
@@ -309,6 +305,47 @@ def _individual_of(sample_id: str) -> str:
         when it carries no haplotype suffix.
     """
     return _HAP_SUFFIX.sub("", sample_id)
+
+
+#: Allele getters by ``(tip layout, sample names)``, filled by :func:`_tip_getter`.
+_TIP_GETTERS: dict = {}
+
+
+def _tip_getter(layout: "tuple[str, ...]", names: "tuple[str, ...]"):
+    """A getter for the alleles of the tips in ``layout`` that ``names`` name,
+    cached per pair so a panel's tips are resolved once.
+
+    :param layout: A site's tip ids, in order.
+    :param names: Sample names, each a haplotype id or an individual.
+    :return: Callable mapping a tip-allele dict to a tuple of alleles.
+    """
+    key = (layout, names)
+    get = _TIP_GETTERS.get(key)
+    if get is None:
+        wanted = set(names)
+        keep = [sid for sid in layout if _named(sid, wanted)]
+        if len(keep) > 1:
+            get = operator.itemgetter(*keep)
+        else:
+            get = lambda tips, keep=keep: tuple(tips[sid] for sid in keep)
+        if len(_TIP_GETTERS) >= _TIP_GETTERS_MAX:
+            _TIP_GETTERS.clear()
+        _TIP_GETTERS[key] = get
+    return get
+
+
+def _canonical_counts(alleles: "Iterable[str | None]") -> Counter:
+    """Count the alleles that are model states, case folded.
+
+    :param alleles: Observed alleles.
+    :return: ``Counter`` mapping state → count.
+    """
+    counts: Counter = Counter()
+    for allele, n in Counter(alleles).items():
+        allele = Site._canonical(allele)
+        if allele is not None:
+            counts[allele] += n
+    return counts
 
 
 def _named(sample_id: str, names: "Collection[str]") -> bool:
@@ -811,17 +848,12 @@ class BaseComposition:
             else itertools.islice(sites, max_sites)
         )
         for site in bounded:
-            # Per-tip base tally (used only to derive empirical pi).
-            site_alleles: set[str] = set()
-            for allele in site.tip_alleles.values():
-                allele = Site._canonical(allele)
-                if allele is None:
-                    continue
-                pi_counts[allele] += 1
-                site_alleles.add(allele)
+            site_counts = _canonical_counts(site.tip_alleles.values())
+            for allele, n in site_counts.items():
+                pi_counts[allele] += n
             # Polymorphic-site Ts/Tv classification: biallelic only.
-            if len(site_alleles) == 2:
-                a, b = tuple(site_alleles)
+            if len(site_counts) == 2:
+                a, b = tuple(site_counts)
                 if (a, b) in TRANSITION_PAIRS:
                     n_ts += 1
                 else:
