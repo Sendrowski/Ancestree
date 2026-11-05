@@ -93,7 +93,12 @@ fig, axes = plt.subplots(len(rows), 2, figsize=(11.5, 1.76 * len(rows)),
 
 true_his = []
 for r, ((data, meta), (ax, ax2)) in enumerate(zip(rows, axes)):
-    t_rep = data["t_rep"]
+    # The archive pools every segment's calibrated grid, so near-identical
+    # grid times cluster; one tick per cluster gives the typical segment grid.
+    pooled = np.log10(data["t_rep"])
+    clusters = np.split(pooled, np.flatnonzero(
+        np.diff(pooled) > float(data["grid_step"]) / 2) + 1)
+    t_rep = 10 ** np.array([np.median(c) for c in clusters])
     fine = np.median(np.diff(np.log10(data["bin_edges"])))
     factor = max(1, int(round((float(data["grid_step"]) / fine)
                               / BINS_PER_GRID_STEP)))
@@ -112,8 +117,9 @@ for r, ((data, meta), (ax, ax2)) in enumerate(zip(rows, axes)):
     inside = (t_rep >= XLO) & (t_rep <= XHI)
     # Equal fractional headroom above and below, so every row is padded alike.
     ax.plot(t_rep[inside], np.full(int(inside.sum()), -0.045 * peak), "|",
-            color="#999999", ms=7, mew=0.9, alpha=0.5, clip_on=False,
+            color="#999999", ms=7, mew=1.6, clip_on=False,
             label=f"time grid ({t_rep.size} bins)" if r == 0 else None)
+    ax.axhline(0.0, color="black", lw=0.8, zorder=10)
     ax.set_ylim(-0.09 * peak, 1.09 * peak)
     ax.set_xlim(XLO, XHI)
     ax.set_xscale("log")

@@ -46,7 +46,7 @@ CONFIGURATIONS = [
      else "local_tree_sample_mrca_roulette_rate_out9", "weighted", "all changes", "#66CCEE"),
 ]
 if SIMULATION:
-    CONFIGURATIONS.insert(0, (*EPO, "EPO model, MAP", "0.1"))
+    CONFIGURATIONS.insert(0, (*EPO, "EPO model, MAP", "0.3"))
 CONTEXTS = ([("all", "all sites"), ("hypermutable", "hypermutable sites")] if SIMULATION
             else [("all", "all sites"), ("CpG", "CpG sites")])
 
@@ -74,11 +74,11 @@ def deviation(key, estimate, context):
 
 fig, axes = plt.subplots(1, 2, figsize=(8.0, 4.0), sharey=True, gridspec_kw={"wspace": 0.08})
 for ax, (context, title) in zip(axes, CONTEXTS):
-    ax.axhline(0.0, color="0.1", lw=0.8, label="truth" if SIMULATION else "EPO")
+    ax.axhline(0.0, color="0.1", lw=0.8)
     for key, estimate, label, colour in CONFIGURATIONS:
         ax.plot(*deviation(key, estimate, context), color=colour, marker="o", ms=2.5, lw=1.3,
-                alpha=0.9 if colour == "0.1" else 0.55, label=label,
-                zorder=3 if colour == "0.1" else 2)
+                alpha=0.6 if colour == "0.3" else 0.55, label=label,
+                zorder=3 if colour == "0.3" else 2)
     ax.set_title(title, fontsize=13.5)
     ax.grid(True, alpha=0.2, lw=0.4)
     ax.set_xticks(x[::2])
@@ -89,7 +89,7 @@ fig.subplots_adjust(left=0.09, right=0.99, top=0.93, bottom=0.36)
 # Centred under the axes, not under the figure, whose left margin holds the y label.
 x_centre = (axes[0].get_position().x0 + axes[-1].get_position().x1) / 2
 fig.legend(handles, labels, fontsize=7.5, ncol=2, framealpha=0.9, loc="lower center",
-           bbox_to_anchor=(x_centre, 0.02), borderpad=0.8, columnspacing=2.5, labelspacing=0.5)
+           bbox_to_anchor=(x_centre, 0.02 if SIMULATION else 0.05), borderpad=0.8, columnspacing=2.5, labelspacing=0.5)
 FIG.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(FIG)
 print(f"wrote {FIG}", flush=True)
